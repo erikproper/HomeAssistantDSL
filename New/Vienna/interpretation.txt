@@ -335,119 +335,126 @@ Interpretation:
   COMMENT # Target: Macros.def
   COMMENT # Source: Old/Vienna/Macros
   COMMENT # Macros are collapsed into one file, but still form a prelude that should be read before other definitions.
-  BLOCK macros:
-    BLOCK macro entity_battery_alert ($entity $alertLevel):
-      COMMENT # Source: entity_battery_alert.def
-      STATEMENT declare entity binary_sensor.infrastructural:$entity:battery_alert;
-      BLOCK if "$alertLevel" != "" then
-        STATEMENT define satisfies sensor.infrastructural:$entity:battery_level "($ | int(0)) < $alertLevel";
-        STATEMENT available always;
-      END BLOCK
+  BLOCK macro battery_alert ($entity $alertLevel):
+    COMMENT # Source: entity_battery_alert.def
+    STATEMENT declare entity binary_sensor.infrastructural:$entity:battery_alert;
+    BLOCK if "$alertLevel" != "" then
+      STATEMENT condition sensor.infrastructural:$entity:battery_level "($ | int(0)) < $alertLevel";
+      STATEMENT available always;
     END BLOCK
-    BLOCK macro entity_battery_from_device ($entity $sourceEntity $alertLevel):
-      COMMENT # Source: entity_battery_from_device.def
-      STATEMENT declare entity sensor.infrastructural:$entity:battery_level;
-      STATEMENT define value $sourceEntity!battery_level;
-      STATEMENT entity battery_alert $entity $alertLevel;
+  END BLOCK
+  BLOCK macro battery_from_device ($entity $sourceEntity $alertLevel):
+    COMMENT # Source: entity_battery_from_device.def
+    STATEMENT declare entity sensor.infrastructural:$entity:battery_level;
+    STATEMENT define value $sourceEntity!battery_level;
+    STATEMENT entity battery_alert $entity $alertLevel;
+  END BLOCK
+  BLOCK macro battery_level ($entity $alertLevel):
+    COMMENT # Source: entity_battery_level.def
+    STATEMENT entity battery_alert $entity $alertLevel;
+    STATEMENT declare entity sensor.infrastructural:$entity:battery_level;
+  END BLOCK
+  BLOCK macro battery_level_device ($entity $alertLevel):
+    COMMENT # Source: entity_battery_level_device.def
+    STATEMENT entity battery_level $entity $alertLevel;
+    STATEMENT providing node $entity;
+  END BLOCK
+  BLOCK macro light_device ($sphereOrName $name):
+    COMMENT # Source: entity_light_device.def
+    BLOCK if "$name" == "" then
+      STATEMENT lightSphere="social";
+      STATEMENT lightName="$sphereOrName";
     END BLOCK
-    BLOCK macro entity_battery_level ($entity $alertLevel):
-      COMMENT # Source: entity_battery_level.def
-      STATEMENT entity battery_alert $entity $alertLevel;
-      STATEMENT declare entity sensor.infrastructural:$entity:battery_level;
+    BLOCK else
+      STATEMENT lightSphere="$sphereOrName";
+      STATEMENT lightName="$name";
     END BLOCK
-    BLOCK macro entity_battery_level_device ($entity $alertLevel):
-      COMMENT # Source: entity_battery_level_device.def
-      STATEMENT entity battery_level $entity $alertLevel;
-      STATEMENT providing node $entity;
+    STATEMENT declare entity light.$lightSphere:$lightName;
+    STATEMENT providing node $lightName/light;
+  END BLOCK
+  BLOCK macro media_player ($entity $option $value):
+    COMMENT # Source: entity_media_player.def
+    STATEMENT thisEntity="$entity";
+    BLOCK if "$option" == "no_collect" then
+      STATEMENT noCollect="no_collect";
+      STATEMENT shift;
     END BLOCK
-    BLOCK macro entity_light_device ($sphereOrName $name):
-      COMMENT # Source: entity_light_device.def
-      BLOCK if "$name" == "" then
-        STATEMENT lightSphere="social";
-        STATEMENT lightName="$sphereOrName";
-      END BLOCK
-      BLOCK else
-        STATEMENT lightSphere="$sphereOrName";
-        STATEMENT lightName="$name";
-      END BLOCK
-      STATEMENT declare entity light.$lightSphere:$lightName;
-      STATEMENT providing node $lightName/light;
+    BLOCK else
+      STATEMENT noCollect="";
     END BLOCK
-    BLOCK macro entity_media_player ($entity $option $value):
-      COMMENT # Source: entity_media_player.def
-      STATEMENT thisEntity="$entity";
-      BLOCK if "$option" == "no_collect" then
-        STATEMENT noCollect="no_collect";
-        STATEMENT shift;
-      END BLOCK
-      BLOCK else
-        STATEMENT noCollect="";
-      END BLOCK
-      BLOCK if "$option" == "no_play" then
-        STATEMENT enabler="";
-        STATEMENT delayOffety="";
-        STATEMENT inputety="$value";
-      END BLOCK
-      BLOCK else
-        STATEMENT enabler="$option";
-        STATEMENT delayOffety="$value";
-        STATEMENT inputety="";
-      END BLOCK
-      STATEMENT declare entity media_player.social:$thisEntity $noCollect;
-      STATEMENT providing node $thisEntity $enabler $delayOffety;
-      STATEMENT mediaPlayerSpecification=$CurrentEntitySpecification;
-      STATEMENT declare entity switch.social:$thisEntity:media $noCollect;
-      STATEMENT icon $MediaSwitchIcon;
-      STATEMENT define media_switch $mediaPlayerSpecification "$inputety";
+    BLOCK if "$option" == "no_play" then
+      STATEMENT enabler="";
+      STATEMENT delayOffety="";
+      STATEMENT inputety="$value";
     END BLOCK
-    BLOCK macro entity_power_switch ($sphere $entity $deviceNode $powerThreshold):
-      COMMENT # Source: entity_power_switch.def
-      STATEMENT declare entity sensor.$sphere:$entity:power;
-      STATEMENT declare entity binary_sensor.$sphere:$entity:consumes;
+    BLOCK else
+      STATEMENT enabler="$option";
+      STATEMENT delayOffety="$value";
+      STATEMENT inputety="";
+    END BLOCK
+    STATEMENT declare entity media_player.social:$thisEntity $noCollect;
+    STATEMENT providing node $thisEntity $enabler $delayOffety;
+    STATEMENT mediaPlayerSpecification=$CurrentEntitySpecification;
+    STATEMENT declare entity switch.social:$thisEntity:media $noCollect;
+    STATEMENT icon $MediaSwitchIcon;
+    STATEMENT define media_switch $mediaPlayerSpecification "$inputety";
+  END BLOCK
+  BLOCK macro power_switch { $node string, $threshold int }:
+    COMMENT # Source: entity_power_switch.def
+    STATEMENT declare entity sensor.$sphere:$entity:power;
+    BLOCK declare entity binary_sensor.$sphere:$entity:consumes with:
       STATEMENT icon $ConsumesIcon;
-      STATEMENT define satisfies sensor.$sphere:$entity:power "($ | int(0)) > $powerThreshold";
-      STATEMENT declare entity switch.$sphere::$entity;
-      STATEMENT providing node $entity/$deviceNode;
+      STATEMENT condition sensor.$sphere:$entity:power "($ | int(0)) > $threshold";
     END BLOCK
-    BLOCK macro entity_switch_device ($sphereOrName $name):
-      COMMENT # Source: entity_switch_device.def
-      BLOCK if "$name" == "" then
-        STATEMENT switchSphere="social";
-        STATEMENT switchName="$sphereOrName";
+    STATEMENT declare entity switch.$sphere::$entity with providing node $entity/$node;
+  END BLOCK
+  BLOCK macro switch_device ($sphereOrName $name):
+    COMMENT # Source: entity_switch_device.def
+    BLOCK if "$name" == "" then
+      STATEMENT switchSphere="social";
+      STATEMENT switchName="$sphereOrName";
+    END BLOCK
+    BLOCK else
+      STATEMENT switchSphere="$sphereOrName";
+      STATEMENT switchName="$name";
+    END BLOCK
+    STATEMENT declare entity switch.$switchSphere:$switchName;
+    STATEMENT providing node $switchName/switch;
+  END BLOCK
+  BLOCK macro thermostat ($entity):
+    COMMENT # Source: entity_thermostat.def
+    STATEMENT declare entity climate.physical:$entity;
+    STATEMENT providing node $entity;
+    STATEMENT declare entity sensor.physical:$entity:temperature;
+    STATEMENT define value climate.physical:$entity!current_temperature;
+  END BLOCK
+  BLOCK macro zigbee_group ($domain $sphere $location $entities...):
+    COMMENT # Source: entity_zigbee_group.def
+    COMMENT # $1 = Domain, $2 = Sphere, $3 = Location, $4 ... $n = Entity names
+    STATEMENT groupDomain=$domain;
+    STATEMENT groupLocation=$location;
+    STATEMENT entity ${groupDomain}_device $sphere $groupLocation;
+    BLOCK space physical:$groupLocation no_collect
+      STATEMENT shift; shift; shift;
+      BLOCK for e in $* do
+        STATEMENT entity ${groupDomain}_device physical $e;
       END BLOCK
-      BLOCK else
-        STATEMENT switchSphere="$sphereOrName";
-        STATEMENT switchName="$name";
-      END BLOCK
-      STATEMENT declare entity switch.$switchSphere:$switchName;
-      STATEMENT providing node $switchName/switch;
     END BLOCK
-    BLOCK macro entity_thermostat ($entity):
-      COMMENT # Source: entity_thermostat.def
-      STATEMENT declare entity climate.physical:$entity;
-      STATEMENT providing node $entity;
-      STATEMENT declare entity sensor.physical:$entity:temperature;
-      STATEMENT define value climate.physical:$entity!current_temperature;
-    END BLOCK
-    BLOCK macro entity_zigbee_group ($domain $sphere $location $entities...):
-      COMMENT # Source: entity_zigbee_group.def
-      COMMENT # $1 = Domain, $2 = Sphere, $3 = Location, $4 ... $n = Entity names
-      STATEMENT groupDomain=$domain;
-      STATEMENT groupLocation=$location;
-      STATEMENT entity ${groupDomain}_device $sphere $groupLocation;
-      BLOCK space physical:$groupLocation no_collect
-        STATEMENT shift; shift; shift;
-        BLOCK for e in $* do
-          STATEMENT entity ${groupDomain}_device physical $e;
-        END BLOCK
-      END BLOCK
-    END BLOCK
-    BLOCK macro entity_zwave_node ($node):
-      COMMENT # Source: entity_zwave_node.def
-      STATEMENT declare entity sensor.infrastructural:$node/status;
-      STATEMENT declare entity binary_sensor.infrastructural:$node:node;
-      STATEMENT define satisfies sensor.infrastructural:$node/status "($ == 'alive')";
-    END BLOCK
+  END BLOCK
+  BLOCK macro zwave_node ($node):
+    COMMENT # Source: entity_zwave_node.def
+    STATEMENT declare entity sensor.infrastructural:$node/status;
+    STATEMENT declare entity binary_sensor.infrastructural:$node:node;
+    STATEMENT condition sensor.infrastructural:$node/status "($ == 'alive')";
+  END BLOCK
+  BLOCK macro lights_motion_guarded { $delay int }:
+    COMMENT # Built-in macro marker. Runtime semantics are currently handled by the entity processing pipeline.
+  END BLOCK
+  BLOCK macro windy { $sensor entity_spec, $delay_on string op, $delay_off string op }:
+    COMMENT # Built-in macro marker. Runtime semantics are currently handled by the entity processing pipeline.
+  END BLOCK
+  BLOCK macro sunny { $sensor entity_spec, $delay_on string op, $delay_off string op }:
+    COMMENT # Built-in macro marker. Runtime semantics are currently handled by the entity processing pipeline.
   END BLOCK
 
 File: Server.def

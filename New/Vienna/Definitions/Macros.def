@@ -5,154 +5,164 @@
 
 # Macros are collapsed into one file, but still form a prelude that should be read before other definitions.
 
-macros:
-  macro battery_alert ($entity $alertLevel):
-    # Source: entity_battery_alert.def
-    declare entity binary_sensor.infrastructural:$entity:battery_alert;
-    if "$alertLevel" != "" then
-      begin
-        condition sensor.infrastructural:$entity:battery_level "($ | int(0)) < $alertLevel";
-        available always;
-      end;
-  end;
+macro battery_alert ($entity $alertLevel):
+  # Source: entity_battery_alert.def
+  declare entity binary_sensor.infrastructural:$entity:battery_alert;
+  if "$alertLevel" != "" then
+    begin
+      condition sensor.infrastructural:$entity:battery_level "($ | int(0)) < $alertLevel";
+      available always;
+    end;
+end;
 
-  macro battery_from_device ($entity $sourceEntity $alertLevel):
-    # Source: entity_battery_from_device.def
-    declare entity sensor.infrastructural:$entity:battery_level;
-    define value $sourceEntity!battery_level;
+macro battery_from_device ($entity $sourceEntity $alertLevel):
+  # Source: entity_battery_from_device.def
+  declare entity sensor.infrastructural:$entity:battery_level;
+  define value $sourceEntity!battery_level;
 
-    entity battery_alert $entity $alertLevel;
-  end;
+  entity battery_alert $entity $alertLevel;
+end;
 
-  macro battery_level ($entity $alertLevel):
-    # Source: entity_battery_level.def
-    entity battery_alert $entity $alertLevel;
+macro battery_level ($entity $alertLevel):
+  # Source: entity_battery_level.def
+  entity battery_alert $entity $alertLevel;
 
-    declare entity sensor.infrastructural:$entity:battery_level;
-  end;
+  declare entity sensor.infrastructural:$entity:battery_level;
+end;
 
-  macro battery_level_device ($entity $alertLevel):
-    # Source: entity_battery_level_device.def
-    entity battery_level $entity $alertLevel;
-    providing node $entity;
-  end;
+macro battery_level_device ($entity $alertLevel):
+  # Source: entity_battery_level_device.def
+  entity battery_level $entity $alertLevel;
+  providing node $entity;
+end;
 
-  macro light_device ($sphereOrName $name):
-    # Source: entity_light_device.def
-    if "$name" == "" then
-      begin
-        lightSphere="social";
-        lightName="$sphereOrName";
-      end;
-    else
-      begin
-        lightSphere="$sphereOrName";
-        lightName="$name";
-      end;
+macro light_device ($sphereOrName $name):
+  # Source: entity_light_device.def
+  if "$name" == "" then
+    begin
+      lightSphere="social";
+      lightName="$sphereOrName";
+    end;
+  else
+    begin
+      lightSphere="$sphereOrName";
+      lightName="$name";
+    end;
 
-    declare entity light.$lightSphere:$lightName;
-    providing node $lightName/light;
-  end;
+  declare entity light.$lightSphere:$lightName;
+  providing node $lightName/light;
+end;
 
-  macro media_player ($entity $option $value):
-    # Source: entity_media_player.def
-    thisEntity="$entity";
+macro media_player ($entity $option $value):
+  # Source: entity_media_player.def
+  thisEntity="$entity";
 
-    if "$option" == "no_collect" then
-      begin
-        noCollect="no_collect";
-        shift;
-      end;
-    else
-      begin
-        noCollect="";
-      end;
+  if "$option" == "no_collect" then
+    begin
+      noCollect="no_collect";
+      shift;
+    end;
+  else
+    begin
+      noCollect="";
+    end;
 
-    if "$option" == "no_play" then
-      begin
-        enabler="";
-        delayOffety="";
-        inputety="$value";
-      end;
-    else
-      begin
-        enabler="$option";
-        delayOffety="$value";
-        inputety="";
-      end;
+  if "$option" == "no_play" then
+    begin
+      enabler="";
+      delayOffety="";
+      inputety="$value";
+    end;
+  else
+    begin
+      enabler="$option";
+      delayOffety="$value";
+      inputety="";
+    end;
 
-    declare entity media_player.social:$thisEntity $noCollect;
-    providing node $thisEntity $enabler $delayOffety;
-    mediaPlayerSpecification=$CurrentEntitySpecification;
+  declare entity media_player.social:$thisEntity $noCollect;
+  providing node $thisEntity $enabler $delayOffety;
+  mediaPlayerSpecification=$CurrentEntitySpecification;
 
-    declare entity switch.social:$thisEntity:media $noCollect;
-    icon $MediaSwitchIcon;
-    define media_switch $mediaPlayerSpecification "$inputety";
-  end;
+  declare entity switch.social:$thisEntity:media $noCollect;
+  icon $MediaSwitchIcon;
+  define media_switch $mediaPlayerSpecification "$inputety";
+end;
 
-  macro power_switch ($sphere $entity $deviceNode $powerThreshold):
-    # Source: entity_power_switch.def
-    declare entity sensor.$sphere:$entity:power;
+macro power_switch { $node string, $threshold int }:
+  # Source: entity_power_switch.def
+  declare entity sensor.$sphere:$entity:power;
 
-    declare entity binary_sensor.$sphere:$entity:consumes;
+  declare entity binary_sensor.$sphere:$entity:consumes with:
     icon $ConsumesIcon;
-    condition sensor.$sphere:$entity:power "($ | int(0)) > $powerThreshold";
-
-    declare entity switch.$sphere::$entity;
-    providing node $entity/$deviceNode;
+    condition sensor.$sphere:$entity:power "($ | int(0)) > $threshold";
   end;
 
-  macro switch_device ($sphereOrName $name):
-    # Source: entity_switch_device.def
-    if "$name" == "" then
-      begin
-        switchSphere="social";
-        switchName="$sphereOrName";
-      end;
-    else
-      begin
-        switchSphere="$sphereOrName";
-        switchName="$name";
-      end;
+  declare entity switch.$sphere::$entity with providing node $entity/$node;
+end;
 
-    declare entity switch.$switchSphere:$switchName;
-    providing node $switchName/switch;
-  end;
+macro switch_device ($sphereOrName $name):
+  # Source: entity_switch_device.def
+  if "$name" == "" then
+    begin
+      switchSphere="social";
+      switchName="$sphereOrName";
+    end;
+  else
+    begin
+      switchSphere="$sphereOrName";
+      switchName="$name";
+    end;
 
-  macro thermostat ($entity):
-    # Source: entity_thermostat.def
-    declare entity climate.physical:$entity;
-    providing node $entity;
+  declare entity switch.$switchSphere:$switchName;
+  providing node $switchName/switch;
+end;
 
-    declare entity sensor.physical:$entity:temperature;
-    define value climate.physical:$entity!current_temperature;
-  end;
+macro thermostat ($entity):
+  # Source: entity_thermostat.def
+  declare entity climate.physical:$entity;
+  providing node $entity;
 
-  macro zigbee_group ($domain $sphere $location $entities...):
-    # Source: entity_zigbee_group.def
-    # $1 = Domain, $2 = Sphere, $3 = Location, $4 ... $n = Entity names
-    groupDomain=$domain;
-    groupLocation=$location;
+  declare entity sensor.physical:$entity:temperature;
+  define value climate.physical:$entity!current_temperature;
+end;
 
-    entity ${groupDomain}_device $sphere $groupLocation;
+macro zigbee_group ($domain $sphere $location $entities...):
+  # Source: entity_zigbee_group.def
+  # $1 = Domain, $2 = Sphere, $3 = Location, $4 ... $n = Entity names
+  groupDomain=$domain;
+  groupLocation=$location;
 
-    space physical:$groupLocation no_collect
-      begin
-        shift; shift; shift;
+  entity ${groupDomain}_device $sphere $groupLocation;
 
-        for e in $* do
-          begin
-            entity ${groupDomain}_device physical $e;
-          end;
+  space physical:$groupLocation no_collect
+    begin
+      shift; shift; shift;
 
-      end;
-  end;
+      for e in $* do
+        begin
+          entity ${groupDomain}_device physical $e;
+        end;
 
-  macro zwave_node ($node):
-    # Source: entity_zwave_node.def
-    declare entity sensor.infrastructural:$node/status;
+    end;
+end;
 
-    declare entity binary_sensor.infrastructural:$node:node;
-    condition sensor.infrastructural:$node/status "($ == 'alive')";
-  end;
+macro zwave_node ($node):
+  # Source: entity_zwave_node.def
+  declare entity sensor.infrastructural:$node/status;
+
+  declare entity binary_sensor.infrastructural:$node:node;
+  condition sensor.infrastructural:$node/status "($ == 'alive')";
+end;
+
+macro lights_motion_guarded { $delay int }:
+  # Built-in macro marker. Runtime semantics are currently handled by the entity processing pipeline.
+end;
+
+macro windy { $sensor entity_spec, $delay_on string op, $delay_off string op }:
+  # Built-in macro marker. Runtime semantics are currently handled by the entity processing pipeline.
+end;
+
+macro sunny { $sensor entity_spec, $delay_on string op, $delay_off string op }:
+  # Built-in macro marker. Runtime semantics are currently handled by the entity processing pipeline.
 end;

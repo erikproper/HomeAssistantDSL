@@ -1,3 +1,3 @@
-bridge rest junglinster $JunglinsterInstance/api/states "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJhYWUzOGU1OWRiNGI0MDM0OWI0ZWIyMmI0NWQyZjdmNiIsImlhdCI6MTY3NjU0NzQ1OSwiZXhwIjoxOTkxOTA3NDU5fQ.vlmf5yjC2tHkw28yUIzP5gQ9jkcOOuvLaRrVjt6GEho"
+bridge rest junglinster $JunglinsterInstance/api/states "Bearer XXXX"
 main vienna
 

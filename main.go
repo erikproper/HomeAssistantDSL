@@ -495,13 +495,12 @@ func (m *TMigrator) BuildMacros(house string) (string, error) {
 	builder := strings.Builder{}
 	writeGeneratedHeader(&builder, house, "Macros.def", filepath.Join("Old", house, "Macros"))
 	builder.WriteString("# Macros are collapsed into one file, but still form a prelude that should be read before other definitions.\n\n")
-	builder.WriteString("macros:\n")
 	for index, macro := range macros {
 		parameterNames := inferMacroParameterNames(macro)
-		fmt.Fprintf(&builder, "  %s\n", formatMacroHeader(macro.Name, parameterNames))
-		fmt.Fprintf(&builder, "    # Source: %s\n", macro.Source)
+		fmt.Fprintf(&builder, "%s\n", formatMacroHeader(macro.Name, parameterNames))
+		fmt.Fprintf(&builder, "  # Source: %s\n", macro.Source)
 		if signatureComment := normalizeMacroSignatureComment(macro.Signature); signatureComment != "" {
-			fmt.Fprintf(&builder, "    %s\n", signatureComment)
+			fmt.Fprintf(&builder, "  %s\n", signatureComment)
 		}
 		normalizedBodyLines := normalizeMacroBody(macro.Body, parameterNames)
 		for _, bodyLine := range normalizedBodyLines {
@@ -509,16 +508,15 @@ func (m *TMigrator) BuildMacros(house string) (string, error) {
 				builder.WriteString("\n")
 				continue
 			}
-			builder.WriteString("    ")
+			builder.WriteString("  ")
 			builder.WriteString(strings.TrimRight(bodyLine, " \t"))
 			builder.WriteString("\n")
 		}
-		builder.WriteString("  end;\n")
+		builder.WriteString("end;\n")
 		if index < len(macros)-1 {
 			builder.WriteString("\n")
 		}
 	}
-	builder.WriteString("end;\n")
 
 	return builder.String(), nil
 }

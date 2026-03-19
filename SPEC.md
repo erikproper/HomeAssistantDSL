@@ -318,8 +318,10 @@ To avoid this complexity — and to keep the semantics predictable — macro exp
 The intended processing order for the generator is therefore:
 1. Read the macro definitions (Macros.def). These define what create <name> means.
 2. Read the space and entity definitions (Entities.def). This establishes the full set of declared entities, their nesting in spaces, and their attributes (no_collect, providing node, open_stop_close, etc.).
-3. Apply one single round of create expansions. Each create statement is expanded using the macro body and the current entity state at that point. No further rounds follow.
-4. Use the resulting fully-expanded entity model as the basis for YAML generation, dependency checks, and list generation.
+3. Run structural and semantic checks on parsed definitions (including type/option checks) and collect warnings and errors.
+4. Execute declare statements and apply one single round of macro expansions in space context. No further rounds follow.
+5. Run post-expansion checks and collect warnings (for example unresolved references, unused declarations, and suspicious option usage).
+6. Use the resulting fully-expanded entity model as the basis for YAML generation and list generation.
 
 This single-pass expansion avoids fixed-point iteration while still allowing macros to reference the entity context at the time of expansion (e.g. to compute aggregated light groups for a space).
 
