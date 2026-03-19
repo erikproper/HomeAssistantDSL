@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_house_server_room_rack_aqara_multi_battery_alert:
+  icon: mdi:battery-alert
+  friendly_name: infrastructural/house/server_room/rack/aqara_multi/battery_alert

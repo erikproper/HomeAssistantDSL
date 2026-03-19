@@ -1,0 +1,7 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/office/drain/water
+unique_id: binary_sensor.social_house_office_drain_water
+entities:
+- binary_sensor.social_house_office_drain_left_luminea_water
+- binary_sensor.social_house_office_drain_right_luminea_water

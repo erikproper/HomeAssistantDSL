@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/kitchen/workplace
+unique_id: light.social_house_kitchen_workplace
+entities:
+- light.social_house_kitchen_workplace_main

@@ -1,0 +1,5 @@
+### This file was automatically generated. Don't edit it!
+social_vacuuming_holiday_start_night:
+  name: social/vacuuming_holiday/start_night
+  has_date: false
+  has_time: true

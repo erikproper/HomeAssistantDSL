@@ -1,0 +1,11 @@
+### This file was automatically generated. Don't edit it!
+- alias: social/house/office/low_board/follows/light/social/house/office/main/turn_off
+  id: automation.social_house_office_low_board_follows_light_social_house_office_main_turn_off
+  initial_state: True
+  trigger:
+  - platform: state
+    entity_id: light.social_house_office_main
+    to: 'off'
+  action:
+  - service: light.turn_off
+    entity_id: light.social_house_office_low_board

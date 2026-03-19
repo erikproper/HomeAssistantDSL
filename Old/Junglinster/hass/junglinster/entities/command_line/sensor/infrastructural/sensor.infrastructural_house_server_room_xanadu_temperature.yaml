@@ -1,0 +1,7 @@
+### This file was automatically generated. Don't edit it!
+- sensor:
+    name: infrastructural/house/server_room/xanadu/temperature
+    command: "bash /config/bin/run erikp xanadu.fritz.box ./cpu/temperature"
+    command_timeout: 15
+    scan_interval: 60
+    unit_of_measurement: °C

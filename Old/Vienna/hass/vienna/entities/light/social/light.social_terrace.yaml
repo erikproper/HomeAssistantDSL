@@ -1,0 +1,7 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/terrace
+unique_id: light.social_terrace
+entities:
+- light.physical_terrace_left
+- light.physical_terrace_right

@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/apartment/hallway/main/light/node
+  unique_id: binary_sensor.infrastructural_apartment_hallway_main_light_node
+  device_class: connectivity
+  state: "{{ states('light.social_apartment_hallway_main') != 'unavailable' }}"

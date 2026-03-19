@@ -1,0 +1,8 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: social/house/upward_hallway/heating_set_to_away
+  unique_id: binary_sensor.social_house_upward_hallway_heating_set_to_away
+  state: >-
+    {{
+      is_state('binary_sensor.social_house_upward_hallway_first_floor_heating_set_to_away', 'on')
+    }}

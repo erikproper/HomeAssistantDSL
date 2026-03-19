@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/apartment/living_room/water
+unique_id: binary_sensor.social_apartment_living_room_water
+entities:
+- binary_sensor.social_apartment_living_room_kitchen_water

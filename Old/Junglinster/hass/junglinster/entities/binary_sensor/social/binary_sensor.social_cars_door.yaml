@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/cars/door
+unique_id: binary_sensor.social_cars_door
+entities:
+- binary_sensor.social_cars_xc40_door

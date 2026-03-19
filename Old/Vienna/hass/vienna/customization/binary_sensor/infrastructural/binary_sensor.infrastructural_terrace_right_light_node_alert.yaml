@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_terrace_right_light_node_alert:
+  icon: mdi:server-off
+  friendly_name: infrastructural/terrace/right/light/node_alert

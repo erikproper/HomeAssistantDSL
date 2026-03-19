@@ -1,0 +1,9 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/wc/temperature
+unique_id: sensor.social_house_wc_temperature
+type: mean
+ignore_non_numeric: true
+state_class: measurement
+entities:
+- sensor.physical_house_wc_philips_motion_temperature

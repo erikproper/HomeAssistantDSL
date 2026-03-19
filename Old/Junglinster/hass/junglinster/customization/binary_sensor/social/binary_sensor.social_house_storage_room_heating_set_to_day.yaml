@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.social_house_storage_room_heating_set_to_day:
+  icon: mdi:radiator
+  friendly_name: social/house/storage_room/heating_set_to_day

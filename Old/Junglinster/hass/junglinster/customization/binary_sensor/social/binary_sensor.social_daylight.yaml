@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.social_daylight:
+  icon: mdi:weather-sunset-up
+  friendly_name: social/daylight

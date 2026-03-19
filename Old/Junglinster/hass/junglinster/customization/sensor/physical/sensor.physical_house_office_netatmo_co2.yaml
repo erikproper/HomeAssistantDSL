@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.physical_house_office_netatmo_co2:
+  icon: mdi:cloud
+  friendly_name: physical/house/office/netatmo/co2

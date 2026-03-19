@@ -1,0 +1,5 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+  name: social/house/bathroom/heating_mode_target
+  unique_id: binary_sensor.social_house_bathroom_heating_mode_target
+  state: "{{ is_state('input_boolean.physical_house_bathroom_heating_mode_target', 'on') }}"

@@ -1,0 +1,18 @@
+### This file was automatically generated. Don't edit it!
+switch:
+- name: social/house/shower_room/media
+  unique_id: switch.social_house_shower_room_media
+  default_entity_id: switch.social_house_shower_room_media
+  icon: mdi:monitor-speaker
+  turn_on:
+  - entity_id:
+    - input_boolean.infrastructural_dummy
+    action: input_boolean.turn_on
+  turn_off:
+  - entity_id:
+    - switch.social_house_shower_room_sonos_media
+    action: switch.turn_off
+  state: >-
+      {{
+        is_state('switch.social_house_shower_room_sonos_media', 'on')
+      }}

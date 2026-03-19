@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_apartment_living_room_kitchen_door_moes_2_node:
+  icon: mdi:server-network
+  friendly_name: infrastructural/apartment/living_room/kitchen/door/moes/2/node

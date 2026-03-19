@@ -1,0 +1,7 @@
+function entity_battery_alert {
+  entity declare binary_sensor.infrastructural:$1:battery_alert
+   if [ "$2" != "" ]; then
+    define satisfies sensor.infrastructural:$1:battery_level "($ | int(0)) < $2"
+    available always
+   fi
+}

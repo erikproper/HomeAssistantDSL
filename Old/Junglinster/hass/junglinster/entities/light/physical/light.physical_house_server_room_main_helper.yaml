@@ -1,0 +1,7 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+all: true
+name: physical_house_server_room_main_helper
+entities:
+- light.physical_house_server_room_main_spots
+- light.physical_house_server_room_main

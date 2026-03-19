@@ -1,0 +1,23 @@
+### This file was automatically generated. Don't edit it!
+- alias: physical/house/office/set_heating_to_leakage_mode
+  id: automation.physical_house_office_set_heating_to_leakage_mode
+  initial_state: True
+  mode: queued
+  trigger:
+  - platform: state
+    entity_id: binary_sensor.physical_house_office_heating_should_be_off
+    to: 'on'
+  - platform: time_pattern
+    minutes: '/1'
+  condition:
+  - condition: state
+    entity_id: binary_sensor.physical_house_office_heating_should_be_off
+    state: 'on'
+  action:
+  - service_template: >
+      {% if is_state('input_boolean.physical_house_office_heating_mode_preset_for_leakage', 'on') %}
+        input_boolean.turn_on
+      {% else %}
+        input_boolean.turn_off
+      {% endif %}
+    entity_id: input_boolean.physical_house_office_heating_mode_target

@@ -1,0 +1,10 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/office/pressure
+unique_id: sensor.social_house_office_pressure
+type: mean
+ignore_non_numeric: true
+state_class: measurement
+entities:
+- sensor.physical_house_office_door_aqara_multi_pressure
+- sensor.physical_house_office_netatmo_pressure

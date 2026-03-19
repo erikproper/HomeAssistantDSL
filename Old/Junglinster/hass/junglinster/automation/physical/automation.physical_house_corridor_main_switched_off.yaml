@@ -1,0 +1,16 @@
+### This file was automatically generated. Don't edit it!
+- alias: physical/house/corridor/main/switched_off
+  id: automation.physical_house_corridor_main_switched_off
+  initial_state: True
+  mode: queued
+  trigger:
+  - platform: state
+    entity_id: light.physical_house_corridor_main
+    to: 'off'
+  condition:
+  - condition: state
+    entity_id: light.physical_house_corridor_main_spots
+    state: 'on'
+  action:
+  - service: light.turn_off
+    entity_id: light.physical_house_corridor_main_spots

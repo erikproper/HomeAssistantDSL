@@ -1,0 +1,19 @@
+# Migrated preview; generated on 18.03.2026.
+# House: Junglinster
+# Target: Server.def
+# Source: Old/Junglinster/Definitions/00_server.def
+
+# The conditional routing logic is preserved here, but concrete deployment values stay external.
+
+servers:
+  external LocalServer;
+  external MainInstance__LocalServer;
+  external MainInstance__otherwise;
+  secret MainAPIToken;
+
+  choose MainInstance:
+    when server_is_up LocalServer then MainInstance__LocalServer;
+    otherwise MainInstance__otherwise;
+  end;
+
+end;

@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_house_kitchen_workplace_aqara_magnet_node:
+  icon: mdi:server-network
+  friendly_name: infrastructural/house/kitchen/workplace/aqara_magnet/node

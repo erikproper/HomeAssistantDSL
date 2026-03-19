@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_house_server_room_fuse_box_zwave_025_node_alert:
+  icon: mdi:server-off
+  friendly_name: infrastructural/house/server_room/fuse_box/zwave/025/node_alert

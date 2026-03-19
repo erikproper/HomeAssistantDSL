@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/shower_room/motion
+unique_id: binary_sensor.social_house_shower_room_motion
+entities:
+- binary_sensor.physical_house_shower_room_philips_motion_motion

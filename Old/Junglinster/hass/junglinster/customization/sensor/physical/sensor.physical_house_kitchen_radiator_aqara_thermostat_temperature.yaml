@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.physical_house_kitchen_radiator_aqara_thermostat_temperature:
+  icon: mdi:thermometer
+  friendly_name: physical/house/kitchen/radiator/aqara_thermostat/temperature

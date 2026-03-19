@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.physical_apartment_living_room_philips_motion_motion:
+  icon: mdi:motion-sensor
+  friendly_name: physical/apartment/living_room/philips_motion/motion

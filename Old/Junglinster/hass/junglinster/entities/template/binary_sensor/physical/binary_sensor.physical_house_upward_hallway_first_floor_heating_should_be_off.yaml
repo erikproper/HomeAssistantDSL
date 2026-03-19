@@ -1,0 +1,14 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: physical/house/upward_hallway/first_floor/heating/should_be_off
+  unique_id: binary_sensor.physical_house_upward_hallway_first_floor_heating_should_be_off
+  state: >-
+    {{
+      (
+        is_state('binary_sensor.social_house_upward_hallway_first_floor_heating_leakage_identified', 'on')
+      and
+        is_state('input_boolean.social_house_upward_hallway_first_floor_heating_leakage_ignore', 'off')
+      )
+    or
+      is_state('input_boolean.social_house_upward_hallway_first_floor_heating_enable', 'off')
+    }}

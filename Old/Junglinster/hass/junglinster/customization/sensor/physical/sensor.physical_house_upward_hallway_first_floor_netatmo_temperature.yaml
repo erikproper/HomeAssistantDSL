@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.physical_house_upward_hallway_first_floor_netatmo_temperature:
+  icon: mdi:thermometer
+  friendly_name: physical/house/upward_hallway/first_floor/netatmo/temperature

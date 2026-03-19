@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.infrastructural_terrace_netatmo_outdoor_battery_level:
+  icon: mdi:battery
+  friendly_name: infrastructural/terrace/netatmo_outdoor/battery_level

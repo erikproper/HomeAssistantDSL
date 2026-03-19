@@ -1,0 +1,19 @@
+### This file was automatically generated. Don't edit it!
+switch:
+- name: social/garage/space
+  unique_id: switch.social_garage_space
+  default_entity_id: switch.social_garage_space
+  turn_on:
+  turn_off:
+  - entity_id:
+    - light.social_garage_main
+    action: light.turn_off
+  - entity_id:
+    - switch.social_garage_sonos_media
+    action: switch.turn_off
+  state: >-
+      {{
+        is_state('light.social_garage_main', 'on')
+      or
+        is_state('switch.social_garage_sonos_media', 'on')
+      }}

@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/apartment/living_room/hallway_door/moes/3/node
+  unique_id: binary_sensor.infrastructural_apartment_living_room_hallway_door_moes_3_node
+  device_class: connectivity
+  state: "{{ states('sensor.infrastructural_apartment_living_room_hallway_door_moes_3_battery_level') != 'unavailable' }}"

@@ -1,0 +1,10 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/david_bedroom/temperature
+unique_id: sensor.social_house_david_bedroom_temperature
+type: mean
+ignore_non_numeric: true
+state_class: measurement
+entities:
+- sensor.physical_house_david_bedroom_netatmo_temperature
+- sensor.physical_house_david_bedroom_radiator_aqara_thermostat_temperature

@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.infrastructural_apartment_living_room_kitchen_aqara_windoor_battery_level:
+  icon: mdi:battery
+  friendly_name: infrastructural/apartment/living_room/kitchen/aqara_windoor/battery_level

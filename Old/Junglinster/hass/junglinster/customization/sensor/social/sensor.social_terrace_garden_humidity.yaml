@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.social_terrace_garden_humidity:
+  icon: mdi:water-percent
+  friendly_name: social/terrace/garden/humidity

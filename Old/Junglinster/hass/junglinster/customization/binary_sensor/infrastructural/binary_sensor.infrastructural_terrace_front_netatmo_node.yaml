@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_terrace_front_netatmo_node:
+  icon: mdi:server-network
+  friendly_name: infrastructural/terrace/front/netatmo/node

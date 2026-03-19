@@ -1,0 +1,10 @@
+function entity_power_switch {
+  entity declare sensor.$1:$2:power
+ 
+  entity declare binary_sensor.$1:$2:consumes
+    icon $ConsumesIcon
+    define satisfies sensor.$1:$2:power "($ | int(0)) > $4"
+ 
+  entity declare switch.$1::$2
+    provides device_node $2/$3
+}

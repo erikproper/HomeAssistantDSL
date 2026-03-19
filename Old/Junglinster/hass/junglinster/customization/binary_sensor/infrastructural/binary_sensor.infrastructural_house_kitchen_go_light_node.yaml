@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_house_kitchen_go_light_node:
+  icon: mdi:server-network
+  friendly_name: infrastructural/house/kitchen/go/light/node

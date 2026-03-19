@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_terrace_netatmo_windmeter_battery_alert:
+  icon: mdi:battery-alert
+  friendly_name: infrastructural/terrace/netatmo_windmeter/battery_alert

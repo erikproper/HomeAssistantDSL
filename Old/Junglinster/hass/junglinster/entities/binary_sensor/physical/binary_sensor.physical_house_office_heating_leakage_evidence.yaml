@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: physical/house/office/heating/leakage/evidence
+unique_id: binary_sensor.physical_house_office_heating_leakage_evidence
+entities:
+- binary_sensor.social_house_office_window

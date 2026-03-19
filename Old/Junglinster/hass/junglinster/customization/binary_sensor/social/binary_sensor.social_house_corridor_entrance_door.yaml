@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.social_house_corridor_entrance_door:
+  icon: mdi:door-open
+  friendly_name: social/house/corridor/entrance/door

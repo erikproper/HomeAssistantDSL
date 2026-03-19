@@ -1,0 +1,39 @@
+entities:
+  - entity: sensor.physical_apartment_bedroom_frient_temperature
+    name: 'bedroom/frient/temperature'
+  - entity: sensor.physical_apartment_bedroom_netatmo_temperature
+    name: 'bedroom/netatmo/temperature'
+  - entity: sensor.physical_apartment_hallway_door_aqara_multi_temperature
+    name: 'hallway/door/aqara_multi/temperature'
+  - entity: sensor.physical_apartment_hallway_frient_temperature
+    name: 'hallway/frient/temperature'
+  - entity: sensor.physical_apartment_living_room_bitron_thermostat_temperature
+    name: 'living_room/bitron_thermostat/temperature'
+  - entity: sensor.physical_apartment_living_room_kitchen_dishwasher_robb_temperature
+    name: 'living_room/kitchen/dishwasher/robb/temperature'
+  - entity: sensor.physical_apartment_living_room_netatmo_temperature
+    name: 'living_room/netatmo/temperature'
+  - entity: sensor.physical_apartment_living_room_philips_motion_temperature
+    name: 'living_room/philips_motion/temperature'
+  - entity: sensor.physical_apartment_living_room_rack_aqara_multi_temperature
+    name: 'living_room/rack/aqara_multi/temperature'
+  - entity: sensor.infrastructural_apartment_living_room_rack_frame_temperature
+    name: 'living_room/rack/frame/temperature'
+  - entity: sensor.infrastructural_apartment_living_room_rack_vienna_temperature
+    name: 'living_room/rack/vienna/temperature'
+  - entity: sensor.physical_apartment_shower_room_netatmo_temperature
+    name: 'shower_room/netatmo/temperature'
+  - entity: sensor.physical_apartment_shower_room_philips_motion_temperature
+    name: 'shower_room/philips_motion/temperature'
+  - entity: sensor.physical_apartment_shower_room_radiator_robb_temperature
+    name: 'shower_room/radiator/robb/temperature'
+  - entity: sensor.physical_apartment_shower_room_washing_machine_robb_temperature
+    name: 'shower_room/washing_machine/robb/temperature'
+  - entity: sensor.physical_terrace_netatmo_outdoor_temperature
+    name: 'terrace/netatmo_outdoor/temperature'
+  - entity: sensor.physical_terrace_signify_motion_temperature
+    name: 'terrace/signify_motion/temperature'
+title: Temperatures
+state_color: true
+type: entities
+show_header_toggle: false

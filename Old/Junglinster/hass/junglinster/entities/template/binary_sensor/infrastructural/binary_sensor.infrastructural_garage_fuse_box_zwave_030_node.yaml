@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/garage/fuse_box/zwave/030/node
+  unique_id: binary_sensor.infrastructural_garage_fuse_box_zwave_030_node
+  device_class: connectivity
+  state: "{{ states('light.social_house_downward_hallway_main') != 'unavailable' }}"

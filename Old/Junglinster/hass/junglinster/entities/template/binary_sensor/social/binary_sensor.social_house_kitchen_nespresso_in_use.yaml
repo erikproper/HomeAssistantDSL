@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: social/house/kitchen/nespresso/in_use
+  unique_id: binary_sensor.social_house_kitchen_nespresso_in_use
+  delay_off: 00:10:00
+  state: "{{ is_state('binary_sensor.social_house_kitchen_nespresso_brews', 'on') }}"

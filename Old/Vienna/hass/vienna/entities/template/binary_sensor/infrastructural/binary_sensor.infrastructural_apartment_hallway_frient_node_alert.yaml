@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/apartment/hallway/frient/node_alert
+  unique_id: binary_sensor.infrastructural_apartment_hallway_frient_node_alert
+  device_class: connectivity
+  state: "{{ is_state('binary_sensor.infrastructural_apartment_hallway_frient_node', 'off') }}"

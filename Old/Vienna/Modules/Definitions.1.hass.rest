@@ -1,0 +1,16 @@
+###
+#
+# Definitions of entities using REST
+#
+###
+
+function bridge_rest { # $1 = HASS REST bridge, $2 = REST url, $3 = REST authorization
+  (
+    echo "RESTUrl=\"$2\""
+    echo "RESTAuthorization=\"$3\"" 
+  ) | CatToFile $HASSRESTBridges $1 $ConfigFile
+}
+
+function import_rest { # $1 = REST bridge, $2 = REST source, $3 = REST frequency, $4 = REST statety
+  ImportRESTEntityDefinition "$1" "$2" "$3" "$4"
+}

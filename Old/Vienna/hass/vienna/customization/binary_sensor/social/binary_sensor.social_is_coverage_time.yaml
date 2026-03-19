@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.social_is_coverage_time:
+  icon: mdi:clock-start
+  friendly_name: social/is_coverage_time

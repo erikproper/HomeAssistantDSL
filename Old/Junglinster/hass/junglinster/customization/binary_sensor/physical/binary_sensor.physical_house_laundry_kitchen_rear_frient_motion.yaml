@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.physical_house_laundry_kitchen_rear_frient_motion:
+  icon: mdi:motion-sensor
+  friendly_name: physical/house/laundry_kitchen/rear/frient/motion

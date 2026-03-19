@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/house/master_bedroom/bed/right/light/node
+  unique_id: binary_sensor.infrastructural_house_master_bedroom_bed_right_light_node
+  device_class: connectivity
+  state: "{{ states('light.social_house_master_bedroom_bed_right') != 'unavailable' }}"

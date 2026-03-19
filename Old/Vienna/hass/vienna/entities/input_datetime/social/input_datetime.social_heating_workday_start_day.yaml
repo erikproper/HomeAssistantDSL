@@ -1,0 +1,5 @@
+### This file was automatically generated. Don't edit it!
+social_heating_workday_start_day:
+  name: social/heating_workday/start_day
+  has_date: false
+  has_time: true

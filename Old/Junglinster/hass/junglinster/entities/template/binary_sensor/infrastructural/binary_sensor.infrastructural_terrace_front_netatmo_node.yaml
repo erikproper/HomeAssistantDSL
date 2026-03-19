@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/terrace/front/netatmo/node
+  unique_id: binary_sensor.infrastructural_terrace_front_netatmo_node
+  device_class: connectivity
+  state: "{{ states('sensor.infrastructural_terrace_front_netatmo_reachability') == 'True' }}"

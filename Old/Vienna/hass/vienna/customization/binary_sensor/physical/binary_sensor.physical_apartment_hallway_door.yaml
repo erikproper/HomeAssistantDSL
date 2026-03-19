@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.physical_apartment_hallway_door:
+  icon: mdi:door-open
+  friendly_name: physical/apartment/hallway/door

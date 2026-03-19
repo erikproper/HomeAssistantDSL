@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_house_office_windows_right_aqara_magnet_node_alert:
+  icon: mdi:server-off
+  friendly_name: infrastructural/house/office/windows/right/aqara_magnet/node_alert

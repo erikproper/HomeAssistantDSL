@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.social_house_living_room_dining_window:
+  icon: mdi:window-open
+  friendly_name: social/house/living_room/dining/window

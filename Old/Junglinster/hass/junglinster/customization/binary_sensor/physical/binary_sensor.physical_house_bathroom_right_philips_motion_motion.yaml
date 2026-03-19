@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.physical_house_bathroom_right_philips_motion_motion:
+  icon: mdi:motion-sensor
+  friendly_name: physical/house/bathroom/right/philips_motion/motion

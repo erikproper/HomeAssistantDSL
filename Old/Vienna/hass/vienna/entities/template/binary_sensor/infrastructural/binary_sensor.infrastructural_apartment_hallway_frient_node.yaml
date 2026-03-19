@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/apartment/hallway/frient/node
+  unique_id: binary_sensor.infrastructural_apartment_hallway_frient_node
+  device_class: connectivity
+  state: "{{ states('sensor.infrastructural_apartment_hallway_frient_battery_level') != 'unavailable' }}"

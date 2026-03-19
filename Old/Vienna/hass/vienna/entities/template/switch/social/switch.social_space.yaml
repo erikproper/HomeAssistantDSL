@@ -1,0 +1,40 @@
+### This file was automatically generated. Don't edit it!
+switch:
+- name: social/space
+  unique_id: switch.social_space
+  default_entity_id: switch.social_space
+  turn_on:
+  - entity_id:
+    - switch.social_apartment_space
+    action: switch.turn_on
+  - entity_id:
+    - switch.social_terrace_space
+    action: switch.turn_on
+  turn_off:
+  - entity_id:
+    - light.social_apartment
+    action: light.turn_off
+  - entity_id:
+    - light.social_terrace
+    action: light.turn_off
+  - entity_id:
+    - switch.social_apartment_media
+    action: switch.turn_off
+  - entity_id:
+    - switch.social_apartment_space
+    action: switch.turn_off
+  - entity_id:
+    - switch.social_terrace_space
+    action: switch.turn_off
+  state: >-
+      {{
+        is_state('light.social_apartment', 'on')
+      or
+        is_state('light.social_terrace', 'on')
+      or
+        is_state('switch.social_apartment_media', 'on')
+      or
+        is_state('switch.social_apartment_space', 'on')
+      or
+        is_state('switch.social_terrace_space', 'on')
+      }}

@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/garage/door
+unique_id: binary_sensor.social_garage_door
+entities:
+- binary_sensor.physical_garage_garage_door_aqara_magnet_door

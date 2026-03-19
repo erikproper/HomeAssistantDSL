@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.social_terrace_wind_direction:
+  icon: mdi:compass-outline
+  friendly_name: social/terrace/wind_direction

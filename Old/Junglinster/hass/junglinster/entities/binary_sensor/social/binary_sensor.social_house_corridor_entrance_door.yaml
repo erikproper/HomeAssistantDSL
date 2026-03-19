@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/corridor/entrance/door
+unique_id: binary_sensor.social_house_corridor_entrance_door
+entities:
+- binary_sensor.physical_house_corridor_entrance_aqara_magnet_door

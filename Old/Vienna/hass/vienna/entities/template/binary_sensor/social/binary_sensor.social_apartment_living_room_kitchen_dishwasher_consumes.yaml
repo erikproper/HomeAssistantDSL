@@ -1,0 +1,5 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: social/apartment/living_room/kitchen/dishwasher/consumes
+  unique_id: binary_sensor.social_apartment_living_room_kitchen_dishwasher_consumes
+  state: "{{ (states('sensor.social_apartment_living_room_kitchen_dishwasher_power') | int(0)) > 1 }}"

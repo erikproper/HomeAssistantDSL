@@ -1,0 +1,19 @@
+### This file was automatically generated. Don't edit it!
+switch:
+- name: social/house/living_room/dining/space
+  unique_id: switch.social_house_living_room_dining_space
+  default_entity_id: switch.social_house_living_room_dining_space
+  turn_on:
+  turn_off:
+  - entity_id:
+    - light.social_house_living_room_dining_main
+    action: light.turn_off
+  - entity_id:
+    - light.social_house_living_room_dining_red_highboard
+    action: light.turn_off
+  state: >-
+      {{
+        is_state('light.social_house_living_room_dining_main', 'on')
+      or
+        is_state('light.social_house_living_room_dining_red_highboard', 'on')
+      }}

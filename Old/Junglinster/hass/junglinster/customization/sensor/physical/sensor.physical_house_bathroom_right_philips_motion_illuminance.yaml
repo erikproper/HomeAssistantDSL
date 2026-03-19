@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.physical_house_bathroom_right_philips_motion_illuminance:
+  icon: mdi:brightness-5
+  friendly_name: physical/house/bathroom/right/philips_motion/illuminance

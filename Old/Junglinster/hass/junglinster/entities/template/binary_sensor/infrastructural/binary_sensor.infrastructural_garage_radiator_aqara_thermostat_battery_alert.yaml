@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/garage/radiator/aqara_thermostat/battery_alert
+  unique_id: binary_sensor.infrastructural_garage_radiator_aqara_thermostat_battery_alert
+  device_class: battery
+  state: "{{ (states('sensor.infrastructural_garage_radiator_aqara_thermostat_battery_level') | int(0)) < 20 }}"

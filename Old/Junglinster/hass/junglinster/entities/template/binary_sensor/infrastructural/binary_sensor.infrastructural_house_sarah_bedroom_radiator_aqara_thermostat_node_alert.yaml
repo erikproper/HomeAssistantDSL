@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/house/sarah_bedroom/radiator/aqara_thermostat/node_alert
+  unique_id: binary_sensor.infrastructural_house_sarah_bedroom_radiator_aqara_thermostat_node_alert
+  device_class: connectivity
+  state: "{{ is_state('binary_sensor.infrastructural_house_sarah_bedroom_radiator_aqara_thermostat_node', 'off') }}"

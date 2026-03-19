@@ -1,0 +1,18 @@
+### This file was automatically generated. Don't edit it!
+- alias: social/vacuuming_requested/time/turn_off
+  id: automation.social_vacuuming_requested_time_turn_off
+  initial_state: True
+  mode: queued
+  trigger:
+  - platform: state
+    entity_id: binary_sensor.social_is_vacuuming_day_time
+    to: 'off'
+  - platform: homeassistant
+    event: start
+  condition:
+  - condition: state
+    entity_id: binary_sensor.social_is_vacuuming_day_time
+    state: 'off'
+  action:
+  - service: input_boolean.turn_off
+    entity_id: input_boolean.social_vacuuming_requested

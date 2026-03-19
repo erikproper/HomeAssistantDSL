@@ -1,0 +1,8 @@
+### This file was automatically generated. Don't edit it!
+social_apartment_living_room_heating_target_preset_for_day:
+  name: social/apartment/living_room/heating_target_preset_for_day
+  min: 10
+  max: 30
+  step: 1
+  icon: mdi:thermometer
+  unit_of_measurement: °C

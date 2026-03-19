@@ -1,0 +1,51 @@
+### This file was automatically generated. Don't edit it!
+switch:
+- name: social/apartment/living_room/space
+  unique_id: switch.social_apartment_living_room_space
+  default_entity_id: switch.social_apartment_living_room_space
+  turn_on:
+  - entity_id:
+    - switch.physical_apartment_living_room_main_space
+    action: switch.turn_on
+  - entity_id:
+    - switch.social_apartment_living_room_kitchen_space
+    action: switch.turn_on
+  - entity_id:
+    - switch.social_apartment_living_room_rack_space
+    action: switch.turn_on
+  - entity_id:
+    - switch.social_apartment_living_room_vidja_space
+    action: switch.turn_on
+  turn_off:
+  - entity_id:
+    - switch.physical_apartment_living_room_main_space
+    action: switch.turn_off
+  - entity_id:
+    - switch.social_apartment_living_room_kitchen_space
+    action: switch.turn_off
+  - entity_id:
+    - switch.social_apartment_living_room_picture_frame
+    action: switch.turn_off
+  - entity_id:
+    - switch.social_apartment_living_room_rack_space
+    action: switch.turn_off
+  - entity_id:
+    - switch.social_apartment_living_room_tv
+    action: switch.turn_off
+  - entity_id:
+    - switch.social_apartment_living_room_vidja_space
+    action: switch.turn_off
+  state: >-
+      {{
+        is_state('switch.physical_apartment_living_room_main_space', 'on')
+      or
+        is_state('switch.social_apartment_living_room_kitchen_space', 'on')
+      or
+        is_state('switch.social_apartment_living_room_picture_frame', 'on')
+      or
+        is_state('switch.social_apartment_living_room_rack_space', 'on')
+      or
+        is_state('switch.social_apartment_living_room_tv', 'on')
+      or
+        is_state('switch.social_apartment_living_room_vidja_space', 'on')
+      }}

@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.physical_house_bathroom_left_philips_motion_temperature:
+  icon: mdi:thermometer
+  friendly_name: physical/house/bathroom/left/philips_motion/temperature

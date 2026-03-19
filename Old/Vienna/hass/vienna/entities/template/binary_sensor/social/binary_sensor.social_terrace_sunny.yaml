@@ -1,0 +1,8 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: social/terrace/sunny
+  unique_id: binary_sensor.social_terrace_sunny
+  device_class: light
+  delay_on: 00:05:00
+  delay_off: 00:05:00
+  state: "{{ (states('sensor.physical_terrace_signify_motion_illuminance') != 'unknown') and (states('sensor.physical_terrace_signify_motion_illuminance') != 'unavailable') and (states('input_number.social_sunny_threshold') | int) < (states('sensor.physical_terrace_signify_motion_illuminance') | int) }}"

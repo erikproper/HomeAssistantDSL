@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/garage/rear/ikea_motion/node
+  unique_id: binary_sensor.infrastructural_garage_rear_ikea_motion_node
+  device_class: connectivity
+  state: "{{ states('binary_sensor.physical_garage_rear_ikea_motion_motion') != 'unavailable' }}"

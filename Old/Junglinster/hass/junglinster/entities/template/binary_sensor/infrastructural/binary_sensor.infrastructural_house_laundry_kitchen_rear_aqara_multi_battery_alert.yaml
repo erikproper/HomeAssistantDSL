@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/house/laundry_kitchen/rear/aqara_multi/battery_alert
+  unique_id: binary_sensor.infrastructural_house_laundry_kitchen_rear_aqara_multi_battery_alert
+  device_class: battery
+  state: "{{ (states('sensor.infrastructural_house_laundry_kitchen_rear_aqara_multi_battery_level') | int(0)) < 15 }}"

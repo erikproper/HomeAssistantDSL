@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/apartment/living_room/tv_switch/node
+  unique_id: binary_sensor.infrastructural_apartment_living_room_tv_switch_node
+  device_class: connectivity
+  state: "{{ states('switch.social_apartment_living_room_tv') != 'unavailable' }}"

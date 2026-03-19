@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/apartment/bedroom/aqara_windoor/node
+  unique_id: binary_sensor.infrastructural_apartment_bedroom_aqara_windoor_node
+  device_class: connectivity
+  state: "{{ states('sensor.infrastructural_apartment_bedroom_aqara_windoor_battery_level') != 'unavailable' }}"

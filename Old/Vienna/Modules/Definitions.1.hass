@@ -1,0 +1,370 @@
+###
+#
+# Definitions of entities
+#
+###
+
+function DefineGlobals {
+  # This should be the case anyway, but just making sure
+  CurrentSpaceFolder=$Spaces
+  
+  for g in $AggregateGlobalAlert; do
+    if HasGlobalCollection $g; then
+      Sphere=$(SphereOf $g)
+      
+      entity declare binary_sensor.$Sphere::$g aggregated
+        icon $(IconOf $g)
+        AggregatedGroupDefinition $Spaces $GlobalCollections $g
+    fi
+  done
+
+  if HasLocalCollection window || HasLocalCollection door; then
+    CatLocalCollection window | CatToLocalCollection windoor
+    CatLocalCollection door   | CatToLocalCollection windoor
+
+    entity declare binary_sensor.social::windoor aggregated
+      AggregatedGroupDefinition $CurrentSpaceFolder $LocalCollections windoor
+  fi
+}
+
+function bridge { # $* = Bridge specification
+  bridge_$1 "$2" "$3" "$4" "$5" "$6"
+} 
+
+function bridge_hass { # $1 = Host of HASS instance
+  mkdir -p $HASSBridges/$1
+  HASSConfigFile=$HASSBridges/$1/config
+
+  HostName="$1"
+  echo "HostName=$HostName" > $HASSConfigFile
+}
+
+function main { # $1 = Host of main HASS instance
+  MainHASS="$1"
+  bridge_hass $MainHASS
+} 
+
+function begin { # $* = Specification
+  begin_$*
+}
+
+function begin_space { # $1 = Name, $2 = No collectety 
+  Name="$1"
+  NoCollect="$2"
+
+  if [ "$Name" != "" ]; then
+    NewSpaceFolder=$CurrentSpaceFolder/$SpaceFolderPrefix$Name
+    mkdir -p $NewSpaceFolder
+  else
+    NewSpaceFolder=$CurrentSpaceFolder
+    Name="social:"
+  fi
+
+  CreateCrumbFile $NewSpaceFolder 
+
+  CurrentSpaceFolder=$NewSpaceFolder
+
+  entity declare switch.$Name:space no_collect
+  LinkSpaceDataFile
+
+  CurrentSpaceLocation=$Location
+}
+
+function begin_virtual_space { # $1 = Space name specification
+  begin_space "$1" no_collect
+}
+
+function end { # $* = Specification
+  end_$*
+}
+
+function EndSpaceGeneric {
+  ReadSpaceDataFile
+
+  if ! HasProperty $CurrentSpaceFolder $LightOnProperty; then
+    light_on @all
+  fi
+
+  if ! HasProperty $CurrentSpaceFolder $ThisSpaceOffProperty; then
+    space_off @all
+  fi
+
+  CatLocalCollection $ThisSpaceOff | CatToLocalCollection $SpaceOff
+  CatLocalCollection $ThisSpaceOn  | CatToLocalCollection $SpaceOn
+
+  SpaceOffCollection="$(CatForcedOnOfEntityCollection $CurrentSpaceFolder $LocalCollections $SpaceOff)"
+  SpaceOnCollection="$( CatForcedOnOfEntityCollection $CurrentSpaceFolder $LocalCollections $SpaceOn)"
+
+  AggregatedOnOffCollectionDefinition "$SpaceOnCollection" "$SpaceOffCollection"
+
+  AddToEnvironmentProperty $HASSFullName $CurrentSpaceFolder $LocalCollections $SpaceOff
+  AddToEnvironmentProperty $HASSFullName $CurrentSpaceFolder $LocalCollections $SpaceOn
+}
+
+function end_space {
+  EndSpaceGeneric
+  
+  for s in $AggregateLocal; do
+    if HasLocalCollection $s; then
+      AggregateLocalGroup $s
+
+      for e in $(CatLocalCollection $s); do
+        AvailableRequires "$e"
+      done
+    fi
+  done
+
+  ReadCrumbFile
+} 
+
+function end_virtual_space {
+  EndSpaceGeneric
+      
+  for s in $AggregateVirtualLocal; do
+    if HasLocalCollection $s; then
+      AggregateLocalGroup $s
+
+      for e in $(CatLocalCollection $s); do
+        AvailableRequires "$e"
+      done
+    fi
+  done
+
+  ReadCrumbFile
+} 
+
+function entity {
+  entity_$*
+}
+
+function entity_declare { # $1 = EntitySpecification, $* = Options
+  Entity="$1"
+  shift
+
+  RegisterEntity $Entity $*
+}
+
+function icon { # $1 = Icon
+  Icon="$1"
+
+  AddToProperty "Icon=\"$Icon\"" $CurrentEntityFolder $DataFile
+}
+
+function import { # $* = Specification
+  import_$1 "$2" "$3" "$4" "$5" "$6"
+ 
+  DefineProperty $CurrentEntityFolder $ImportProperty
+} 
+
+function bridge_cpu {
+ echo -n
+}
+
+function define_cpu {
+ echo -n
+}
+
+function define_ping { # $1 = Host, $2 = Enablerety
+  PingDefinition $1 $2
+}
+
+function define_switched_device { # $1 = SwitchedEntity, $2 = SwitchingEntity
+  SwitchedDeviceDefinition "$1" "$2"
+}
+
+function define_enabled_device { # $1 = EnabledEntity, $2 = EnablingEntity
+  EnabledDeviceDefinition "$1" "$2"
+}
+
+function define_timer { # $1 = Time
+  SensorTimerDefinition "$1"
+}
+
+function define_flip { # $1 = Source entity
+  SwitchFlipDefinition "$1"
+}
+
+function define_value { # $1 = Value
+  SensorValueDefinition "$1"
+}
+
+function define_adjust { # $1 = Add, $2 = Scale
+  SensorAdjustDefinition "$1" "$2"
+}
+
+function define_template {
+  DefineProperty $CurrentEntityFolder $TemplateProperty
+}
+
+function define_constant { # $1 = Constant
+  BinarySensorConstantDefinition "$1"
+}
+
+function define_satisfies { # $1 = Entity specification, $2 = Condition, $3 = delay onety, $4 = delay offety
+  BinarySensorSatisfiesDefinition "$1" "$2" "$3" "$4"
+}
+
+function define_has_state { # $1 = Entity specification, $2 = State, $3 = delay onety, $4 = delay offety
+  BinarySensorHasStateDefinition "$1" "$2" "$3" "$4"
+}
+
+function define_is_available { # $1 = Entity specification, $3 = Durationety
+  BinarySensorSatisfiesDefinition "$1" "$ != 'unavailable'"
+}
+
+function define_media_switch { # $1 = Mediaplayer specification, $2 = ExternalSourcety
+  MediaSwitchDefinition "$1" "$2"
+}
+
+function define { # $* = Specification
+  if [ "$1" != "" ]; then
+    define_$1 "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9"
+  fi
+} 
+
+function follows { # $1 = follower, $2 = leader, $3 = OnDelayety, $4 = OffDelayety
+  GenerateFollows $1 $2 "$3" "$4"
+}
+
+function provides { # $* = Specifations
+  provides_$*
+}
+
+function provides_device_node { # $1 = Node entity name, $2 = Enablerety, $3 = Delayety
+  DeviceNodeRepresentativeEntity="$CurrentEntitySpecification"
+  DeviceNodeRepresentativeEntityFolder="$CurrentEntityFolder"
+
+  entity declare binary_sensor.infrastructural:$1:node
+    if [ "$2" != "" ]; then
+      NodeEnablerCondition $2 $3
+    fi
+    define is_available "$DeviceNodeRepresentativeEntity"
+
+  ReadDataFile $DeviceNodeRepresentativeEntityFolder #$3
+}
+
+function sunny { # $1 = Sensor specification, $2 = delay onety, $3 = delay offety
+  GenerateSunny "$1" "$2" "$3"
+}
+
+function open_stop_close { # $1 = No collectety
+  CoverOpenStopClose $1
+}
+
+function available_always {
+  echo -n # Work to do AA
+}
+
+#function available_requires {
+#  echo -n # Work to do AR
+#}
+
+#function available_defined_by {
+#  echo -n # Work to do AD
+#}
+
+function available {
+  available_$1 "$2" "$3" "$4" "$5"
+}
+
+function limits { # $1 = timer, $2 = entity, $3 = end state, $4 = start state
+  GenerateLimits $*
+}
+
+function lights_motion_guarded { # $1 = Timeout in Minutes
+  GenerateLightMotionGuardingForThisSpace $1
+}
+
+function heating_leak { # $1 = EntitySpecification
+  HASSReferenceInContext "$1" | CatToProperty $CurrentSpaceFolder $HeatingLeaksProperty
+}
+
+function light_on { # $* = Lights
+  for l in $*; do
+    ( 
+      if [ "$l" == "@all" ]; then
+        CatLocalCollection light 
+      else
+        HASSReferenceInContext $l light 
+      fi 
+    ) | CatToProperty $CurrentSpaceFolder $LightOnProperty
+  done
+}
+
+function space_on { # $* = Entities specifications
+  for s in $*; do
+    (
+      if [ "$s" == "@all" ]; then
+        CatLocalCollection member 
+        CatLocalCollection light
+        CatLocalCollection media  
+      elif [ "$s" == "@light" ]; then
+        CatLocalCollection light 
+      elif [ "$s" == "@media" ]; then
+        CatLocalCollection media 
+      else
+        HASSReferenceInContext $s switch 
+      fi
+    ) | CatToProperty $CurrentSpaceFolder $ThisSpaceOnProperty
+  done
+}
+
+function space_off { # $* = Entities specifications
+  for s in $*; do
+    (
+      if [ "$s" == "@all" ]; then
+        CatLocalCollection member 
+        CatLocalCollection light
+        CatLocalCollection media  
+      elif [ "$s" == "@light" ]; then
+        CatLocalCollection light 
+      elif [ "$s" == "@media" ]; then
+        CatLocalCollection media 
+      else
+        HASSReferenceInContext $s switch 
+      fi
+    ) | CatToProperty $CurrentSpaceFolder $ThisSpaceOffProperty
+  done
+}
+
+function member { # $1 = Space specification 
+  for p in $AggregateVirtualLocal; do
+    if SpaceHasLocalCollection switch.$1:space $p; then
+      CatLocalCollectionOfSpace switch.$1:space $p | CatToLocalCollection $p
+    fi
+  done
+
+  HASSReferenceInContext switch.$1:space | CatToLocalCollection $ThisSpaceOff
+}
+
+function windy { # $1 = Sensor specification, $2 = delay onety, $3 = delay offety
+  GenerateWindy "$1" "$2" "$3"
+}
+
+function always_on { # $1 = Entity specification
+  GenerateAlwaysOn $1
+}
+
+function list { # $1 = List, $2=Showety, $3 = List specification
+  CurrentList="$(echo $1 | sed -e "s/ /_/g" | tr '[:upper:]' '[:lower:]')"
+
+  (
+    echo "File=\"$File\""
+    echo "List=\"$1\""
+    echo "Show=\"$2\""
+    shift
+    shift
+    echo "Selection=\"$*\""
+  ) | CatToFile $Lists $CurrentList $DataFile
+  
+  echo -n "cat" | CatToFile $Lists $CurrentList $FilterFile
+}
+
+function clean_prefix {
+  echo -n " | sed -e \"s/^$1\///\""  | CatToFile $Lists $CurrentList $FilterFile
+}
+
+function clean_postfix {
+  echo -n " | sed -e \"s/\/$1\$//\"" | CatToFile $Lists $CurrentList $FilterFile
+}
+

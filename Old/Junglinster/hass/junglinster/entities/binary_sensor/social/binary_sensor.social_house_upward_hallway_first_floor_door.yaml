@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/upward_hallway/first_floor/door
+unique_id: binary_sensor.social_house_upward_hallway_first_floor_door
+entities:
+- binary_sensor.physical_house_upward_hallway_first_floor_entrance_aqara_magnet_door

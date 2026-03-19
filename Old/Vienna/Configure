@@ -1,0 +1,51 @@
+#!/bin/bash
+
+Modules=$PWD/Modules
+Settings=$PWD/Settings
+Definitions=$PWD/Definitions
+Macros=$PWD/Macros
+
+source $Modules/Bootstrap
+
+echo Reading modules:
+  ReadModules
+echo
+
+echo Reading macros:
+  ReadMacros
+echo
+
+echo Cleaning generated things:
+  source $CleaningScript
+echo
+
+echo Reading settings:
+  ReadSettings
+echo
+
+echo Reading definitions:
+  ReadDefinitions
+echo
+
+echo Checking usage of entities ...
+  CheckEntityUsage
+echo
+
+echo Generating configurations:
+  source $GeneratingScript
+echo
+
+echo Generating lists:
+  GenerateLists
+echo
+
+if [ "$1" != "-c" ]; then
+  echo Checking all of the assumed to be pre-defined entities ...
+    source $CheckEntities
+  echo
+fi
+
+echo Defined $EntityCount entities
+echo
+
+rm $CleaningScript $GeneratingScript

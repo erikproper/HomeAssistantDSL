@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/laundry_kitchen
+unique_id: light.social_house_laundry_kitchen
+entities:
+- light.social_house_laundry_kitchen_main

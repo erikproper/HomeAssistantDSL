@@ -1,0 +1,9 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/storage_room/illuminance
+unique_id: sensor.social_house_storage_room_illuminance
+type: mean
+ignore_non_numeric: true
+state_class: measurement
+entities:
+- sensor.physical_house_storage_room_philips_motion_illuminance

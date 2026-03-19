@@ -1,0 +1,7 @@
+### This file was automatically generated. Don't edit it!
+social_house_master_bedroom_house_master_bedroom_cover_stop:
+  alias: social/house/master_bedroom/house/master_bedroom/cover_stop
+  mode: queued
+  sequence:
+  - service: cover.stop_cover
+    entity_id: cover.social_house_master_bedroom

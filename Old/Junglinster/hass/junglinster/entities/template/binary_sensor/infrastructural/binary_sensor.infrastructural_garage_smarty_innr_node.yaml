@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/garage/smarty/innr/node
+  unique_id: binary_sensor.infrastructural_garage_smarty_innr_node
+  device_class: connectivity
+  state: "{{ states('switch.infrastructural_garage_smarty') != 'unavailable' }}"

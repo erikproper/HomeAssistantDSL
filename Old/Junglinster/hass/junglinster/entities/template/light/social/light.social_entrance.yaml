@@ -1,0 +1,23 @@
+### This file was automatically generated. Don't edit it!
+light:
+- name: social/entrance
+  unique_id: light.social_entrance
+  default_entity_id: light.social_entrance
+  icon: mdi:lightbulb-group
+  turn_on:
+  - entity_id:
+    - light.social_entrance_front_door
+    action: light.turn_on
+  turn_off:
+  - entity_id:
+    - light.social_entrance_carport
+    action: light.turn_off
+  - entity_id:
+    - light.social_entrance_front_door
+    action: light.turn_off
+  state: >-
+      {{
+        is_state('light.social_entrance_carport', 'on')
+      or
+        is_state('light.social_entrance_front_door', 'on')
+      }}

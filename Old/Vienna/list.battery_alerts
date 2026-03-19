@@ -1,0 +1,89 @@
+entities:
+  - entity: binary_sensor.infrastructural_apartment_bedroom_aqara_windoor_battery_alert
+    name: 'apartment/bedroom/aqara_windoor'
+  - entity: binary_sensor.infrastructural_apartment_bedroom_bed_moes_battery_alert
+    name: 'apartment/bedroom/bed/moes'
+  - entity: binary_sensor.infrastructural_apartment_bedroom_bed_shortcut_left_battery_alert
+    name: 'apartment/bedroom/bed/shortcut/left'
+  - entity: binary_sensor.infrastructural_apartment_bedroom_bed_shortcut_right_battery_alert
+    name: 'apartment/bedroom/bed/shortcut/right'
+  - entity: binary_sensor.infrastructural_apartment_bedroom_door_moes_1_battery_alert
+    name: 'apartment/bedroom/door/moes/1'
+  - entity: binary_sensor.infrastructural_apartment_bedroom_door_moes_2_battery_alert
+    name: 'apartment/bedroom/door/moes/2'
+  - entity: binary_sensor.infrastructural_apartment_bedroom_frient_battery_alert
+    name: 'apartment/bedroom/frient'
+  - entity: binary_sensor.infrastructural_apartment_bedroom_hallway_door_moes_1_battery_alert
+    name: 'apartment/bedroom/hallway/door/moes/1'
+  - entity: binary_sensor.infrastructural_apartment_bedroom_hallway_door_moes_2_battery_alert
+    name: 'apartment/bedroom/hallway/door/moes/2'
+  - entity: binary_sensor.infrastructural_apartment_bedroom_netatmo_battery_alert
+    name: 'apartment/bedroom/netatmo'
+  - entity: binary_sensor.infrastructural_apartment_bedroom_sonos_battery_alert
+    name: 'apartment/bedroom/sonos'
+  - entity: binary_sensor.infrastructural_apartment_hallway_aqara_windoor_battery_alert
+    name: 'apartment/hallway/aqara_windoor'
+  - entity: binary_sensor.infrastructural_apartment_hallway_bedroom_door_moes_battery_alert
+    name: 'apartment/hallway/bedroom/door/moes'
+  - entity: binary_sensor.infrastructural_apartment_hallway_door_aqara_multi_battery_alert
+    name: 'apartment/hallway/door/aqara_multi'
+  - entity: binary_sensor.infrastructural_apartment_hallway_door_moes_battery_alert
+    name: 'apartment/hallway/door/moes'
+  - entity: binary_sensor.infrastructural_apartment_hallway_frient_battery_alert
+    name: 'apartment/hallway/frient'
+  - entity: binary_sensor.infrastructural_apartment_living_room_bitron_thermostat_battery_alert
+    name: 'apartment/living_room/bitron_thermostat'
+  - entity: binary_sensor.infrastructural_apartment_living_room_hallway_door_moes_1_battery_alert
+    name: 'apartment/living_room/hallway_door/moes/1'
+  - entity: binary_sensor.infrastructural_apartment_living_room_hallway_door_moes_2_battery_alert
+    name: 'apartment/living_room/hallway_door/moes/2'
+  - entity: binary_sensor.infrastructural_apartment_living_room_hallway_door_moes_3_battery_alert
+    name: 'apartment/living_room/hallway_door/moes/3'
+  - entity: binary_sensor.infrastructural_apartment_living_room_hallway_door_moes_4_battery_alert
+    name: 'apartment/living_room/hallway_door/moes/4'
+  - entity: binary_sensor.infrastructural_apartment_living_room_kitchen_aqara_water_battery_alert
+    name: 'apartment/living_room/kitchen/aqara_water'
+  - entity: binary_sensor.infrastructural_apartment_living_room_kitchen_aqara_windoor_battery_alert
+    name: 'apartment/living_room/kitchen/aqara_windoor'
+  - entity: binary_sensor.infrastructural_apartment_living_room_kitchen_door_moes_1_battery_alert
+    name: 'apartment/living_room/kitchen/door/moes/1'
+  - entity: binary_sensor.infrastructural_apartment_living_room_kitchen_door_moes_2_battery_alert
+    name: 'apartment/living_room/kitchen/door/moes/2'
+  - entity: binary_sensor.infrastructural_apartment_living_room_kitchen_fridge_aqara_windoor_battery_alert
+    name: 'apartment/living_room/kitchen/fridge/aqara_windoor'
+  - entity: binary_sensor.infrastructural_apartment_living_room_living_aqara_windoor_battery_alert
+    name: 'apartment/living_room/living/aqara_windoor'
+  - entity: binary_sensor.infrastructural_apartment_living_room_living_door_moes_1_battery_alert
+    name: 'apartment/living_room/living/door/moes/1'
+  - entity: binary_sensor.infrastructural_apartment_living_room_living_door_moes_2_battery_alert
+    name: 'apartment/living_room/living/door/moes/2'
+  - entity: binary_sensor.infrastructural_apartment_living_room_philips_motion_battery_alert
+    name: 'apartment/living_room/philips_motion'
+  - entity: binary_sensor.infrastructural_apartment_living_room_rack_aqara_multi_battery_alert
+    name: 'apartment/living_room/rack/aqara_multi'
+  - entity: binary_sensor.infrastructural_apartment_living_room_roborock_battery_alert
+    name: 'apartment/living_room/roborock'
+  - entity: binary_sensor.infrastructural_apartment_living_room_signify_dimmer_battery_alert
+    name: 'apartment/living_room/signify_dimmer'
+  - entity: binary_sensor.infrastructural_apartment_shower_room_aqara_water_battery_alert
+    name: 'apartment/shower_room/aqara_water'
+  - entity: binary_sensor.infrastructural_apartment_shower_room_door_moes_1_battery_alert
+    name: 'apartment/shower_room/door/moes/1'
+  - entity: binary_sensor.infrastructural_apartment_shower_room_door_moes_2_battery_alert
+    name: 'apartment/shower_room/door/moes/2'
+  - entity: binary_sensor.infrastructural_apartment_shower_room_mirror_moes_battery_alert
+    name: 'apartment/shower_room/mirror/moes'
+  - entity: binary_sensor.infrastructural_apartment_shower_room_netatmo_battery_alert
+    name: 'apartment/shower_room/netatmo'
+  - entity: binary_sensor.infrastructural_apartment_shower_room_philips_motion_battery_alert
+    name: 'apartment/shower_room/philips_motion'
+  - entity: binary_sensor.infrastructural_terrace_netatmo_outdoor_battery_alert
+    name: 'terrace/netatmo_outdoor'
+  - entity: binary_sensor.infrastructural_terrace_netatmo_windmeter_battery_alert
+    name: 'terrace/netatmo_windmeter'
+  - entity: binary_sensor.infrastructural_terrace_signify_motion_battery_alert
+    name: 'terrace/signify_motion'
+title: Battery alerts
+state_color: true
+type: entities
+show_header_toggle: false

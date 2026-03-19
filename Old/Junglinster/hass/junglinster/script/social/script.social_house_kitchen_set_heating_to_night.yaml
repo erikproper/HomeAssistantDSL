@@ -1,0 +1,9 @@
+### This file was automatically generated. Don't edit it!
+social_house_kitchen_set_heating_to_night:
+  alias: social/house/kitchen/set_heating_to_night
+  mode: queued
+  sequence:
+  - service: input_number.set_value
+    data:
+      entity_id: input_number.social_house_kitchen_temperature_desired
+      value: "{{ states('input_number.social_house_kitchen_heating_target_preset_for_night') }}"

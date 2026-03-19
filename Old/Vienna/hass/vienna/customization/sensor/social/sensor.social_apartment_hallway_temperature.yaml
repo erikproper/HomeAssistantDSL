@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.social_apartment_hallway_temperature:
+  icon: mdi:thermometer
+  friendly_name: social/apartment/hallway/temperature

@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.physical_garage_rear_ikea_motion_motion:
+  icon: mdi:motion-sensor
+  friendly_name: physical/garage/rear/ikea_motion/motion

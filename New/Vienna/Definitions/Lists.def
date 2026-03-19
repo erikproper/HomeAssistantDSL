@@ -1,0 +1,80 @@
+# Migrated preview; generated on 18.03.2026.
+# House: Vienna
+# Target: Lists.def
+# Source: Old/Vienna/Definitions/03_lists.def
+
+# This file keeps the legacy list selections, but normalizes them into explicit begin/end blocks.
+
+list "Nodes" all binary_sensor.*:*:node
+  begin
+    clean_prefix  infrastructural;
+    clean_postfix node;
+    clean_prefix  apartment;
+  end;
+
+list "Windoors" all binary_sensor.*:*:door binary_sensor.*:*:window
+  begin
+    clean_prefix  social;
+    clean_prefix  physical;
+    clean_prefix  apartment;
+  end;
+
+list "Water" all binary_sensor.*:*:water
+  begin
+    clean_prefix  social;
+    clean_prefix  physical;
+    clean_prefix  apartment;
+  end;
+
+list "Battery levels" all sensor.*:*:battery_level
+  begin
+    clean_prefix  infrastructural;
+    clean_postfix battery_level;
+  end;
+
+list "Battery alerts" all binary_sensor.*:*:battery_alert
+  begin
+    clean_prefix  infrastructural;
+    clean_postfix battery_alert;
+  end;
+
+list "Radios" all sensor.*:*:radio
+  begin
+    clean_prefix  infrastructural;
+    clean_postfix radio;
+  end;
+
+list "Temperatures" all sensor.*:*:temperature
+  begin
+    clean_prefix  social;
+    clean_prefix  physical;
+    clean_prefix  infrastructural;
+    clean_prefix  apartment;
+  end;
+
+list "Thermostats" all climate.*
+  begin
+    clean_prefix  social;
+    clean_prefix  physical;
+    clean_prefix  apartment;
+    clean_postfix thermostat;
+  end;
+
+list "Covers" all cover.*
+  begin
+    clean_prefix  social;
+    clean_prefix  physical;
+    clean_prefix  apartment;
+  end;
+
+list "Ignore no motion" all input_boolean.*:*:no_motion/ignore
+  begin
+    clean_prefix  social;
+    clean_postfix no_motion.ignore;
+  end;
+
+list "Ignore leakage" all input_boolean.*:*:heating/leakage/ignore
+  begin
+    clean_prefix  social;
+    clean_postfix heating.leakage.ignore;
+  end;

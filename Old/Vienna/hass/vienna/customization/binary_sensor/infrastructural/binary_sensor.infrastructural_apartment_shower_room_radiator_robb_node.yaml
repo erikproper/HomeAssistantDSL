@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_apartment_shower_room_radiator_robb_node:
+  icon: mdi:server-network
+  friendly_name: infrastructural/apartment/shower_room/radiator/robb/node

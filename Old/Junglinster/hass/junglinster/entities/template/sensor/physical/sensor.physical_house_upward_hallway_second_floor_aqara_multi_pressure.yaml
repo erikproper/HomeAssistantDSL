@@ -1,0 +1,8 @@
+### This file was automatically generated. Don't edit it!
+sensor:
+- name: physical/house/upward_hallway/second_floor/aqara_multi/pressure
+  unique_id: sensor.physical_house_upward_hallway_second_floor_aqara_multi_pressure
+  unit_of_measurement: "mbar"
+  device_class: atmospheric_pressure
+  state_class: measurement
+  state: "{{ states('sensor.physical_house_upward_hallway_second_floor_aqara_multi_pressure_raw') | float(0) + 38 }}"

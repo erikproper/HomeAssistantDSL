@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.infrastructural_house_server_room_xanadu_temperature:
+  icon: mdi:thermometer
+  friendly_name: infrastructural/house/server_room/xanadu/temperature

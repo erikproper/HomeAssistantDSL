@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.physical_entrance_garage_door_temperature:
+  icon: mdi:thermometer
+  friendly_name: physical/entrance/garage_door/temperature

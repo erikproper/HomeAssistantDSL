@@ -1,0 +1,7 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/apartment/bedroom/bed
+unique_id: light.social_apartment_bedroom_bed
+entities:
+- light.social_apartment_bedroom_bed_left
+- light.social_apartment_bedroom_bed_right

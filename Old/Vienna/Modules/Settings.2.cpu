@@ -1,0 +1,4 @@
+CPUConfigs=$PWD/cpu
+mkdir -p $CPUConfigs
+
+echo "CleanCPU" >> $CleaningScript

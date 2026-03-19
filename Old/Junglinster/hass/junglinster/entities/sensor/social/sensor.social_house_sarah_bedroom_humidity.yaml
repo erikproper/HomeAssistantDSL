@@ -1,0 +1,9 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/sarah_bedroom/humidity
+unique_id: sensor.social_house_sarah_bedroom_humidity
+type: mean
+ignore_non_numeric: true
+state_class: measurement
+entities:
+- sensor.physical_house_sarah_bedroom_netatmo_humidity

@@ -1,0 +1,5 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: social/house/rainwater_pump/consumes
+  unique_id: binary_sensor.social_house_rainwater_pump_consumes
+  state: "{{ (states('sensor.social_house_rainwater_pump_power') | int(0)) > 10 }}"

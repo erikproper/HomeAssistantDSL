@@ -1,0 +1,7 @@
+### This file was automatically generated. Don't edit it!
+social_house_upward_hallway_set_heating_to_around:
+  alias: social/house/upward_hallway/set_heating_to_around
+  mode: queued
+  sequence:
+  - service: script.turn_on
+    entity_id: script.social_house_upward_hallway_first_floor_set_heating_to_around

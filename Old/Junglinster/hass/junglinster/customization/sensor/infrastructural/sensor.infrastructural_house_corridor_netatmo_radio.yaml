@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.infrastructural_house_corridor_netatmo_radio:
+  icon: mdi:signal
+  friendly_name: infrastructural/house/corridor/netatmo/radio

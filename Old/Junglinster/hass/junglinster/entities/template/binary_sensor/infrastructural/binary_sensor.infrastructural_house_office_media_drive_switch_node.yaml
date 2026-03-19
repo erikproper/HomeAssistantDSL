@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/house/office/media_drive/switch/node
+  unique_id: binary_sensor.infrastructural_house_office_media_drive_switch_node
+  device_class: connectivity
+  state: "{{ states('switch.social_house_office_media_drive') != 'unavailable' }}"

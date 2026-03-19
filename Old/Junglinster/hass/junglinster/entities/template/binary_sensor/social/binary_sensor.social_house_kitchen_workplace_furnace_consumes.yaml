@@ -1,0 +1,5 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: social/house/kitchen/workplace/furnace/consumes
+  unique_id: binary_sensor.social_house_kitchen_workplace_furnace_consumes
+  state: "{{ ( states('sensor.physical_house_kitchen_workplace_furnace_power') | int(0) > 50 ) }}"

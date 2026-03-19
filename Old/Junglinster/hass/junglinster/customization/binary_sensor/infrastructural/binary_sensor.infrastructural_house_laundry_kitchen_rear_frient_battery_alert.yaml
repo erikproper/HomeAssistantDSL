@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_house_laundry_kitchen_rear_frient_battery_alert:
+  icon: mdi:battery-alert
+  friendly_name: infrastructural/house/laundry_kitchen/rear/frient/battery_alert

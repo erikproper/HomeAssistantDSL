@@ -1,0 +1,12 @@
+function entity_switch_device {
+  if [ "$2" == "" ]; then
+    SwitchSphere="social"
+    SwitchName="$1"
+  else
+    SwitchSphere="$1"
+    SwitchName="$2"
+  fi
+ 
+  entity declare switch.$SwitchSphere:$SwitchName
+    provides device_node $SwitchName/switch
+}

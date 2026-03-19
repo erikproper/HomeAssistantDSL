@@ -1,0 +1,12 @@
+### This file was automatically generated. Don't edit it!
+social_house_bathroom_set_heating_to_around:
+  alias: social/house/bathroom/set_heating_to_around
+  mode: queued
+  sequence:
+  - service_template: >
+      {% if is_state('input_boolean.social_house_bathroom_heating_mode_preset_for_around', 'on') %}
+        input_boolean.turn_on
+      {% else %}
+        input_boolean.turn_off
+      {% endif %}
+    entity_id: input_boolean.social_house_bathroom_heating_mode_desired

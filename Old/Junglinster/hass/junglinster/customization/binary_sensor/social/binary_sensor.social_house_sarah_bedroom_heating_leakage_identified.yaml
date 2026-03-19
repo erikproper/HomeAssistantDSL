@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.social_house_sarah_bedroom_heating_leakage_identified:
+  icon: mdi:radiator
+  friendly_name: social/house/sarah_bedroom/heating/leakage/identified

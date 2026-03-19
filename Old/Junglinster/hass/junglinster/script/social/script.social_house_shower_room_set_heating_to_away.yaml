@@ -1,0 +1,9 @@
+### This file was automatically generated. Don't edit it!
+social_house_shower_room_set_heating_to_away:
+  alias: social/house/shower_room/set_heating_to_away
+  mode: queued
+  sequence:
+  - service: input_number.set_value
+    data:
+      entity_id: input_number.social_house_shower_room_temperature_desired
+      value: "{{ states('input_number.social_house_shower_room_heating_target_preset_for_away') }}"

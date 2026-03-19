@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.physical_garage_heating_should_be_off:
+  icon: mdi:radiator
+  friendly_name: physical/garage/heating/should_be_off

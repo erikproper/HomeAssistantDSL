@@ -1,0 +1,29 @@
+entities:
+  - entity: input_boolean.social_garage_heating_leakage_ignore
+    name: 'garage'
+  - entity: input_boolean.social_house_bathroom_heating_leakage_ignore
+    name: 'house/bathroom'
+  - entity: input_boolean.social_house_corridor_heating_leakage_ignore
+    name: 'house/corridor'
+  - entity: input_boolean.social_house_david_bedroom_heating_leakage_ignore
+    name: 'house/david_bedroom'
+  - entity: input_boolean.social_house_kitchen_heating_leakage_ignore
+    name: 'house/kitchen'
+  - entity: input_boolean.social_house_living_room_heating_leakage_ignore
+    name: 'house/living_room'
+  - entity: input_boolean.social_house_master_bedroom_heating_leakage_ignore
+    name: 'house/master_bedroom'
+  - entity: input_boolean.social_house_office_heating_leakage_ignore
+    name: 'house/office'
+  - entity: input_boolean.social_house_sarah_bedroom_heating_leakage_ignore
+    name: 'house/sarah_bedroom'
+  - entity: input_boolean.social_house_shower_room_heating_leakage_ignore
+    name: 'house/shower_room'
+  - entity: input_boolean.social_house_storage_room_heating_leakage_ignore
+    name: 'house/storage_room'
+  - entity: input_boolean.social_house_upward_hallway_first_floor_heating_leakage_ignore
+    name: 'house/upward_hallway/first_floor'
+title: Ignore leakage
+state_color: true
+type: entities
+show_header_toggle: false

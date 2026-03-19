@@ -1,0 +1,9 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/bathroom/pressure
+unique_id: sensor.social_house_bathroom_pressure
+type: mean
+ignore_non_numeric: true
+state_class: measurement
+entities:
+- sensor.physical_house_bathroom_aqara_multi_pressure

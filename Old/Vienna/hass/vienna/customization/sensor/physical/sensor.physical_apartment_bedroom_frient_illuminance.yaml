@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.physical_apartment_bedroom_frient_illuminance:
+  icon: mdi:brightness-5
+  friendly_name: physical/apartment/bedroom/frient/illuminance

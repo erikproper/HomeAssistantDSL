@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/apartment/bedroom/bed/shortcut/right/battery_alert
+  unique_id: binary_sensor.infrastructural_apartment_bedroom_bed_shortcut_right_battery_alert
+  device_class: battery
+  state: "{{ (states('sensor.infrastructural_apartment_bedroom_bed_shortcut_right_battery_level') | int(0)) < 20 }}"

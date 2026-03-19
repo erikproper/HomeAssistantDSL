@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_apartment_hallway_bedroom_door_moes_node:
+  icon: mdi:server-network
+  friendly_name: infrastructural/apartment/hallway/bedroom/door/moes/node

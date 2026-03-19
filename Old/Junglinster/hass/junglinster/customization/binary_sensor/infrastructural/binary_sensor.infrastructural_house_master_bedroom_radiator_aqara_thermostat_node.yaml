@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_house_master_bedroom_radiator_aqara_thermostat_node:
+  icon: mdi:server-network
+  friendly_name: infrastructural/house/master_bedroom/radiator/aqara_thermostat/node

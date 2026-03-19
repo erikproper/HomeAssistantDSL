@@ -1,0 +1,19 @@
+### This file was automatically generated. Don't edit it!
+switch:
+- name: social/house/shower_room/sonos/media
+  unique_id: switch.social_house_shower_room_sonos_media
+  default_entity_id: switch.social_house_shower_room_sonos_media
+  turn_on:
+  - entity_id:
+    - input_boolean.infrastructural_dummy
+    action: input_boolean.turn_on
+  turn_off:
+  - entity_id:
+    - media_player.social_house_shower_room_sonos
+    action: media_player.media_stop
+  state: >-
+      {{
+        is_state('media_player.social_house_shower_room_sonos', 'on')
+      or
+        is_state('media_player.social_house_shower_room_sonos', 'playing')
+      }}

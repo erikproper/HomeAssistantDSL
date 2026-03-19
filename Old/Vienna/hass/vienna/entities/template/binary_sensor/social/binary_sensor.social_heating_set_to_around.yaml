@@ -1,0 +1,8 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: social/heating_set_to_around
+  unique_id: binary_sensor.social_heating_set_to_around
+  state: >-
+    {{
+      is_state('binary_sensor.social_apartment_heating_set_to_around', 'on')
+    }}

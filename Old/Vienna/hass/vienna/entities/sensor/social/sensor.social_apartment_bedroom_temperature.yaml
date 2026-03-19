@@ -1,0 +1,10 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/apartment/bedroom/temperature
+unique_id: sensor.social_apartment_bedroom_temperature
+type: mean
+ignore_non_numeric: true
+state_class: measurement
+entities:
+- sensor.physical_apartment_bedroom_frient_temperature
+- sensor.physical_apartment_bedroom_netatmo_temperature

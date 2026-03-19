@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.social_apartment_living_room_kitchen_fridge_door:
+  icon: mdi:fridge-variant-alert
+  friendly_name: social/apartment/living_room/kitchen/fridge/door

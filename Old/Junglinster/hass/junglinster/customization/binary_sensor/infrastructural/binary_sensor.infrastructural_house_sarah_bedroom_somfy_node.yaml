@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_house_sarah_bedroom_somfy_node:
+  icon: mdi:server-network
+  friendly_name: infrastructural/house/sarah_bedroom/somfy/node

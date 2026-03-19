@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.physical_house_kitchen_netatmo_co2:
+  icon: mdi:cloud
+  friendly_name: physical/house/kitchen/netatmo/co2

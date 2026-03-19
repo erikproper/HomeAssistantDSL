@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: social/house/sarah_bedroom/heating/leakage/identified
+  unique_id: binary_sensor.social_house_sarah_bedroom_heating_leakage_identified
+  delay_on: 00:05:00
+  state: "{{ is_state('binary_sensor.physical_house_sarah_bedroom_heating_leakage_evidence', 'on') }}"

@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/house/upward_hallway/second_floor/david_bedroom_door/switch_box/fibaro/node
+  unique_id: binary_sensor.infrastructural_house_upward_hallway_second_floor_david_bedroom_door_switch_box_fibaro_node
+  device_class: connectivity
+  state: "{{ states('light.social_house_upward_hallway_main') != 'unavailable' }}"

@@ -1,0 +1,11 @@
+### This file was automatically generated. Don't edit it!
+- alias: social/house/corridor/corb/follows/light/physical/house/corridor/main/turn_on
+  id: automation.social_house_corridor_corb_follows_light_physical_house_corridor_main_turn_on
+  initial_state: True
+  trigger:
+  - platform: state
+    entity_id: light.physical_house_corridor_main
+    to: 'on'
+  action:
+  - service: light.turn_on
+    entity_id: light.social_house_corridor_corb

@@ -1,0 +1,6 @@
+function entity_zwave_node {
+  entity declare sensor.infrastructural:$1/status
+  
+  entity declare binary_sensor.infrastructural:$1:node
+    define satisfies sensor.infrastructural:$1/status "($ == 'alive')"
+}

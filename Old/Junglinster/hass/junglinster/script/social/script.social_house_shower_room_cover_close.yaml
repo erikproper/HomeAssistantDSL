@@ -1,0 +1,7 @@
+### This file was automatically generated. Don't edit it!
+social_house_shower_room_cover_close:
+  alias: social/house/shower_room/cover_close
+  mode: queued
+  sequence:
+  - service: script.turn_on
+    entity_id: script.social_house_shower_room_house_shower_room_cover_close

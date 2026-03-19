@@ -1,0 +1,9 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/apartment/living_room/co2
+unique_id: sensor.social_apartment_living_room_co2
+type: mean
+ignore_non_numeric: true
+state_class: measurement
+entities:
+- sensor.physical_apartment_living_room_netatmo_co2

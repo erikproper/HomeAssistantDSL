@@ -1,0 +1,1235 @@
+# Migrated preview; generated on 18.03.2026.
+# House: Junglinster
+# Target: Entities.def
+# Source: Old/Junglinster/Definitions/02_entities.def
+
+# This file keeps the legacy entity structure, but normalizes blocks using with:/end; and statement ';'.
+
+declare entity sensor.social:power_total;
+# Availability depends on binary_sensor.infrastructural:smarty:node
+declare entity sensor.social:power_current;
+# Availability depends on binary_sensor.infrastructural:smarty:node
+
+space social:entrance with:
+  declare entity sensor._:/ems_esp_boiler_boiler_outside_temperature;
+  declare entity sensor.physical:garage_door:temperature with:
+    value sensor._:/ems_esp_boiler_boiler_outside_temperature;
+  end;
+  # Available if binary_sensor.infrastructural:/house/laundry_kitchen/ems:node is available.
+
+  declare entity switch.social:sockets with:
+    providing node /garage/fuse_box/zwave/028;
+  end;
+  declare entity light.social:front_door;
+  declare entity light.social:carport with:
+    providing node /house/server_room/zwave/027;
+  end;
+
+  declare entity binary_sensor.social:front_door:ding with:
+    providing node ring;
+  end;
+  declare entity binary_sensor.social:front_door:motion;
+  declare entity sensor.social:front_door/ring:volume;
+  declare entity sensor.infrastructural:front_door/ring:battery_level;
+  create battery_alert front_door/ring with:
+    alert_level 20;
+  end;
+
+  light on: social:front_door;
+  space off: @light;
+end;
+
+space social:terrace with:
+  space social:front with:
+    declare entity sensor.physical:netatmo:humidity;
+    declare entity sensor.physical:netatmo:temperature;
+    declare entity sensor.infrastructural:netatmo:radio;
+    declare entity sensor.infrastructural:netatmo:reachability;
+    declare entity binary_sensor.infrastructural:netatmo:node with:
+      condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
+    declare entity sensor.infrastructural:netatmo:battery_level;
+    create battery_alert netatmo with:
+      alert_level 20;
+    end;
+
+    declare entity light.social:main with:
+      providing node /house/server_room/fuse_box/zwave/024;
+    end;
+
+    space off: @light;
+  end;
+
+  space social:garden with:
+    declare entity sensor.physical:aqara_multi:humidity;
+    declare entity sensor.physical:aqara_multi:pressure;
+    declare entity sensor.physical:aqara_multi:temperature;
+    create battery_level_device aqara_multi with:
+      alert_level 15;
+    end;
+
+    declare entity light.social:main with:
+      providing node /house/server_room/fuse_box/zwave/027;
+    end;
+
+    space off: @light;
+  end;
+
+  declare entity cover.social:awnings with:
+    open_stop_close;
+    no_collect;
+    providing node /house/server_room/fuse_box/zwave/013;
+  end;
+
+  declare entity light.social:rear;
+
+  declare entity switch.social:sockets with:
+    providing node /house/server_room/fuse_box/zwave/025;
+  end;
+
+  light on: social:rear;
+  space off: switch.social:sockets @light;
+end;
+
+space social:garage with:
+  declare entity binary_sensor.infrastructural:smarty:node;
+  declare entity sensor.infrastructural:smarty:load with:
+    definition cli_sensor pi smarty.fritz.box ./cpu/load;
+    # Availability depends on binary_sensor.infrastructural:smarty:node
+  end;
+  declare entity sensor.infrastructural:smarty:temperature no_collect with:
+    definition cli_sensor pi smarty.fritz.box ./cpu/temperature;
+    # Availability depends on binary_sensor.infrastructural:smarty:node
+  end;
+  declare entity switch.infrastructural:smarty with:
+    providing node smarty/innr;
+  end;
+
+  declare entity sensor.physical:rear/aqara_multi:humidity;
+  declare entity sensor.physical:rear/aqara_multi:pressure with:
+    adjustment 38 1;
+  end;
+  declare entity sensor.physical:rear/aqara_multi:temperature;
+  create battery_level_device rear/aqara_multi with:
+    alert_level 15;
+  end;
+
+  declare entity binary_sensor.physical:rear/ikea_motion:motion with:
+    providing node rear/ikea_motion;
+  end;
+  declare entity sensor.infrastructural:rear/ikea_motion:battery_level;
+  create battery_alert rear/ikea_motion with:
+    alert_level 10;
+  end;
+
+  declare entity sensor.physical:front/aqara_multi:humidity;
+  declare entity sensor.physical:front/aqara_multi:pressure with:
+    adjustment 38 1;
+  end;
+  declare entity sensor.physical:front/aqara_multi:temperature;
+  create battery_level_device front/aqara_multi with:
+    alert_level 15;
+  end;
+
+  declare entity binary_sensor.physical:front/ikea_motion:motion with:
+    providing node front/ikea_motion;
+  end;
+  declare entity sensor.infrastructural:front/ikea_motion:battery_level;
+  create battery_alert front/ikea_motion with:
+    alert_level 10;
+  end;
+
+  declare entity binary_sensor.physical:garage_door/aqara_magnet:door;
+  create battery_level_device garage_door/aqara_magnet with:
+    alert_level 10;
+  end;
+
+  declare entity light.social:main with:
+    providing node /garage/fuse_box/zwave/019;
+  end;
+
+  create media_player sonos;
+
+  create thermostat radiator/aqara_thermostat;
+  create battery_level radiator/aqara_thermostat 20;
+
+  heating leak binary_sensor.social:door;
+
+  light on: social:main;
+  lights_motion_guarded 10;
+  space off: @light @media;
+end;
+
+space social:house with:
+  declare entity sensor.social:heating:power;
+
+  create power_switch switch.social:rainwater_pump with:
+    node zigbee;
+    threshold 10;
+  end;
+
+  declare entity binary_sensor.social:reservoir:warning with:
+    icon $WaterIcon;
+  end;
+
+  space social:laundry_kitchen with:
+    declare entity binary_sensor.infrastructural:ems:node;
+
+    declare entity light.social:main;
+
+    space social:rack with:
+      declare entity sensor.infrastructural:junglinster:load;
+      declare entity sensor.infrastructural:junglinster:temperature no_collect;
+    end;
+
+    declare entity sensor.physical:front/aqara_multi:humidity;
+    declare entity sensor.physical:front/aqara_multi:pressure with:
+      adjustment 38 1;
+    end;
+    declare entity sensor.physical:front/aqara_multi:temperature;
+    create battery_level_device front/aqara_multi with:
+      alert_level 15;
+    end;
+
+    declare entity sensor.physical:rear/aqara_multi:humidity;
+    declare entity sensor.physical:rear/aqara_multi:pressure with:
+      adjustment 38 1;
+    end;
+    declare entity sensor.physical:rear/aqara_multi:temperature;
+    create battery_level_device rear/aqara_multi with:
+      alert_level 15;
+    end;
+
+    declare entity binary_sensor.physical:rear/frient:motion;
+    declare entity sensor.physical:rear/frient:illuminance;
+    declare entity binary_sensor.physical:rear/frient:vibration;
+    create battery_level_device rear/frient;
+
+    declare entity binary_sensor.physical:front/frient:motion;
+    declare entity sensor.physical:front/frient:illuminance;
+    declare entity binary_sensor.physical:front/frient:vibration;
+    create battery_level_device front/frient;
+
+    space social:laundry with:
+      declare entity binary_sensor.physical:aqara_water:water;
+      create battery_level_device aqara_water;
+
+      create power_switch switch.social:washing with:
+        node robb/washing;
+        threshold 10;
+      end;
+      create power_switch switch.social:drying with:
+        node robb/drying;
+        threshold 10;
+      end;
+    end;
+
+    space social:water_pump with:
+      declare entity binary_sensor.physical:aqara_water:water;
+      create battery_level_device aqara_water;
+    end;
+
+    light on: social:main;
+    lights_motion_guarded 10;
+    space off: @light;
+  end;
+
+  space social:living_room with:
+    declare entity switch.social:tv with:
+      providing node tv_switch;
+    end;
+
+    create media_player sonos no_play "TV";
+    create media_player tv switch.social:tv;
+    create media_player apple_tv;
+
+    declare entity binary_sensor.infrastructural:sonos_playbar:node;
+    declare entity binary_sensor.infrastructural:sonos_subwoofer:node;
+    declare entity binary_sensor.infrastructural:sonos_surround_right:node;
+    declare entity binary_sensor.infrastructural:sonos_surround_left:node;
+    declare entity binary_sensor.infrastructural:orbi:node;
+    declare entity binary_sensor.infrastructural:connexoon:node;
+    declare entity binary_sensor.infrastructural:frame:node;
+    declare entity sensor.infrastructural:frame:load with:
+      definition cli_sensor pi 192.168.178.58 ./cpu/load;
+    end;
+    declare entity sensor.infrastructural:frame:temperature no_collect with:
+      definition cli_sensor pi 192.168.178.58 ./cpu/temperature;
+    end;
+
+    declare entity cover.social:front with:
+      open_stop_close;
+      providing node front/somfy;
+    end;
+    declare entity number.social:front:my_position;
+    declare entity button.social:front:to_my_position;
+    declare entity button.infrastructural:front/somfy:identify;
+
+    declare entity cover.social:rear with:
+      open_stop_close;
+      providing node rear/somfy;
+    end;
+    declare entity number.social:rear:my_position;
+    declare entity button.social:rear:to_my_position;
+    declare entity button.infrastructural:rear/somfy:identify;
+
+    create thermostat front/radiator/aqara_thermostat;
+    create battery_level front/radiator/aqara_thermostat 20;
+
+    create thermostat rear/radiator/aqara_thermostat;
+    create battery_level rear/radiator/aqara_thermostat 20;
+
+    declare entity sensor.physical:netatmo:co2;
+    declare entity sensor.physical:netatmo:humidity;
+    declare entity sensor.physical:netatmo:noise;
+    declare entity sensor.physical:netatmo:pressure;
+    declare entity sensor.physical:netatmo:temperature;
+    declare entity sensor.infrastructural:netatmo:radio;
+    declare entity sensor.infrastructural:netatmo:reachability;
+    declare entity binary_sensor.infrastructural:netatmo:node with:
+      condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
+
+    create battery_level_device dining/philips_dimmer with:
+      alert_level 20;
+    end;
+    create battery_level_device living/philips_dimmer with:
+      alert_level 20;
+    end;
+
+    create light_device social indirect;
+
+    space social:living with:
+      declare entity light.physical:main no_collect with:
+        providing node hallway_door_switch_box/fibaro;
+      end;
+      declare entity light.physical:main_dimmer no_collect;
+      declare entity light.social:main with:
+        icon mdi:lightbulb;
+        definition switched_device light.physical:main_dimmer light.physical:main;
+      end;
+
+      create light_device social hanging_sideboard;
+      create light_device social bloom_left;
+      create light_device social bloom_right;
+      create light_device social christmas_tree;
+      create light_device social gray_sideboard;
+
+      declare entity switch.social:picture_frame with:
+        definition cli_switch pi 192.168.178.58 ./bin/start_slideshow ./bin/stop_slideshow ./bin/check_slideshow;
+      end;
+
+      declare entity binary_sensor.physical:windows/aqara_magnet:window;
+      create battery_level_device windows/aqara_magnet with:
+        alert_level 10;
+      end;
+
+      light on: social:main;
+    end;
+
+    space social:dining with:
+      declare entity light.physical:main no_collect;
+      declare entity light.physical:main_dimmer no_collect;
+      declare entity light.social:main with:
+        icon mdi:lightbulb;
+        definition switched_device light.physical:main_dimmer light.physical:main;
+      end;
+
+      declare entity light.social:red_highboard;
+
+      declare entity binary_sensor.physical:windows/aqara_magnet:window;
+      create battery_level_device windows/aqara_magnet with:
+        alert_level 10;
+      end;
+
+      light on: social:main;
+    end;
+
+    heating leak binary_sensor.social::window;
+
+    light on: social:dining;
+
+    space off: @light @media;
+  end;
+
+  space social:kitchen with:
+    declare entity cover.social with:
+      open_stop_close;
+      providing node somfy;
+    end;
+    declare entity number.social::my_position;
+    declare entity button.social::to_my_position;
+    declare entity button.infrastructural:somfy:identify;
+
+    create power_switch switch.social:nespresso with:
+      node zigbee;
+      threshold 10;
+    end;
+    declare entity binary_sensor.social:nespresso:brews with:
+      condition sensor.social:nespresso:power "( $ | int(0) > 200 )";
+    end;
+    declare entity binary_sensor.social:nespresso:in_use with:
+      definition has_state binary_sensor.social:nespresso:brews "on" "" "00:10:00";
+    end;
+
+    create media_player sonos;
+    declare entity sensor.infrastructural:sonos:battery_level;
+    create battery_alert sonos with:
+      alert_level 10;
+    end;
+
+    declare entity sensor.physical:netatmo:co2;
+    declare entity sensor.physical:netatmo:humidity;
+    declare entity sensor.physical:netatmo:temperature;
+    declare entity sensor.infrastructural:netatmo:radio;
+    declare entity sensor.infrastructural:netatmo:reachability;
+    declare entity binary_sensor.infrastructural:netatmo:node with:
+      condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
+    declare entity sensor.infrastructural:netatmo:battery_level;
+    create battery_alert netatmo with:
+      alert_level 20;
+    end;
+
+    create thermostat radiator/aqara_thermostat;
+    create battery_level radiator/aqara_thermostat 20;
+
+    create light_device go;
+    create light_device main;
+
+    space social:workplace with:
+      declare entity sensor.physical:furnace:power;
+      declare entity binary_sensor.social:furnace:consumes with:
+        condition sensor.physical:furnace:power "( $ | int(0) > 50 )";
+      end;
+      declare entity switch.physical:furnace;
+      declare entity switch.social:furnace with:
+        definition flip switch.physical:furnace;
+      end;
+
+      declare entity light.physical:: no_collect;
+      declare entity light.physical::dimmer no_collect;
+      declare entity light.social::main with:
+        icon mdi:lightbulb;
+        definition switched_device light.physical::dimmer light.physical;
+      end;
+
+      declare entity binary_sensor.physical:aqara_magnet:window;
+      create battery_level_device aqara_magnet with:
+        alert_level 10;
+      end;
+    end;
+
+    space social:terrace_door with:
+      declare entity binary_sensor.physical:aqara_magnet:door;
+      create battery_level_device aqara_magnet with:
+        alert_level 10;
+      end;
+
+      create battery_level_device philips_dimmer with:
+        alert_level 20;
+      end;
+    end;
+
+    light on: social:main;
+    heating leak binary_sensor.social:terrace_door/door;
+    space off: @light @media;
+  end;
+
+  space social:wc with:
+    declare entity sensor.physical:philips_motion:temperature;
+    declare entity sensor.physical:philips_motion:illuminance;
+    declare entity binary_sensor.physical:philips_motion:motion;
+    create battery_level_device philips_motion with:
+      alert_level 10;
+    end;
+
+    declare entity fan.social with:
+      providing node /house/kitchen/hallway_door/switch_box/fibaro;
+    end;
+
+    declare entity timer.social:removing_smell with:
+      definition timer "00:03:00";
+    end;
+    limits timer.social:removing_smell fan.social: off on;
+
+    declare entity light.social:main with:
+      providing node /house/kitchen/hallway_door/power_socket/fibaro;
+    end;
+
+    declare entity binary_sensor.physical:window/aqara_magnet:window;
+    create battery_level_device window/aqara_magnet with:
+      alert_level 10;
+    end;
+
+    light on: social:main;
+    lights_motion_guarded 10;
+    space off: @light;
+  end;
+
+  space social:downward_hallway with:
+    declare entity sensor.infrastructural:laserjet/status with:
+      providing node laserjet;
+    end;
+    declare entity sensor.infrastructural:laserjet/message with:
+      value sensor.infrastructural:laserjet/status!state_message;
+    end;
+    declare entity sensor.infrastructural:laserjet/uptime;
+    declare entity binary_sensor.infrastructural:orbi:node;
+
+    declare entity sensor.physical:aqara_multi:humidity;
+    declare entity sensor.physical:aqara_multi:pressure with:
+      adjustment 38 1;
+    end;
+    declare entity sensor.physical:aqara_multi:temperature;
+    create battery_level_device aqara_multi with:
+      alert_level 15;
+    end;
+
+    declare entity sensor.physical:philips_motion:temperature;
+    declare entity sensor.physical:philips_motion:illuminance;
+    declare entity binary_sensor.physical:philips_motion:motion;
+    create battery_level_device philips_motion with:
+      alert_level 10;
+    end;
+
+    declare entity light.social:main with:
+      providing node /garage/fuse_box/zwave/030;
+    end;
+
+    space social:garage_door with:
+      declare entity binary_sensor.physical:aqara_magnet:door;
+      create battery_level_device aqara_magnet with:
+        alert_level 10;
+      end;
+    end;
+
+    light on: social:main;
+    lights_motion_guarded 10;
+    space off: @light;
+  end;
+
+  space social:upward_hallway with:
+    declare entity light.social:main with:
+      providing node /house/upward_hallway/second_floor/david_bedroom_door/switch_box/fibaro;
+    end;
+
+    space social:first_floor with:
+      create thermostat radiator/aqara_thermostat;
+      create battery_level radiator/aqara_thermostat 20;
+
+      declare entity sensor.physical:netatmo:co2;
+      declare entity sensor.physical:netatmo:humidity;
+      declare entity sensor.physical:netatmo:temperature;
+      declare entity sensor.infrastructural:netatmo:radio;
+      declare entity sensor.infrastructural:netatmo:reachability;
+      declare entity binary_sensor.infrastructural:netatmo:node with:
+        condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+      end;
+      declare entity sensor.infrastructural:netatmo:battery_level;
+      create battery_alert netatmo with:
+        alert_level 20;
+      end;
+
+      declare entity binary_sensor.physical:entrance/aqara_magnet:door;
+      create battery_level_device entrance/aqara_magnet with:
+        alert_level 10;
+      end;
+
+      declare entity sensor.social:ring:volume with:
+        providing node ring;
+      end;
+
+      #      entity declare light.physical:main no_collect
+      declare entity light.social:main;
+      #        icon mdi:lightbulb
+      #        define enabled_device light.physical:main light.social:/house/upward_hallway/main
+
+      light on: social:main;
+      heating leak binary_sensor.social:door;
+    end;
+
+    space social:second_floor with:
+      declare entity cover.social with:
+        open_stop_close;
+        providing node somfy;
+      end;
+      declare entity number.social::my_position;
+      declare entity button.social::to_my_position;
+      declare entity button.infrastructural:somfy:identify;
+
+      #      entity declare light.physical:main no_collect
+      declare entity light.social:main;
+      #        icon mdi:lightbulb
+      #        define enabled_device light.physical:main light.social:/house/upward_hallway/main
+
+      declare entity sensor.physical:aqara_multi:humidity;
+      declare entity sensor.physical:aqara_multi:pressure with:
+        adjustment 38 1;
+      end;
+      declare entity sensor.physical:aqara_multi:temperature;
+      create battery_level_device aqara_multi with:
+        alert_level 15;
+      end;
+
+      declare entity binary_sensor.physical:aqara_magnet:window;
+      create battery_level_device aqara_magnet with:
+        alert_level 10;
+      end;
+
+      light on: social:main;
+    end;
+
+    light on: social:main;
+    space off: @light;
+  end;
+
+  space social:sarah_bedroom with:
+    declare entity cover.social with:
+      open_stop_close;
+      providing node somfy;
+    end;
+    declare entity number.social::my_position;
+    declare entity button.social::to_my_position;
+    declare entity button.infrastructural:somfy:identify;
+
+    create thermostat radiator/aqara_thermostat;
+    create battery_level radiator/aqara_thermostat 20;
+
+    declare entity switch.social:media:media;
+    create media_player apple_tv switch.social:media:media;
+
+    declare entity sensor.physical:netatmo:co2;
+    declare entity sensor.physical:netatmo:humidity;
+    declare entity sensor.physical:netatmo:noise;
+    declare entity sensor.social::health;
+    declare entity sensor.physical:netatmo:pressure;
+    declare entity sensor.physical:netatmo:temperature;
+    declare entity sensor.infrastructural:netatmo:radio;
+    declare entity sensor.infrastructural:netatmo:reachability;
+    declare entity binary_sensor.infrastructural:netatmo:node with:
+      condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
+
+    declare entity light.social:main with:
+      providing node door_switch_box/fibaro;
+    end;
+
+    declare entity binary_sensor.physical:windows/aqara_magnet:window;
+    create battery_level_device windows/aqara_magnet with:
+      alert_level 10;
+    end;
+
+    light on: social:main;
+    space off: @light @media;
+  end;
+
+  space social:david_bedroom with:
+    declare entity cover.social with:
+      open_stop_close;
+      providing node somfy;
+    end;
+    declare entity number.social::my_position;
+    declare entity button.social::to_my_position;
+    declare entity button.infrastructural:somfy:identify;
+
+    create thermostat radiator/aqara_thermostat;
+    create battery_level radiator/aqara_thermostat 20;
+
+    declare entity light.social:main;
+
+    declare entity sensor.physical:netatmo:co2;
+    declare entity sensor.physical:netatmo:humidity;
+    declare entity sensor.physical:netatmo:noise;
+    declare entity sensor.physical:netatmo:pressure;
+    declare entity sensor.physical:netatmo:temperature;
+    declare entity sensor.social::health;
+    declare entity sensor.infrastructural:netatmo:radio;
+    declare entity sensor.infrastructural:netatmo:reachability;
+    declare entity binary_sensor.infrastructural:netatmo:node with:
+      condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
+
+    declare entity binary_sensor.physical:windows/aqara_magnet:window;
+    create battery_level_device windows/aqara_magnet with:
+      alert_level 10;
+    end;
+
+    light on: social:main;
+    space off: @light;
+  end;
+
+  space social:master_bedroom with:
+    declare entity cover.social with:
+      open_stop_close;
+      providing node somfy;
+    end;
+    declare entity number.social::my_position;
+    declare entity button.social::to_my_position;
+    declare entity button.infrastructural:somfy:identify;
+
+    create media_player sonos;
+
+    declare entity binary_sensor.infrastructural:sonos_left:node;
+    declare entity binary_sensor.infrastructural:sonos_right:node;
+
+    create thermostat radiator/aqara_thermostat;
+    create battery_level radiator/aqara_thermostat 20;
+
+    declare entity sensor.physical:netatmo:co2;
+    declare entity sensor.physical:netatmo:humidity;
+    declare entity sensor.physical:netatmo:noise;
+    declare entity sensor.physical:netatmo:pressure;
+    declare entity sensor.physical:netatmo:temperature;
+    declare entity sensor.social::health;
+    declare entity sensor.infrastructural:netatmo:radio;
+    declare entity sensor.infrastructural:netatmo:reachability;
+    declare entity binary_sensor.infrastructural:netatmo:node with:
+      condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
+
+    space social:bed with:
+      create light_device left;
+      create light_device right;
+    end;
+
+    declare entity light.social:main with:
+      providing node door_switch_box/fibaro;
+    end;
+
+    declare entity binary_sensor.physical:windows/aqara_magnet:window;
+    create battery_level_device windows/aqara_magnet with:
+      alert_level 10;
+    end;
+
+    heating leak binary_sensor.social:window;
+    light on: social:main;
+    space off: @light @media;
+  end;
+
+  space social:shower_room with:
+    declare entity cover.social with:
+      open_stop_close;
+      providing node somfy;
+    end;
+    declare entity number.social::my_position;
+    declare entity button.social::to_my_position;
+    declare entity button.infrastructural:somfy:identify;
+
+    create thermostat radiator/aqara_thermostat;
+    create battery_level radiator/aqara_thermostat 20;
+
+    create media_player sonos;
+
+    declare entity sensor.physical:philips_motion:temperature;
+    declare entity sensor.physical:philips_motion:illuminance;
+    declare entity binary_sensor.physical:philips_motion:motion;
+    create battery_level_device philips_motion with:
+      alert_level 10;
+    end;
+
+    declare entity sensor.physical:netatmo:co2;
+    declare entity sensor.physical:netatmo:humidity;
+    declare entity sensor.physical:netatmo:temperature;
+    declare entity sensor.infrastructural:netatmo:radio;
+    declare entity sensor.infrastructural:netatmo:reachability;
+    declare entity binary_sensor.infrastructural:netatmo:node with:
+      condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
+    declare entity sensor.infrastructural:netatmo:battery_level;
+    create battery_alert netatmo with:
+      alert_level 20;
+    end;
+
+    declare entity light.social:main with:
+      providing node /house/upward_hallway/second_floor/shower_room/switch_box/fibaro;
+    end;
+
+    declare entity binary_sensor.physical:windows/aqara_magnet:window;
+    create battery_level_device windows/aqara_magnet with:
+      alert_level 10;
+    end;
+
+    light on: social:main;
+    lights_motion_guarded 15;
+    heating leak binary_sensor.social:window;
+    space off: @light @media;
+  end;
+
+  space social:server_room with:
+    declare entity switch.social:raids1;
+    declare entity switch.social:raids2;
+    declare entity binary_sensor.infrastructural:fritzbox/connection;
+    declare entity binary_sensor.infrastructural:fritzbox/link;
+    declare entity update.infrastructural:fritzbox;
+    declare entity button.infrastructural:fritzbox/cleanup;
+    declare entity button.infrastructural:fritzbox/firmware_update;
+    declare entity button.infrastructural:fritzbox/reboot;
+    declare entity button.infrastructural:fritzbox/reconnect;
+    declare entity sensor.infrastructural:fritzbox/connection_uptime;
+    declare entity sensor.infrastructural:fritzbox/device_uptime;
+    declare entity sensor.infrastructural:fritzbox/link_download_throughput;
+    declare entity sensor.infrastructural:fritzbox/link_upload_throughput;
+    declare entity sensor.infrastructural:fritzbox/external_ip;
+    declare entity sensor.infrastructural:fritzbox/gb_received;
+    declare entity sensor.infrastructural:fritzbox/gb_sent;
+    declare entity sensor.infrastructural:fritzbox/max_connection_download_throughput;
+    declare entity sensor.infrastructural:fritzbox/max_connection_upload_throughput;
+    declare entity sensor.infrastructural:fritzbox/upload_throughput;
+    declare entity sensor.infrastructural:fritzbox/download_throughput;
+
+    create switch_device social xanadu;
+
+    declare entity binary_sensor.infrastructural:fritzbox:node;
+    declare entity binary_sensor.infrastructural:xanadu:node;
+
+    declare entity sensor.infrastructural:xanadu:load with:
+      definition cli_sensor erikp xanadu.fritz.box ./cpu/load;
+    end;
+    declare entity sensor.infrastructural:xanadu:temperature no_collect with:
+      definition cli_sensor erikp xanadu.fritz.box ./cpu/temperature;
+    end;
+
+    declare entity light.physical:main_spots no_collect;
+    declare entity light.physical:main no_collect;
+    declare entity light.social:main with:
+      icon mdi:lightbulb;
+      definition switched_device light.physical:main_spots light.physical:main;
+    end;
+
+    space social:rack with:
+      declare entity sensor.physical:aqara_multi:humidity;
+      declare entity sensor.physical:aqara_multi:pressure with:
+        adjustment 38 1;
+      end;
+      declare entity sensor.physical:aqara_multi:temperature;
+      create battery_level_device aqara_multi with:
+        alert_level 15;
+      end;
+    end;
+
+    declare entity sensor.physical:aqara_multi:humidity;
+    declare entity sensor.physical:aqara_multi:pressure with:
+      adjustment 38 1;
+    end;
+    declare entity sensor.physical:aqara_multi:temperature;
+    create battery_level_device aqara_multi with:
+      alert_level 15;
+    end;
+
+    declare entity sensor.physical:philips_motion:temperature;
+    declare entity sensor.physical:philips_motion:illuminance;
+    declare entity binary_sensor.physical:philips_motion:motion;
+    create battery_level_device philips_motion with:
+      alert_level 10;
+    end;
+
+    light on: social:main;
+    lights_motion_guarded 10;
+    space off: @light;
+  end;
+
+  space social:corridor with:
+    declare entity switch.physical::heating_raw;
+    declare entity switch.physical::heating with:
+      definition flip switch.physical::heating_raw;
+    end;
+
+    declare entity light.physical:main_spots no_collect;
+    declare entity light.physical:main no_collect with:
+      providing node /house/server_room/fuse_box/zwave/021;
+    end;
+    declare entity light.social:main with:
+      icon mdi:lightbulb;
+      definition switched_device light.physical:main_spots light.physical:main;
+    end;
+
+    create light_device social corb;
+
+    follows light.social:corb light.social:main;
+    follows light.social:corb light.physical:main;
+
+    declare entity sensor.physical:netatmo:co2;
+    declare entity sensor.physical:netatmo:humidity;
+    declare entity sensor.physical:netatmo:temperature;
+    declare entity sensor.infrastructural:netatmo:radio;
+    declare entity sensor.infrastructural:netatmo:reachability;
+    declare entity binary_sensor.infrastructural:netatmo:node with:
+      condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
+    declare entity sensor.infrastructural:netatmo:battery_level;
+    create battery_alert netatmo with:
+      alert_level 20;
+    end;
+
+    declare entity sensor.social:ring:volume with:
+      providing node ring;
+    end;
+
+    declare entity sensor.physical:aqara_multi:humidity;
+    declare entity sensor.physical:aqara_multi:pressure with:
+      adjustment 38 1;
+    end;
+    declare entity sensor.physical:aqara_multi:temperature;
+    create battery_level_device aqara_multi with:
+      alert_level 15;
+    end;
+
+    declare entity sensor.physical:philips_motion:temperature;
+    declare entity sensor.physical:philips_motion:illuminance;
+    declare entity binary_sensor.physical:philips_motion:motion;
+    create battery_level_device philips_motion with:
+      alert_level 10;
+    end;
+
+    space social:entrance with:
+      declare entity binary_sensor.physical:aqara_magnet:door;
+      create battery_level_device aqara_magnet with:
+        alert_level 10;
+      end;
+    end;
+
+    heating leak binary_sensor.social:door;
+
+    light on: social:main;
+    lights_motion_guarded 10;
+    space off: @light;
+  end;
+
+  space social:storage_room with:
+    declare entity switch.physical::heating_raw;
+    declare entity switch.physical::heating with:
+      definition flip switch.physical::heating_raw;
+    end;
+
+    declare entity light.social:main;
+
+    declare entity switch.physical:backup with:
+      icon mdi:server;
+      providing node backup_innr;
+    end;
+    declare entity binary_sensor.infrastructural:backup:node;
+
+    declare entity sensor.infrastructural:backup:load with:
+      definition cli_sensor pi backup.fritz.box ./cpu/load;
+    end;
+    declare entity sensor.infrastructural:backup:temperature no_collect with:
+      definition cli_sensor pi backup.fritz.box ./cpu/temperature;
+    end;
+
+    declare entity binary_sensor.physical:windows/aqara_magnet:window;
+    create battery_level_device windows/aqara_magnet with:
+      alert_level 10;
+    end;
+
+    declare entity sensor.physical:netatmo:co2;
+    declare entity sensor.physical:netatmo:humidity;
+    declare entity sensor.physical:netatmo:temperature;
+    declare entity sensor.infrastructural:netatmo:radio;
+    declare entity sensor.infrastructural:netatmo:reachability;
+    declare entity binary_sensor.infrastructural:netatmo:node with:
+      condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
+    declare entity sensor.infrastructural:netatmo:battery_level;
+    create battery_alert netatmo with:
+      alert_level 20;
+    end;
+
+    declare entity sensor.physical:door/aqara_multi:humidity;
+    declare entity sensor.physical:door/aqara_multi:pressure with:
+      adjustment 38 1;
+    end;
+    declare entity sensor.physical:door/aqara_multi:temperature;
+    create battery_level_device door/aqara_multi with:
+      alert_level 15;
+    end;
+
+    declare entity sensor.physical:philips_motion:temperature;
+    declare entity sensor.physical:philips_motion:illuminance;
+    declare entity binary_sensor.physical:philips_motion:motion;
+    create battery_level_device philips_motion with:
+      alert_level 10;
+    end;
+
+    light on: social:main;
+    lights_motion_guarded 10;
+    space off: @light;
+  end;
+
+  space social:bathroom with:
+    declare entity switch.physical::heating_raw;
+    declare entity switch.physical::heating with:
+      definition flip switch.physical::heating_raw;
+    end;
+
+    declare entity light.physical:main_disc no_collect;
+    declare entity light.physical:main no_collect with:
+      providing node /house/server_room/fuse_box/zwave/029;
+    end;
+    declare entity light.social:main with:
+      icon mdi:lightbulb;
+      definition switched_device light.physical:main_disc light.physical:main;
+    end;
+
+    declare entity switch.social:whirlpool with:
+      providing node bathtub/relais_box;
+    end;
+    declare entity binary_sensor.physical:whirlpool:motion with:
+      definition has_state switch.social:whirlpool on;
+    end;
+
+    create battery_level_device philips_dimmer with:
+      alert_level 20;
+    end;
+
+    declare entity binary_sensor.physical:windows/aqara_magnet:window;
+    create battery_level_device windows/aqara_magnet with:
+      alert_level 10;
+    end;
+
+    declare entity sensor.physical:netatmo:co2;
+    declare entity sensor.physical:netatmo:humidity;
+    declare entity sensor.physical:netatmo:temperature;
+    declare entity sensor.infrastructural:netatmo:radio;
+    declare entity sensor.infrastructural:netatmo:reachability;
+    declare entity binary_sensor.infrastructural:netatmo:node with:
+      condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
+    declare entity sensor.infrastructural:netatmo:battery_level;
+    create battery_alert netatmo with:
+      alert_level 20;
+    end;
+
+    declare entity sensor.physical:aqara_multi:humidity;
+    declare entity sensor.physical:aqara_multi:pressure with:
+      adjustment 38 1;
+    end;
+    declare entity sensor.physical:aqara_multi:temperature;
+    create battery_level_device aqara_multi with:
+      alert_level 15;
+    end;
+
+    declare entity sensor.physical:right/philips_motion:temperature;
+    declare entity sensor.physical:right/philips_motion:illuminance;
+    declare entity binary_sensor.physical:right/philips_motion:motion;
+    create battery_level_device right/philips_motion with:
+      alert_level 10;
+    end;
+
+    declare entity sensor.physical:left/philips_motion:temperature;
+    declare entity sensor.physical:left/philips_motion:illuminance;
+    declare entity binary_sensor.physical:left/philips_motion:motion;
+    create battery_level_device left/philips_motion with:
+      alert_level 10;
+    end;
+
+    create media_player sonos;
+
+    heating leak binary_sensor.social:window;
+    light on: social:main;
+    lights_motion_guarded 10;
+    space off: @light @media switch.social:whirlpool;
+  end;
+
+  space social:office with:
+    declare entity switch.physical::heating_raw;
+    declare entity switch.physical::heating with:
+      definition flip switch.physical::heating_raw;
+    end;
+
+    declare entity binary_sensor.infrastructural:sonos_left:node;
+    declare entity binary_sensor.infrastructural:sonos_right:node;
+
+    declare entity sensor.physical:netatmo:co2;
+    declare entity sensor.physical:netatmo:humidity;
+    declare entity sensor.physical:netatmo:noise;
+    declare entity sensor.physical:netatmo:pressure;
+    declare entity sensor.physical:netatmo:temperature;
+    declare entity sensor.infrastructural:netatmo:radio;
+    declare entity sensor.infrastructural:netatmo:reachability;
+    declare entity binary_sensor.infrastructural:netatmo:node with:
+      condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
+
+    declare entity binary_sensor.infrastructural:orbi:node;
+
+    create switch_device social desktop;
+    create switch_device social media_drive;
+    create switch_device social imac;
+    create switch_device social photography;
+    create switch_device social shredder;
+    create switch_device social mini_fans;
+    create switch_device social cycling;
+    create switch_device social cycling_fans;
+
+    create media_player sonos;
+    create media_player apple_tv no_collect switch.social:cycling;
+    create media_player tv       no_collect switch.social:cycling;
+
+    declare entity light.physical:ceiling no_collect;
+    declare entity light.physical:main no_collect with:
+      providing node /house/server_room/fuse_box/zwave/023;
+    end;
+    declare entity light.social:main with:
+      icon mdi:lightbulb;
+      definition switched_device light.physical:ceiling light.physical:main;
+    end;
+
+    declare entity light.social:lower_strip with:
+      providing node lower_strip;
+    end;
+    declare entity light.social:upper_strip with:
+      providing node upper_strip;
+    end;
+
+    declare entity light.social:low_board with:
+      providing node low_board;
+    end;
+
+    follows light.social:low_board light.social:main;
+
+    declare entity sensor.physical:door/aqara_multi:humidity;
+    declare entity sensor.physical:door/aqara_multi:pressure with:
+      adjustment 38 1;
+    end;
+    declare entity sensor.physical:door/aqara_multi:temperature;
+    create battery_level_device door/aqara_multi with:
+      alert_level 15;
+    end;
+
+    space social:drain with:
+      declare entity binary_sensor.social:left/luminea:water;
+      create battery_level_device left/luminea;
+
+      declare entity binary_sensor.social:right/luminea:water;
+      create battery_level_device right/luminea;
+    end;
+
+    declare entity binary_sensor.physical:windows/left/aqara_magnet:window;
+    create battery_level_device windows/left/aqara_magnet with:
+      alert_level 10;
+    end;
+
+    declare entity binary_sensor.physical:windows/right/aqara_magnet:window;
+    create battery_level_device windows/right/aqara_magnet with:
+      alert_level 10;
+    end;
+
+    light on: social:main;
+    heating leak binary_sensor.social:window;
+    space off: switch.social:cycling switch.social:cycling_fans @light @media;
+  end;
+
+  virtual space social:extension with:
+    member social:/house/server_room;
+    member social:/house/corridor;
+    member social:/house/storage_room;
+    member social:/house/bathroom;
+    member social:/house/office;
+    light on: social:/house/corridor social:/house/office;
+    space off: @all;
+    space on: light.social;
+  end;
+  end_virtual_space;
+
+  virtual space social:laundry_corridor with:
+    member social:/house/downward_hallway;
+    member social:/house/laundry_kitchen;
+    light on: @all;
+    space off: @all;
+    space on: light.social;
+  end;
+  end_virtual_space;
+
+  light on: social:upward_hallway;
+  space off: cover.social:/terrace/awnings @light @media;
+end;
+
+space social:loft with:
+  declare entity light.social:main with:
+    providing node switch_box/nodon;
+  end;
+
+  declare entity sensor.physical:aqara_multi:humidity;
+  declare entity sensor.physical:aqara_multi:pressure with:
+    adjustment 38 1;
+  end;
+  declare entity sensor.physical:aqara_multi:temperature;
+  create battery_level_device aqara_multi with:
+    alert_level 15;
+  end;
+end;
+
+space social:cars with:
+  space social:xc40 with:
+    declare entity binary_sensor.social:front/right:door;
+    declare entity binary_sensor.social:front/left:door;
+    declare entity binary_sensor.social:rear/right:door;
+    declare entity binary_sensor.social:rear/left:door;
+    declare entity binary_sensor.social:hood:door;
+    declare entity binary_sensor.social:tailgate:door;
+    declare entity binary_sensor.social:front/right:window;
+    declare entity binary_sensor.social:front/left:window;
+    declare entity binary_sensor.social:rear/right:window;
+    declare entity binary_sensor.social:rear/left:window;
+    declare entity binary_sensor.social:service:warning;
+    declare entity binary_sensor.social:brake_fluid:warning;
+    declare entity binary_sensor.social:washer_fluid:warning;
+    declare entity device_tracker.social::position;
+    declare entity lock.social;
+    declare entity binary_sensor.social::engine;
+    declare entity sensor.social::odometer;
+    declare entity sensor.social::fuel/level;
+    declare entity sensor.social::fuel/consumption;
+    declare entity sensor.social::fuel/range;
+  end;
+end;
+
+declare entity sun.sun;
+declare entity binary_sensor.social::daylight with:
+  condition sun.sun!elevation "$ > 4";
+end;
+
+space off: @light @media;
+
+
+######
+# HERE
+######
+#
+#
+# Github structure
+#
+# Corridor light seems on when server room on ...
+#
+# volvo ...
+#
+# Clean _2s and inactive entities on both sites
+# echo Generalize Update script
+#
+# rest + attributions ...
+#
+# ---
+# Gentle off of machines
+# ----
+# dyndns update
+# hass manual? change
+# Clean Folder structure
+# ----
+# daylight aggregation + check usage on other locations, like blinds control
+# ----
+#
+# Use backup functionality in HASS?
+#
+# Zigbee names cleanup
+# ----
+# At home: xanadu => junglinster rename
+# At home: MQTT move and EMS move
+#
+# Back to todo lists
+# At home: Apple TVs + SamsungTV
+# At home: move away from Xanadu and fix ports
+# ----
+# find _2's
+# clean unavailables
+# Clean code (see remark about daylight property)

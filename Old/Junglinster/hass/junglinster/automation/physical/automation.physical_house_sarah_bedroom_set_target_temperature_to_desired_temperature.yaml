@@ -1,0 +1,22 @@
+### This file was automatically generated. Don't edit it!
+- alias: physical/house/sarah_bedroom/set_target_temperature_to_desired_temperature
+  id: automation.physical_house_sarah_bedroom_set_target_temperature_to_desired_temperature
+  initial_state: True
+  mode: queued
+  trigger:
+  - platform: state
+    entity_id: binary_sensor.physical_house_sarah_bedroom_heating_should_be_off
+    to: 'off'
+  - platform: state
+    entity_id: input_number.social_house_sarah_bedroom_temperature_desired
+  - platform: time_pattern
+    minutes: '/1'
+  condition:
+  - condition: state
+    entity_id: binary_sensor.physical_house_sarah_bedroom_heating_should_be_off
+    state: 'off'
+  action:
+  - service: input_number.set_value
+    data:
+      entity_id: input_number.physical_house_sarah_bedroom_temperature_target
+      value: "{{ states('input_number.social_house_sarah_bedroom_temperature_desired') }}"

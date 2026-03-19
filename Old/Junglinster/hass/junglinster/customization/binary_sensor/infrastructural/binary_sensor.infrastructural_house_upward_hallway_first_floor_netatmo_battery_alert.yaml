@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_house_upward_hallway_first_floor_netatmo_battery_alert:
+  icon: mdi:battery-alert
+  friendly_name: infrastructural/house/upward_hallway/first_floor/netatmo/battery_alert

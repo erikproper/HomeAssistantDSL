@@ -1,0 +1,8 @@
+### This file was automatically generated. Don't edit it!
+social_windy_threshold:
+  name: social/windy_threshold
+  min: 0
+  max: 60
+  step: 1
+  icon: mdi:weather-windy
+  unit_of_measurement: km/h

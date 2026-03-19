@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/house/storage_room/backup_innr/node
+  unique_id: binary_sensor.infrastructural_house_storage_room_backup_innr_node
+  device_class: connectivity
+  state: "{{ states('switch.physical_house_storage_room_backup') != 'unavailable' }}"

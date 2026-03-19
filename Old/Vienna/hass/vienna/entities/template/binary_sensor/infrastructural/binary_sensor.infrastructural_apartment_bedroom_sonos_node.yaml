@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/apartment/bedroom/sonos/node
+  unique_id: binary_sensor.infrastructural_apartment_bedroom_sonos_node
+  device_class: connectivity
+  state: "{{ states('media_player.social_apartment_bedroom_sonos') != 'unavailable' }}"

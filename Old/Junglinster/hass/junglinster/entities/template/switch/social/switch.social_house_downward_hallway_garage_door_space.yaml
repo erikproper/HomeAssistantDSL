@@ -1,0 +1,9 @@
+### This file was automatically generated. Don't edit it!
+switch:
+- name: social/house/downward_hallway/garage_door/space
+  unique_id: switch.social_house_downward_hallway_garage_door_space
+  default_entity_id: switch.social_house_downward_hallway_garage_door_space
+  turn_on:
+  turn_off:
+  state: >-
+      }}

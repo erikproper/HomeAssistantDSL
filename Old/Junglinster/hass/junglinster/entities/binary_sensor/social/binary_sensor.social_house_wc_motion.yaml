@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/wc/motion
+unique_id: binary_sensor.social_house_wc_motion
+entities:
+- binary_sensor.physical_house_wc_philips_motion_motion

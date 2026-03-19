@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_house_corridor_corb_light_node_alert:
+  icon: mdi:server-off
+  friendly_name: infrastructural/house/corridor/corb/light/node_alert

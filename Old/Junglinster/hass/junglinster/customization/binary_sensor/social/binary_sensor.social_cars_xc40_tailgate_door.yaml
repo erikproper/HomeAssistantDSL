@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.social_cars_xc40_tailgate_door:
+  icon: mdi:door-open
+  friendly_name: social/cars/xc40/tailgate/door

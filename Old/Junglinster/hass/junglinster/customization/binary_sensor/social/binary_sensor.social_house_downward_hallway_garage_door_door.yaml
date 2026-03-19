@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.social_house_downward_hallway_garage_door_door:
+  icon: mdi:door-open
+  friendly_name: social/house/downward_hallway/garage_door/door

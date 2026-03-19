@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/bathroom
+unique_id: light.social_house_bathroom
+entities:
+- light.social_house_bathroom_main

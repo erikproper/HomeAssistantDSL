@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/apartment/living_room/living/aqara_windoor/battery_alert
+  unique_id: binary_sensor.infrastructural_apartment_living_room_living_aqara_windoor_battery_alert
+  device_class: battery
+  state: "{{ (states('sensor.infrastructural_apartment_living_room_living_aqara_windoor_battery_level') | int(0)) < 10 }}"

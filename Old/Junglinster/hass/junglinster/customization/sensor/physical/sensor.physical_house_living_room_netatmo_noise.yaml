@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.physical_house_living_room_netatmo_noise:
+  icon: mdi:volume-high
+  friendly_name: physical/house/living_room/netatmo/noise

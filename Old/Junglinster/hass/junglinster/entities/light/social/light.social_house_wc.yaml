@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/wc
+unique_id: light.social_house_wc
+entities:
+- light.social_house_wc_main

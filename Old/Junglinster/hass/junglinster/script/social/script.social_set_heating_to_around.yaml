@@ -1,0 +1,9 @@
+### This file was automatically generated. Don't edit it!
+social_set_heating_to_around:
+  alias: social/set_heating_to_around
+  mode: queued
+  sequence:
+  - service: script.turn_on
+    entity_id: script.social_garage_set_heating_to_around
+  - service: script.turn_on
+    entity_id: script.social_house_set_heating_to_around

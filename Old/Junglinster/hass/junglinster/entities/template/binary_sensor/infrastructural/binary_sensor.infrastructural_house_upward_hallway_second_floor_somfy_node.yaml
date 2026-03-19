@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/house/upward_hallway/second_floor/somfy/node
+  unique_id: binary_sensor.infrastructural_house_upward_hallway_second_floor_somfy_node
+  device_class: connectivity
+  state: "{{ states('cover.social_house_upward_hallway_second_floor') != 'unavailable' }}"

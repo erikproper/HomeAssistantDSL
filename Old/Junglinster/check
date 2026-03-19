@@ -1,0 +1,21 @@
+#!/bin/bash
+
+function Check {
+  echo -n .
+  if [ "$2" != "cli" ] && [ "$1" != "option" ] && [ "$1" != "event" ]; then
+    EntityHits=$(curl -X GET -H "Authorization: Bearer $MainAPIToken" -H "Content-Type: application/json" $MainInstance/api/states/$1.$2 2> /dev/null | grep -c "\"entity_id\"")
+    
+    if [ $EntityHits -eq 0 ]; then
+      echo 
+      echo "- Missing: $1.$2"
+      echo curl -X GET -H "Authorization: Bearer $MainAPIToken" -H "Content-Type: application/json" $MainInstance/api/states/$1.$2
+    fi
+  fi
+}
+
+echo -n "Checking old things.def: "
+source Definitions/server.def
+cat ../definitions/things.def | grep junglinster | sed -e "s/.*junglinster /Check /" -e "s/;//" > $$
+source $$
+rm $$
+echo

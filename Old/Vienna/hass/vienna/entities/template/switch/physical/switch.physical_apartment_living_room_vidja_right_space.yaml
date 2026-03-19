@@ -1,0 +1,39 @@
+### This file was automatically generated. Don't edit it!
+switch:
+- name: physical/apartment/living_room/vidja/right/space
+  unique_id: switch.physical_apartment_living_room_vidja_right_space
+  default_entity_id: switch.physical_apartment_living_room_vidja_right_space
+  turn_on:
+  turn_off:
+  - entity_id:
+    - light.physical_apartment_living_room_vidja_right_1
+    action: light.turn_off
+  - entity_id:
+    - light.physical_apartment_living_room_vidja_right_2
+    action: light.turn_off
+  - entity_id:
+    - light.physical_apartment_living_room_vidja_right_3
+    action: light.turn_off
+  - entity_id:
+    - light.physical_apartment_living_room_vidja_right_4
+    action: light.turn_off
+  - entity_id:
+    - light.physical_apartment_living_room_vidja_right_5
+    action: light.turn_off
+  - entity_id:
+    - light.physical_apartment_living_room_vidja_right_6
+    action: light.turn_off
+  state: >-
+      {{
+        is_state('light.physical_apartment_living_room_vidja_right_1', 'on')
+      or
+        is_state('light.physical_apartment_living_room_vidja_right_2', 'on')
+      or
+        is_state('light.physical_apartment_living_room_vidja_right_3', 'on')
+      or
+        is_state('light.physical_apartment_living_room_vidja_right_4', 'on')
+      or
+        is_state('light.physical_apartment_living_room_vidja_right_5', 'on')
+      or
+        is_state('light.physical_apartment_living_room_vidja_right_6', 'on')
+      }}

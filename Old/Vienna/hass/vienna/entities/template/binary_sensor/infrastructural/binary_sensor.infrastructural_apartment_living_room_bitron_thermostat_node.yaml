@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/apartment/living_room/bitron_thermostat/node
+  unique_id: binary_sensor.infrastructural_apartment_living_room_bitron_thermostat_node
+  device_class: connectivity
+  state: "{{ states('climate.physical_apartment_living_room_bitron_thermostat') != 'unavailable' }}"

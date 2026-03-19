@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social_house_living_room_dining_main
+entities:
+- light.physical_house_living_room_dining_main_helper
+- light.physical_house_living_room_dining_main

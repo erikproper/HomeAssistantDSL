@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/loft
+unique_id: light.social_loft
+entities:
+- light.social_loft_main

@@ -1,0 +1,10 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/laundry_kitchen/humidity
+unique_id: sensor.social_house_laundry_kitchen_humidity
+type: mean
+ignore_non_numeric: true
+state_class: measurement
+entities:
+- sensor.physical_house_laundry_kitchen_front_aqara_multi_humidity
+- sensor.physical_house_laundry_kitchen_rear_aqara_multi_humidity

@@ -1,0 +1,22 @@
+### This file was automatically generated. Don't edit it!
+- alias: social/covers/close
+  id: automation.social_covers_close
+  initial_state: True
+  mode: queued
+  trigger:
+  - platform: state
+    entity_id: binary_sensor.social_covers_should_be_closed
+    to: 'on'
+  - platform: state
+    entity_id: binary_sensor.social_covers_auto_control
+    to: 'on'
+  condition:
+  - condition: state
+    entity_id: binary_sensor.social_covers_should_be_closed
+    state: 'on'
+  - condition: state
+    entity_id: binary_sensor.social_covers_auto_control
+    state: 'on'
+  action:
+  - service: script.turn_on
+    entity_id: script.social_cover_close

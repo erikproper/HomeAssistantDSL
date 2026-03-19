@@ -1,0 +1,13 @@
+entities:
+  - entity: binary_sensor.physical_house_laundry_kitchen_laundry_aqara_water_water
+    name: 'house/laundry_kitchen/laundry/aqara_water/water'
+  - entity: binary_sensor.physical_house_laundry_kitchen_water_pump_aqara_water_water
+    name: 'house/laundry_kitchen/water_pump/aqara_water/water'
+  - entity: binary_sensor.social_house_office_drain_left_luminea_water
+    name: 'house/office/drain/left/luminea/water'
+  - entity: binary_sensor.social_house_office_drain_right_luminea_water
+    name: 'house/office/drain/right/luminea/water'
+title: Water
+state_color: true
+type: entities
+show_header_toggle: false

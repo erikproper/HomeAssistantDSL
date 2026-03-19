@@ -1,0 +1,8 @@
+### This file was automatically generated. Don't edit it!
+sensor:
+- name: physical/house/living_room/rear/radiator/aqara_thermostat/temperature
+  unique_id: sensor.physical_house_living_room_rear_radiator_aqara_thermostat_temperature
+  unit_of_measurement: "°C"
+  device_class: temperature
+  state_class: measurement
+  state: "{{ state_attr('climate.physical_house_living_room_rear_radiator_aqara_thermostat', 'current_temperature') }}"

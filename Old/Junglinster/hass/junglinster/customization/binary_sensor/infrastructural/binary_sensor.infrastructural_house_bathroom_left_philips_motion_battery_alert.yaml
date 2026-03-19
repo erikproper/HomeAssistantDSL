@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_house_bathroom_left_philips_motion_battery_alert:
+  icon: mdi:battery-alert
+  friendly_name: infrastructural/house/bathroom/left/philips_motion/battery_alert

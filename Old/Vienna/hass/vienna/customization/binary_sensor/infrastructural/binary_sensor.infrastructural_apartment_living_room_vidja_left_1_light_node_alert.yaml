@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_apartment_living_room_vidja_left_1_light_node_alert:
+  icon: mdi:server-off
+  friendly_name: infrastructural/apartment/living_room/vidja/left/1/light/node_alert

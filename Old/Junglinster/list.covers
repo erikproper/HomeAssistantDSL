@@ -1,0 +1,23 @@
+entities:
+  - entity: cover.social_house_david_bedroom
+    name: 'house/david_bedroom'
+  - entity: cover.social_house_kitchen
+    name: 'house/kitchen'
+  - entity: cover.social_house_living_room_front
+    name: 'house/living_room/front'
+  - entity: cover.social_house_living_room_rear
+    name: 'house/living_room/rear'
+  - entity: cover.social_house_master_bedroom
+    name: 'house/master_bedroom'
+  - entity: cover.social_house_sarah_bedroom
+    name: 'house/sarah_bedroom'
+  - entity: cover.social_house_shower_room
+    name: 'house/shower_room'
+  - entity: cover.social_house_upward_hallway_second_floor
+    name: 'house/upward_hallway/second_floor'
+  - entity: cover.social_terrace_awnings
+    name: 'terrace/awnings'
+title: Covers
+state_color: true
+type: entities
+show_header_toggle: false

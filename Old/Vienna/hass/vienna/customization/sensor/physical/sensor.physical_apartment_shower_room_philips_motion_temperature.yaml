@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.physical_apartment_shower_room_philips_motion_temperature:
+  icon: mdi:thermometer
+  friendly_name: physical/apartment/shower_room/philips_motion/temperature

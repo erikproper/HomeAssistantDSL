@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/terrace/right/light/node
+  unique_id: binary_sensor.infrastructural_terrace_right_light_node
+  device_class: connectivity
+  state: "{{ states('light.physical_terrace_right') != 'unavailable' }}"

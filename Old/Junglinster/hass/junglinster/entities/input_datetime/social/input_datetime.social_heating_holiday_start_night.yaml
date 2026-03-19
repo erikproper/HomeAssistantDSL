@@ -1,0 +1,5 @@
+### This file was automatically generated. Don't edit it!
+social_heating_holiday_start_night:
+  name: social/heating_holiday/start_night
+  has_date: false
+  has_time: true

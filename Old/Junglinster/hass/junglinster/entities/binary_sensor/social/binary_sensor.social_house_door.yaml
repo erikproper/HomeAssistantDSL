@@ -1,0 +1,9 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/door
+unique_id: binary_sensor.social_house_door
+entities:
+- binary_sensor.social_house_corridor_door
+- binary_sensor.social_house_downward_hallway_door
+- binary_sensor.social_house_kitchen_door
+- binary_sensor.social_house_upward_hallway_door

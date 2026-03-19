@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/laundry_kitchen/water_pump/water
+unique_id: binary_sensor.social_house_laundry_kitchen_water_pump_water
+entities:
+- binary_sensor.physical_house_laundry_kitchen_water_pump_aqara_water_water

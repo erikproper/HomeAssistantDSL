@@ -1,0 +1,54 @@
+### This file was automatically generated. Don't edit it!
+- alias: physical/selected_occupation_equalize
+  id: automation.physical_selected_occupation_equalize
+  initial_state: True
+  mode: queued
+  trigger:
+  - platform: homeassistant
+    event: start
+  - platform: state
+    entity_id: input_boolean.social_occupation_around
+    to: 'off'
+  - platform: state
+    entity_id: input_boolean.social_occupation_away
+    to: 'off'
+  - platform: state
+    entity_id: input_boolean.social_occupation_home
+    to: 'off'
+  condition:
+    condition: or
+    conditions:
+    - condition: and
+      conditions:
+      - condition: state
+        entity_id: input_boolean.social_occupation_home
+        state: 'on'
+      - condition: state
+        entity_id: input_boolean.social_occupation_away
+        state: 'on'
+    - condition: and
+      conditions:
+      - condition: state
+        entity_id: input_boolean.social_occupation_home
+        state: 'on'
+      - condition: state
+        entity_id: input_boolean.social_occupation_around
+        state: 'on'
+    - condition: and
+      conditions:
+      - condition: state
+        entity_id: input_boolean.social_occupation_home
+        state: 'off'
+      - condition: state
+        entity_id: input_boolean.social_occupation_around
+        state: 'off'
+      - condition: state
+        entity_id: input_boolean.social_occupation_away
+        state: 'off'
+  action:
+  - service: input_boolean.turn_on
+    entity_id: input_boolean.social_occupation_home
+  - service: input_boolean.turn_off
+    entity_id: input_boolean.social_occupation_around
+  - service: input_boolean.turn_off
+    entity_id: input_boolean.social_occupation_away

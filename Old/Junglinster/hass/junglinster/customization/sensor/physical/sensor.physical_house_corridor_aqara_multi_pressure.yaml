@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.physical_house_corridor_aqara_multi_pressure:
+  icon: mdi:gauge
+  friendly_name: physical/house/corridor/aqara_multi/pressure

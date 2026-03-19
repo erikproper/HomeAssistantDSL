@@ -1,0 +1,7 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+all: true
+name: physical_house_kitchen_workplace_helper
+entities:
+- light.physical_house_kitchen_workplace_dimmer
+- light.physical_house_kitchen_workplace

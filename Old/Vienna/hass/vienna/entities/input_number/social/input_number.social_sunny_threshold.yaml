@@ -1,0 +1,8 @@
+### This file was automatically generated. Don't edit it!
+social_sunny_threshold:
+  name: social/sunny_threshold
+  min: 0
+  max: 8000
+  step: 100
+  icon: mdi:brightness-5
+  unit_of_measurement: lux

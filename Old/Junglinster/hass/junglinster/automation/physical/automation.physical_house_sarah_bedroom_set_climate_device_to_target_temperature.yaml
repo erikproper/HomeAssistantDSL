@@ -1,0 +1,15 @@
+### This file was automatically generated. Don't edit it!
+- alias: physical/house/sarah_bedroom/set_climate_device_to_target_temperature
+  id: automation.physical_house_sarah_bedroom_set_climate_device_to_target_temperature
+  initial_state: True
+  mode: queued
+  trigger:
+  - platform: state
+    entity_id: input_number.physical_house_sarah_bedroom_temperature_target
+  - platform: state
+    entity_id: climate.physical_house_sarah_bedroom_radiator_aqara_thermostat
+  action:
+  - service: climate.set_temperature
+    data_template:
+      entity_id: climate.physical_house_sarah_bedroom_radiator_aqara_thermostat
+      temperature: "{{ states('input_number.physical_house_sarah_bedroom_temperature_target') | float(0) }}"

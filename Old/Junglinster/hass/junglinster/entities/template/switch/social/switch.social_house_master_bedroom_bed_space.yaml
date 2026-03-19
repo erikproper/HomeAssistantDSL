@@ -1,0 +1,19 @@
+### This file was automatically generated. Don't edit it!
+switch:
+- name: social/house/master_bedroom/bed/space
+  unique_id: switch.social_house_master_bedroom_bed_space
+  default_entity_id: switch.social_house_master_bedroom_bed_space
+  turn_on:
+  turn_off:
+  - entity_id:
+    - light.social_house_master_bedroom_bed_left
+    action: light.turn_off
+  - entity_id:
+    - light.social_house_master_bedroom_bed_right
+    action: light.turn_off
+  state: >-
+      {{
+        is_state('light.social_house_master_bedroom_bed_left', 'on')
+      or
+        is_state('light.social_house_master_bedroom_bed_right', 'on')
+      }}

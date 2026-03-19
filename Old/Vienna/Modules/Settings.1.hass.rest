@@ -1,0 +1,8 @@
+###
+#
+# REST bridge related strings and other settings
+#
+###
+
+HASSRESTBridges=$Bridges/REST
+mkdir -p $HASSRESTBridges

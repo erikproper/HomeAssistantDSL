@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_terrace_garden_aqara_multi_node_alert:
+  icon: mdi:server-off
+  friendly_name: infrastructural/terrace/garden/aqara_multi/node_alert

@@ -1,0 +1,14 @@
+### This file was automatically generated. Don't edit it!
+switch:
+- name: social/apartment/living_room/kitchen/space
+  unique_id: switch.social_apartment_living_room_kitchen_space
+  default_entity_id: switch.social_apartment_living_room_kitchen_space
+  turn_on:
+  turn_off:
+  - entity_id:
+    - switch.social_apartment_living_room_kitchen_nespresso
+    action: switch.turn_off
+  state: >-
+      {{
+        is_state('switch.social_apartment_living_room_kitchen_nespresso', 'on')
+      }}

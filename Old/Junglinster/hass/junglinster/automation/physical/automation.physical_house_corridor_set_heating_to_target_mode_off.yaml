@@ -1,0 +1,17 @@
+### This file was automatically generated. Don't edit it!
+- alias: physical/house/corridor/set_heating_to_target_mode_off
+  id: automation.physical_house_corridor_set_heating_to_target_mode_off
+  initial_state: True
+  mode: queued
+  trigger:
+  - platform: state
+    entity_id: input_boolean.physical_house_corridor_heating_mode_target
+  - platform: state
+    entity_id: switch.physical_house_corridor_heating
+  condition:
+  - condition: state
+    entity_id: input_boolean.physical_house_corridor_heating_mode_target
+    state: 'off'
+  action:
+  - service: switch.turn_off
+    entity_id: switch.physical_house_corridor_heating

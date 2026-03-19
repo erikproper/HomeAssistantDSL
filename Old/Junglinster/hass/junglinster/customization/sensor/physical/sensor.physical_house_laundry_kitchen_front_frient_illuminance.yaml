@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.physical_house_laundry_kitchen_front_frient_illuminance:
+  icon: mdi:brightness-5
+  friendly_name: physical/house/laundry_kitchen/front/frient/illuminance

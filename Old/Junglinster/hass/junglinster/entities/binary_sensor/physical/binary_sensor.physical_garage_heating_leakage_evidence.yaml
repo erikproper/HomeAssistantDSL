@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: physical/garage/heating/leakage/evidence
+unique_id: binary_sensor.physical_garage_heating_leakage_evidence
+entities:
+- binary_sensor.social_garage_door

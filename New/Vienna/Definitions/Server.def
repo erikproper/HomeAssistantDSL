@@ -1,0 +1,31 @@
+# Migrated preview; generated on 18.03.2026.
+# House: Vienna
+# Target: Server.def
+# Source: Old/Vienna/Definitions/00_server.def
+
+# The conditional routing logic is preserved here, but concrete deployment values stay external.
+
+servers:
+  external LocalServer;
+  external JunglinsterServer;
+  external MainInstance__LocalServer;
+  external JunglinsterInstance__LocalServer;
+  external MainInstance__JunglinsterServer;
+  external JunglinsterInstance__JunglinsterServer;
+  external MainInstance__otherwise;
+  external JunglinsterInstance__otherwise;
+  secret MainAPIToken;
+
+  choose MainInstance:
+    when server_is_up LocalServer then MainInstance__LocalServer;
+    when server_is_up JunglinsterServer then MainInstance__JunglinsterServer;
+    otherwise MainInstance__otherwise;
+  end;
+
+  choose JunglinsterInstance:
+    when server_is_up LocalServer then JunglinsterInstance__LocalServer;
+    when server_is_up JunglinsterServer then JunglinsterInstance__JunglinsterServer;
+    otherwise JunglinsterInstance__otherwise;
+  end;
+
+end;

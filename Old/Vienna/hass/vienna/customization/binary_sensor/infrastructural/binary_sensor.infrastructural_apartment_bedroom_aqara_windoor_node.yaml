@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_apartment_bedroom_aqara_windoor_node:
+  icon: mdi:server-network
+  friendly_name: infrastructural/apartment/bedroom/aqara_windoor/node

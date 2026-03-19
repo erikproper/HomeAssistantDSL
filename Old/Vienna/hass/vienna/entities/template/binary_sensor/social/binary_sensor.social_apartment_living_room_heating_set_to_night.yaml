@@ -1,0 +1,8 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: social/apartment/living_room/heating_set_to_night
+  unique_id: binary_sensor.social_apartment_living_room_heating_set_to_night
+  state: >-
+    {{
+      (states('input_number.social_apartment_living_room_temperature_desired') | round(1)) == (states('input_number.social_apartment_living_room_heating_target_preset_for_night') | round(1))
+    }}

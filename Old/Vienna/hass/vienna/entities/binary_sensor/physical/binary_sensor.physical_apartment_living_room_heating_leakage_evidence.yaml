@@ -1,0 +1,9 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: physical/apartment/living_room/heating/leakage/evidence
+unique_id: binary_sensor.physical_apartment_living_room_heating_leakage_evidence
+entities:
+- binary_sensor.social_apartment_bedroom_door
+- binary_sensor.social_apartment_hallway_door
+- binary_sensor.social_apartment_living_room_kitchen_door
+- binary_sensor.social_apartment_living_room_living_door

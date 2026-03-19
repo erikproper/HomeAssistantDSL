@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/apartment/living_room/kitchen/blinds/node
+  unique_id: binary_sensor.infrastructural_apartment_living_room_kitchen_blinds_node
+  device_class: connectivity
+  state: "{{ states('cover.social_apartment_living_room_kitchen') != 'unavailable' }}"

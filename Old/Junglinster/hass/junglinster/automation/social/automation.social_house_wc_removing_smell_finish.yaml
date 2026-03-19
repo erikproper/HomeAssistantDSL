@@ -1,0 +1,13 @@
+### This file was automatically generated. Don't edit it!
+- alias: social/house/wc/removing_smell/finish
+  id: automation.social_house_wc_removing_smell_finish
+  initial_state: True
+  mode: queued
+  trigger:
+  - platform: event
+    event_type: timer.finished
+    event_data:
+      entity_id: timer.social_house_wc_removing_smell
+  action:
+  - service: fan.turn_off
+    entity_id: fan.social_house_wc

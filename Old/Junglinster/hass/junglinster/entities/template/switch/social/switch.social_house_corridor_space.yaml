@@ -1,0 +1,27 @@
+### This file was automatically generated. Don't edit it!
+switch:
+- name: social/house/corridor/space
+  unique_id: switch.social_house_corridor_space
+  default_entity_id: switch.social_house_corridor_space
+  turn_on:
+  - entity_id:
+    - switch.social_house_corridor_entrance_space
+    action: switch.turn_on
+  turn_off:
+  - entity_id:
+    - light.social_house_corridor_corb
+    action: light.turn_off
+  - entity_id:
+    - light.social_house_corridor_main
+    action: light.turn_off
+  - entity_id:
+    - switch.social_house_corridor_entrance_space
+    action: switch.turn_off
+  state: >-
+      {{
+        is_state('light.social_house_corridor_corb', 'on')
+      or
+        is_state('light.social_house_corridor_main', 'on')
+      or
+        is_state('switch.social_house_corridor_entrance_space', 'on')
+      }}

@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/apartment/hallway
+unique_id: light.social_apartment_hallway
+entities:
+- light.social_apartment_hallway_main

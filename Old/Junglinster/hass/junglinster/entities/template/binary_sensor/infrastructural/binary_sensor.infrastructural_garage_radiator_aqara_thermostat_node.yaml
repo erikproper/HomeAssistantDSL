@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/garage/radiator/aqara_thermostat/node
+  unique_id: binary_sensor.infrastructural_garage_radiator_aqara_thermostat_node
+  device_class: connectivity
+  state: "{{ states('climate.physical_garage_radiator_aqara_thermostat') != 'unavailable' }}"

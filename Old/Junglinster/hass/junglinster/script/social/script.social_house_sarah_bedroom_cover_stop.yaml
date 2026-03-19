@@ -1,0 +1,7 @@
+### This file was automatically generated. Don't edit it!
+social_house_sarah_bedroom_cover_stop:
+  alias: social/house/sarah_bedroom/cover_stop
+  mode: queued
+  sequence:
+  - service: script.turn_on
+    entity_id: script.social_house_sarah_bedroom_house_sarah_bedroom_cover_stop

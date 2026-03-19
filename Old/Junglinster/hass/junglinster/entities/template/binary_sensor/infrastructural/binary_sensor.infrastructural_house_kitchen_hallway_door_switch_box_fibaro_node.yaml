@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/house/kitchen/hallway_door/switch_box/fibaro/node
+  unique_id: binary_sensor.infrastructural_house_kitchen_hallway_door_switch_box_fibaro_node
+  device_class: connectivity
+  state: "{{ states('fan.social_house_wc') != 'unavailable' }}"

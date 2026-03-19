@@ -1,0 +1,5 @@
+### This file was automatically generated. Don't edit it!
+social_coverage_holiday_start_day:
+  name: social/coverage_holiday/start_day
+  has_date: false
+  has_time: true

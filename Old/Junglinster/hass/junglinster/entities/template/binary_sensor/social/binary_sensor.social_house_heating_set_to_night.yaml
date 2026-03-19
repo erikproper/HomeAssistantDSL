@@ -1,0 +1,28 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: social/house/heating_set_to_night
+  unique_id: binary_sensor.social_house_heating_set_to_night
+  state: >-
+    {{
+      is_state('binary_sensor.social_house_bathroom_heating_set_to_night', 'on')
+    and
+      is_state('binary_sensor.social_house_corridor_heating_set_to_night', 'on')
+    and
+      is_state('binary_sensor.social_house_david_bedroom_heating_set_to_night', 'on')
+    and
+      is_state('binary_sensor.social_house_kitchen_heating_set_to_night', 'on')
+    and
+      is_state('binary_sensor.social_house_living_room_heating_set_to_night', 'on')
+    and
+      is_state('binary_sensor.social_house_master_bedroom_heating_set_to_night', 'on')
+    and
+      is_state('binary_sensor.social_house_office_heating_set_to_night', 'on')
+    and
+      is_state('binary_sensor.social_house_sarah_bedroom_heating_set_to_night', 'on')
+    and
+      is_state('binary_sensor.social_house_shower_room_heating_set_to_night', 'on')
+    and
+      is_state('binary_sensor.social_house_storage_room_heating_set_to_night', 'on')
+    and
+      is_state('binary_sensor.social_house_upward_hallway_heating_set_to_night', 'on')
+    }}

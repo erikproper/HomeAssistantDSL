@@ -1,0 +1,10 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social
+unique_id: light.social
+entities:
+- light.social_entrance
+- light.social_garage
+- light.social_house
+- light.social_loft
+- light.social_terrace

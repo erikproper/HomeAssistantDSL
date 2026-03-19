@@ -1,0 +1,7 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/master_bedroom/bed
+unique_id: light.social_house_master_bedroom_bed
+entities:
+- light.social_house_master_bedroom_bed_left
+- light.social_house_master_bedroom_bed_right

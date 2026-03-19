@@ -1,0 +1,349 @@
+entities:
+  - entity: binary_sensor.infrastructural_entrance_ring_node
+    name: 'entrance/ring'
+  - entity: binary_sensor.infrastructural_garage_front_aqara_multi_node
+    name: 'garage/front/aqara_multi'
+  - entity: binary_sensor.infrastructural_garage_front_ikea_motion_node
+    name: 'garage/front/ikea_motion'
+  - entity: binary_sensor.infrastructural_garage_fuse_box_zwave_019_node
+    name: 'garage/fuse_box/zwave/019'
+  - entity: binary_sensor.infrastructural_garage_fuse_box_zwave_028_node
+    name: 'garage/fuse_box/zwave/028'
+  - entity: binary_sensor.infrastructural_garage_fuse_box_zwave_030_node
+    name: 'garage/fuse_box/zwave/030'
+  - entity: binary_sensor.infrastructural_garage_garage_door_aqara_magnet_node
+    name: 'garage/garage_door/aqara_magnet'
+  - entity: binary_sensor.infrastructural_garage_radiator_aqara_thermostat_node
+    name: 'garage/radiator/aqara_thermostat'
+  - entity: binary_sensor.infrastructural_garage_rear_aqara_multi_node
+    name: 'garage/rear/aqara_multi'
+  - entity: binary_sensor.infrastructural_garage_rear_ikea_motion_node
+    name: 'garage/rear/ikea_motion'
+  - entity: binary_sensor.infrastructural_garage_smarty_node
+    name: 'garage/smarty'
+  - entity: binary_sensor.infrastructural_garage_smarty_innr_node
+    name: 'garage/smarty/innr'
+  - entity: binary_sensor.infrastructural_garage_sonos_node
+    name: 'garage/sonos'
+  - entity: binary_sensor.infrastructural_house_bathroom_aqara_multi_node
+    name: 'house/bathroom/aqara_multi'
+  - entity: binary_sensor.infrastructural_house_bathroom_bathtub_relais_box_node
+    name: 'house/bathroom/bathtub/relais_box'
+  - entity: binary_sensor.infrastructural_house_bathroom_left_philips_motion_node
+    name: 'house/bathroom/left/philips_motion'
+  - entity: binary_sensor.infrastructural_house_bathroom_main_node
+    name: 'house/bathroom/main'
+  - entity: binary_sensor.infrastructural_house_bathroom_netatmo_node
+    name: 'house/bathroom/netatmo'
+  - entity: binary_sensor.infrastructural_house_bathroom_philips_dimmer_node
+    name: 'house/bathroom/philips_dimmer'
+  - entity: binary_sensor.infrastructural_house_bathroom_right_philips_motion_node
+    name: 'house/bathroom/right/philips_motion'
+  - entity: binary_sensor.infrastructural_house_bathroom_sonos_node
+    name: 'house/bathroom/sonos'
+  - entity: binary_sensor.infrastructural_house_bathroom_windows_aqara_magnet_node
+    name: 'house/bathroom/windows/aqara_magnet'
+  - entity: binary_sensor.infrastructural_house_corridor_aqara_multi_node
+    name: 'house/corridor/aqara_multi'
+  - entity: binary_sensor.infrastructural_house_corridor_corb_light_node
+    name: 'house/corridor/corb/light'
+  - entity: binary_sensor.infrastructural_house_corridor_entrance_aqara_magnet_node
+    name: 'house/corridor/entrance/aqara_magnet'
+  - entity: binary_sensor.infrastructural_house_corridor_main_node
+    name: 'house/corridor/main'
+  - entity: binary_sensor.infrastructural_house_corridor_netatmo_node
+    name: 'house/corridor/netatmo'
+  - entity: binary_sensor.infrastructural_house_corridor_philips_motion_node
+    name: 'house/corridor/philips_motion'
+  - entity: binary_sensor.infrastructural_house_corridor_ring_node
+    name: 'house/corridor/ring'
+  - entity: binary_sensor.infrastructural_house_david_bedroom_netatmo_node
+    name: 'house/david_bedroom/netatmo'
+  - entity: binary_sensor.infrastructural_house_david_bedroom_radiator_aqara_thermostat_node
+    name: 'house/david_bedroom/radiator/aqara_thermostat'
+  - entity: binary_sensor.infrastructural_house_david_bedroom_somfy_node
+    name: 'house/david_bedroom/somfy'
+  - entity: binary_sensor.infrastructural_house_david_bedroom_windows_aqara_magnet_node
+    name: 'house/david_bedroom/windows/aqara_magnet'
+  - entity: binary_sensor.infrastructural_house_downward_hallway_aqara_multi_node
+    name: 'house/downward_hallway/aqara_multi'
+  - entity: binary_sensor.infrastructural_house_downward_hallway_garage_door_aqara_magnet_node
+    name: 'house/downward_hallway/garage_door/aqara_magnet'
+  - entity: binary_sensor.infrastructural_house_downward_hallway_laserjet_node
+    name: 'house/downward_hallway/laserjet'
+  - entity: binary_sensor.infrastructural_house_downward_hallway_orbi_node
+    name: 'house/downward_hallway/orbi'
+  - entity: binary_sensor.infrastructural_house_downward_hallway_philips_motion_node
+    name: 'house/downward_hallway/philips_motion'
+  - entity: binary_sensor.infrastructural_house_kitchen_go_light_node
+    name: 'house/kitchen/go/light'
+  - entity: binary_sensor.infrastructural_house_kitchen_hallway_door_power_socket_fibaro_node
+    name: 'house/kitchen/hallway_door/power_socket/fibaro'
+  - entity: binary_sensor.infrastructural_house_kitchen_hallway_door_switch_box_fibaro_node
+    name: 'house/kitchen/hallway_door/switch_box/fibaro'
+  - entity: binary_sensor.infrastructural_house_kitchen_main_light_node
+    name: 'house/kitchen/main/light'
+  - entity: binary_sensor.infrastructural_house_kitchen_nespresso_zigbee_node
+    name: 'house/kitchen/nespresso/zigbee'
+  - entity: binary_sensor.infrastructural_house_kitchen_netatmo_node
+    name: 'house/kitchen/netatmo'
+  - entity: binary_sensor.infrastructural_house_kitchen_radiator_aqara_thermostat_node
+    name: 'house/kitchen/radiator/aqara_thermostat'
+  - entity: binary_sensor.infrastructural_house_kitchen_somfy_node
+    name: 'house/kitchen/somfy'
+  - entity: binary_sensor.infrastructural_house_kitchen_sonos_node
+    name: 'house/kitchen/sonos'
+  - entity: binary_sensor.infrastructural_house_kitchen_terrace_door_aqara_magnet_node
+    name: 'house/kitchen/terrace_door/aqara_magnet'
+  - entity: binary_sensor.infrastructural_house_kitchen_terrace_door_philips_dimmer_node
+    name: 'house/kitchen/terrace_door/philips_dimmer'
+  - entity: binary_sensor.infrastructural_house_kitchen_workplace_node
+    name: 'house/kitchen/workplace'
+  - entity: binary_sensor.infrastructural_house_kitchen_workplace_aqara_magnet_node
+    name: 'house/kitchen/workplace/aqara_magnet'
+  - entity: binary_sensor.infrastructural_house_laundry_kitchen_ems_node
+    name: 'house/laundry_kitchen/ems'
+  - entity: binary_sensor.infrastructural_house_laundry_kitchen_front_aqara_multi_node
+    name: 'house/laundry_kitchen/front/aqara_multi'
+  - entity: binary_sensor.infrastructural_house_laundry_kitchen_front_frient_node
+    name: 'house/laundry_kitchen/front/frient'
+  - entity: binary_sensor.infrastructural_house_laundry_kitchen_laundry_aqara_water_node
+    name: 'house/laundry_kitchen/laundry/aqara_water'
+  - entity: binary_sensor.infrastructural_house_laundry_kitchen_laundry_drying_robb_drying_node
+    name: 'house/laundry_kitchen/laundry/drying/robb/drying'
+  - entity: binary_sensor.infrastructural_house_laundry_kitchen_laundry_washing_robb_washing_node
+    name: 'house/laundry_kitchen/laundry/washing/robb/washing'
+  - entity: binary_sensor.infrastructural_house_laundry_kitchen_rear_aqara_multi_node
+    name: 'house/laundry_kitchen/rear/aqara_multi'
+  - entity: binary_sensor.infrastructural_house_laundry_kitchen_rear_frient_node
+    name: 'house/laundry_kitchen/rear/frient'
+  - entity: binary_sensor.infrastructural_house_laundry_kitchen_water_pump_aqara_water_node
+    name: 'house/laundry_kitchen/water_pump/aqara_water'
+  - entity: binary_sensor.infrastructural_house_living_room_apple_tv_node
+    name: 'house/living_room/apple_tv'
+  - entity: binary_sensor.infrastructural_house_living_room_connexoon_node
+    name: 'house/living_room/connexoon'
+  - entity: binary_sensor.infrastructural_house_living_room_dining_main_node
+    name: 'house/living_room/dining/main'
+  - entity: binary_sensor.infrastructural_house_living_room_dining_philips_dimmer_node
+    name: 'house/living_room/dining/philips_dimmer'
+  - entity: binary_sensor.infrastructural_house_living_room_dining_windows_aqara_magnet_node
+    name: 'house/living_room/dining/windows/aqara_magnet'
+  - entity: binary_sensor.infrastructural_house_living_room_frame_node
+    name: 'house/living_room/frame'
+  - entity: binary_sensor.infrastructural_house_living_room_front_radiator_aqara_thermostat_node
+    name: 'house/living_room/front/radiator/aqara_thermostat'
+  - entity: binary_sensor.infrastructural_house_living_room_front_somfy_node
+    name: 'house/living_room/front/somfy'
+  - entity: binary_sensor.infrastructural_house_living_room_indirect_light_node
+    name: 'house/living_room/indirect/light'
+  - entity: binary_sensor.infrastructural_house_living_room_living_bloom_left_light_node
+    name: 'house/living_room/living/bloom_left/light'
+  - entity: binary_sensor.infrastructural_house_living_room_living_bloom_right_light_node
+    name: 'house/living_room/living/bloom_right/light'
+  - entity: binary_sensor.infrastructural_house_living_room_living_christmas_tree_light_node
+    name: 'house/living_room/living/christmas_tree/light'
+  - entity: binary_sensor.infrastructural_house_living_room_living_gray_sideboard_light_node
+    name: 'house/living_room/living/gray_sideboard/light'
+  - entity: binary_sensor.infrastructural_house_living_room_living_hallway_door_switch_box_fibaro_node
+    name: 'house/living_room/living/hallway_door_switch_box/fibaro'
+  - entity: binary_sensor.infrastructural_house_living_room_living_hanging_sideboard_light_node
+    name: 'house/living_room/living/hanging_sideboard/light'
+  - entity: binary_sensor.infrastructural_house_living_room_living_main_node
+    name: 'house/living_room/living/main'
+  - entity: binary_sensor.infrastructural_house_living_room_living_philips_dimmer_node
+    name: 'house/living_room/living/philips_dimmer'
+  - entity: binary_sensor.infrastructural_house_living_room_living_windows_aqara_magnet_node
+    name: 'house/living_room/living/windows/aqara_magnet'
+  - entity: binary_sensor.infrastructural_house_living_room_netatmo_node
+    name: 'house/living_room/netatmo'
+  - entity: binary_sensor.infrastructural_house_living_room_orbi_node
+    name: 'house/living_room/orbi'
+  - entity: binary_sensor.infrastructural_house_living_room_rear_radiator_aqara_thermostat_node
+    name: 'house/living_room/rear/radiator/aqara_thermostat'
+  - entity: binary_sensor.infrastructural_house_living_room_rear_somfy_node
+    name: 'house/living_room/rear/somfy'
+  - entity: binary_sensor.infrastructural_house_living_room_sonos_node
+    name: 'house/living_room/sonos'
+  - entity: binary_sensor.infrastructural_house_living_room_sonos_playbar_node
+    name: 'house/living_room/sonos_playbar'
+  - entity: binary_sensor.infrastructural_house_living_room_sonos_subwoofer_node
+    name: 'house/living_room/sonos_subwoofer'
+  - entity: binary_sensor.infrastructural_house_living_room_sonos_surround_left_node
+    name: 'house/living_room/sonos_surround_left'
+  - entity: binary_sensor.infrastructural_house_living_room_sonos_surround_right_node
+    name: 'house/living_room/sonos_surround_right'
+  - entity: binary_sensor.infrastructural_house_living_room_tv_node
+    name: 'house/living_room/tv'
+  - entity: binary_sensor.infrastructural_house_living_room_tv_switch_node
+    name: 'house/living_room/tv_switch'
+  - entity: binary_sensor.infrastructural_house_master_bedroom_bed_left_light_node
+    name: 'house/master_bedroom/bed/left/light'
+  - entity: binary_sensor.infrastructural_house_master_bedroom_bed_right_light_node
+    name: 'house/master_bedroom/bed/right/light'
+  - entity: binary_sensor.infrastructural_house_master_bedroom_door_switch_box_fibaro_node
+    name: 'house/master_bedroom/door_switch_box/fibaro'
+  - entity: binary_sensor.infrastructural_house_master_bedroom_netatmo_node
+    name: 'house/master_bedroom/netatmo'
+  - entity: binary_sensor.infrastructural_house_master_bedroom_radiator_aqara_thermostat_node
+    name: 'house/master_bedroom/radiator/aqara_thermostat'
+  - entity: binary_sensor.infrastructural_house_master_bedroom_somfy_node
+    name: 'house/master_bedroom/somfy'
+  - entity: binary_sensor.infrastructural_house_master_bedroom_sonos_node
+    name: 'house/master_bedroom/sonos'
+  - entity: binary_sensor.infrastructural_house_master_bedroom_sonos_left_node
+    name: 'house/master_bedroom/sonos_left'
+  - entity: binary_sensor.infrastructural_house_master_bedroom_sonos_right_node
+    name: 'house/master_bedroom/sonos_right'
+  - entity: binary_sensor.infrastructural_house_master_bedroom_windows_aqara_magnet_node
+    name: 'house/master_bedroom/windows/aqara_magnet'
+  - entity: binary_sensor.infrastructural_house_office_apple_tv_node
+    name: 'house/office/apple_tv'
+  - entity: binary_sensor.infrastructural_house_office_cycling_switch_node
+    name: 'house/office/cycling/switch'
+  - entity: binary_sensor.infrastructural_house_office_cycling_fans_switch_node
+    name: 'house/office/cycling_fans/switch'
+  - entity: binary_sensor.infrastructural_house_office_desktop_switch_node
+    name: 'house/office/desktop/switch'
+  - entity: binary_sensor.infrastructural_house_office_door_aqara_multi_node
+    name: 'house/office/door/aqara_multi'
+  - entity: binary_sensor.infrastructural_house_office_drain_left_luminea_node
+    name: 'house/office/drain/left/luminea'
+  - entity: binary_sensor.infrastructural_house_office_drain_right_luminea_node
+    name: 'house/office/drain/right/luminea'
+  - entity: binary_sensor.infrastructural_house_office_imac_switch_node
+    name: 'house/office/imac/switch'
+  - entity: binary_sensor.infrastructural_house_office_low_board_node
+    name: 'house/office/low_board'
+  - entity: binary_sensor.infrastructural_house_office_lower_strip_node
+    name: 'house/office/lower_strip'
+  - entity: binary_sensor.infrastructural_house_office_main_node
+    name: 'house/office/main'
+  - entity: binary_sensor.infrastructural_house_office_media_drive_switch_node
+    name: 'house/office/media_drive/switch'
+  - entity: binary_sensor.infrastructural_house_office_mini_fans_switch_node
+    name: 'house/office/mini_fans/switch'
+  - entity: binary_sensor.infrastructural_house_office_netatmo_node
+    name: 'house/office/netatmo'
+  - entity: binary_sensor.infrastructural_house_office_orbi_node
+    name: 'house/office/orbi'
+  - entity: binary_sensor.infrastructural_house_office_photography_switch_node
+    name: 'house/office/photography/switch'
+  - entity: binary_sensor.infrastructural_house_office_shredder_switch_node
+    name: 'house/office/shredder/switch'
+  - entity: binary_sensor.infrastructural_house_office_sonos_node
+    name: 'house/office/sonos'
+  - entity: binary_sensor.infrastructural_house_office_sonos_left_node
+    name: 'house/office/sonos_left'
+  - entity: binary_sensor.infrastructural_house_office_sonos_right_node
+    name: 'house/office/sonos_right'
+  - entity: binary_sensor.infrastructural_house_office_tv_node
+    name: 'house/office/tv'
+  - entity: binary_sensor.infrastructural_house_office_upper_strip_node
+    name: 'house/office/upper_strip'
+  - entity: binary_sensor.infrastructural_house_office_windows_left_aqara_magnet_node
+    name: 'house/office/windows/left/aqara_magnet'
+  - entity: binary_sensor.infrastructural_house_office_windows_right_aqara_magnet_node
+    name: 'house/office/windows/right/aqara_magnet'
+  - entity: binary_sensor.infrastructural_house_rainwater_pump_zigbee_node
+    name: 'house/rainwater_pump/zigbee'
+  - entity: binary_sensor.infrastructural_house_sarah_bedroom_apple_tv_node
+    name: 'house/sarah_bedroom/apple_tv'
+  - entity: binary_sensor.infrastructural_house_sarah_bedroom_door_switch_box_fibaro_node
+    name: 'house/sarah_bedroom/door_switch_box/fibaro'
+  - entity: binary_sensor.infrastructural_house_sarah_bedroom_netatmo_node
+    name: 'house/sarah_bedroom/netatmo'
+  - entity: binary_sensor.infrastructural_house_sarah_bedroom_radiator_aqara_thermostat_node
+    name: 'house/sarah_bedroom/radiator/aqara_thermostat'
+  - entity: binary_sensor.infrastructural_house_sarah_bedroom_somfy_node
+    name: 'house/sarah_bedroom/somfy'
+  - entity: binary_sensor.infrastructural_house_sarah_bedroom_windows_aqara_magnet_node
+    name: 'house/sarah_bedroom/windows/aqara_magnet'
+  - entity: binary_sensor.infrastructural_house_server_room_aqara_multi_node
+    name: 'house/server_room/aqara_multi'
+  - entity: binary_sensor.infrastructural_house_server_room_fritzbox_node
+    name: 'house/server_room/fritzbox'
+  - entity: binary_sensor.infrastructural_house_server_room_fuse_box_zwave_013_node
+    name: 'house/server_room/fuse_box/zwave/013'
+  - entity: binary_sensor.infrastructural_house_server_room_fuse_box_zwave_021_node
+    name: 'house/server_room/fuse_box/zwave/021'
+  - entity: binary_sensor.infrastructural_house_server_room_fuse_box_zwave_023_node
+    name: 'house/server_room/fuse_box/zwave/023'
+  - entity: binary_sensor.infrastructural_house_server_room_fuse_box_zwave_024_node
+    name: 'house/server_room/fuse_box/zwave/024'
+  - entity: binary_sensor.infrastructural_house_server_room_fuse_box_zwave_025_node
+    name: 'house/server_room/fuse_box/zwave/025'
+  - entity: binary_sensor.infrastructural_house_server_room_fuse_box_zwave_027_node
+    name: 'house/server_room/fuse_box/zwave/027'
+  - entity: binary_sensor.infrastructural_house_server_room_fuse_box_zwave_029_node
+    name: 'house/server_room/fuse_box/zwave/029'
+  - entity: binary_sensor.infrastructural_house_server_room_main_node
+    name: 'house/server_room/main'
+  - entity: binary_sensor.infrastructural_house_server_room_philips_motion_node
+    name: 'house/server_room/philips_motion'
+  - entity: binary_sensor.infrastructural_house_server_room_rack_aqara_multi_node
+    name: 'house/server_room/rack/aqara_multi'
+  - entity: binary_sensor.infrastructural_house_server_room_xanadu_node
+    name: 'house/server_room/xanadu'
+  - entity: binary_sensor.infrastructural_house_server_room_xanadu_switch_node
+    name: 'house/server_room/xanadu/switch'
+  - entity: binary_sensor.infrastructural_house_server_room_zwave_027_node
+    name: 'house/server_room/zwave/027'
+  - entity: binary_sensor.infrastructural_house_shower_room_netatmo_node
+    name: 'house/shower_room/netatmo'
+  - entity: binary_sensor.infrastructural_house_shower_room_philips_motion_node
+    name: 'house/shower_room/philips_motion'
+  - entity: binary_sensor.infrastructural_house_shower_room_radiator_aqara_thermostat_node
+    name: 'house/shower_room/radiator/aqara_thermostat'
+  - entity: binary_sensor.infrastructural_house_shower_room_somfy_node
+    name: 'house/shower_room/somfy'
+  - entity: binary_sensor.infrastructural_house_shower_room_sonos_node
+    name: 'house/shower_room/sonos'
+  - entity: binary_sensor.infrastructural_house_shower_room_windows_aqara_magnet_node
+    name: 'house/shower_room/windows/aqara_magnet'
+  - entity: binary_sensor.infrastructural_house_storage_room_backup_node
+    name: 'house/storage_room/backup'
+  - entity: binary_sensor.infrastructural_house_storage_room_backup_innr_node
+    name: 'house/storage_room/backup_innr'
+  - entity: binary_sensor.infrastructural_house_storage_room_door_aqara_multi_node
+    name: 'house/storage_room/door/aqara_multi'
+  - entity: binary_sensor.infrastructural_house_storage_room_netatmo_node
+    name: 'house/storage_room/netatmo'
+  - entity: binary_sensor.infrastructural_house_storage_room_philips_motion_node
+    name: 'house/storage_room/philips_motion'
+  - entity: binary_sensor.infrastructural_house_storage_room_windows_aqara_magnet_node
+    name: 'house/storage_room/windows/aqara_magnet'
+  - entity: binary_sensor.infrastructural_house_upward_hallway_first_floor_entrance_aqara_magnet_node
+    name: 'house/upward_hallway/first_floor/entrance/aqara_magnet'
+  - entity: binary_sensor.infrastructural_house_upward_hallway_first_floor_netatmo_node
+    name: 'house/upward_hallway/first_floor/netatmo'
+  - entity: binary_sensor.infrastructural_house_upward_hallway_first_floor_radiator_aqara_thermostat_node
+    name: 'house/upward_hallway/first_floor/radiator/aqara_thermostat'
+  - entity: binary_sensor.infrastructural_house_upward_hallway_first_floor_ring_node
+    name: 'house/upward_hallway/first_floor/ring'
+  - entity: binary_sensor.infrastructural_house_upward_hallway_second_floor_aqara_magnet_node
+    name: 'house/upward_hallway/second_floor/aqara_magnet'
+  - entity: binary_sensor.infrastructural_house_upward_hallway_second_floor_aqara_multi_node
+    name: 'house/upward_hallway/second_floor/aqara_multi'
+  - entity: binary_sensor.infrastructural_house_upward_hallway_second_floor_david_bedroom_door_switch_box_fibaro_node
+    name: 'house/upward_hallway/second_floor/david_bedroom_door/switch_box/fibaro'
+  - entity: binary_sensor.infrastructural_house_upward_hallway_second_floor_shower_room_switch_box_fibaro_node
+    name: 'house/upward_hallway/second_floor/shower_room/switch_box/fibaro'
+  - entity: binary_sensor.infrastructural_house_upward_hallway_second_floor_somfy_node
+    name: 'house/upward_hallway/second_floor/somfy'
+  - entity: binary_sensor.infrastructural_house_wc_philips_motion_node
+    name: 'house/wc/philips_motion'
+  - entity: binary_sensor.infrastructural_house_wc_window_aqara_magnet_node
+    name: 'house/wc/window/aqara_magnet'
+  - entity: binary_sensor.infrastructural_loft_aqara_multi_node
+    name: 'loft/aqara_multi'
+  - entity: binary_sensor.infrastructural_loft_switch_box_nodon_node
+    name: 'loft/switch_box/nodon'
+  - entity: binary_sensor.infrastructural_terrace_front_netatmo_node
+    name: 'terrace/front/netatmo'
+  - entity: binary_sensor.infrastructural_terrace_garden_aqara_multi_node
+    name: 'terrace/garden/aqara_multi'
+title: Nodes
+state_color: true
+type: entities
+show_header_toggle: false

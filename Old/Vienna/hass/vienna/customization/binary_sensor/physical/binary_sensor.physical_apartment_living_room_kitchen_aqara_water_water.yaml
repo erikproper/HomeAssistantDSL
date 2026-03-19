@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.physical_apartment_living_room_kitchen_aqara_water_water:
+  icon: mdi:water-off
+  friendly_name: physical/apartment/living_room/kitchen/aqara_water/water

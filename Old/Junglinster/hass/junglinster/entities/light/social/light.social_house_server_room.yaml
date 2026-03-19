@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/server_room
+unique_id: light.social_house_server_room
+entities:
+- light.social_house_server_room_main

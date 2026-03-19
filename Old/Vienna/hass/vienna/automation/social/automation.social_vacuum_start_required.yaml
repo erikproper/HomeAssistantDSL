@@ -1,0 +1,24 @@
+### This file was automatically generated. Don't edit it!
+- alias: social/vacuum/start_required
+  id: automation.social_vacuum_start_required
+  initial_state: True
+  mode: queued
+  trigger:
+  - platform: state
+    entity_id: input_boolean.social_vacuuming_requested
+    to: 'on'
+  - platform: state
+    entity_id: input_boolean.social_occupation_home
+    to: 'off'
+  - platform: homeassistant
+    event: start
+  condition:
+  - condition: state
+    entity_id: input_boolean.social_vacuuming_requested
+    state: 'on'
+  - condition: state
+    entity_id: input_boolean.social_occupation_home
+    state: 'off'
+  action:
+  - service: input_boolean.turn_on
+    entity_id: input_boolean.social_vacuum_should_be_active

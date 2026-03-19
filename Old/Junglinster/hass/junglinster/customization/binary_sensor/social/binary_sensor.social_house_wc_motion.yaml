@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.social_house_wc_motion:
+  icon: mdi:motion-sensor
+  friendly_name: social/house/wc/motion

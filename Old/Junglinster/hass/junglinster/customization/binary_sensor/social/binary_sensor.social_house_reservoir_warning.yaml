@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.social_house_reservoir_warning:
+  icon: mdi:water-off
+  friendly_name: social/house/reservoir/warning

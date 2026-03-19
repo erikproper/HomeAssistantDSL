@@ -1,0 +1,10 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/terrace/humidity
+unique_id: sensor.social_terrace_humidity
+type: mean
+ignore_non_numeric: true
+state_class: measurement
+entities:
+- sensor.physical_terrace_front_netatmo_humidity
+- sensor.physical_terrace_garden_aqara_multi_humidity

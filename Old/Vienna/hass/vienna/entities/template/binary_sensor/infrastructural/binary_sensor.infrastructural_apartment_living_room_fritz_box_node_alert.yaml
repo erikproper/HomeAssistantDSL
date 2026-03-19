@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/apartment/living_room/fritz_box/node_alert
+  unique_id: binary_sensor.infrastructural_apartment_living_room_fritz_box_node_alert
+  device_class: connectivity
+  state: "{{ is_state('binary_sensor.infrastructural_apartment_living_room_fritz_box_node', 'off') }}"

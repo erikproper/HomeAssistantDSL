@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_house_kitchen_somfy_node_alert:
+  icon: mdi:server-off
+  friendly_name: infrastructural/house/kitchen/somfy/node_alert

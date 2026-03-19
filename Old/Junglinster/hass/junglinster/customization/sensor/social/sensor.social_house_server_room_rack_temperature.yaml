@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.social_house_server_room_rack_temperature:
+  icon: mdi:thermometer
+  friendly_name: social/house/server_room/rack/temperature

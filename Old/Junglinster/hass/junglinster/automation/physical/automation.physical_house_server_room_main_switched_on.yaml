@@ -1,0 +1,16 @@
+### This file was automatically generated. Don't edit it!
+- alias: physical/house/server_room/main/switched_on
+  id: automation.physical_house_server_room_main_switched_on
+  initial_state: True
+  mode: queued
+  trigger:
+  - platform: state
+    entity_id: light.physical_house_server_room_main
+    to: 'on'
+  condition:
+  - condition: state
+    entity_id: light.physical_house_server_room_main_spots
+    state: 'off'
+  action:
+  - service: light.turn_on
+    entity_id: light.physical_house_server_room_main_spots

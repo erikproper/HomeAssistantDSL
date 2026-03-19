@@ -1,0 +1,92 @@
+### This file was automatically generated. Don't edit it!
+switch:
+- name: social/space
+  unique_id: switch.social_space
+  default_entity_id: switch.social_space
+  turn_on:
+  - entity_id:
+    - switch.social_cars_space
+    action: switch.turn_on
+  - entity_id:
+    - switch.social_entrance_space
+    action: switch.turn_on
+  - entity_id:
+    - switch.social_garage_space
+    action: switch.turn_on
+  - entity_id:
+    - switch.social_house_space
+    action: switch.turn_on
+  - entity_id:
+    - switch.social_loft_space
+    action: switch.turn_on
+  - entity_id:
+    - switch.social_terrace_space
+    action: switch.turn_on
+  turn_off:
+  - entity_id:
+    - light.social_entrance
+    action: light.turn_off
+  - entity_id:
+    - light.social_garage
+    action: light.turn_off
+  - entity_id:
+    - light.social_house
+    action: light.turn_off
+  - entity_id:
+    - light.social_loft
+    action: light.turn_off
+  - entity_id:
+    - light.social_terrace
+    action: light.turn_off
+  - entity_id:
+    - switch.social_cars_space
+    action: switch.turn_off
+  - entity_id:
+    - switch.social_entrance_space
+    action: switch.turn_off
+  - entity_id:
+    - switch.social_garage_media
+    action: switch.turn_off
+  - entity_id:
+    - switch.social_garage_space
+    action: switch.turn_off
+  - entity_id:
+    - switch.social_house_media
+    action: switch.turn_off
+  - entity_id:
+    - switch.social_house_space
+    action: switch.turn_off
+  - entity_id:
+    - switch.social_loft_space
+    action: switch.turn_off
+  - entity_id:
+    - switch.social_terrace_space
+    action: switch.turn_off
+  state: >-
+      {{
+        is_state('light.social_entrance', 'on')
+      or
+        is_state('light.social_garage', 'on')
+      or
+        is_state('light.social_house', 'on')
+      or
+        is_state('light.social_loft', 'on')
+      or
+        is_state('light.social_terrace', 'on')
+      or
+        is_state('switch.social_cars_space', 'on')
+      or
+        is_state('switch.social_entrance_space', 'on')
+      or
+        is_state('switch.social_garage_media', 'on')
+      or
+        is_state('switch.social_garage_space', 'on')
+      or
+        is_state('switch.social_house_media', 'on')
+      or
+        is_state('switch.social_house_space', 'on')
+      or
+        is_state('switch.social_loft_space', 'on')
+      or
+        is_state('switch.social_terrace_space', 'on')
+      }}

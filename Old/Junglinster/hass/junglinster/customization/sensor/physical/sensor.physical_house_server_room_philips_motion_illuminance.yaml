@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.physical_house_server_room_philips_motion_illuminance:
+  icon: mdi:brightness-5
+  friendly_name: physical/house/server_room/philips_motion/illuminance

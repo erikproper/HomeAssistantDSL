@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: physical/house/sarah_bedroom/heating/leakage/evidence
+unique_id: binary_sensor.physical_house_sarah_bedroom_heating_leakage_evidence
+entities:
+- binary_sensor.infrastructural_off

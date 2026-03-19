@@ -1,0 +1,7 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/office/window
+unique_id: binary_sensor.social_house_office_window
+entities:
+- binary_sensor.physical_house_office_windows_left_aqara_magnet_window
+- binary_sensor.physical_house_office_windows_right_aqara_magnet_window

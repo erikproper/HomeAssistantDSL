@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_house_office_lower_strip_node:
+  icon: mdi:server-network
+  friendly_name: infrastructural/house/office/lower_strip/node

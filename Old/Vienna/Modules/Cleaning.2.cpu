@@ -1,0 +1,5 @@
+function CleanCPU {
+  echo "- CPU"
+  
+  rm -rf $CPUConfigs
+}

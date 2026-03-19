@@ -1,0 +1,5 @@
+### This file was automatically generated. Don't edit it!
+sensor:
+- name: infrastructural/house/downward_hallway/laserjet/message
+  unique_id: sensor.infrastructural_house_downward_hallway_laserjet_message
+  state: "{{ state_attr('sensor.infrastructural_house_downward_hallway_laserjet_status', 'state_message') }}"

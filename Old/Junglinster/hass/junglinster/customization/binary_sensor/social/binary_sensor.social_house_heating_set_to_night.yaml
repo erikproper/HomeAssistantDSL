@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.social_house_heating_set_to_night:
+  icon: mdi:radiator
+  friendly_name: social/house/heating_set_to_night

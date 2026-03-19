@@ -1,0 +1,8 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/bathroom/motion
+unique_id: binary_sensor.social_house_bathroom_motion
+entities:
+- binary_sensor.physical_house_bathroom_left_philips_motion_motion
+- binary_sensor.physical_house_bathroom_right_philips_motion_motion
+- binary_sensor.physical_house_bathroom_whirlpool_motion

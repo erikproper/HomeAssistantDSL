@@ -1,0 +1,159 @@
+# Migrated preview; generated on 18.03.2026.
+# House: Junglinster
+# Target: Macros.def
+# Source: Old/Junglinster/Macros
+
+# Macros are collapsed into one file, but still form a prelude that should be read before other definitions.
+
+entity macro battery_alert ($entity [$alertLevel]):
+  # Source: entity battery_alert.def
+  declare entity binary_sensor.infrastructural:$entity:battery_alert
+    if "$alertLevel" provided then
+      begin
+        define satisfies sensor.infrastructural:$entity:battery_level "($ | int(0)) < $alertLevel"
+          begin
+            available always;
+          end;
+      end;
+end;
+
+entity macro battery_from_device ($entity $sourceEntity [$alertLevel]):
+  # Source: entity battery_from_device.def
+  declare entity sensor.infrastructural:$entity:battery_level
+    begin
+      define value $sourceEntity!battery_level;
+    end;
+  
+  entity battery_alert $entity $alertLevel;
+end;
+
+entity macro battery_level ($entity [$alertLevel]):
+  # Source: entity battery_level.def
+  entity battery_alert $entity $alertLevel;
+
+  declare entity sensor.infrastructural:$entity:battery_level;
+end;
+
+entity macro battery_level_device ($entity [$alertLevel]):
+  # Source: entity battery_level_device.def
+  entity battery_level $entity $alertLevel
+    begin
+      providing node $entity;
+    end;
+end;
+
+entity macro light_device ([$sphere] $name):
+  if not $sphere provided then
+    begin
+      sphere="social";
+    end;
+
+  declare entity light.$sphere:$name
+    begin
+      providing node $name/light;
+    end;
+end;
+
+entity macro media_player ($entity [no_collect] { [no_play $input | $delay] }):
+  if "$option" == "no_collect" then
+    begin
+      noCollect="no_collect";
+    end;
+  else
+    begin
+      noCollect="";
+    end;
+
+  if "$option" == "no_play" then
+    begin
+      enabler="";
+      delayOffety="";
+      inputety="$value";
+    end;
+  else
+    begin
+      enabler="$option";
+      delayOffety="$value";
+      inputety="";
+    end;
+
+  declare entity media_player.social:$entity $noCollect
+    begin
+      providing node $thisEntity $enabler $delayOffety;
+    end;
+    
+  declare entity switch.social:$thisEntity:media $noCollect
+    begin
+      icon $mediaSwitchIcon;
+      define media_switch media_player.social:$thisEntity $inputety;
+    end;
+end;
+
+entity macro power_switch ($sphere $entity $deviceNode $powerThreshold):
+  # Source: entity power_switch.def
+  declare entity sensor.$sphere:$entity:power;
+
+  declare entity binary_sensor.$sphere:$entity:consumes
+    begin
+      icon $ConsumesIcon;
+      define satisfies sensor.$sphere:$entity:power "($ | int(0)) > $powerThreshold";
+    end;
+
+  declare entity switch.$sphere::$entity
+    begin
+      providing node $entity/$deviceNode;
+    end;
+end;
+
+entity macro switch_device ($sphereOrName [$name]):
+  # Source: entity switch_device.def
+  if "$name" == "" then
+    begin
+      switchSphere="social";
+      switchName="$sphereOrName";
+    end;
+  else
+    begin
+      switchSphere="$sphereOrName";
+      switchName="$name";
+    end;
+
+  declare entity switch.$switchSphere:$switchName;
+    begin
+      providing node $switchName/switch;
+    end;
+end;
+
+entity macro thermostat ($entity):
+  # Source: entity thermostat.def
+  declare entity climate.physical:$entity;
+    begin
+      providing node $entity;
+    end;
+
+  declare entity sensor.physical:$entity:temperature
+    begin
+      define value climate.physical:$entity!current_temperature;
+    end;
+end;
+
+entity macro zigbee_group ($domain $sphere $location $entities..):
+  entity {$domain}_device $sphere $location;
+
+  space physical:$location no_collect
+    begin
+      for $e in range $entities do
+        begin
+          entity {$domain}_device physical $e;
+        end;
+    end;
+end;
+
+entity macro zwave_node ($node):
+  declare entity sensor.infrastructural:$node/status;
+
+    declare entity binary_sensor.infrastructural:$node:node
+      begin
+        define satisfies sensor.infrastructural:$node/status "($ == 'alive')";
+      end;
+end;

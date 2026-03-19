@@ -1,0 +1,9 @@
+### This file was automatically generated. Don't edit it!
+switch:
+- name: social/house/corridor/entrance/space
+  unique_id: switch.social_house_corridor_entrance_space
+  default_entity_id: switch.social_house_corridor_entrance_space
+  turn_on:
+  turn_off:
+  state: >-
+      }}

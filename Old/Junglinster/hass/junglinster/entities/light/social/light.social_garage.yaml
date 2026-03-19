@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/garage
+unique_id: light.social_garage
+entities:
+- light.social_garage_main

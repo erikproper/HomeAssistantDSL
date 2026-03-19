@@ -1,0 +1,5 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+  name: social/house/corridor/heating_mode_desired
+  unique_id: binary_sensor.social_house_corridor_heating_mode_desired
+  state: "{{ is_state('input_boolean.social_house_corridor_heating_mode_desired', 'on') }}"

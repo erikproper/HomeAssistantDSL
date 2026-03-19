@@ -1,0 +1,23 @@
+entities:
+  - entity: climate.physical_garage_radiator_aqara_thermostat
+    name: 'garage/radiator/aqara_thermostat'
+  - entity: climate.physical_house_david_bedroom_radiator_aqara_thermostat
+    name: 'house/david_bedroom/radiator/aqara_thermostat'
+  - entity: climate.physical_house_kitchen_radiator_aqara_thermostat
+    name: 'house/kitchen/radiator/aqara_thermostat'
+  - entity: climate.physical_house_living_room_front_radiator_aqara_thermostat
+    name: 'house/living_room/front/radiator/aqara_thermostat'
+  - entity: climate.physical_house_living_room_rear_radiator_aqara_thermostat
+    name: 'house/living_room/rear/radiator/aqara_thermostat'
+  - entity: climate.physical_house_master_bedroom_radiator_aqara_thermostat
+    name: 'house/master_bedroom/radiator/aqara_thermostat'
+  - entity: climate.physical_house_sarah_bedroom_radiator_aqara_thermostat
+    name: 'house/sarah_bedroom/radiator/aqara_thermostat'
+  - entity: climate.physical_house_shower_room_radiator_aqara_thermostat
+    name: 'house/shower_room/radiator/aqara_thermostat'
+  - entity: climate.physical_house_upward_hallway_first_floor_radiator_aqara_thermostat
+    name: 'house/upward_hallway/first_floor/radiator/aqara_thermostat'
+title: Thermostats
+state_color: true
+type: entities
+show_header_toggle: false

@@ -1,0 +1,7 @@
+### This file was automatically generated. Don't edit it!
+social_house_sarah_bedroom_house_sarah_bedroom_cover_open:
+  alias: social/house/sarah_bedroom/house/sarah_bedroom/cover_open
+  mode: queued
+  sequence:
+  - service: cover.open_cover
+    entity_id: cover.social_house_sarah_bedroom

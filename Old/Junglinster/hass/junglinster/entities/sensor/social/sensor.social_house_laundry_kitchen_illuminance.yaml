@@ -1,0 +1,10 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/laundry_kitchen/illuminance
+unique_id: sensor.social_house_laundry_kitchen_illuminance
+type: mean
+ignore_non_numeric: true
+state_class: measurement
+entities:
+- sensor.physical_house_laundry_kitchen_front_frient_illuminance
+- sensor.physical_house_laundry_kitchen_rear_frient_illuminance

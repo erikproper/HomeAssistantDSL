@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/house/storage_room/netatmo/node
+  unique_id: binary_sensor.infrastructural_house_storage_room_netatmo_node
+  device_class: connectivity
+  state: "{{ states('sensor.infrastructural_house_storage_room_netatmo_reachability') == 'True' }}"

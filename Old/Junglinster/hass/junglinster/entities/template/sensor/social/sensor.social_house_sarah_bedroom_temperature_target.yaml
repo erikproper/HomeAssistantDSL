@@ -1,0 +1,8 @@
+### This file was automatically generated. Don't edit it!
+sensor:
+- name: social/house/sarah_bedroom/temperature_target
+  unique_id: sensor.social_house_sarah_bedroom_temperature_target
+  unit_of_measurement: "°C"
+  device_class: temperature
+  state_class: measurement
+  state: "{{ states('input_number.physical_house_sarah_bedroom_temperature_target') }}"

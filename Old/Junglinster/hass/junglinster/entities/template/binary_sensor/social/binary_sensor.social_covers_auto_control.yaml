@@ -1,0 +1,5 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: social/covers/auto_control
+  unique_id: binary_sensor.social_covers_auto_control
+  state: "{{ is_state('input_boolean.social_covers_auto_control', 'on') and is_state('input_boolean.social_occupation_home', 'off') }}"

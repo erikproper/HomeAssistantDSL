@@ -1,0 +1,8 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: social/garage/heating_set_to_around
+  unique_id: binary_sensor.social_garage_heating_set_to_around
+  state: >-
+    {{
+      (states('input_number.social_garage_temperature_desired') | round(1)) == (states('input_number.social_garage_heating_target_preset_for_around') | round(1))
+    }}

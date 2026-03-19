@@ -1,0 +1,13 @@
+###
+#
+# Definitions of entities using the CLI
+#
+###
+
+function define_cli_switch { # $1 = Login, $2 = Server, $3 = On script, $4 = Off script, $5 = Status script, $6 = On condition
+  CLISwitchDefinition "$1" "$2" "$3" "$4" "$5" "$6"
+}
+
+function define_cli_sensor { # $1 = Login, $2 = Server, $3 = Status script
+  CLISensorDefinition "$1" "$2" "$3"
+}

@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+- sensor:
+    name: infrastructural/house/server_room/xanadu/load
+    command: "bash /config/bin/run erikp xanadu.fritz.box ./cpu/load"
+    command_timeout: 15
+    scan_interval: 60

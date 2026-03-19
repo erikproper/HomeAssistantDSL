@@ -1,0 +1,17 @@
+### This file was automatically generated. Don't edit it!
+- alias: physical/house/bathroom/set_heating_to_target_mode_on
+  id: automation.physical_house_bathroom_set_heating_to_target_mode_on
+  initial_state: True
+  mode: queued
+  trigger:
+  - platform: state
+    entity_id: input_boolean.physical_house_bathroom_heating_mode_target
+  - platform: state
+    entity_id: switch.physical_house_bathroom_heating
+  condition:
+  - condition: state
+    entity_id: input_boolean.physical_house_bathroom_heating_mode_target
+    state: 'on'
+  action:
+  - service: switch.turn_on
+    entity_id: switch.physical_house_bathroom_heating

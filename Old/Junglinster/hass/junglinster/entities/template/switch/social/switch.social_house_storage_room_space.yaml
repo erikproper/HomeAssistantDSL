@@ -1,0 +1,14 @@
+### This file was automatically generated. Don't edit it!
+switch:
+- name: social/house/storage_room/space
+  unique_id: switch.social_house_storage_room_space
+  default_entity_id: switch.social_house_storage_room_space
+  turn_on:
+  turn_off:
+  - entity_id:
+    - light.social_house_storage_room_main
+    action: light.turn_off
+  state: >-
+      {{
+        is_state('light.social_house_storage_room_main', 'on')
+      }}

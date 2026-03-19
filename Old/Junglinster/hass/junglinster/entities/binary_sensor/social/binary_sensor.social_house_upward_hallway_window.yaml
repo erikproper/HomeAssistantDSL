@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/upward_hallway/window
+unique_id: binary_sensor.social_house_upward_hallway_window
+entities:
+- binary_sensor.social_house_upward_hallway_second_floor_window

@@ -1,0 +1,11 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/cars/xc40/door
+unique_id: binary_sensor.social_cars_xc40_door
+entities:
+- binary_sensor.social_cars_xc40_front_left_door
+- binary_sensor.social_cars_xc40_front_right_door
+- binary_sensor.social_cars_xc40_hood_door
+- binary_sensor.social_cars_xc40_rear_left_door
+- binary_sensor.social_cars_xc40_rear_right_door
+- binary_sensor.social_cars_xc40_tailgate_door

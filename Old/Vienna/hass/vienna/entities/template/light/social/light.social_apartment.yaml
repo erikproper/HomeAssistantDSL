@@ -1,0 +1,36 @@
+### This file was automatically generated. Don't edit it!
+light:
+- name: social/apartment
+  unique_id: light.social_apartment
+  default_entity_id: light.social_apartment
+  icon: mdi:lightbulb-group
+  turn_on:
+  - entity_id:
+    - light.social_apartment_hallway
+    action: light.turn_on
+  - entity_id:
+    - light.social_apartment_living_room
+    action: light.turn_on
+  turn_off:
+  - entity_id:
+    - light.social_apartment_bedroom
+    action: light.turn_off
+  - entity_id:
+    - light.social_apartment_hallway
+    action: light.turn_off
+  - entity_id:
+    - light.social_apartment_living_room
+    action: light.turn_off
+  - entity_id:
+    - light.social_apartment_shower_room
+    action: light.turn_off
+  state: >-
+      {{
+        is_state('light.social_apartment_bedroom', 'on')
+      or
+        is_state('light.social_apartment_hallway', 'on')
+      or
+        is_state('light.social_apartment_living_room', 'on')
+      or
+        is_state('light.social_apartment_shower_room', 'on')
+      }}

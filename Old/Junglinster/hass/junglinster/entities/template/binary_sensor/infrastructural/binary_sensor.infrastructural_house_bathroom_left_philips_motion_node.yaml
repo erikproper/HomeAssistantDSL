@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/house/bathroom/left/philips_motion/node
+  unique_id: binary_sensor.infrastructural_house_bathroom_left_philips_motion_node
+  device_class: connectivity
+  state: "{{ states('sensor.infrastructural_house_bathroom_left_philips_motion_battery_level') != 'unavailable' }}"

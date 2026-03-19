@@ -1,0 +1,14 @@
+### This file was automatically generated. Don't edit it!
+platform: rest
+resource: https://junglinster.homelinux.org/api/states/sensor.infrastructural_vienna_terrace_netatmo_outdoor_battery_level
+name: infrastructural/terrace/netatmo_outdoor/battery_level
+value_template: "{{ value_json.state }}"
+unique_id: sensor.infrastructural_terrace_netatmo_outdoor_battery_level
+unit_of_measurement: "%"
+device_class: battery
+state_class: measurement
+icon: mdi:battery
+scan_interval: 60
+headers:
+  authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJhYWUzOGU1OWRiNGI0MDM0OWI0ZWIyMmI0NWQyZjdmNiIsImlhdCI6MTY3NjU0NzQ1OSwiZXhwIjoxOTkxOTA3NDU5fQ.vlmf5yjC2tHkw28yUIzP5gQ9jkcOOuvLaRrVjt6GEho
+  content-type: "application/json"

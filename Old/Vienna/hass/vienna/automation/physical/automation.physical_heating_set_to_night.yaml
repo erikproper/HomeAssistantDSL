@@ -1,0 +1,24 @@
+### This file was automatically generated. Don't edit it!
+- alias: physical/heating_set_to_night
+  id: automation.physical_heating_set_to_night
+  initial_state: True
+  mode: queued
+  trigger:
+  - platform: state
+    entity_id: input_boolean.social_occupation_home
+    to: 'on'
+  - platform: state
+    entity_id: binary_sensor.social_is_heating_night_time
+    to: 'on'
+  condition:
+  - condition: and
+    conditions:
+    - condition: state
+      entity_id: input_boolean.social_occupation_home
+      state: 'on'
+    - condition: state
+      entity_id: binary_sensor.social_is_heating_night_time
+      state: 'on'
+  action:
+  - service: script.turn_on
+    entity_id: script.social_apartment_set_heating_to_night

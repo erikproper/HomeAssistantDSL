@@ -1,0 +1,9 @@
+#!/bin/bash
+
+rsync -arv --delete -e "ssh -p 1967" hass/vienna hassio@vienna.homelinux.org:.
+for e in configuration.yaml automation entities customization integrations script; do
+  ssh hassio@vienna.homelinux.org -p 1967 sudo rsync -arv --delete /home/hassio/vienna/$e /root/config
+done
+for e in automation script; do
+  ssh hassio@vienna.homelinux.org -p 1967 sudo "ln -sf /config/${e}s.yaml /config/$e/"
+done

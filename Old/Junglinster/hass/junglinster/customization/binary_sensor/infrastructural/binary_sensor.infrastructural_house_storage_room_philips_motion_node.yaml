@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_house_storage_room_philips_motion_node:
+  icon: mdi:server-network
+  friendly_name: infrastructural/house/storage_room/philips_motion/node

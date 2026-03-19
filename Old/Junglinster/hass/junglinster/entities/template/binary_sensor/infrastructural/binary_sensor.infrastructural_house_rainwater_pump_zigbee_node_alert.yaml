@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/house/rainwater_pump/zigbee/node_alert
+  unique_id: binary_sensor.infrastructural_house_rainwater_pump_zigbee_node_alert
+  device_class: connectivity
+  state: "{{ is_state('binary_sensor.infrastructural_house_rainwater_pump_zigbee_node', 'off') }}"

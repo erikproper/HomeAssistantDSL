@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/apartment/bedroom/door
+unique_id: binary_sensor.social_apartment_bedroom_door
+entities:
+- binary_sensor.physical_apartment_bedroom_door

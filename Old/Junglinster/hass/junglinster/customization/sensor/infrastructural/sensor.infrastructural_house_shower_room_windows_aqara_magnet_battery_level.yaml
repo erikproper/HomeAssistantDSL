@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.infrastructural_house_shower_room_windows_aqara_magnet_battery_level:
+  icon: mdi:battery
+  friendly_name: infrastructural/house/shower_room/windows/aqara_magnet/battery_level

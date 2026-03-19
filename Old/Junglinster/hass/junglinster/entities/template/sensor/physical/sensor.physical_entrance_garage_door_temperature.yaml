@@ -1,0 +1,8 @@
+### This file was automatically generated. Don't edit it!
+sensor:
+- name: physical/entrance/garage_door/temperature
+  unique_id: sensor.physical_entrance_garage_door_temperature
+  unit_of_measurement: "°C"
+  device_class: temperature
+  state_class: measurement
+  state: "{{ states('sensor.ems_esp_boiler_boiler_outside_temperature') }}"

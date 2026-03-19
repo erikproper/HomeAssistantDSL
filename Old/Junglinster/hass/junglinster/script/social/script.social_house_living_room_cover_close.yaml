@@ -1,0 +1,9 @@
+### This file was automatically generated. Don't edit it!
+social_house_living_room_cover_close:
+  alias: social/house/living_room/cover_close
+  mode: queued
+  sequence:
+  - service: script.turn_on
+    entity_id: script.social_house_living_room_house_living_room_front_cover_close
+  - service: script.turn_on
+    entity_id: script.social_house_living_room_house_living_room_rear_cover_close

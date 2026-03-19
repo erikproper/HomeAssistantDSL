@@ -1,0 +1,7 @@
+### This file was automatically generated. Don't edit it!
+social_terrace_terrace_awnings_cover_close:
+  alias: social/terrace/terrace/awnings/cover_close
+  mode: queued
+  sequence:
+  - service: cover.close_cover
+    entity_id: cover.social_terrace_awnings

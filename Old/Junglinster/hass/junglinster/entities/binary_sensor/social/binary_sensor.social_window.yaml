@@ -1,0 +1,7 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/window
+unique_id: binary_sensor.social_window
+entities:
+- binary_sensor.social_cars_window
+- binary_sensor.social_house_window

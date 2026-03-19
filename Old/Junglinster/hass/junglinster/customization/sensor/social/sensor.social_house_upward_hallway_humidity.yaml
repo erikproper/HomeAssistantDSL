@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.social_house_upward_hallway_humidity:
+  icon: mdi:water-percent
+  friendly_name: social/house/upward_hallway/humidity

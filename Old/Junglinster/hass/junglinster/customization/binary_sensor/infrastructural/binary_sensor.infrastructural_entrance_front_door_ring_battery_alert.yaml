@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_entrance_front_door_ring_battery_alert:
+  icon: mdi:battery-alert
+  friendly_name: infrastructural/entrance/front_door/ring/battery_alert

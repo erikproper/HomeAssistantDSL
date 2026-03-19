@@ -1,0 +1,5 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: social/house/laundry_kitchen/laundry/washing/consumes
+  unique_id: binary_sensor.social_house_laundry_kitchen_laundry_washing_consumes
+  state: "{{ (states('sensor.social_house_laundry_kitchen_laundry_washing_power') | int(0)) > 10 }}"

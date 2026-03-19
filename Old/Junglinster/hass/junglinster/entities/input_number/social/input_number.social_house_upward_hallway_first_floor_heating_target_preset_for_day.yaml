@@ -1,0 +1,8 @@
+### This file was automatically generated. Don't edit it!
+social_house_upward_hallway_first_floor_heating_target_preset_for_day:
+  name: social/house/upward_hallway/first_floor/heating_target_preset_for_day
+  min: 10
+  max: 30
+  step: 1
+  icon: mdi:thermometer
+  unit_of_measurement: °C

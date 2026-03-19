@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.physical_house_shower_room_windows_aqara_magnet_window:
+  icon: mdi:window-open
+  friendly_name: physical/house/shower_room/windows/aqara_magnet/window

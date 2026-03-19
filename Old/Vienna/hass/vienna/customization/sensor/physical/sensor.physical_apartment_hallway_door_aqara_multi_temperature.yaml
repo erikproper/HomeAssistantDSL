@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.physical_apartment_hallway_door_aqara_multi_temperature:
+  icon: mdi:thermometer
+  friendly_name: physical/apartment/hallway/door/aqara_multi/temperature

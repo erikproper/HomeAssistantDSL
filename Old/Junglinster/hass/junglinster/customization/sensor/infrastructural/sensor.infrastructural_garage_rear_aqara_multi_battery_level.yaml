@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.infrastructural_garage_rear_aqara_multi_battery_level:
+  icon: mdi:battery
+  friendly_name: infrastructural/garage/rear/aqara_multi/battery_level

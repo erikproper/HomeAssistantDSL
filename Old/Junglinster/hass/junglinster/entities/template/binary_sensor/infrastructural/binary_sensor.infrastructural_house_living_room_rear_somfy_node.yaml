@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/house/living_room/rear/somfy/node
+  unique_id: binary_sensor.infrastructural_house_living_room_rear_somfy_node
+  device_class: connectivity
+  state: "{{ states('cover.social_house_living_room_rear') != 'unavailable' }}"

@@ -1,0 +1,5 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: social/daylight
+  unique_id: binary_sensor.social_daylight
+  state: "{{ state_attr('sun.sun', 'elevation') > 4 }}"

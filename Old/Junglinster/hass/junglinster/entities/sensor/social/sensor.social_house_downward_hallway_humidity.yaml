@@ -1,0 +1,9 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/downward_hallway/humidity
+unique_id: sensor.social_house_downward_hallway_humidity
+type: mean
+ignore_non_numeric: true
+state_class: measurement
+entities:
+- sensor.physical_house_downward_hallway_aqara_multi_humidity

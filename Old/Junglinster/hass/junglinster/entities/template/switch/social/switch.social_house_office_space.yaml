@@ -1,0 +1,52 @@
+### This file was automatically generated. Don't edit it!
+switch:
+- name: social/house/office/space
+  unique_id: switch.social_house_office_space
+  default_entity_id: switch.social_house_office_space
+  turn_on:
+  - entity_id:
+    - switch.social_house_office_drain_space
+    action: switch.turn_on
+  turn_off:
+  - entity_id:
+    - light.social_house_office_low_board
+    action: light.turn_off
+  - entity_id:
+    - light.social_house_office_lower_strip
+    action: light.turn_off
+  - entity_id:
+    - light.social_house_office_main
+    action: light.turn_off
+  - entity_id:
+    - light.social_house_office_upper_strip
+    action: light.turn_off
+  - entity_id:
+    - switch.social_house_office_cycling
+    action: switch.turn_off
+  - entity_id:
+    - switch.social_house_office_cycling_fans
+    action: switch.turn_off
+  - entity_id:
+    - switch.social_house_office_drain_space
+    action: switch.turn_off
+  - entity_id:
+    - switch.social_house_office_sonos_media
+    action: switch.turn_off
+  state: >-
+      {{
+        is_state('light.social_house_office_low_board', 'on')
+      or
+        is_state('light.social_house_office_lower_strip', 'on')
+      or
+        is_state('light.social_house_office_main', 'on')
+      or
+        is_state('light.social_house_office_upper_strip', 'on')
+      or
+        is_state('switch.social_house_office_cycling', 'on')
+      or
+        is_state('switch.social_house_office_cycling_fans', 'on')
+      or
+        is_state('switch.social_house_office_drain_space', 'on')
+      or
+        is_state('switch.social_house_office_sonos_media', 'on')
+      }}

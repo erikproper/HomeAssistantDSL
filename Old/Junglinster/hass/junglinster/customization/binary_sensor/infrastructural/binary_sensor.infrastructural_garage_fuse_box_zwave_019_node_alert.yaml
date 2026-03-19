@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_garage_fuse_box_zwave_019_node_alert:
+  icon: mdi:server-off
+  friendly_name: infrastructural/garage/fuse_box/zwave/019/node_alert

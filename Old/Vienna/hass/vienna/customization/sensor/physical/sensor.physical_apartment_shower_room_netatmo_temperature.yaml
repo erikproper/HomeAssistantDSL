@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.physical_apartment_shower_room_netatmo_temperature:
+  icon: mdi:thermometer
+  friendly_name: physical/apartment/shower_room/netatmo/temperature

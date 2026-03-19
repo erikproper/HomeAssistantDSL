@@ -1,0 +1,8 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: social/house/shower_room/heating_set_to_day
+  unique_id: binary_sensor.social_house_shower_room_heating_set_to_day
+  state: >-
+    {{
+      (states('input_number.social_house_shower_room_temperature_desired') | round(1)) == (states('input_number.social_house_shower_room_heating_target_preset_for_day') | round(1))
+    }}

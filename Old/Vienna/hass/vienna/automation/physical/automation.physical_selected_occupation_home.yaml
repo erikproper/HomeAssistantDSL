@@ -1,0 +1,14 @@
+### This file was automatically generated. Don't edit it!
+- alias: physical/selected_occupation_home
+  id: automation.physical_selected_occupation_home
+  initial_state: True
+  mode: queued
+  trigger:
+  - platform: state
+    entity_id: input_boolean.social_occupation_home
+    to: 'on'
+  action:
+  - service: input_boolean.turn_off
+    entity_id: input_boolean.social_occupation_around
+  - service: input_boolean.turn_off
+    entity_id: input_boolean.social_occupation_away

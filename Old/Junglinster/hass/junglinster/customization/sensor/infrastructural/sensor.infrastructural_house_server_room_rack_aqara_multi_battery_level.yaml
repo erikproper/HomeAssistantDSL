@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.infrastructural_house_server_room_rack_aqara_multi_battery_level:
+  icon: mdi:battery
+  friendly_name: infrastructural/house/server_room/rack/aqara_multi/battery_level

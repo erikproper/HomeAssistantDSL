@@ -1,0 +1,11 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: physical/apartment/living_room/vidja/left
+unique_id: light.physical_apartment_living_room_vidja_left
+entities:
+- light.physical_apartment_living_room_vidja_left_1
+- light.physical_apartment_living_room_vidja_left_2
+- light.physical_apartment_living_room_vidja_left_3
+- light.physical_apartment_living_room_vidja_left_4
+- light.physical_apartment_living_room_vidja_left_5
+- light.physical_apartment_living_room_vidja_left_6

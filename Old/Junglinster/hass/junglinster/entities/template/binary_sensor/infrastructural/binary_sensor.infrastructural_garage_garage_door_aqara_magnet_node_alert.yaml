@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/garage/garage_door/aqara_magnet/node_alert
+  unique_id: binary_sensor.infrastructural_garage_garage_door_aqara_magnet_node_alert
+  device_class: connectivity
+  state: "{{ is_state('binary_sensor.infrastructural_garage_garage_door_aqara_magnet_node', 'off') }}"

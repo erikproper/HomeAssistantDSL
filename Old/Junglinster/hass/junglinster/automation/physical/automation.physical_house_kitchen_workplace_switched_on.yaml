@@ -1,0 +1,16 @@
+### This file was automatically generated. Don't edit it!
+- alias: physical/house/kitchen/workplace/switched_on
+  id: automation.physical_house_kitchen_workplace_switched_on
+  initial_state: True
+  mode: queued
+  trigger:
+  - platform: state
+    entity_id: light.physical_house_kitchen_workplace
+    to: 'on'
+  condition:
+  - condition: state
+    entity_id: light.physical_house_kitchen_workplace_dimmer
+    state: 'off'
+  action:
+  - service: light.turn_on
+    entity_id: light.physical_house_kitchen_workplace_dimmer

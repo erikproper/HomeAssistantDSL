@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/apartment/living_room/kitchen/aqara_windoor/node_alert
+  unique_id: binary_sensor.infrastructural_apartment_living_room_kitchen_aqara_windoor_node_alert
+  device_class: connectivity
+  state: "{{ is_state('binary_sensor.infrastructural_apartment_living_room_kitchen_aqara_windoor_node', 'off') }}"

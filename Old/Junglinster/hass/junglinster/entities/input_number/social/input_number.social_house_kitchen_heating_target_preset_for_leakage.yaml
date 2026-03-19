@@ -1,0 +1,8 @@
+### This file was automatically generated. Don't edit it!
+social_house_kitchen_heating_target_preset_for_leakage:
+  name: social/house/kitchen/heating_target_preset_for_leakage
+  min: 10
+  max: 30
+  step: 1
+  icon: mdi:thermometer
+  unit_of_measurement: °C

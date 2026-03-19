@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_house_sarah_bedroom_radiator_aqara_thermostat_node_alert:
+  icon: mdi:server-off
+  friendly_name: infrastructural/house/sarah_bedroom/radiator/aqara_thermostat/node_alert

@@ -1,0 +1,24 @@
+### This file was automatically generated. Don't edit it!
+switch:
+- name: social/house/bathroom/space
+  unique_id: switch.social_house_bathroom_space
+  default_entity_id: switch.social_house_bathroom_space
+  turn_on:
+  turn_off:
+  - entity_id:
+    - light.social_house_bathroom_main
+    action: light.turn_off
+  - entity_id:
+    - switch.social_house_bathroom_sonos_media
+    action: switch.turn_off
+  - entity_id:
+    - switch.social_house_bathroom_whirlpool
+    action: switch.turn_off
+  state: >-
+      {{
+        is_state('light.social_house_bathroom_main', 'on')
+      or
+        is_state('switch.social_house_bathroom_sonos_media', 'on')
+      or
+        is_state('switch.social_house_bathroom_whirlpool', 'on')
+      }}

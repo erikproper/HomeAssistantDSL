@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/sunny
+unique_id: binary_sensor.social_sunny
+entities:
+- binary_sensor.social_terrace_sunny

@@ -1,0 +1,28 @@
+function entity_media_player {
+  ThisEntity="$1"
+
+  if [ "$2" == "no_collect" ];then
+    NoCollect="no_collect"
+    shift
+  else
+    NoCollect=""
+  fi
+
+  if [ "$2" == "no_play" ]; then
+    Enabler=""
+    DelayOffety=""
+    Inputety="$3"
+  else
+    Enabler="$2"
+    DelayOffety="$3"
+    Inputety=""
+  fi
+  
+  entity declare media_player.social:$ThisEntity $NoCollect
+    provides device_node $ThisEntity $Enabler $DelayOffety
+  MediaPlayerSpecification=$CurrentEntitySpecification  
+  
+  entity declare switch.social:$ThisEntity:media $NoCollect
+    icon $MediaSwitchIcon
+    define media_switch $MediaPlayerSpecification "$Inputety"
+}

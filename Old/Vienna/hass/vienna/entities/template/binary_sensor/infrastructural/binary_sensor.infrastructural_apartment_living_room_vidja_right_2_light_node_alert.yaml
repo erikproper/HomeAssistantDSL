@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/apartment/living_room/vidja/right/2/light/node_alert
+  unique_id: binary_sensor.infrastructural_apartment_living_room_vidja_right_2_light_node_alert
+  device_class: connectivity
+  state: "{{ is_state('binary_sensor.infrastructural_apartment_living_room_vidja_right_2_light_node', 'off') }}"

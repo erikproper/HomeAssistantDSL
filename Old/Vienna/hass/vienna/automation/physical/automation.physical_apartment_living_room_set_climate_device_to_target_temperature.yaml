@@ -1,0 +1,15 @@
+### This file was automatically generated. Don't edit it!
+- alias: physical/apartment/living_room/set_climate_device_to_target_temperature
+  id: automation.physical_apartment_living_room_set_climate_device_to_target_temperature
+  initial_state: True
+  mode: queued
+  trigger:
+  - platform: state
+    entity_id: input_number.physical_apartment_living_room_temperature_target
+  - platform: state
+    entity_id: climate.physical_apartment_living_room_bitron_thermostat
+  action:
+  - service: climate.set_temperature
+    data_template:
+      entity_id: climate.physical_apartment_living_room_bitron_thermostat
+      temperature: "{{ states('input_number.physical_apartment_living_room_temperature_target') | float(0) }}"

@@ -1,0 +1,9 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/terrace/garden/humidity
+unique_id: sensor.social_terrace_garden_humidity
+type: mean
+ignore_non_numeric: true
+state_class: measurement
+entities:
+- sensor.physical_terrace_garden_aqara_multi_humidity

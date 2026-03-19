@@ -1,0 +1,5 @@
+#!/bin/bash
+rsync -arv copy Configure ../Junglinster
+for f in Modules Macros; do
+  rsync -arv --delete $f/ ../Junglinster/$f
+done

@@ -1,0 +1,7 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/laundry_corridor
+unique_id: light.social_house_laundry_corridor
+entities:
+- light.social_house_downward_hallway_main
+- light.social_house_laundry_kitchen_main

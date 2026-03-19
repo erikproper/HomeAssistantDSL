@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+physical_house_corridor_heating_mode_target:
+  name: physical/house/corridor/heating_mode_target
+  icon: mdi:radiator

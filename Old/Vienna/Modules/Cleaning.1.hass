@@ -1,0 +1,6 @@
+function CleanHASS {
+  echo "- HASS"
+  
+  grep -r -l "^$GeneratedToken" "$HASSyaml" 2> /dev/null | sed -e "s/^/rm \"/" -e "s/$/\"/" | bash
+  find "$HASSyaml" -type d -empty -delete 
+}

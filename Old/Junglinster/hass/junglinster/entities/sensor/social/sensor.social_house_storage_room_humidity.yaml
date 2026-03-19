@@ -1,0 +1,10 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/house/storage_room/humidity
+unique_id: sensor.social_house_storage_room_humidity
+type: mean
+ignore_non_numeric: true
+state_class: measurement
+entities:
+- sensor.physical_house_storage_room_door_aqara_multi_humidity
+- sensor.physical_house_storage_room_netatmo_humidity

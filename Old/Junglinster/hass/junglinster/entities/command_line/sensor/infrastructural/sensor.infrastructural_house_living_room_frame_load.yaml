@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+- sensor:
+    name: infrastructural/house/living_room/frame/load
+    command: "bash /config/bin/run pi 192.168.178.58 ./cpu/load"
+    command_timeout: 15
+    scan_interval: 60

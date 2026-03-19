@@ -1,0 +1,6 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor:
+- name: infrastructural/terrace/signify_motion/node
+  unique_id: binary_sensor.infrastructural_terrace_signify_motion_node
+  device_class: connectivity
+  state: "{{ states('sensor.physical_terrace_signify_motion_illuminance') != 'unavailable' }}"

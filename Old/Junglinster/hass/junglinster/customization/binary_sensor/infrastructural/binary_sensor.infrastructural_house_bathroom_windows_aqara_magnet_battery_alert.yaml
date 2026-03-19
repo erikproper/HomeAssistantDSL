@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_house_bathroom_windows_aqara_magnet_battery_alert:
+  icon: mdi:battery-alert
+  friendly_name: infrastructural/house/bathroom/windows/aqara_magnet/battery_alert

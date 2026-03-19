@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+sensor.infrastructural_house_living_room_frame_load:
+  icon: mdi:cpu-64-bit
+  friendly_name: infrastructural/house/living_room/frame/load

@@ -1,0 +1,4 @@
+### This file was automatically generated. Don't edit it!
+binary_sensor.infrastructural_house_upward_hallway_second_floor_david_bedroom_door_switch_box_fibaro_node:
+  icon: mdi:server-network
+  friendly_name: infrastructural/house/upward_hallway/second_floor/david_bedroom_door/switch_box/fibaro/node

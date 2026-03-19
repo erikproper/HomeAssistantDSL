@@ -1,0 +1,10 @@
+### This file was automatically generated. Don't edit it!
+platform: group
+name: social/garage/humidity
+unique_id: sensor.social_garage_humidity
+type: mean
+ignore_non_numeric: true
+state_class: measurement
+entities:
+- sensor.physical_garage_front_aqara_multi_humidity
+- sensor.physical_garage_rear_aqara_multi_humidity
