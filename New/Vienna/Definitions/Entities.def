@@ -401,7 +401,10 @@ space social:terrace with:
     imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_windmeter_reachability 60 "$ == 'True'";
   end;
 
-  windy social:wind_speed 00:01:00 00:10:00;
+  windy social:wind_speed with:
+    delay_in 00:01:00;
+    delay_off 00:10:00;
+  end;
 
   declare entity binary_sensor.social::daylight with:
     condition sun.sun:/!elevation "$ > 4";
@@ -419,7 +422,10 @@ space social:terrace with:
   create battery_alert signify_motion with:
     alert_level 20;
   end;
-  sunny physical:signify_motion:illuminance 00:05:00 00:05:00;
+  sunny physical:signify_motion:illuminance with:
+    delay_in 00:05:00;
+    delay_off 00:05:00;
+  end;
 end;
 
 light on: social;

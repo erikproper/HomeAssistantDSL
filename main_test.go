@@ -191,6 +191,30 @@ func TestMigrationNormalizesLightsMotionGuardedAsInlineWith(t *testing.T) {
 	}
 }
 
+func TestMigrationNormalizesSunnyAsBlock(t *testing.T) {
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to determine working directory: %v", err)
+	}
+
+	if err := runMigration(root, THouseNames); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	definitionPath := filepath.Join(root, "New", "Vienna", "Definitions", "Entities.def")
+	content, readErr := os.ReadFile(definitionPath)
+	if readErr != nil {
+		t.Fatalf("failed to read %s: %v", definitionPath, readErr)
+	}
+	text := string(content)
+	if !strings.Contains(text, "sunny physical:signify_motion:illuminance with:\n    delay_in 00:05:00;\n    delay_off 00:05:00;\n  end;") {
+		t.Fatalf("expected normalized sunny block in %s", definitionPath)
+	}
+	if !strings.Contains(text, "windy social:wind_speed with:\n    delay_in 00:01:00;\n    delay_off 00:10:00;\n  end;") {
+		t.Fatalf("expected normalized windy block in %s", definitionPath)
+	}
+}
+
 func TestMigrationKeepsCuratedMacrosDefinition(t *testing.T) {
 	root, err := os.Getwd()
 	if err != nil {

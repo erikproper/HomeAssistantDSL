@@ -365,7 +365,10 @@ Interpretation:
     BLOCK declare entity binary_sensor.infrastructural:netatmo_windmeter:node with:
       STATEMENT imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_windmeter_reachability 60 "$ == 'True'";
     END BLOCK
-    STATEMENT windy social:wind_speed 00:01:00 00:10:00;
+    BLOCK windy social:wind_speed with:
+      STATEMENT delay_in 00:01:00;
+      STATEMENT delay_off 00:10:00;
+    END BLOCK
     BLOCK declare entity binary_sensor.social::daylight with:
       STATEMENT condition sun.sun:/!elevation "$ > 4";
     END BLOCK
@@ -380,7 +383,10 @@ Interpretation:
     BLOCK create battery_alert signify_motion with:
       STATEMENT alert_level 20;
     END BLOCK
-    STATEMENT sunny physical:signify_motion:illuminance 00:05:00 00:05:00;
+    BLOCK sunny physical:signify_motion:illuminance with:
+      STATEMENT delay_in 00:05:00;
+      STATEMENT delay_off 00:05:00;
+    END BLOCK
   END BLOCK
   STATEMENT light on: social;
   STATEMENT declare entity sun.[sun];

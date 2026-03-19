@@ -1026,6 +1026,13 @@ func transformEntitiesDefinition(content string) string {
 					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"lights_motion_guarded with delay "+statementFields[1]+";")
 					continue
 				}
+				if len(statementFields) == 4 && (statementFields[0] == "sunny" || statementFields[0] == "windy") {
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+statementFields[0]+" "+statementFields[1]+" with:")
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"delay_in "+statementFields[2]+";")
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"delay_off "+statementFields[3]+";")
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"end;")
+					continue
+				}
 				if len(statementFields) >= 6 && statementFields[0] == "create" && statementFields[1] == "zigbee_group" {
 					target := statementFields[2] + "." + statementFields[3] + ":" + statementFields[4]
 					groupValues := strings.Join(statementFields[5:], ", ")
