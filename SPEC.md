@@ -228,6 +228,12 @@ Resolution inside current space x:
 - <<type>>.<<sphere>>:<<path>>:<<sub-type>> -> <<type>>.<<sphere>>/x/<<path>>/<<sub-type>>
 - <<type>>.<<sphere>>:/<<path>>:<<sub-type>> -> <<type>>.<<sphere>>/<<path>>/<<sub-type>>
 
+Illustrative example (relative intensional form):
+- Input in space path x: sensor.physical:frient:illuminance
+- First ':' introduces the context-relative path part (frient), so x is inserted before it.
+- Second ':' introduces the semantic sub-type (illuminance).
+- Result: sensor.physical/x/frient/illuminance
+
 This resolution must happen before macro body execution, so macros always receive an extensional target representation.
 
 Partial entity specifications in macro call arguments:

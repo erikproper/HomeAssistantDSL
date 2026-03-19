@@ -7,153 +7,153 @@
 
 space social:apartment with:
   space social:hallway with:
-    declare entity binary_sensor.physical::door;
-    create battery_level_device aqara_windoor with:
+    entity binary_sensor.physical::door;
+    battery_level_device aqara_windoor with:
       alert_level 10;
     end;
 
-    declare entity sensor.physical:door/aqara_multi:temperature;
-    declare entity sensor.physical:door/aqara_multi:pressure with:
+    entity sensor.physical:door/aqara_multi:temperature;
+    entity sensor.physical:door/aqara_multi:pressure with:
       adjustment 20 1;
     end;
-    declare entity sensor.physical:door/aqara_multi:humidity;
-    create battery_level_device door/aqara_multi with:
+    entity sensor.physical:door/aqara_multi:humidity;
+    battery_level_device door/aqara_multi with:
       alert_level 15;
     end;
 
-    declare entity sensor.physical:frient:illuminance;
-    declare entity sensor.physical:frient:temperature;
-    declare entity binary_sensor.physical:frient:motion;
-    create battery_level_device frient;
+    entity sensor.physical:frient:illuminance;
+    entity sensor.physical:frient:temperature;
+    entity binary_sensor.physical:frient:motion;
+    battery_level_device frient;
 
-    create light_device main;
+    light_device main;
 
-    create battery_level_device bedroom/door/moes with:
+    battery_level_device bedroom/door/moes with:
       alert_level 20;
     end;
-    create battery_level_device door/moes with:
+    battery_level_device door/moes with:
       alert_level 20;
     end;
   end;
 
   space social:living_room with:
-    declare entity sensor.physical:netatmo:co2 with:
+    entity sensor.physical:netatmo:co2 with:
       imported rest junglinster sensor.physical_vienna_living_room_co2 60;
     end;
-    declare entity sensor.physical:netatmo:humidity with:
+    entity sensor.physical:netatmo:humidity with:
       imported rest junglinster sensor.physical_vienna_living_room_humidity 60;
     end;
-    declare entity sensor.physical:netatmo:noise with:
+    entity sensor.physical:netatmo:noise with:
       imported rest junglinster sensor.physical_vienna_living_room_noise 60;
     end;
-    declare entity sensor.physical:netatmo:pressure with:
+    entity sensor.physical:netatmo:pressure with:
       imported rest junglinster sensor.physical_vienna_living_room_pressure 60;
     end;
-    declare entity sensor.physical:netatmo:temperature with:
+    entity sensor.physical:netatmo:temperature with:
       imported rest junglinster sensor.physical_vienna_living_room_temperature 60;
     end;
-    declare entity sensor.infrastructural:netatmo:radio with:
+    entity sensor.infrastructural:netatmo:radio with:
       imported rest junglinster sensor.infrastructural_vienna_living_room_netatmo_radio 60;
     end;
-    declare entity binary_sensor.infrastructural:netatmo:node with:
+    entity binary_sensor.infrastructural:netatmo:node with:
       imported rest junglinster sensor.infrastructural_vienna_living_room_netatmo_reachability 60 "$ == 'True'";
     end;
 
-    declare entity switch.social:picture_frame with:
+    entity switch.social:picture_frame with:
       definition cli_switch pi frame.fritz.box ./bin/start_slideshow ./bin/stop_slideshow ./bin/check_slideshow;
     end;
 
-    declare entity sensor.physical:philips_motion:illuminance;
-    declare entity sensor.physical:philips_motion:temperature;
-    declare entity binary_sensor.physical:philips_motion:motion;
-    create battery_level_device philips_motion with:
+    entity sensor.physical:philips_motion:illuminance;
+    entity sensor.physical:philips_motion:temperature;
+    entity binary_sensor.physical:philips_motion:motion;
+    battery_level_device philips_motion with:
       alert_level 10;
     end;
 
-    create battery_level_device signify_dimmer with:
+    battery_level_device signify_dimmer with:
       alert_level 20;
     end;
 
-    declare entity vacuum.social with:
+    entity vacuum.social with:
       providing node roborock;
     end;
-    declare entity sensor.infrastructural:roborock:battery_level;
-    create battery_alert roborock with:
+    entity sensor.infrastructural:roborock:battery_level;
+    battery_alert roborock with:
       alert_level 15;
     end;
 
-    create thermostat bitron_thermostat;
-    create battery_level bitron_thermostat;
+    thermostat bitron_thermostat;
+    battery_level bitron_thermostat;
 
     heating leak binary_sensor.social:living:door;
     heating leak binary_sensor.social:kitchen:door;
     heating leak binary_sensor.social:/apartment/bedroom:door;
     heating leak binary_sensor.social:/apartment/hallway:door;
 
-    declare entity sensor.infrastructural:fritz_box_7590_ax_gb_received with:
+    entity sensor.infrastructural:fritz_box_7590_ax_gb_received with:
       providing node fritz_box;
     end;
-    declare entity sensor.infrastructural:fritz_box_7590_ax_gb_sent;
+    entity sensor.infrastructural:fritz_box_7590_ax_gb_sent;
 
-    declare entity switch.social::desktop with:
+    entity switch.social::desktop with:
       icon mdi:desktop-classic;
       providing node desktop;
     end;
 
-    declare entity switch.social:tv with:
+    entity switch.social:tv with:
       providing node tv_switch;
     end;
 
-    create media_player sonos;
-    create media_player apple_tv;
-    create media_player tv switch.social:tv 00:01:00;
+    media_player sonos;
+    media_player apple_tv;
+    media_player tv switch.social:tv 00:01:00;
 
-    declare entity binary_sensor.social:living:door;
-    create battery_level_device living/aqara_windoor with:
+    entity binary_sensor.social:living:door;
+    battery_level_device living/aqara_windoor with:
       alert_level 10;
     end;
 
-    create zigbee_group light.social:main with:
+    zigbee_group light.social:main with:
       group kitchen, middle, living;
     end;
 
     space social:vidja with:
-      create zigbee_group light.social:left with:
+      zigbee_group light.social:left with:
         group 1, 2, 3, 4, 5, 6;
       end;
-      create zigbee_group light.social:right with:
+      zigbee_group light.social:right with:
         group 1, 2, 3, 4, 5, 6;
       end;
     end;
 
     space social:kitchen with:
-      declare entity binary_sensor.social:terrace:door;
-      create battery_level_device aqara_windoor with:
+      entity binary_sensor.social:terrace:door;
+      battery_level_device aqara_windoor with:
         alert_level 10;
       end;
 
-      declare entity switch.social:nespresso;
+      entity switch.social:nespresso;
 
-      declare entity binary_sensor.physical:aqara_water:water;
-      create battery_level_device aqara_water;
+      entity binary_sensor.physical:aqara_water:water;
+      battery_level_device aqara_water;
 
-      declare entity binary_sensor.social:fridge:door with:
+      entity binary_sensor.social:fridge:door with:
         icon mdi:fridge-variant-alert;
       end;
-      create battery_level_device fridge/aqara_windoor with:
+      battery_level_device fridge/aqara_windoor with:
         alert_level 10;
       end;
 
-      declare entity sensor.physical:dishwasher/robb:temperature no_collect;
-      create power_switch switch.social:dishwasher with:
+      entity sensor.physical:dishwasher/robb:temperature no_collect;
+      power_switch switch.social:dishwasher with:
         node robb;
         threshold 1;
         icon mdi:dishwasher;
       end;
 
-      create light_device social workplace;
+      light_device social:workplace;
 
-      declare entity cover.social with:
+      entity cover.social with:
         open_stop_close;
         providing node blinds;
       end;
@@ -161,57 +161,57 @@ space social:apartment with:
       space off: switch.social:nespresso;
     end;
 
-    declare entity cover.social:living with:
+    entity cover.social:living with:
       open_stop_close;
       providing node blinds;
     end;
 
     space social:rack with:
-      declare entity sensor.physical:aqara_multi:temperature;
-      declare entity sensor.physical:aqara_multi:pressure with:
+      entity sensor.physical:aqara_multi:temperature;
+      entity sensor.physical:aqara_multi:pressure with:
         adjustment 20 1;
       end;
-      declare entity sensor.physical:aqara_multi:humidity;
-      create battery_level_device aqara_multi with:
+      entity sensor.physical:aqara_multi:humidity;
+      battery_level_device aqara_multi with:
         alert_level 15;
       end;
 
-      declare entity binary_sensor.infrastructural:frame:node;
-      declare entity sensor.infrastructural:frame:load with:
+      entity binary_sensor.infrastructural:frame:node;
+      entity sensor.infrastructural:frame:load with:
         definition cli_sensor pi frame.fritz.box ./cpu/load;
       end;
-      declare entity sensor.infrastructural:frame:temperature no_collect with:
+      entity sensor.infrastructural:frame:temperature no_collect with:
         definition cli_sensor pi frame.fritz.box ./cpu/temperature;
       end;
 
-      declare entity sensor.infrastructural:vienna:load;
-      declare entity sensor.infrastructural:vienna:temperature no_collect;
+      entity sensor.infrastructural:vienna:load;
+      entity sensor.infrastructural:vienna:temperature no_collect;
     end;
 
-    create battery_level_device hallway_door/moes/1 with:
+    battery_level_device hallway_door/moes/1 with:
       alert_level 20;
     end;
-    create battery_level_device hallway_door/moes/2 with:
+    battery_level_device hallway_door/moes/2 with:
       alert_level 20;
     end;
-    create battery_level_device hallway_door/moes/3 with:
+    battery_level_device hallway_door/moes/3 with:
       alert_level 20;
     end;
-    create battery_level_device hallway_door/moes/4 with:
-      alert_level 20;
-    end;
-
-    create battery_level_device kitchen/door/moes/1 with:
-      alert_level 20;
-    end;
-    create battery_level_device kitchen/door/moes/2 with:
+    battery_level_device hallway_door/moes/4 with:
       alert_level 20;
     end;
 
-    create battery_level_device living/door/moes/1 with:
+    battery_level_device kitchen/door/moes/1 with:
       alert_level 20;
     end;
-    create battery_level_device living/door/moes/2 with:
+    battery_level_device kitchen/door/moes/2 with:
+      alert_level 20;
+    end;
+
+    battery_level_device living/door/moes/1 with:
+      alert_level 20;
+    end;
+    battery_level_device living/door/moes/2 with:
       alert_level 20;
     end;
 
@@ -221,73 +221,73 @@ space social:apartment with:
   end;
 
   space social:bedroom with:
-    declare entity sensor.infrastructural:netatmo:battery_level with:
+    entity sensor.infrastructural:netatmo:battery_level with:
       imported rest junglinster sensor.infrastructural_vienna_bedroom_netatmo_battery_level 60;
     end;
-    create battery_alert netatmo with:
+    battery_alert netatmo with:
       alert_level 20;
     end;
-    declare entity sensor.physical::co2 with:
+    entity sensor.physical::co2 with:
       imported rest junglinster sensor.physical_vienna_bedroom_co2 60;
     end;
-    declare entity sensor.physical::humidity with:
+    entity sensor.physical::humidity with:
       imported rest junglinster sensor.physical_vienna_bedroom_humidity 60;
     end;
-    declare entity sensor.physical:netatmo:temperature with:
+    entity sensor.physical:netatmo:temperature with:
       imported rest junglinster sensor.physical_vienna_bedroom_temperature 60;
     end;
-    declare entity sensor.infrastructural:netatmo:radio with:
+    entity sensor.infrastructural:netatmo:radio with:
       imported rest junglinster sensor.infrastructural_vienna_bedroom_netatmo_radio 60;
     end;
-    declare entity binary_sensor.infrastructural:netatmo:node with:
+    entity binary_sensor.infrastructural:netatmo:node with:
       imported rest junglinster sensor.infrastructural_vienna_bedroom_netatmo_reachability 60 "$ == 'True'";
     end;
 
-    declare entity sensor.physical:frient:illuminance;
-    declare entity sensor.physical:frient:temperature;
-    declare entity binary_sensor.physical:frient:motion;
-    create battery_level_device frient;
+    entity sensor.physical:frient:illuminance;
+    entity sensor.physical:frient:temperature;
+    entity binary_sensor.physical:frient:motion;
+    battery_level_device frient;
 
-    create battery_level_device bed/moes with:
+    battery_level_device bed/moes with:
       alert_level 20;
     end;
-    create battery_level_device bed/shortcut/left with:
+    battery_level_device bed/shortcut/left with:
       alert_level 20;
     end;
-    create battery_level_device bed/shortcut/right with:
+    battery_level_device bed/shortcut/right with:
       alert_level 20;
     end;
-    create battery_level_device door/moes/1 with:
+    battery_level_device door/moes/1 with:
       alert_level 20;
     end;
-    create battery_level_device door/moes/2 with:
+    battery_level_device door/moes/2 with:
       alert_level 20;
     end;
-    create battery_level_device hallway/door/moes/1 with:
+    battery_level_device hallway/door/moes/1 with:
       alert_level 20;
     end;
-    create battery_level_device hallway/door/moes/2 with:
+    battery_level_device hallway/door/moes/2 with:
       alert_level 20;
     end;
 
-    declare entity binary_sensor.physical::door;
-    create battery_level_device aqara_windoor with:
+    entity binary_sensor.physical::door;
+    battery_level_device aqara_windoor with:
       alert_level 10;
     end;
 
     space social:bed with:
-      create light_device left;
-      create light_device right;
+      light_device left;
+      light_device right;
     end;
-    create light_device main;
+    light_device main;
 
-    create media_player sonos;
-    declare entity sensor.infrastructural:sonos:battery_level;
-    create battery_alert sonos with:
+    media_player sonos;
+    entity sensor.infrastructural:sonos:battery_level;
+    battery_alert sonos with:
       alert_level 10;
     end;
 
-    declare entity cover.social with:
+    entity cover.social with:
       open_stop_close;
       providing node blinds;
     end;
@@ -296,62 +296,62 @@ space social:apartment with:
   end;
 
   space social:shower_room with:
-    declare entity sensor.infrastructural:netatmo:battery_level with:
+    entity sensor.infrastructural:netatmo:battery_level with:
       imported rest junglinster sensor.infrastructural_vienna_shower_room_netatmo_battery_level 60;
     end;
-    create battery_alert netatmo with:
+    battery_alert netatmo with:
       alert_level 20;
     end;
-    declare entity sensor.physical:netatmo:co2 with:
+    entity sensor.physical:netatmo:co2 with:
       imported rest junglinster sensor.physical_vienna_shower_room_netatmo_co2 60;
     end;
-    declare entity sensor.physical:netatmo:humidity with:
+    entity sensor.physical:netatmo:humidity with:
       imported rest junglinster sensor.physical_vienna_shower_room_netatmo_humidity 60;
     end;
-    declare entity sensor.physical:netatmo:temperature with:
+    entity sensor.physical:netatmo:temperature with:
       imported rest junglinster sensor.physical_vienna_shower_room_netatmo_temperature 60;
     end;
-    declare entity sensor.infrastructural:netatmo:radio with:
+    entity sensor.infrastructural:netatmo:radio with:
       imported rest junglinster sensor.infrastructural_vienna_shower_room_netatmo_radio 60;
     end;
-    declare entity binary_sensor.infrastructural:netatmo:node with:
+    entity binary_sensor.infrastructural:netatmo:node with:
       imported rest junglinster sensor.infrastructural_vienna_shower_room_netatmo_reachability 60 "$ == 'True'";
     end;
 
-    declare entity sensor.physical:philips_motion:illuminance;
-    declare entity sensor.physical:philips_motion:temperature;
-    declare entity binary_sensor.physical:philips_motion:motion;
-    create battery_level_device philips_motion with:
+    entity sensor.physical:philips_motion:illuminance;
+    entity sensor.physical:philips_motion:temperature;
+    entity binary_sensor.physical:philips_motion:motion;
+    battery_level_device philips_motion with:
       alert_level 10;
     end;
 
-    declare entity binary_sensor.physical:aqara_water:water;
-    create battery_level_device aqara_water;
+    entity binary_sensor.physical:aqara_water:water;
+    battery_level_device aqara_water;
 
-    declare entity sensor.physical:radiator/robb:temperature no_collect;
-    create power_switch switch.social:radiator with:
+    entity sensor.physical:radiator/robb:temperature no_collect;
+    power_switch switch.social:radiator with:
       node robb;
       threshold 1;
       icon mdi:heating-coil;
     end;
 
-    declare entity sensor.physical:washing_machine/robb:temperature no_collect;
-    create power_switch switch.social:washing_machine with:
+    entity sensor.physical:washing_machine/robb:temperature no_collect;
+    power_switch switch.social:washing_machine with:
       node robb;
       threshold 1;
       icon mdi:washing-machine;
     end;
 
-    create light_device main;
-    create light_device mirror;
+    light_device main;
+    light_device mirror;
 
-    create battery_level_device door/moes/1 with:
+    battery_level_device door/moes/1 with:
       alert_level 20;
     end;
-    create battery_level_device door/moes/2 with:
+    battery_level_device door/moes/2 with:
       alert_level 20;
     end;
-    create battery_level_device mirror/moes with:
+    battery_level_device mirror/moes with:
       alert_level 20;
     end;
 
@@ -363,71 +363,71 @@ space social:apartment with:
 end;
 
 space social:terrace with:
-  declare entity sensor.infrastructural:netatmo_outdoor:battery_level with:
+  entity sensor.infrastructural:netatmo_outdoor:battery_level with:
     imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_outdoor_battery_level 60;
   end;
-  create battery_alert netatmo_outdoor with:
+  battery_alert netatmo_outdoor with:
     alert_level 20;
   end;
-  declare entity sensor.physical:netatmo_outdoor:humidity with:
+  entity sensor.physical:netatmo_outdoor:humidity with:
     imported rest junglinster sensor.physical_vienna_terrace_netatmo_outdoor_humidity 60;
   end;
-  declare entity sensor.physical:netatmo_outdoor:temperature with:
+  entity sensor.physical:netatmo_outdoor:temperature with:
     imported rest junglinster sensor.physical_vienna_terrace_netatmo_outdoor_temperature 60;
   end;
-  declare entity sensor.infrastructural:netatmo_outdoor:radio with:
+  entity sensor.infrastructural:netatmo_outdoor:radio with:
     imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_outdoor_radio 60;
   end;
-  declare entity binary_sensor.infrastructural:netatmo_outdoor:node with:
+  entity binary_sensor.infrastructural:netatmo_outdoor:node with:
     imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_outdoor_reachability 60 "$ == 'True'";
   end;
 
-  declare entity sensor.infrastructural:netatmo_windmeter:battery_level with:
+  entity sensor.infrastructural:netatmo_windmeter:battery_level with:
     imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_windmeter_battery_level 60;
   end;
-  create battery_alert netatmo_windmeter with:
+  battery_alert netatmo_windmeter with:
     alert_level 20;
   end;
-  declare entity sensor.social::wind_direction with:
+  entity sensor.social::wind_direction with:
     imported rest junglinster sensor.physical_vienna_terrace_netatmo_windmeter_wind_direction 60;
   end;
-  declare entity sensor.social::wind_speed with:
+  entity sensor.social::wind_speed with:
     imported rest junglinster sensor.physical_vienna_terrace_netatmo_windmeter_wind_speed 60;
   end;
-  declare entity sensor.infrastructural:netatmo_windmeter:radio with:
+  entity sensor.infrastructural:netatmo_windmeter:radio with:
     imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_windmeter_radio 60;
   end;
-  declare entity binary_sensor.infrastructural:netatmo_windmeter:node with:
+  entity binary_sensor.infrastructural:netatmo_windmeter:node with:
     imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_windmeter_reachability 60 "$ == 'True'";
   end;
 
   windy social:wind_speed with:
-    delay_in 00:01:00;
+    delay_on 00:01:00;
     delay_off 00:10:00;
   end;
 
-  declare entity binary_sensor.social::daylight with:
-    condition sun.sun:/!elevation "$ > 4";
+  entity binary_sensor.social::daylight with:
+    condition sun.[sun]!elevation "$ > 4";
   end;
 
-  create light_device physical left;
-  create light_device physical right;
+  light_device physical:left;
+  light_device physical:right;
 
-  declare entity sensor.physical:signify_motion:illuminance with:
+  entity sensor.physical:signify_motion:illuminance with:
     providing node signify_motion;
   end;
-  declare entity sensor.physical:signify_motion:temperature;
-  declare entity binary_sensor.physical:signify_motion:motion;
-  declare entity sensor.infrastructural:signify_motion:battery_level;
-  create battery_alert signify_motion with:
+  entity sensor.physical:signify_motion:temperature;
+  entity binary_sensor.physical:signify_motion:motion;
+  entity sensor.infrastructural:signify_motion:battery_level;
+  battery_alert signify_motion with:
     alert_level 20;
   end;
   sunny physical:signify_motion:illuminance with:
-    delay_in 00:05:00;
+    delay_on 00:05:00;
     delay_off 00:05:00;
   end;
 end;
 
 light on: social;
 
-declare entity sun.[sun];
+entity sun.[sun];

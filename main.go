@@ -943,6 +943,13 @@ func ensureStatementSemicolon(line string) string {
 	return trimmedLine + ";"
 }
 
+func stripCreatePrefix(statement string) string {
+	if strings.HasPrefix(statement, "create ") {
+		return strings.TrimPrefix(statement, "create ")
+	}
+	return statement
+}
+
 func transformEntitiesDefinition(content string) string {
 	type TBlock struct {
 		SourceIndent int
@@ -1002,23 +1009,24 @@ func transformEntitiesDefinition(content string) string {
 			openBlocks = append(openBlocks, TBlock{SourceIndent: indentWidth, EndIndent: headerIndent, Kind: "space"})
 		default:
 			statement := normalizeEntitySyntaxText(trimTrailingPunctuation(trimmedLine))
+			statementNoCreate := stripCreatePrefix(statement)
 			if hasIndentedContinuation(lines, index) {
-				statementFields := strings.Fields(statement)
+				statementFields := strings.Fields(statementNoCreate)
 				headerIndent := canonicalIndent(len(openBlocks))
-				if len(statementFields) == 6 && statementFields[0] == "create" && statementFields[1] == "power_switch" {
-					outputLines = append(outputLines, strings.Repeat(" ", headerIndent)+"create power_switch switch."+statementFields[2]+":"+statementFields[3]+" with:")
-					outputLines = append(outputLines, strings.Repeat(" ", headerIndent+2)+"node "+statementFields[4]+";")
-					outputLines = append(outputLines, strings.Repeat(" ", headerIndent+2)+"threshold "+statementFields[5]+";")
+				if len(statementFields) == 5 && statementFields[0] == "power_switch" {
+					outputLines = append(outputLines, strings.Repeat(" ", headerIndent)+"power_switch switch."+statementFields[1]+":"+statementFields[2]+" with:")
+					outputLines = append(outputLines, strings.Repeat(" ", headerIndent+2)+"node "+statementFields[3]+";")
+					outputLines = append(outputLines, strings.Repeat(" ", headerIndent+2)+"threshold "+statementFields[4]+";")
 				} else {
-					outputLines = append(outputLines, strings.Repeat(" ", headerIndent)+statement+" with:")
+					outputLines = append(outputLines, strings.Repeat(" ", headerIndent)+statementNoCreate+" with:")
 				}
 				openBlocks = append(openBlocks, TBlock{SourceIndent: indentWidth, EndIndent: headerIndent, Kind: "synthetic"})
 			} else {
-				statementFields := strings.Fields(statement)
-				if len(statementFields) == 6 && statementFields[0] == "create" && statementFields[1] == "power_switch" {
-					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"create power_switch switch."+statementFields[2]+":"+statementFields[3]+" with:")
-					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"node "+statementFields[4]+";")
-					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"threshold "+statementFields[5]+";")
+				statementFields := strings.Fields(statementNoCreate)
+				if len(statementFields) == 5 && statementFields[0] == "power_switch" {
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"power_switch switch."+statementFields[1]+":"+statementFields[2]+" with:")
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"node "+statementFields[3]+";")
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"threshold "+statementFields[4]+";")
 					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"end;")
 					continue
 				}
@@ -1028,36 +1036,40 @@ func transformEntitiesDefinition(content string) string {
 				}
 				if len(statementFields) == 4 && (statementFields[0] == "sunny" || statementFields[0] == "windy") {
 					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+statementFields[0]+" "+statementFields[1]+" with:")
-					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"delay_in "+statementFields[2]+";")
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"delay_on "+statementFields[2]+";")
 					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"delay_off "+statementFields[3]+";")
 					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"end;")
 					continue
 				}
-				if len(statementFields) >= 6 && statementFields[0] == "create" && statementFields[1] == "zigbee_group" {
-					target := statementFields[2] + "." + statementFields[3] + ":" + statementFields[4]
-					groupValues := strings.Join(statementFields[5:], ", ")
-					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"create zigbee_group "+target+" with:")
+				if len(statementFields) >= 6 && statementFields[0] == "zigbee_group" {
+					target := statementFields[1] + "." + statementFields[2] + ":" + statementFields[3]
+					groupValues := strings.Join(statementFields[4:], ", ")
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"zigbee_group "+target+" with:")
 					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"group "+groupValues+";")
 					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"end;")
 					continue
 				}
-				if len(statementFields) == 4 && statementFields[0] == "create" && statementFields[1] == "battery_alert" {
-					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"create battery_alert "+statementFields[2]+" with:")
-					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"alert_level "+statementFields[3]+";")
+				if len(statementFields) == 3 && statementFields[0] == "battery_alert" {
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"battery_alert "+statementFields[1]+" with:")
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"alert_level "+statementFields[2]+";")
 					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"end;")
 					continue
 				}
-				if len(statementFields) == 4 && statementFields[0] == "create" && statementFields[1] == "battery_level_device" {
-					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"create battery_level_device "+statementFields[2]+" with:")
-					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"alert_level "+statementFields[3]+";")
+				if len(statementFields) == 3 && statementFields[0] == "battery_level_device" {
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"battery_level_device "+statementFields[1]+" with:")
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"alert_level "+statementFields[2]+";")
 					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"end;")
+					continue
+				}
+				if len(statementFields) == 3 && statementFields[0] == "light_device" {
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"light_device "+statementFields[1]+":"+statementFields[2]+";")
 					continue
 				}
 				if len(statementFields) == 2 && statementFields[0] == "open_stop_close" && statementFields[1] == "no_collect" {
 					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"open_stop_close;")
 					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"no_collect;")
 				} else {
-					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+statement+";")
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+statementNoCreate+";")
 				}
 			}
 		}
@@ -1238,8 +1250,12 @@ func normalizeEntitySyntaxText(line string) string {
 	if strings.HasPrefix(trimmedLine, "provides device_node ") {
 		trimmedLine = "providing node " + strings.TrimPrefix(trimmedLine, "provides device_node ")
 	}
-	if trimmedLine == "declare entity sun.sun" {
-		trimmedLine = "declare entity sun.[sun]"
+	if strings.HasPrefix(trimmedLine, "declare entity ") {
+		trimmedLine = "entity " + strings.TrimPrefix(trimmedLine, "declare entity ")
+	}
+	trimmedLine = strings.ReplaceAll(trimmedLine, "sun.sun:/!", "sun.[sun]!")
+	if trimmedLine == "entity sun.sun" {
+		trimmedLine = "entity sun.[sun]"
 	}
 	return trimmedLine
 }

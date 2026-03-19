@@ -128,7 +128,7 @@ func TestMigrationNormalizesPowerSwitchCreateBlocks(t *testing.T) {
 	}
 	text := string(content)
 	for _, expectedLine := range []string{
-		"create power_switch switch.social:dishwasher with:",
+		"power_switch switch.social:dishwasher with:",
 		"  node robb;",
 		"  threshold 1;",
 	} {
@@ -158,12 +158,39 @@ func TestMigrationNormalizesSunDeclarationAsRawEntity(t *testing.T) {
 			t.Fatalf("failed to read %s: %v", definitionPath, readErr)
 		}
 		text := string(content)
-		if !strings.Contains(text, "declare entity sun.[sun];") {
-			t.Fatalf("expected normalized sun declaration in %s", definitionPath)
+		if !strings.Contains(text, "entity sun.[sun];") {
+			t.Fatalf("expected 'entity sun.[sun];' in %s", definitionPath)
 		}
-		if strings.Contains(text, "declare entity sun.sun;") {
-			t.Fatalf("unexpected legacy sun declaration in %s", definitionPath)
+		if strings.Contains(text, "entity sun.sun;") {
+			t.Fatalf("unexpected 'entity sun.sun;' in %s", definitionPath)
 		}
+		if strings.Contains(text, "declare entity ") {
+			t.Fatalf("unexpected 'declare entity' in %s — should be rewritten to 'entity'", definitionPath)
+		}
+	}
+}
+
+func TestMigrationNormalizesSunAttributeReference(t *testing.T) {
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to determine working directory: %v", err)
+	}
+
+	if err := runMigration(root, THouseNames); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	definitionPath := filepath.Join(root, "New", "Vienna", "Definitions", "Entities.def")
+	content, readErr := os.ReadFile(definitionPath)
+	if readErr != nil {
+		t.Fatalf("failed to read %s: %v", definitionPath, readErr)
+	}
+	text := string(content)
+	if !strings.Contains(text, "condition sun.[sun]!elevation \"$ > 4\";") {
+		t.Fatalf("expected normalized sun attribute reference in %s", definitionPath)
+	}
+	if strings.Contains(text, "condition sun.sun:/!elevation") {
+		t.Fatalf("unexpected legacy sun attribute reference in %s", definitionPath)
 	}
 }
 
@@ -207,11 +234,41 @@ func TestMigrationNormalizesSunnyAsBlock(t *testing.T) {
 		t.Fatalf("failed to read %s: %v", definitionPath, readErr)
 	}
 	text := string(content)
-	if !strings.Contains(text, "sunny physical:signify_motion:illuminance with:\n    delay_in 00:05:00;\n    delay_off 00:05:00;\n  end;") {
+	if !strings.Contains(text, "sunny physical:signify_motion:illuminance with:\n    delay_on 00:05:00;\n    delay_off 00:05:00;\n  end;") {
 		t.Fatalf("expected normalized sunny block in %s", definitionPath)
 	}
-	if !strings.Contains(text, "windy social:wind_speed with:\n    delay_in 00:01:00;\n    delay_off 00:10:00;\n  end;") {
+	if !strings.Contains(text, "windy social:wind_speed with:\n    delay_on 00:01:00;\n    delay_off 00:10:00;\n  end;") {
 		t.Fatalf("expected normalized windy block in %s", definitionPath)
+	}
+}
+
+func TestMigrationNormalizesLightDeviceSphereAndName(t *testing.T) {
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to determine working directory: %v", err)
+	}
+
+	if err := runMigration(root, THouseNames); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	definitionPath := filepath.Join(root, "New", "Vienna", "Definitions", "Entities.def")
+	content, readErr := os.ReadFile(definitionPath)
+	if readErr != nil {
+		t.Fatalf("failed to read %s: %v", definitionPath, readErr)
+	}
+	text := string(content)
+	if !strings.Contains(text, "light_device physical:left;") {
+		t.Fatalf("expected normalized light_device physical:left form in %s", definitionPath)
+	}
+	if !strings.Contains(text, "light_device physical:right;") {
+		t.Fatalf("expected normalized light_device physical:right form in %s", definitionPath)
+	}
+	if strings.Contains(text, "light_device physical left;") {
+		t.Fatalf("unexpected positional light_device form with separate sphere and name in %s", definitionPath)
+	}
+	if strings.Contains(text, "light_device physical right;") {
+		t.Fatalf("unexpected positional light_device form with separate sphere and name in %s", definitionPath)
 	}
 }
 
