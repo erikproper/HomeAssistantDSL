@@ -26,119 +26,78 @@ Interpretation:
   BLOCK space social:apartment with:
     BLOCK space social:hallway with:
       STATEMENT entity binary_sensor.physical::door;
-      BLOCK battery_level_device aqara_windoor with:
-        STATEMENT alert_level 10;
-      END BLOCK
+      STATEMENT battery_level_device aqara_windoor with alert_level 10;
       STATEMENT entity sensor.physical:door/aqara_multi:temperature;
-      BLOCK entity sensor.physical:door/aqara_multi:pressure with:
-        STATEMENT adjustment 20 1;
-      END BLOCK
+      STATEMENT entity sensor.physical:door/aqara_multi:pressure with adjustment 20 1;
       STATEMENT entity sensor.physical:door/aqara_multi:humidity;
-      BLOCK battery_level_device door/aqara_multi with:
-        STATEMENT alert_level 15;
-      END BLOCK
+      STATEMENT battery_level_device door/aqara_multi with alert_level 15;
       STATEMENT entity sensor.physical:frient:illuminance;
       STATEMENT entity sensor.physical:frient:temperature;
       STATEMENT entity binary_sensor.physical:frient:motion;
       STATEMENT battery_level_device frient;
       STATEMENT light_device main;
-      BLOCK battery_level_device bedroom/door/moes with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK battery_level_device door/moes with:
-        STATEMENT alert_level 20;
-      END BLOCK
+      STATEMENT battery_level_device bedroom/door/moes with alert_level 20;
+      STATEMENT battery_level_device door/moes with alert_level 20;
     END BLOCK
     BLOCK space social:living_room with:
-      BLOCK entity sensor.physical:netatmo:co2 with:
-        STATEMENT imported rest junglinster sensor.physical_vienna_living_room_co2 60;
-      END BLOCK
-      BLOCK entity sensor.physical:netatmo:humidity with:
-        STATEMENT imported rest junglinster sensor.physical_vienna_living_room_humidity 60;
-      END BLOCK
-      BLOCK entity sensor.physical:netatmo:noise with:
-        STATEMENT imported rest junglinster sensor.physical_vienna_living_room_noise 60;
-      END BLOCK
-      BLOCK entity sensor.physical:netatmo:pressure with:
-        STATEMENT imported rest junglinster sensor.physical_vienna_living_room_pressure 60;
-      END BLOCK
-      BLOCK entity sensor.physical:netatmo:temperature with:
-        STATEMENT imported rest junglinster sensor.physical_vienna_living_room_temperature 60;
-      END BLOCK
-      BLOCK entity sensor.infrastructural:netatmo:radio with:
-        STATEMENT imported rest junglinster sensor.infrastructural_vienna_living_room_netatmo_radio 60;
-      END BLOCK
-      BLOCK entity binary_sensor.infrastructural:netatmo:node with:
-        STATEMENT imported rest junglinster sensor.infrastructural_vienna_living_room_netatmo_reachability 60 "$ == 'True'";
-      END BLOCK
-      BLOCK entity switch.social:picture_frame with:
-        STATEMENT definition cli_switch pi frame.fritz.box ./bin/start_slideshow ./bin/stop_slideshow ./bin/check_slideshow;
-      END BLOCK
+      STATEMENT entity sensor.physical:netatmo:co2 with
+      STATEMENT imported rest junglinster sensor.physical_vienna_living_room_co2 60;
+      STATEMENT entity sensor.physical:netatmo:humidity with
+      STATEMENT imported rest junglinster sensor.physical_vienna_living_room_humidity 60;
+      STATEMENT entity sensor.physical:netatmo:noise with
+      STATEMENT imported rest junglinster sensor.physical_vienna_living_room_noise 60;
+      STATEMENT entity sensor.physical:netatmo:pressure with
+      STATEMENT imported rest junglinster sensor.physical_vienna_living_room_pressure 60;
+      STATEMENT entity sensor.physical:netatmo:temperature with
+      STATEMENT imported rest junglinster sensor.physical_vienna_living_room_temperature 60;
+      STATEMENT entity sensor.infrastructural:netatmo:radio with
+      STATEMENT imported rest junglinster sensor.infrastructural_vienna_living_room_netatmo_radio 60;
+      STATEMENT entity binary_sensor.infrastructural:netatmo:node with
+      STATEMENT imported rest junglinster sensor.infrastructural_vienna_living_room_netatmo_reachability 60 "$ == 'True'";
+      STATEMENT entity switch.social:picture_frame with
+      STATEMENT definition cli_switch pi frame.fritz.box ./bin/start_slideshow ./bin/stop_slideshow ./bin/check_slideshow;
       STATEMENT entity sensor.physical:philips_motion:illuminance;
       STATEMENT entity sensor.physical:philips_motion:temperature;
       STATEMENT entity binary_sensor.physical:philips_motion:motion;
-      BLOCK battery_level_device philips_motion with:
-        STATEMENT alert_level 10;
-      END BLOCK
-      BLOCK battery_level_device signify_dimmer with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK entity vacuum.social with:
-        STATEMENT providing node roborock;
-      END BLOCK
+      STATEMENT battery_level_device philips_motion with alert_level 10;
+      STATEMENT battery_level_device signify_dimmer with alert_level 20;
+      STATEMENT entity vacuum.social with providing node roborock;
       STATEMENT entity sensor.infrastructural:roborock:battery_level;
-      BLOCK battery_alert roborock with:
-        STATEMENT alert_level 15;
-      END BLOCK
+      STATEMENT battery_alert roborock with alert_level 15;
       STATEMENT thermostat bitron_thermostat;
       STATEMENT battery_level bitron_thermostat;
       STATEMENT heating leak binary_sensor.social:living:door;
       STATEMENT heating leak binary_sensor.social:kitchen:door;
       STATEMENT heating leak binary_sensor.social:/apartment/bedroom:door;
       STATEMENT heating leak binary_sensor.social:/apartment/hallway:door;
-      BLOCK entity sensor.infrastructural:fritz_box_7590_ax_gb_received with:
-        STATEMENT providing node fritz_box;
-      END BLOCK
+      STATEMENT entity sensor.infrastructural:fritz_box_7590_ax_gb_received with providing node fritz_box;
       STATEMENT entity sensor.infrastructural:fritz_box_7590_ax_gb_sent;
       BLOCK entity switch.social::desktop with:
         STATEMENT icon mdi:desktop-classic;
         STATEMENT providing node desktop;
       END BLOCK
-      BLOCK entity switch.social:tv with:
-        STATEMENT providing node tv_switch;
-      END BLOCK
+      STATEMENT entity switch.social:tv with providing node tv_switch;
       STATEMENT media_player sonos;
       STATEMENT media_player apple_tv;
-      STATEMENT media_player tv switch.social:tv 00:01:00;
+      BLOCK media_player tv with:
+        STATEMENT enabler switch.social:tv;
+        STATEMENT delay_off 00:01:00;
+      END BLOCK
       STATEMENT entity binary_sensor.social:living:door;
-      BLOCK battery_level_device living/aqara_windoor with:
-        STATEMENT alert_level 10;
-      END BLOCK
-      BLOCK zigbee_group light.social:main with:
-        STATEMENT group kitchen, middle, living;
-      END BLOCK
+      STATEMENT battery_level_device living/aqara_windoor with alert_level 10;
+      STATEMENT zigbee_group light.social:main with group { kitchen, middle, living };
       BLOCK space social:vidja with:
-        BLOCK zigbee_group light.social:left with:
-          STATEMENT group 1, 2, 3, 4, 5, 6;
-        END BLOCK
-        BLOCK zigbee_group light.social:right with:
-          STATEMENT group 1, 2, 3, 4, 5, 6;
-        END BLOCK
+        STATEMENT zigbee_group light.social:left with group { 1, 2, 3, 4, 5, 6 };
+        STATEMENT zigbee_group light.social:right with group { 1, 2, 3, 4, 5, 6 };
       END BLOCK
       BLOCK space social:kitchen with:
         STATEMENT entity binary_sensor.social:terrace:door;
-        BLOCK battery_level_device aqara_windoor with:
-          STATEMENT alert_level 10;
-        END BLOCK
+        STATEMENT battery_level_device aqara_windoor with alert_level 10;
         STATEMENT entity switch.social:nespresso;
         STATEMENT entity binary_sensor.physical:aqara_water:water;
         STATEMENT battery_level_device aqara_water;
-        BLOCK entity binary_sensor.social:fridge:door with:
-          STATEMENT icon mdi:fridge-variant-alert;
-        END BLOCK
-        BLOCK battery_level_device fridge/aqara_windoor with:
-          STATEMENT alert_level 10;
-        END BLOCK
+        STATEMENT entity binary_sensor.social:fridge:door with icon mdi:fridge-variant-alert;
+        STATEMENT battery_level_device fridge/aqara_windoor with alert_level 10;
         STATEMENT entity sensor.physical:dishwasher/robb:temperature no_collect;
         BLOCK power_switch switch.social:dishwasher with:
           STATEMENT node robb;
@@ -158,102 +117,56 @@ Interpretation:
       END BLOCK
       BLOCK space social:rack with:
         STATEMENT entity sensor.physical:aqara_multi:temperature;
-        BLOCK entity sensor.physical:aqara_multi:pressure with:
-          STATEMENT adjustment 20 1;
-        END BLOCK
+        STATEMENT entity sensor.physical:aqara_multi:pressure with adjustment 20 1;
         STATEMENT entity sensor.physical:aqara_multi:humidity;
-        BLOCK battery_level_device aqara_multi with:
-          STATEMENT alert_level 15;
-        END BLOCK
+        STATEMENT battery_level_device aqara_multi with alert_level 15;
         STATEMENT entity binary_sensor.infrastructural:frame:node;
-        BLOCK entity sensor.infrastructural:frame:load with:
-          STATEMENT definition cli_sensor pi frame.fritz.box ./cpu/load;
-        END BLOCK
-        BLOCK entity sensor.infrastructural:frame:temperature no_collect with:
-          STATEMENT definition cli_sensor pi frame.fritz.box ./cpu/temperature;
-        END BLOCK
+        STATEMENT entity sensor.infrastructural:frame:load with
+        STATEMENT definition cli_sensor pi frame.fritz.box ./cpu/load;
+        STATEMENT entity sensor.infrastructural:frame:temperature no_collect with
+        STATEMENT definition cli_sensor pi frame.fritz.box ./cpu/temperature;
         STATEMENT entity sensor.infrastructural:vienna:load;
         STATEMENT entity sensor.infrastructural:vienna:temperature no_collect;
       END BLOCK
-      BLOCK battery_level_device hallway_door/moes/1 with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK battery_level_device hallway_door/moes/2 with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK battery_level_device hallway_door/moes/3 with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK battery_level_device hallway_door/moes/4 with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK battery_level_device kitchen/door/moes/1 with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK battery_level_device kitchen/door/moes/2 with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK battery_level_device living/door/moes/1 with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK battery_level_device living/door/moes/2 with:
-        STATEMENT alert_level 20;
-      END BLOCK
+      STATEMENT battery_level_device hallway_door/moes/1 with alert_level 20;
+      STATEMENT battery_level_device hallway_door/moes/2 with alert_level 20;
+      STATEMENT battery_level_device hallway_door/moes/3 with alert_level 20;
+      STATEMENT battery_level_device hallway_door/moes/4 with alert_level 20;
+      STATEMENT battery_level_device kitchen/door/moes/1 with alert_level 20;
+      STATEMENT battery_level_device kitchen/door/moes/2 with alert_level 20;
+      STATEMENT battery_level_device living/door/moes/1 with alert_level 20;
+      STATEMENT battery_level_device living/door/moes/2 with alert_level 20;
       STATEMENT light on: social:main;
       STATEMENT space off: switch.social:picture_frame;
       STATEMENT space off: switch.social:tv;
     END BLOCK
     BLOCK space social:bedroom with:
-      BLOCK entity sensor.infrastructural:netatmo:battery_level with:
-        STATEMENT imported rest junglinster sensor.infrastructural_vienna_bedroom_netatmo_battery_level 60;
-      END BLOCK
-      BLOCK battery_alert netatmo with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK entity sensor.physical::co2 with:
-        STATEMENT imported rest junglinster sensor.physical_vienna_bedroom_co2 60;
-      END BLOCK
-      BLOCK entity sensor.physical::humidity with:
-        STATEMENT imported rest junglinster sensor.physical_vienna_bedroom_humidity 60;
-      END BLOCK
-      BLOCK entity sensor.physical:netatmo:temperature with:
-        STATEMENT imported rest junglinster sensor.physical_vienna_bedroom_temperature 60;
-      END BLOCK
-      BLOCK entity sensor.infrastructural:netatmo:radio with:
-        STATEMENT imported rest junglinster sensor.infrastructural_vienna_bedroom_netatmo_radio 60;
-      END BLOCK
-      BLOCK entity binary_sensor.infrastructural:netatmo:node with:
-        STATEMENT imported rest junglinster sensor.infrastructural_vienna_bedroom_netatmo_reachability 60 "$ == 'True'";
-      END BLOCK
+      STATEMENT entity sensor.infrastructural:netatmo:battery_level with
+      STATEMENT imported rest junglinster sensor.infrastructural_vienna_bedroom_netatmo_battery_level 60;
+      STATEMENT battery_alert netatmo with alert_level 20;
+      STATEMENT entity sensor.physical::co2 with
+      STATEMENT imported rest junglinster sensor.physical_vienna_bedroom_co2 60;
+      STATEMENT entity sensor.physical::humidity with
+      STATEMENT imported rest junglinster sensor.physical_vienna_bedroom_humidity 60;
+      STATEMENT entity sensor.physical:netatmo:temperature with
+      STATEMENT imported rest junglinster sensor.physical_vienna_bedroom_temperature 60;
+      STATEMENT entity sensor.infrastructural:netatmo:radio with
+      STATEMENT imported rest junglinster sensor.infrastructural_vienna_bedroom_netatmo_radio 60;
+      STATEMENT entity binary_sensor.infrastructural:netatmo:node with
+      STATEMENT imported rest junglinster sensor.infrastructural_vienna_bedroom_netatmo_reachability 60 "$ == 'True'";
       STATEMENT entity sensor.physical:frient:illuminance;
       STATEMENT entity sensor.physical:frient:temperature;
       STATEMENT entity binary_sensor.physical:frient:motion;
       STATEMENT battery_level_device frient;
-      BLOCK battery_level_device bed/moes with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK battery_level_device bed/shortcut/left with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK battery_level_device bed/shortcut/right with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK battery_level_device door/moes/1 with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK battery_level_device door/moes/2 with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK battery_level_device hallway/door/moes/1 with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK battery_level_device hallway/door/moes/2 with:
-        STATEMENT alert_level 20;
-      END BLOCK
+      STATEMENT battery_level_device bed/moes with alert_level 20;
+      STATEMENT battery_level_device bed/shortcut/left with alert_level 20;
+      STATEMENT battery_level_device bed/shortcut/right with alert_level 20;
+      STATEMENT battery_level_device door/moes/1 with alert_level 20;
+      STATEMENT battery_level_device door/moes/2 with alert_level 20;
+      STATEMENT battery_level_device hallway/door/moes/1 with alert_level 20;
+      STATEMENT battery_level_device hallway/door/moes/2 with alert_level 20;
       STATEMENT entity binary_sensor.physical::door;
-      BLOCK battery_level_device aqara_windoor with:
-        STATEMENT alert_level 10;
-      END BLOCK
+      STATEMENT battery_level_device aqara_windoor with alert_level 10;
       BLOCK space social:bed with:
         STATEMENT light_device left;
         STATEMENT light_device right;
@@ -261,9 +174,7 @@ Interpretation:
       STATEMENT light_device main;
       STATEMENT media_player sonos;
       STATEMENT entity sensor.infrastructural:sonos:battery_level;
-      BLOCK battery_alert sonos with:
-        STATEMENT alert_level 10;
-      END BLOCK
+      STATEMENT battery_alert sonos with alert_level 10;
       BLOCK entity cover.social with:
         STATEMENT open_stop_close;
         STATEMENT providing node blinds;
@@ -271,33 +182,23 @@ Interpretation:
       STATEMENT light on: social:main;
     END BLOCK
     BLOCK space social:shower_room with:
-      BLOCK entity sensor.infrastructural:netatmo:battery_level with:
-        STATEMENT imported rest junglinster sensor.infrastructural_vienna_shower_room_netatmo_battery_level 60;
-      END BLOCK
-      BLOCK battery_alert netatmo with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK entity sensor.physical:netatmo:co2 with:
-        STATEMENT imported rest junglinster sensor.physical_vienna_shower_room_netatmo_co2 60;
-      END BLOCK
-      BLOCK entity sensor.physical:netatmo:humidity with:
-        STATEMENT imported rest junglinster sensor.physical_vienna_shower_room_netatmo_humidity 60;
-      END BLOCK
-      BLOCK entity sensor.physical:netatmo:temperature with:
-        STATEMENT imported rest junglinster sensor.physical_vienna_shower_room_netatmo_temperature 60;
-      END BLOCK
-      BLOCK entity sensor.infrastructural:netatmo:radio with:
-        STATEMENT imported rest junglinster sensor.infrastructural_vienna_shower_room_netatmo_radio 60;
-      END BLOCK
-      BLOCK entity binary_sensor.infrastructural:netatmo:node with:
-        STATEMENT imported rest junglinster sensor.infrastructural_vienna_shower_room_netatmo_reachability 60 "$ == 'True'";
-      END BLOCK
+      STATEMENT entity sensor.infrastructural:netatmo:battery_level with
+      STATEMENT imported rest junglinster sensor.infrastructural_vienna_shower_room_netatmo_battery_level 60;
+      STATEMENT battery_alert netatmo with alert_level 20;
+      STATEMENT entity sensor.physical:netatmo:co2 with
+      STATEMENT imported rest junglinster sensor.physical_vienna_shower_room_netatmo_co2 60;
+      STATEMENT entity sensor.physical:netatmo:humidity with
+      STATEMENT imported rest junglinster sensor.physical_vienna_shower_room_netatmo_humidity 60;
+      STATEMENT entity sensor.physical:netatmo:temperature with
+      STATEMENT imported rest junglinster sensor.physical_vienna_shower_room_netatmo_temperature 60;
+      STATEMENT entity sensor.infrastructural:netatmo:radio with
+      STATEMENT imported rest junglinster sensor.infrastructural_vienna_shower_room_netatmo_radio 60;
+      STATEMENT entity binary_sensor.infrastructural:netatmo:node with
+      STATEMENT imported rest junglinster sensor.infrastructural_vienna_shower_room_netatmo_reachability 60 "$ == 'True'";
       STATEMENT entity sensor.physical:philips_motion:illuminance;
       STATEMENT entity sensor.physical:philips_motion:temperature;
       STATEMENT entity binary_sensor.physical:philips_motion:motion;
-      BLOCK battery_level_device philips_motion with:
-        STATEMENT alert_level 10;
-      END BLOCK
+      STATEMENT battery_level_device philips_motion with alert_level 10;
       STATEMENT entity binary_sensor.physical:aqara_water:water;
       STATEMENT battery_level_device aqara_water;
       STATEMENT entity sensor.physical:radiator/robb:temperature no_collect;
@@ -314,75 +215,49 @@ Interpretation:
       END BLOCK
       STATEMENT light_device main;
       STATEMENT light_device mirror;
-      BLOCK battery_level_device door/moes/1 with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK battery_level_device door/moes/2 with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK battery_level_device mirror/moes with:
-        STATEMENT alert_level 20;
-      END BLOCK
+      STATEMENT battery_level_device door/moes/1 with alert_level 20;
+      STATEMENT battery_level_device door/moes/2 with alert_level 20;
+      STATEMENT battery_level_device mirror/moes with alert_level 20;
       STATEMENT light on: social:main;
       STATEMENT lights_motion_guarded with delay 15;
     END BLOCK
     STATEMENT light on: social:living_room social:hallway;
   END BLOCK
   BLOCK space social:terrace with:
-    BLOCK entity sensor.infrastructural:netatmo_outdoor:battery_level with:
-      STATEMENT imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_outdoor_battery_level 60;
-    END BLOCK
-    BLOCK battery_alert netatmo_outdoor with:
-      STATEMENT alert_level 20;
-    END BLOCK
-    BLOCK entity sensor.physical:netatmo_outdoor:humidity with:
-      STATEMENT imported rest junglinster sensor.physical_vienna_terrace_netatmo_outdoor_humidity 60;
-    END BLOCK
-    BLOCK entity sensor.physical:netatmo_outdoor:temperature with:
-      STATEMENT imported rest junglinster sensor.physical_vienna_terrace_netatmo_outdoor_temperature 60;
-    END BLOCK
-    BLOCK entity sensor.infrastructural:netatmo_outdoor:radio with:
-      STATEMENT imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_outdoor_radio 60;
-    END BLOCK
-    BLOCK entity binary_sensor.infrastructural:netatmo_outdoor:node with:
-      STATEMENT imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_outdoor_reachability 60 "$ == 'True'";
-    END BLOCK
-    BLOCK entity sensor.infrastructural:netatmo_windmeter:battery_level with:
-      STATEMENT imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_windmeter_battery_level 60;
-    END BLOCK
-    BLOCK battery_alert netatmo_windmeter with:
-      STATEMENT alert_level 20;
-    END BLOCK
-    BLOCK entity sensor.social::wind_direction with:
-      STATEMENT imported rest junglinster sensor.physical_vienna_terrace_netatmo_windmeter_wind_direction 60;
-    END BLOCK
-    BLOCK entity sensor.social::wind_speed with:
-      STATEMENT imported rest junglinster sensor.physical_vienna_terrace_netatmo_windmeter_wind_speed 60;
-    END BLOCK
-    BLOCK entity sensor.infrastructural:netatmo_windmeter:radio with:
-      STATEMENT imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_windmeter_radio 60;
-    END BLOCK
-    BLOCK entity binary_sensor.infrastructural:netatmo_windmeter:node with:
-      STATEMENT imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_windmeter_reachability 60 "$ == 'True'";
-    END BLOCK
+    STATEMENT entity sensor.infrastructural:netatmo_outdoor:battery_level with
+    STATEMENT imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_outdoor_battery_level 60;
+    STATEMENT battery_alert netatmo_outdoor with alert_level 20;
+    STATEMENT entity sensor.physical:netatmo_outdoor:humidity with
+    STATEMENT imported rest junglinster sensor.physical_vienna_terrace_netatmo_outdoor_humidity 60;
+    STATEMENT entity sensor.physical:netatmo_outdoor:temperature with
+    STATEMENT imported rest junglinster sensor.physical_vienna_terrace_netatmo_outdoor_temperature 60;
+    STATEMENT entity sensor.infrastructural:netatmo_outdoor:radio with
+    STATEMENT imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_outdoor_radio 60;
+    STATEMENT entity binary_sensor.infrastructural:netatmo_outdoor:node with
+    STATEMENT imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_outdoor_reachability 60 "$ == 'True'";
+    STATEMENT entity sensor.infrastructural:netatmo_windmeter:battery_level with
+    STATEMENT imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_windmeter_battery_level 60;
+    STATEMENT battery_alert netatmo_windmeter with alert_level 20;
+    STATEMENT entity sensor.social::wind_direction with
+    STATEMENT imported rest junglinster sensor.physical_vienna_terrace_netatmo_windmeter_wind_direction 60;
+    STATEMENT entity sensor.social::wind_speed with
+    STATEMENT imported rest junglinster sensor.physical_vienna_terrace_netatmo_windmeter_wind_speed 60;
+    STATEMENT entity sensor.infrastructural:netatmo_windmeter:radio with
+    STATEMENT imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_windmeter_radio 60;
+    STATEMENT entity binary_sensor.infrastructural:netatmo_windmeter:node with
+    STATEMENT imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_windmeter_reachability 60 "$ == 'True'";
     BLOCK windy social:wind_speed with:
       STATEMENT delay_on 00:01:00;
       STATEMENT delay_off 00:10:00;
     END BLOCK
-    BLOCK entity binary_sensor.social::daylight with:
-      STATEMENT condition sun.[sun]!elevation "$ > 4";
-    END BLOCK
+    STATEMENT entity binary_sensor.social::daylight with condition sun.[sun]!elevation "$ > 4";
     STATEMENT light_device physical:left;
     STATEMENT light_device physical:right;
-    BLOCK entity sensor.physical:signify_motion:illuminance with:
-      STATEMENT providing node signify_motion;
-    END BLOCK
+    STATEMENT entity sensor.physical:signify_motion:illuminance with providing node signify_motion;
     STATEMENT entity sensor.physical:signify_motion:temperature;
     STATEMENT entity binary_sensor.physical:signify_motion:motion;
     STATEMENT entity sensor.infrastructural:signify_motion:battery_level;
-    BLOCK battery_alert signify_motion with:
-      STATEMENT alert_level 20;
-    END BLOCK
+    STATEMENT battery_alert signify_motion with alert_level 20;
     BLOCK sunny physical:signify_motion:illuminance with:
       STATEMENT delay_on 00:05:00;
       STATEMENT delay_off 00:05:00;

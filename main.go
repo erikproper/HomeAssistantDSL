@@ -1045,7 +1045,7 @@ func transformEntitiesDefinition(content string) string {
 					target := statementFields[1] + "." + statementFields[2] + ":" + statementFields[3]
 					groupValues := strings.Join(statementFields[4:], ", ")
 					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"zigbee_group "+target+" with:")
-					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"group "+groupValues+";")
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"group { "+groupValues+" };")
 					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"end;")
 					continue
 				}
@@ -1058,6 +1058,13 @@ func transformEntitiesDefinition(content string) string {
 				if len(statementFields) == 3 && statementFields[0] == "battery_level_device" {
 					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"battery_level_device "+statementFields[1]+" with:")
 					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"alert_level "+statementFields[2]+";")
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"end;")
+					continue
+				}
+				if len(statementFields) == 4 && statementFields[0] == "media_player" {
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"media_player "+statementFields[1]+" with:")
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"enabler "+statementFields[2]+";")
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"delay_off "+statementFields[3]+";")
 					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"end;")
 					continue
 				}
@@ -1081,7 +1088,40 @@ func transformEntitiesDefinition(content string) string {
 		openBlocks = openBlocks[:len(openBlocks)-1]
 	}
 
-	return strings.TrimRight(strings.Join(outputLines, "\n"), "\n") + "\n"
+	// Collapse single-statement "with:" blocks into inline "with" form.
+	// Pattern: "<indent>header with:\n<indent+>body;\n<indent>end;" → "<indent>header with body;"
+	collapsed := []string{}
+	i := 0
+	for i < len(outputLines) {
+		line := outputLines[i]
+		trimmed := strings.TrimSpace(line)
+		if strings.HasSuffix(trimmed, " with:") && i+2 < len(outputLines) {
+			bodyLine := outputLines[i+1]
+			endLine := outputLines[i+2]
+			bodyTrimmed := strings.TrimSpace(bodyLine)
+			endTrimmed := strings.TrimSpace(endLine)
+			indent := len(line) - len(strings.TrimLeft(line, " \t"))
+			endIndent := len(endLine) - len(strings.TrimLeft(endLine, " \t"))
+			// Only collapse if body has no nested "with:" and end; is at the same indent.
+			if endTrimmed == "end;" && endIndent == indent && !strings.Contains(bodyTrimmed, " with:") {
+				header := strings.TrimSuffix(trimmed, " with:")
+				inlineLine := strings.Repeat(" ", indent) + header + " with " + bodyTrimmed
+				if len(inlineLine) > 100 {
+					// Long lines get the body on its own line, indented two spaces.
+					collapsed = append(collapsed, strings.Repeat(" ", indent)+header+" with")
+					collapsed = append(collapsed, strings.Repeat(" ", indent+2)+bodyTrimmed)
+				} else {
+					collapsed = append(collapsed, inlineLine)
+				}
+				i += 3
+				continue
+			}
+		}
+		collapsed = append(collapsed, line)
+		i++
+	}
+
+	return strings.TrimRight(strings.Join(collapsed, "\n"), "\n") + "\n"
 }
 
 func transformListsDefinition(content string) string {

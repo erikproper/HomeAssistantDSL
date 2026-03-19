@@ -6,17 +6,17 @@
 # Macros are collapsed into one file, but still form a prelude that should be read before other definitions.
 
 macros:
-  macro entity_battery_alert ($entity $alertLevel):
+  macro battery_alert ($entity $alertLevel):
     # Source: entity_battery_alert.def
     declare entity binary_sensor.infrastructural:$entity:battery_alert;
     if "$alertLevel" != "" then
       begin
-        define satisfies sensor.infrastructural:$entity:battery_level "($ | int(0)) < $alertLevel";
+        condition sensor.infrastructural:$entity:battery_level "($ | int(0)) < $alertLevel";
         available always;
       end;
   end;
 
-  macro entity_battery_from_device ($entity $sourceEntity $alertLevel):
+  macro battery_from_device ($entity $sourceEntity $alertLevel):
     # Source: entity_battery_from_device.def
     declare entity sensor.infrastructural:$entity:battery_level;
     define value $sourceEntity!battery_level;
@@ -24,20 +24,20 @@ macros:
     entity battery_alert $entity $alertLevel;
   end;
 
-  macro entity_battery_level ($entity $alertLevel):
+  macro battery_level ($entity $alertLevel):
     # Source: entity_battery_level.def
     entity battery_alert $entity $alertLevel;
 
     declare entity sensor.infrastructural:$entity:battery_level;
   end;
 
-  macro entity_battery_level_device ($entity $alertLevel):
+  macro battery_level_device ($entity $alertLevel):
     # Source: entity_battery_level_device.def
     entity battery_level $entity $alertLevel;
     providing node $entity;
   end;
 
-  macro entity_light_device ($sphereOrName $name):
+  macro light_device ($sphereOrName $name):
     # Source: entity_light_device.def
     if "$name" == "" then
       begin
@@ -54,7 +54,7 @@ macros:
     providing node $lightName/light;
   end;
 
-  macro entity_media_player ($entity $option $value):
+  macro media_player ($entity $option $value):
     # Source: entity_media_player.def
     thisEntity="$entity";
 
@@ -90,19 +90,19 @@ macros:
     define media_switch $mediaPlayerSpecification "$inputety";
   end;
 
-  macro entity_power_switch ($sphere $entity $deviceNode $powerThreshold):
+  macro power_switch ($sphere $entity $deviceNode $powerThreshold):
     # Source: entity_power_switch.def
     declare entity sensor.$sphere:$entity:power;
 
     declare entity binary_sensor.$sphere:$entity:consumes;
     icon $ConsumesIcon;
-    define satisfies sensor.$sphere:$entity:power "($ | int(0)) > $powerThreshold";
+    condition sensor.$sphere:$entity:power "($ | int(0)) > $powerThreshold";
 
     declare entity switch.$sphere::$entity;
     providing node $entity/$deviceNode;
   end;
 
-  macro entity_switch_device ($sphereOrName $name):
+  macro switch_device ($sphereOrName $name):
     # Source: entity_switch_device.def
     if "$name" == "" then
       begin
@@ -119,7 +119,7 @@ macros:
     providing node $switchName/switch;
   end;
 
-  macro entity_thermostat ($entity):
+  macro thermostat ($entity):
     # Source: entity_thermostat.def
     declare entity climate.physical:$entity;
     providing node $entity;
@@ -128,7 +128,7 @@ macros:
     define value climate.physical:$entity!current_temperature;
   end;
 
-  macro entity_zigbee_group ($domain $sphere $location $entities...):
+  macro zigbee_group ($domain $sphere $location $entities...):
     # Source: entity_zigbee_group.def
     # $1 = Domain, $2 = Sphere, $3 = Location, $4 ... $n = Entity names
     groupDomain=$domain;
@@ -148,11 +148,11 @@ macros:
       end;
   end;
 
-  macro entity_zwave_node ($node):
+  macro zwave_node ($node):
     # Source: entity_zwave_node.def
     declare entity sensor.infrastructural:$node/status;
 
     declare entity binary_sensor.infrastructural:$node:node;
-    define satisfies sensor.infrastructural:$node/status "($ == 'alive')";
+    condition sensor.infrastructural:$node/status "($ == 'alive')";
   end;
 end;

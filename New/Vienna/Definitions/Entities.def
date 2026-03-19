@@ -8,18 +8,12 @@
 space social:apartment with:
   space social:hallway with:
     entity binary_sensor.physical::door;
-    battery_level_device aqara_windoor with:
-      alert_level 10;
-    end;
+    battery_level_device aqara_windoor with alert_level 10;
 
     entity sensor.physical:door/aqara_multi:temperature;
-    entity sensor.physical:door/aqara_multi:pressure with:
-      adjustment 20 1;
-    end;
+    entity sensor.physical:door/aqara_multi:pressure with adjustment 20 1;
     entity sensor.physical:door/aqara_multi:humidity;
-    battery_level_device door/aqara_multi with:
-      alert_level 15;
-    end;
+    battery_level_device door/aqara_multi with alert_level 15;
 
     entity sensor.physical:frient:illuminance;
     entity sensor.physical:frient:temperature;
@@ -28,59 +22,39 @@ space social:apartment with:
 
     light_device main;
 
-    battery_level_device bedroom/door/moes with:
-      alert_level 20;
-    end;
-    battery_level_device door/moes with:
-      alert_level 20;
-    end;
+    battery_level_device bedroom/door/moes with alert_level 20;
+    battery_level_device door/moes with alert_level 20;
   end;
 
   space social:living_room with:
-    entity sensor.physical:netatmo:co2 with:
+    entity sensor.physical:netatmo:co2 with
       imported rest junglinster sensor.physical_vienna_living_room_co2 60;
-    end;
-    entity sensor.physical:netatmo:humidity with:
+    entity sensor.physical:netatmo:humidity with
       imported rest junglinster sensor.physical_vienna_living_room_humidity 60;
-    end;
-    entity sensor.physical:netatmo:noise with:
+    entity sensor.physical:netatmo:noise with
       imported rest junglinster sensor.physical_vienna_living_room_noise 60;
-    end;
-    entity sensor.physical:netatmo:pressure with:
+    entity sensor.physical:netatmo:pressure with
       imported rest junglinster sensor.physical_vienna_living_room_pressure 60;
-    end;
-    entity sensor.physical:netatmo:temperature with:
+    entity sensor.physical:netatmo:temperature with
       imported rest junglinster sensor.physical_vienna_living_room_temperature 60;
-    end;
-    entity sensor.infrastructural:netatmo:radio with:
+    entity sensor.infrastructural:netatmo:radio with
       imported rest junglinster sensor.infrastructural_vienna_living_room_netatmo_radio 60;
-    end;
-    entity binary_sensor.infrastructural:netatmo:node with:
+    entity binary_sensor.infrastructural:netatmo:node with
       imported rest junglinster sensor.infrastructural_vienna_living_room_netatmo_reachability 60 "$ == 'True'";
-    end;
 
-    entity switch.social:picture_frame with:
+    entity switch.social:picture_frame with
       definition cli_switch pi frame.fritz.box ./bin/start_slideshow ./bin/stop_slideshow ./bin/check_slideshow;
-    end;
 
     entity sensor.physical:philips_motion:illuminance;
     entity sensor.physical:philips_motion:temperature;
     entity binary_sensor.physical:philips_motion:motion;
-    battery_level_device philips_motion with:
-      alert_level 10;
-    end;
+    battery_level_device philips_motion with alert_level 10;
 
-    battery_level_device signify_dimmer with:
-      alert_level 20;
-    end;
+    battery_level_device signify_dimmer with alert_level 20;
 
-    entity vacuum.social with:
-      providing node roborock;
-    end;
+    entity vacuum.social with providing node roborock;
     entity sensor.infrastructural:roborock:battery_level;
-    battery_alert roborock with:
-      alert_level 15;
-    end;
+    battery_alert roborock with alert_level 15;
 
     thermostat bitron_thermostat;
     battery_level bitron_thermostat;
@@ -90,9 +64,7 @@ space social:apartment with:
     heating leak binary_sensor.social:/apartment/bedroom:door;
     heating leak binary_sensor.social:/apartment/hallway:door;
 
-    entity sensor.infrastructural:fritz_box_7590_ax_gb_received with:
-      providing node fritz_box;
-    end;
+    entity sensor.infrastructural:fritz_box_7590_ax_gb_received with providing node fritz_box;
     entity sensor.infrastructural:fritz_box_7590_ax_gb_sent;
 
     entity switch.social::desktop with:
@@ -100,49 +72,36 @@ space social:apartment with:
       providing node desktop;
     end;
 
-    entity switch.social:tv with:
-      providing node tv_switch;
-    end;
+    entity switch.social:tv with providing node tv_switch;
 
     media_player sonos;
     media_player apple_tv;
-    media_player tv switch.social:tv 00:01:00;
+    media_player tv with:
+      enabler switch.social:tv;
+      delay_off 00:01:00;
+    end;
 
     entity binary_sensor.social:living:door;
-    battery_level_device living/aqara_windoor with:
-      alert_level 10;
-    end;
+    battery_level_device living/aqara_windoor with alert_level 10;
 
-    zigbee_group light.social:main with:
-      group kitchen, middle, living;
-    end;
+    zigbee_group light.social:main with group { kitchen, middle, living };
 
     space social:vidja with:
-      zigbee_group light.social:left with:
-        group 1, 2, 3, 4, 5, 6;
-      end;
-      zigbee_group light.social:right with:
-        group 1, 2, 3, 4, 5, 6;
-      end;
+      zigbee_group light.social:left with group { 1, 2, 3, 4, 5, 6 };
+      zigbee_group light.social:right with group { 1, 2, 3, 4, 5, 6 };
     end;
 
     space social:kitchen with:
       entity binary_sensor.social:terrace:door;
-      battery_level_device aqara_windoor with:
-        alert_level 10;
-      end;
+      battery_level_device aqara_windoor with alert_level 10;
 
       entity switch.social:nespresso;
 
       entity binary_sensor.physical:aqara_water:water;
       battery_level_device aqara_water;
 
-      entity binary_sensor.social:fridge:door with:
-        icon mdi:fridge-variant-alert;
-      end;
-      battery_level_device fridge/aqara_windoor with:
-        alert_level 10;
-      end;
+      entity binary_sensor.social:fridge:door with icon mdi:fridge-variant-alert;
+      battery_level_device fridge/aqara_windoor with alert_level 10;
 
       entity sensor.physical:dishwasher/robb:temperature no_collect;
       power_switch switch.social:dishwasher with:
@@ -168,52 +127,30 @@ space social:apartment with:
 
     space social:rack with:
       entity sensor.physical:aqara_multi:temperature;
-      entity sensor.physical:aqara_multi:pressure with:
-        adjustment 20 1;
-      end;
+      entity sensor.physical:aqara_multi:pressure with adjustment 20 1;
       entity sensor.physical:aqara_multi:humidity;
-      battery_level_device aqara_multi with:
-        alert_level 15;
-      end;
+      battery_level_device aqara_multi with alert_level 15;
 
       entity binary_sensor.infrastructural:frame:node;
-      entity sensor.infrastructural:frame:load with:
+      entity sensor.infrastructural:frame:load with
         definition cli_sensor pi frame.fritz.box ./cpu/load;
-      end;
-      entity sensor.infrastructural:frame:temperature no_collect with:
+      entity sensor.infrastructural:frame:temperature no_collect with
         definition cli_sensor pi frame.fritz.box ./cpu/temperature;
-      end;
 
       entity sensor.infrastructural:vienna:load;
       entity sensor.infrastructural:vienna:temperature no_collect;
     end;
 
-    battery_level_device hallway_door/moes/1 with:
-      alert_level 20;
-    end;
-    battery_level_device hallway_door/moes/2 with:
-      alert_level 20;
-    end;
-    battery_level_device hallway_door/moes/3 with:
-      alert_level 20;
-    end;
-    battery_level_device hallway_door/moes/4 with:
-      alert_level 20;
-    end;
+    battery_level_device hallway_door/moes/1 with alert_level 20;
+    battery_level_device hallway_door/moes/2 with alert_level 20;
+    battery_level_device hallway_door/moes/3 with alert_level 20;
+    battery_level_device hallway_door/moes/4 with alert_level 20;
 
-    battery_level_device kitchen/door/moes/1 with:
-      alert_level 20;
-    end;
-    battery_level_device kitchen/door/moes/2 with:
-      alert_level 20;
-    end;
+    battery_level_device kitchen/door/moes/1 with alert_level 20;
+    battery_level_device kitchen/door/moes/2 with alert_level 20;
 
-    battery_level_device living/door/moes/1 with:
-      alert_level 20;
-    end;
-    battery_level_device living/door/moes/2 with:
-      alert_level 20;
-    end;
+    battery_level_device living/door/moes/1 with alert_level 20;
+    battery_level_device living/door/moes/2 with alert_level 20;
 
     light on: social:main;
     space off: switch.social:picture_frame;
@@ -221,59 +158,35 @@ space social:apartment with:
   end;
 
   space social:bedroom with:
-    entity sensor.infrastructural:netatmo:battery_level with:
+    entity sensor.infrastructural:netatmo:battery_level with
       imported rest junglinster sensor.infrastructural_vienna_bedroom_netatmo_battery_level 60;
-    end;
-    battery_alert netatmo with:
-      alert_level 20;
-    end;
-    entity sensor.physical::co2 with:
+    battery_alert netatmo with alert_level 20;
+    entity sensor.physical::co2 with
       imported rest junglinster sensor.physical_vienna_bedroom_co2 60;
-    end;
-    entity sensor.physical::humidity with:
+    entity sensor.physical::humidity with
       imported rest junglinster sensor.physical_vienna_bedroom_humidity 60;
-    end;
-    entity sensor.physical:netatmo:temperature with:
+    entity sensor.physical:netatmo:temperature with
       imported rest junglinster sensor.physical_vienna_bedroom_temperature 60;
-    end;
-    entity sensor.infrastructural:netatmo:radio with:
+    entity sensor.infrastructural:netatmo:radio with
       imported rest junglinster sensor.infrastructural_vienna_bedroom_netatmo_radio 60;
-    end;
-    entity binary_sensor.infrastructural:netatmo:node with:
+    entity binary_sensor.infrastructural:netatmo:node with
       imported rest junglinster sensor.infrastructural_vienna_bedroom_netatmo_reachability 60 "$ == 'True'";
-    end;
 
     entity sensor.physical:frient:illuminance;
     entity sensor.physical:frient:temperature;
     entity binary_sensor.physical:frient:motion;
     battery_level_device frient;
 
-    battery_level_device bed/moes with:
-      alert_level 20;
-    end;
-    battery_level_device bed/shortcut/left with:
-      alert_level 20;
-    end;
-    battery_level_device bed/shortcut/right with:
-      alert_level 20;
-    end;
-    battery_level_device door/moes/1 with:
-      alert_level 20;
-    end;
-    battery_level_device door/moes/2 with:
-      alert_level 20;
-    end;
-    battery_level_device hallway/door/moes/1 with:
-      alert_level 20;
-    end;
-    battery_level_device hallway/door/moes/2 with:
-      alert_level 20;
-    end;
+    battery_level_device bed/moes with alert_level 20;
+    battery_level_device bed/shortcut/left with alert_level 20;
+    battery_level_device bed/shortcut/right with alert_level 20;
+    battery_level_device door/moes/1 with alert_level 20;
+    battery_level_device door/moes/2 with alert_level 20;
+    battery_level_device hallway/door/moes/1 with alert_level 20;
+    battery_level_device hallway/door/moes/2 with alert_level 20;
 
     entity binary_sensor.physical::door;
-    battery_level_device aqara_windoor with:
-      alert_level 10;
-    end;
+    battery_level_device aqara_windoor with alert_level 10;
 
     space social:bed with:
       light_device left;
@@ -283,9 +196,7 @@ space social:apartment with:
 
     media_player sonos;
     entity sensor.infrastructural:sonos:battery_level;
-    battery_alert sonos with:
-      alert_level 10;
-    end;
+    battery_alert sonos with alert_level 10;
 
     entity cover.social with:
       open_stop_close;
@@ -296,34 +207,24 @@ space social:apartment with:
   end;
 
   space social:shower_room with:
-    entity sensor.infrastructural:netatmo:battery_level with:
+    entity sensor.infrastructural:netatmo:battery_level with
       imported rest junglinster sensor.infrastructural_vienna_shower_room_netatmo_battery_level 60;
-    end;
-    battery_alert netatmo with:
-      alert_level 20;
-    end;
-    entity sensor.physical:netatmo:co2 with:
+    battery_alert netatmo with alert_level 20;
+    entity sensor.physical:netatmo:co2 with
       imported rest junglinster sensor.physical_vienna_shower_room_netatmo_co2 60;
-    end;
-    entity sensor.physical:netatmo:humidity with:
+    entity sensor.physical:netatmo:humidity with
       imported rest junglinster sensor.physical_vienna_shower_room_netatmo_humidity 60;
-    end;
-    entity sensor.physical:netatmo:temperature with:
+    entity sensor.physical:netatmo:temperature with
       imported rest junglinster sensor.physical_vienna_shower_room_netatmo_temperature 60;
-    end;
-    entity sensor.infrastructural:netatmo:radio with:
+    entity sensor.infrastructural:netatmo:radio with
       imported rest junglinster sensor.infrastructural_vienna_shower_room_netatmo_radio 60;
-    end;
-    entity binary_sensor.infrastructural:netatmo:node with:
+    entity binary_sensor.infrastructural:netatmo:node with
       imported rest junglinster sensor.infrastructural_vienna_shower_room_netatmo_reachability 60 "$ == 'True'";
-    end;
 
     entity sensor.physical:philips_motion:illuminance;
     entity sensor.physical:philips_motion:temperature;
     entity binary_sensor.physical:philips_motion:motion;
-    battery_level_device philips_motion with:
-      alert_level 10;
-    end;
+    battery_level_device philips_motion with alert_level 10;
 
     entity binary_sensor.physical:aqara_water:water;
     battery_level_device aqara_water;
@@ -345,15 +246,9 @@ space social:apartment with:
     light_device main;
     light_device mirror;
 
-    battery_level_device door/moes/1 with:
-      alert_level 20;
-    end;
-    battery_level_device door/moes/2 with:
-      alert_level 20;
-    end;
-    battery_level_device mirror/moes with:
-      alert_level 20;
-    end;
+    battery_level_device door/moes/1 with alert_level 20;
+    battery_level_device door/moes/2 with alert_level 20;
+    battery_level_device mirror/moes with alert_level 20;
 
     light on: social:main;
     lights_motion_guarded with delay 15;
@@ -363,65 +258,45 @@ space social:apartment with:
 end;
 
 space social:terrace with:
-  entity sensor.infrastructural:netatmo_outdoor:battery_level with:
+  entity sensor.infrastructural:netatmo_outdoor:battery_level with
     imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_outdoor_battery_level 60;
-  end;
-  battery_alert netatmo_outdoor with:
-    alert_level 20;
-  end;
-  entity sensor.physical:netatmo_outdoor:humidity with:
+  battery_alert netatmo_outdoor with alert_level 20;
+  entity sensor.physical:netatmo_outdoor:humidity with
     imported rest junglinster sensor.physical_vienna_terrace_netatmo_outdoor_humidity 60;
-  end;
-  entity sensor.physical:netatmo_outdoor:temperature with:
+  entity sensor.physical:netatmo_outdoor:temperature with
     imported rest junglinster sensor.physical_vienna_terrace_netatmo_outdoor_temperature 60;
-  end;
-  entity sensor.infrastructural:netatmo_outdoor:radio with:
+  entity sensor.infrastructural:netatmo_outdoor:radio with
     imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_outdoor_radio 60;
-  end;
-  entity binary_sensor.infrastructural:netatmo_outdoor:node with:
+  entity binary_sensor.infrastructural:netatmo_outdoor:node with
     imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_outdoor_reachability 60 "$ == 'True'";
-  end;
 
-  entity sensor.infrastructural:netatmo_windmeter:battery_level with:
+  entity sensor.infrastructural:netatmo_windmeter:battery_level with
     imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_windmeter_battery_level 60;
-  end;
-  battery_alert netatmo_windmeter with:
-    alert_level 20;
-  end;
-  entity sensor.social::wind_direction with:
+  battery_alert netatmo_windmeter with alert_level 20;
+  entity sensor.social::wind_direction with
     imported rest junglinster sensor.physical_vienna_terrace_netatmo_windmeter_wind_direction 60;
-  end;
-  entity sensor.social::wind_speed with:
+  entity sensor.social::wind_speed with
     imported rest junglinster sensor.physical_vienna_terrace_netatmo_windmeter_wind_speed 60;
-  end;
-  entity sensor.infrastructural:netatmo_windmeter:radio with:
+  entity sensor.infrastructural:netatmo_windmeter:radio with
     imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_windmeter_radio 60;
-  end;
-  entity binary_sensor.infrastructural:netatmo_windmeter:node with:
+  entity binary_sensor.infrastructural:netatmo_windmeter:node with
     imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_windmeter_reachability 60 "$ == 'True'";
-  end;
 
   windy social:wind_speed with:
     delay_on 00:01:00;
     delay_off 00:10:00;
   end;
 
-  entity binary_sensor.social::daylight with:
-    condition sun.[sun]!elevation "$ > 4";
-  end;
+  entity binary_sensor.social::daylight with condition sun.[sun]!elevation "$ > 4";
 
   light_device physical:left;
   light_device physical:right;
 
-  entity sensor.physical:signify_motion:illuminance with:
-    providing node signify_motion;
-  end;
+  entity sensor.physical:signify_motion:illuminance with providing node signify_motion;
   entity sensor.physical:signify_motion:temperature;
   entity binary_sensor.physical:signify_motion:motion;
   entity sensor.infrastructural:signify_motion:battery_level;
-  battery_alert signify_motion with:
-    alert_level 20;
-  end;
+  battery_alert signify_motion with alert_level 20;
   sunny physical:signify_motion:illuminance with:
     delay_on 00:05:00;
     delay_off 00:05:00;

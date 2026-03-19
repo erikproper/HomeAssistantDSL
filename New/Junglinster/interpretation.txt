@@ -35,26 +35,17 @@ Interpretation:
   COMMENT # Availability depends on binary_sensor.infrastructural:smarty:node
   BLOCK space social:entrance with:
     STATEMENT entity sensor._:/ems_esp_boiler_boiler_outside_temperature;
-    BLOCK entity sensor.physical:garage_door:temperature with:
-      STATEMENT value sensor._:/ems_esp_boiler_boiler_outside_temperature;
-    END BLOCK
+    STATEMENT entity sensor.physical:garage_door:temperature with
+    STATEMENT value sensor._:/ems_esp_boiler_boiler_outside_temperature;
     COMMENT # Available if binary_sensor.infrastructural:/house/laundry_kitchen/ems:node is available.
-    BLOCK entity switch.social:sockets with:
-      STATEMENT providing node /garage/fuse_box/zwave/028;
-    END BLOCK
+    STATEMENT entity switch.social:sockets with providing node /garage/fuse_box/zwave/028;
     STATEMENT entity light.social:front_door;
-    BLOCK entity light.social:carport with:
-      STATEMENT providing node /house/server_room/zwave/027;
-    END BLOCK
-    BLOCK entity binary_sensor.social:front_door:ding with:
-      STATEMENT providing node ring;
-    END BLOCK
+    STATEMENT entity light.social:carport with providing node /house/server_room/zwave/027;
+    STATEMENT entity binary_sensor.social:front_door:ding with providing node ring;
     STATEMENT entity binary_sensor.social:front_door:motion;
     STATEMENT entity sensor.social:front_door/ring:volume;
     STATEMENT entity sensor.infrastructural:front_door/ring:battery_level;
-    BLOCK battery_alert front_door/ring with:
-      STATEMENT alert_level 20;
-    END BLOCK
+    STATEMENT battery_alert front_door/ring with alert_level 20;
     STATEMENT light on: social:front_door;
     STATEMENT space off: @light;
   END BLOCK
@@ -64,28 +55,19 @@ Interpretation:
       STATEMENT entity sensor.physical:netatmo:temperature;
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
-      BLOCK entity binary_sensor.infrastructural:netatmo:node with:
-        STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
-      END BLOCK
+      STATEMENT entity binary_sensor.infrastructural:netatmo:node with
+      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
       STATEMENT entity sensor.infrastructural:netatmo:battery_level;
-      BLOCK battery_alert netatmo with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK entity light.social:main with:
-        STATEMENT providing node /house/server_room/fuse_box/zwave/024;
-      END BLOCK
+      STATEMENT battery_alert netatmo with alert_level 20;
+      STATEMENT entity light.social:main with providing node /house/server_room/fuse_box/zwave/024;
       STATEMENT space off: @light;
     END BLOCK
     BLOCK space social:garden with:
       STATEMENT entity sensor.physical:aqara_multi:humidity;
       STATEMENT entity sensor.physical:aqara_multi:pressure;
       STATEMENT entity sensor.physical:aqara_multi:temperature;
-      BLOCK battery_level_device aqara_multi with:
-        STATEMENT alert_level 15;
-      END BLOCK
-      BLOCK entity light.social:main with:
-        STATEMENT providing node /house/server_room/fuse_box/zwave/027;
-      END BLOCK
+      STATEMENT battery_level_device aqara_multi with alert_level 15;
+      STATEMENT entity light.social:main with providing node /house/server_room/fuse_box/zwave/027;
       STATEMENT space off: @light;
     END BLOCK
     BLOCK entity cover.social:awnings with:
@@ -94,9 +76,7 @@ Interpretation:
       STATEMENT providing node /house/server_room/fuse_box/zwave/013;
     END BLOCK
     STATEMENT entity light.social:rear;
-    BLOCK entity switch.social:sockets with:
-      STATEMENT providing node /house/server_room/fuse_box/zwave/025;
-    END BLOCK
+    STATEMENT entity switch.social:sockets with providing node /house/server_room/fuse_box/zwave/025;
     STATEMENT light on: social:rear;
     STATEMENT space off: switch.social:sockets @light;
   END BLOCK
@@ -110,46 +90,24 @@ Interpretation:
       STATEMENT definition cli_sensor pi smarty.fritz.box ./cpu/temperature;
       COMMENT # Availability depends on binary_sensor.infrastructural:smarty:node
     END BLOCK
-    BLOCK entity switch.infrastructural:smarty with:
-      STATEMENT providing node smarty/innr;
-    END BLOCK
+    STATEMENT entity switch.infrastructural:smarty with providing node smarty/innr;
     STATEMENT entity sensor.physical:rear/aqara_multi:humidity;
-    BLOCK entity sensor.physical:rear/aqara_multi:pressure with:
-      STATEMENT adjustment 38 1;
-    END BLOCK
+    STATEMENT entity sensor.physical:rear/aqara_multi:pressure with adjustment 38 1;
     STATEMENT entity sensor.physical:rear/aqara_multi:temperature;
-    BLOCK battery_level_device rear/aqara_multi with:
-      STATEMENT alert_level 15;
-    END BLOCK
-    BLOCK entity binary_sensor.physical:rear/ikea_motion:motion with:
-      STATEMENT providing node rear/ikea_motion;
-    END BLOCK
+    STATEMENT battery_level_device rear/aqara_multi with alert_level 15;
+    STATEMENT entity binary_sensor.physical:rear/ikea_motion:motion with providing node rear/ikea_motion;
     STATEMENT entity sensor.infrastructural:rear/ikea_motion:battery_level;
-    BLOCK battery_alert rear/ikea_motion with:
-      STATEMENT alert_level 10;
-    END BLOCK
+    STATEMENT battery_alert rear/ikea_motion with alert_level 10;
     STATEMENT entity sensor.physical:front/aqara_multi:humidity;
-    BLOCK entity sensor.physical:front/aqara_multi:pressure with:
-      STATEMENT adjustment 38 1;
-    END BLOCK
+    STATEMENT entity sensor.physical:front/aqara_multi:pressure with adjustment 38 1;
     STATEMENT entity sensor.physical:front/aqara_multi:temperature;
-    BLOCK battery_level_device front/aqara_multi with:
-      STATEMENT alert_level 15;
-    END BLOCK
-    BLOCK entity binary_sensor.physical:front/ikea_motion:motion with:
-      STATEMENT providing node front/ikea_motion;
-    END BLOCK
+    STATEMENT battery_level_device front/aqara_multi with alert_level 15;
+    STATEMENT entity binary_sensor.physical:front/ikea_motion:motion with providing node front/ikea_motion;
     STATEMENT entity sensor.infrastructural:front/ikea_motion:battery_level;
-    BLOCK battery_alert front/ikea_motion with:
-      STATEMENT alert_level 10;
-    END BLOCK
+    STATEMENT battery_alert front/ikea_motion with alert_level 10;
     STATEMENT entity binary_sensor.physical:garage_door/aqara_magnet:door;
-    BLOCK battery_level_device garage_door/aqara_magnet with:
-      STATEMENT alert_level 10;
-    END BLOCK
-    BLOCK entity light.social:main with:
-      STATEMENT providing node /garage/fuse_box/zwave/019;
-    END BLOCK
+    STATEMENT battery_level_device garage_door/aqara_magnet with alert_level 10;
+    STATEMENT entity light.social:main with providing node /garage/fuse_box/zwave/019;
     STATEMENT media_player sonos;
     STATEMENT thermostat radiator/aqara_thermostat;
     STATEMENT battery_level radiator/aqara_thermostat 20;
@@ -164,9 +122,7 @@ Interpretation:
       STATEMENT node zigbee;
       STATEMENT threshold 10;
     END BLOCK
-    BLOCK entity binary_sensor.social:reservoir:warning with:
-      STATEMENT icon $WaterIcon;
-    END BLOCK
+    STATEMENT entity binary_sensor.social:reservoir:warning with icon $WaterIcon;
     BLOCK space social:laundry_kitchen with:
       STATEMENT entity binary_sensor.infrastructural:ems:node;
       STATEMENT entity light.social:main;
@@ -175,21 +131,13 @@ Interpretation:
         STATEMENT entity sensor.infrastructural:junglinster:temperature no_collect;
       END BLOCK
       STATEMENT entity sensor.physical:front/aqara_multi:humidity;
-      BLOCK entity sensor.physical:front/aqara_multi:pressure with:
-        STATEMENT adjustment 38 1;
-      END BLOCK
+      STATEMENT entity sensor.physical:front/aqara_multi:pressure with adjustment 38 1;
       STATEMENT entity sensor.physical:front/aqara_multi:temperature;
-      BLOCK battery_level_device front/aqara_multi with:
-        STATEMENT alert_level 15;
-      END BLOCK
+      STATEMENT battery_level_device front/aqara_multi with alert_level 15;
       STATEMENT entity sensor.physical:rear/aqara_multi:humidity;
-      BLOCK entity sensor.physical:rear/aqara_multi:pressure with:
-        STATEMENT adjustment 38 1;
-      END BLOCK
+      STATEMENT entity sensor.physical:rear/aqara_multi:pressure with adjustment 38 1;
       STATEMENT entity sensor.physical:rear/aqara_multi:temperature;
-      BLOCK battery_level_device rear/aqara_multi with:
-        STATEMENT alert_level 15;
-      END BLOCK
+      STATEMENT battery_level_device rear/aqara_multi with alert_level 15;
       STATEMENT entity binary_sensor.physical:rear/frient:motion;
       STATEMENT entity sensor.physical:rear/frient:illuminance;
       STATEMENT entity binary_sensor.physical:rear/frient:vibration;
@@ -219,10 +167,11 @@ Interpretation:
       STATEMENT space off: @light;
     END BLOCK
     BLOCK space social:living_room with:
-      BLOCK entity switch.social:tv with:
-        STATEMENT providing node tv_switch;
+      STATEMENT entity switch.social:tv with providing node tv_switch;
+      BLOCK media_player sonos with:
+        STATEMENT enabler no_play;
+        STATEMENT delay_off "TV";
       END BLOCK
-      STATEMENT media_player sonos no_play "TV";
       STATEMENT media_player tv switch.social:tv;
       STATEMENT media_player apple_tv;
       STATEMENT entity binary_sensor.infrastructural:sonos_playbar:node;
@@ -232,12 +181,10 @@ Interpretation:
       STATEMENT entity binary_sensor.infrastructural:orbi:node;
       STATEMENT entity binary_sensor.infrastructural:connexoon:node;
       STATEMENT entity binary_sensor.infrastructural:frame:node;
-      BLOCK entity sensor.infrastructural:frame:load with:
-        STATEMENT definition cli_sensor pi 192.168.178.58 ./cpu/load;
-      END BLOCK
-      BLOCK entity sensor.infrastructural:frame:temperature no_collect with:
-        STATEMENT definition cli_sensor pi 192.168.178.58 ./cpu/temperature;
-      END BLOCK
+      STATEMENT entity sensor.infrastructural:frame:load with
+      STATEMENT definition cli_sensor pi 192.168.178.58 ./cpu/load;
+      STATEMENT entity sensor.infrastructural:frame:temperature no_collect with
+      STATEMENT definition cli_sensor pi 192.168.178.58 ./cpu/temperature;
       BLOCK entity cover.social:front with:
         STATEMENT open_stop_close;
         STATEMENT providing node front/somfy;
@@ -263,20 +210,13 @@ Interpretation:
       STATEMENT entity sensor.physical:netatmo:temperature;
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
-      BLOCK entity binary_sensor.infrastructural:netatmo:node with:
-        STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
-      END BLOCK
-      BLOCK battery_level_device dining/philips_dimmer with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK battery_level_device living/philips_dimmer with:
-        STATEMENT alert_level 20;
-      END BLOCK
+      STATEMENT entity binary_sensor.infrastructural:netatmo:node with
+      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+      STATEMENT battery_level_device dining/philips_dimmer with alert_level 20;
+      STATEMENT battery_level_device living/philips_dimmer with alert_level 20;
       STATEMENT light_device social:indirect;
       BLOCK space social:living with:
-        BLOCK entity light.physical:main no_collect with:
-          STATEMENT providing node hallway_door_switch_box/fibaro;
-        END BLOCK
+        STATEMENT entity light.physical:main no_collect with providing node hallway_door_switch_box/fibaro;
         STATEMENT entity light.physical:main_dimmer no_collect;
         BLOCK entity light.social:main with:
           STATEMENT icon mdi:lightbulb;
@@ -287,13 +227,10 @@ Interpretation:
         STATEMENT light_device social:bloom_right;
         STATEMENT light_device social:christmas_tree;
         STATEMENT light_device social:gray_sideboard;
-        BLOCK entity switch.social:picture_frame with:
-          STATEMENT definition cli_switch pi 192.168.178.58 ./bin/start_slideshow ./bin/stop_slideshow ./bin/check_slideshow;
-        END BLOCK
+        STATEMENT entity switch.social:picture_frame with
+        STATEMENT definition cli_switch pi 192.168.178.58 ./bin/start_slideshow ./bin/stop_slideshow ./bin/check_slideshow;
         STATEMENT entity binary_sensor.physical:windows/aqara_magnet:window;
-        BLOCK battery_level_device windows/aqara_magnet with:
-          STATEMENT alert_level 10;
-        END BLOCK
+        STATEMENT battery_level_device windows/aqara_magnet with alert_level 10;
         STATEMENT light on: social:main;
       END BLOCK
       BLOCK space social:dining with:
@@ -305,9 +242,7 @@ Interpretation:
         END BLOCK
         STATEMENT entity light.social:red_highboard;
         STATEMENT entity binary_sensor.physical:windows/aqara_magnet:window;
-        BLOCK battery_level_device windows/aqara_magnet with:
-          STATEMENT alert_level 10;
-        END BLOCK
+        STATEMENT battery_level_device windows/aqara_magnet with alert_level 10;
         STATEMENT light on: social:main;
       END BLOCK
       STATEMENT heating leak binary_sensor.social::window;
@@ -326,42 +261,32 @@ Interpretation:
         STATEMENT node zigbee;
         STATEMENT threshold 10;
       END BLOCK
-      BLOCK entity binary_sensor.social:nespresso:brews with:
-        STATEMENT condition sensor.social:nespresso:power "( $ | int(0) > 200 )";
-      END BLOCK
-      BLOCK entity binary_sensor.social:nespresso:in_use with:
-        STATEMENT definition has_state binary_sensor.social:nespresso:brews "on" "" "00:10:00";
-      END BLOCK
+      STATEMENT entity binary_sensor.social:nespresso:brews with
+      STATEMENT condition sensor.social:nespresso:power "( $ | int(0) > 200 )";
+      STATEMENT entity binary_sensor.social:nespresso:in_use with
+      STATEMENT definition has_state binary_sensor.social:nespresso:brews "on" "" "00:10:00";
       STATEMENT media_player sonos;
       STATEMENT entity sensor.infrastructural:sonos:battery_level;
-      BLOCK battery_alert sonos with:
-        STATEMENT alert_level 10;
-      END BLOCK
+      STATEMENT battery_alert sonos with alert_level 10;
       STATEMENT entity sensor.physical:netatmo:co2;
       STATEMENT entity sensor.physical:netatmo:humidity;
       STATEMENT entity sensor.physical:netatmo:temperature;
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
-      BLOCK entity binary_sensor.infrastructural:netatmo:node with:
-        STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
-      END BLOCK
+      STATEMENT entity binary_sensor.infrastructural:netatmo:node with
+      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
       STATEMENT entity sensor.infrastructural:netatmo:battery_level;
-      BLOCK battery_alert netatmo with:
-        STATEMENT alert_level 20;
-      END BLOCK
+      STATEMENT battery_alert netatmo with alert_level 20;
       STATEMENT thermostat radiator/aqara_thermostat;
       STATEMENT battery_level radiator/aqara_thermostat 20;
       STATEMENT light_device go;
       STATEMENT light_device main;
       BLOCK space social:workplace with:
         STATEMENT entity sensor.physical:furnace:power;
-        BLOCK entity binary_sensor.social:furnace:consumes with:
-          STATEMENT condition sensor.physical:furnace:power "( $ | int(0) > 50 )";
-        END BLOCK
+        STATEMENT entity binary_sensor.social:furnace:consumes with
+        STATEMENT condition sensor.physical:furnace:power "( $ | int(0) > 50 )";
         STATEMENT entity switch.physical:furnace;
-        BLOCK entity switch.social:furnace with:
-          STATEMENT definition flip switch.physical:furnace;
-        END BLOCK
+        STATEMENT entity switch.social:furnace with definition flip switch.physical:furnace;
         STATEMENT entity light.physical:: no_collect;
         STATEMENT entity light.physical::dimmer no_collect;
         BLOCK entity light.social::main with:
@@ -369,18 +294,12 @@ Interpretation:
           STATEMENT definition switched_device light.physical::dimmer light.physical;
         END BLOCK
         STATEMENT entity binary_sensor.physical:aqara_magnet:window;
-        BLOCK battery_level_device aqara_magnet with:
-          STATEMENT alert_level 10;
-        END BLOCK
+        STATEMENT battery_level_device aqara_magnet with alert_level 10;
       END BLOCK
       BLOCK space social:terrace_door with:
         STATEMENT entity binary_sensor.physical:aqara_magnet:door;
-        BLOCK battery_level_device aqara_magnet with:
-          STATEMENT alert_level 10;
-        END BLOCK
-        BLOCK battery_level_device philips_dimmer with:
-          STATEMENT alert_level 20;
-        END BLOCK
+        STATEMENT battery_level_device aqara_magnet with alert_level 10;
+        STATEMENT battery_level_device philips_dimmer with alert_level 20;
       END BLOCK
       STATEMENT light on: social:main;
       STATEMENT heating leak binary_sensor.social:terrace_door/door;
@@ -390,67 +309,43 @@ Interpretation:
       STATEMENT entity sensor.physical:philips_motion:temperature;
       STATEMENT entity sensor.physical:philips_motion:illuminance;
       STATEMENT entity binary_sensor.physical:philips_motion:motion;
-      BLOCK battery_level_device philips_motion with:
-        STATEMENT alert_level 10;
-      END BLOCK
-      BLOCK entity fan.social with:
-        STATEMENT providing node /house/kitchen/hallway_door/switch_box/fibaro;
-      END BLOCK
-      BLOCK entity timer.social:removing_smell with:
-        STATEMENT definition timer "00:03:00";
-      END BLOCK
+      STATEMENT battery_level_device philips_motion with alert_level 10;
+      STATEMENT entity fan.social with providing node /house/kitchen/hallway_door/switch_box/fibaro;
+      STATEMENT entity timer.social:removing_smell with definition timer "00:03:00";
       STATEMENT limits timer.social:removing_smell fan.social: off on;
-      BLOCK entity light.social:main with:
-        STATEMENT providing node /house/kitchen/hallway_door/power_socket/fibaro;
-      END BLOCK
+      STATEMENT entity light.social:main with providing node /house/kitchen/hallway_door/power_socket/fibaro;
       STATEMENT entity binary_sensor.physical:window/aqara_magnet:window;
-      BLOCK battery_level_device window/aqara_magnet with:
-        STATEMENT alert_level 10;
-      END BLOCK
+      STATEMENT battery_level_device window/aqara_magnet with alert_level 10;
       STATEMENT light on: social:main;
       STATEMENT lights_motion_guarded with delay 10;
       STATEMENT space off: @light;
     END BLOCK
     BLOCK space social:downward_hallway with:
-      BLOCK entity sensor.infrastructural:laserjet/status with:
-        STATEMENT providing node laserjet;
-      END BLOCK
-      BLOCK entity sensor.infrastructural:laserjet/message with:
-        STATEMENT value sensor.infrastructural:laserjet/status!state_message;
-      END BLOCK
+      STATEMENT entity sensor.infrastructural:laserjet/status with providing node laserjet;
+      STATEMENT entity sensor.infrastructural:laserjet/message with
+      STATEMENT value sensor.infrastructural:laserjet/status!state_message;
       STATEMENT entity sensor.infrastructural:laserjet/uptime;
       STATEMENT entity binary_sensor.infrastructural:orbi:node;
       STATEMENT entity sensor.physical:aqara_multi:humidity;
-      BLOCK entity sensor.physical:aqara_multi:pressure with:
-        STATEMENT adjustment 38 1;
-      END BLOCK
+      STATEMENT entity sensor.physical:aqara_multi:pressure with adjustment 38 1;
       STATEMENT entity sensor.physical:aqara_multi:temperature;
-      BLOCK battery_level_device aqara_multi with:
-        STATEMENT alert_level 15;
-      END BLOCK
+      STATEMENT battery_level_device aqara_multi with alert_level 15;
       STATEMENT entity sensor.physical:philips_motion:temperature;
       STATEMENT entity sensor.physical:philips_motion:illuminance;
       STATEMENT entity binary_sensor.physical:philips_motion:motion;
-      BLOCK battery_level_device philips_motion with:
-        STATEMENT alert_level 10;
-      END BLOCK
-      BLOCK entity light.social:main with:
-        STATEMENT providing node /garage/fuse_box/zwave/030;
-      END BLOCK
+      STATEMENT battery_level_device philips_motion with alert_level 10;
+      STATEMENT entity light.social:main with providing node /garage/fuse_box/zwave/030;
       BLOCK space social:garage_door with:
         STATEMENT entity binary_sensor.physical:aqara_magnet:door;
-        BLOCK battery_level_device aqara_magnet with:
-          STATEMENT alert_level 10;
-        END BLOCK
+        STATEMENT battery_level_device aqara_magnet with alert_level 10;
       END BLOCK
       STATEMENT light on: social:main;
       STATEMENT lights_motion_guarded with delay 10;
       STATEMENT space off: @light;
     END BLOCK
     BLOCK space social:upward_hallway with:
-      BLOCK entity light.social:main with:
-        STATEMENT providing node /house/upward_hallway/second_floor/david_bedroom_door/switch_box/fibaro;
-      END BLOCK
+      STATEMENT entity light.social:main with
+      STATEMENT providing node /house/upward_hallway/second_floor/david_bedroom_door/switch_box/fibaro;
       BLOCK space social:first_floor with:
         STATEMENT thermostat radiator/aqara_thermostat;
         STATEMENT battery_level radiator/aqara_thermostat 20;
@@ -459,20 +354,13 @@ Interpretation:
         STATEMENT entity sensor.physical:netatmo:temperature;
         STATEMENT entity sensor.infrastructural:netatmo:radio;
         STATEMENT entity sensor.infrastructural:netatmo:reachability;
-        BLOCK entity binary_sensor.infrastructural:netatmo:node with:
-          STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
-        END BLOCK
+        STATEMENT entity binary_sensor.infrastructural:netatmo:node with
+        STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
         STATEMENT entity sensor.infrastructural:netatmo:battery_level;
-        BLOCK battery_alert netatmo with:
-          STATEMENT alert_level 20;
-        END BLOCK
+        STATEMENT battery_alert netatmo with alert_level 20;
         STATEMENT entity binary_sensor.physical:entrance/aqara_magnet:door;
-        BLOCK battery_level_device entrance/aqara_magnet with:
-          STATEMENT alert_level 10;
-        END BLOCK
-        BLOCK entity sensor.social:ring:volume with:
-          STATEMENT providing node ring;
-        END BLOCK
+        STATEMENT battery_level_device entrance/aqara_magnet with alert_level 10;
+        STATEMENT entity sensor.social:ring:volume with providing node ring;
         COMMENT #      entity declare light.physical:main no_collect
         STATEMENT entity light.social:main;
         COMMENT #        icon mdi:lightbulb
@@ -493,17 +381,11 @@ Interpretation:
         COMMENT #        icon mdi:lightbulb
         COMMENT #        define enabled_device light.physical:main light.social:/house/upward_hallway/main
         STATEMENT entity sensor.physical:aqara_multi:humidity;
-        BLOCK entity sensor.physical:aqara_multi:pressure with:
-          STATEMENT adjustment 38 1;
-        END BLOCK
+        STATEMENT entity sensor.physical:aqara_multi:pressure with adjustment 38 1;
         STATEMENT entity sensor.physical:aqara_multi:temperature;
-        BLOCK battery_level_device aqara_multi with:
-          STATEMENT alert_level 15;
-        END BLOCK
+        STATEMENT battery_level_device aqara_multi with alert_level 15;
         STATEMENT entity binary_sensor.physical:aqara_magnet:window;
-        BLOCK battery_level_device aqara_magnet with:
-          STATEMENT alert_level 10;
-        END BLOCK
+        STATEMENT battery_level_device aqara_magnet with alert_level 10;
         STATEMENT light on: social:main;
       END BLOCK
       STATEMENT light on: social:main;
@@ -529,16 +411,11 @@ Interpretation:
       STATEMENT entity sensor.physical:netatmo:temperature;
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
-      BLOCK entity binary_sensor.infrastructural:netatmo:node with:
-        STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
-      END BLOCK
-      BLOCK entity light.social:main with:
-        STATEMENT providing node door_switch_box/fibaro;
-      END BLOCK
+      STATEMENT entity binary_sensor.infrastructural:netatmo:node with
+      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+      STATEMENT entity light.social:main with providing node door_switch_box/fibaro;
       STATEMENT entity binary_sensor.physical:windows/aqara_magnet:window;
-      BLOCK battery_level_device windows/aqara_magnet with:
-        STATEMENT alert_level 10;
-      END BLOCK
+      STATEMENT battery_level_device windows/aqara_magnet with alert_level 10;
       STATEMENT light on: social:main;
       STATEMENT space off: @light @media;
     END BLOCK
@@ -561,13 +438,10 @@ Interpretation:
       STATEMENT entity sensor.social::health;
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
-      BLOCK entity binary_sensor.infrastructural:netatmo:node with:
-        STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
-      END BLOCK
+      STATEMENT entity binary_sensor.infrastructural:netatmo:node with
+      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
       STATEMENT entity binary_sensor.physical:windows/aqara_magnet:window;
-      BLOCK battery_level_device windows/aqara_magnet with:
-        STATEMENT alert_level 10;
-      END BLOCK
+      STATEMENT battery_level_device windows/aqara_magnet with alert_level 10;
       STATEMENT light on: social:main;
       STATEMENT space off: @light;
     END BLOCK
@@ -592,20 +466,15 @@ Interpretation:
       STATEMENT entity sensor.social::health;
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
-      BLOCK entity binary_sensor.infrastructural:netatmo:node with:
-        STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
-      END BLOCK
+      STATEMENT entity binary_sensor.infrastructural:netatmo:node with
+      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
       BLOCK space social:bed with:
         STATEMENT light_device left;
         STATEMENT light_device right;
       END BLOCK
-      BLOCK entity light.social:main with:
-        STATEMENT providing node door_switch_box/fibaro;
-      END BLOCK
+      STATEMENT entity light.social:main with providing node door_switch_box/fibaro;
       STATEMENT entity binary_sensor.physical:windows/aqara_magnet:window;
-      BLOCK battery_level_device windows/aqara_magnet with:
-        STATEMENT alert_level 10;
-      END BLOCK
+      STATEMENT battery_level_device windows/aqara_magnet with alert_level 10;
       STATEMENT heating leak binary_sensor.social:window;
       STATEMENT light on: social:main;
       STATEMENT space off: @light @media;
@@ -624,28 +493,20 @@ Interpretation:
       STATEMENT entity sensor.physical:philips_motion:temperature;
       STATEMENT entity sensor.physical:philips_motion:illuminance;
       STATEMENT entity binary_sensor.physical:philips_motion:motion;
-      BLOCK battery_level_device philips_motion with:
-        STATEMENT alert_level 10;
-      END BLOCK
+      STATEMENT battery_level_device philips_motion with alert_level 10;
       STATEMENT entity sensor.physical:netatmo:co2;
       STATEMENT entity sensor.physical:netatmo:humidity;
       STATEMENT entity sensor.physical:netatmo:temperature;
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
-      BLOCK entity binary_sensor.infrastructural:netatmo:node with:
-        STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
-      END BLOCK
+      STATEMENT entity binary_sensor.infrastructural:netatmo:node with
+      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
       STATEMENT entity sensor.infrastructural:netatmo:battery_level;
-      BLOCK battery_alert netatmo with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK entity light.social:main with:
-        STATEMENT providing node /house/upward_hallway/second_floor/shower_room/switch_box/fibaro;
-      END BLOCK
+      STATEMENT battery_alert netatmo with alert_level 20;
+      STATEMENT entity light.social:main with
+      STATEMENT providing node /house/upward_hallway/second_floor/shower_room/switch_box/fibaro;
       STATEMENT entity binary_sensor.physical:windows/aqara_magnet:window;
-      BLOCK battery_level_device windows/aqara_magnet with:
-        STATEMENT alert_level 10;
-      END BLOCK
+      STATEMENT battery_level_device windows/aqara_magnet with alert_level 10;
       STATEMENT light on: social:main;
       STATEMENT lights_motion_guarded with delay 15;
       STATEMENT heating leak binary_sensor.social:window;
@@ -675,12 +536,10 @@ Interpretation:
       STATEMENT switch_device social xanadu;
       STATEMENT entity binary_sensor.infrastructural:fritzbox:node;
       STATEMENT entity binary_sensor.infrastructural:xanadu:node;
-      BLOCK entity sensor.infrastructural:xanadu:load with:
-        STATEMENT definition cli_sensor erikp xanadu.fritz.box ./cpu/load;
-      END BLOCK
-      BLOCK entity sensor.infrastructural:xanadu:temperature no_collect with:
-        STATEMENT definition cli_sensor erikp xanadu.fritz.box ./cpu/temperature;
-      END BLOCK
+      STATEMENT entity sensor.infrastructural:xanadu:load with
+      STATEMENT definition cli_sensor erikp xanadu.fritz.box ./cpu/load;
+      STATEMENT entity sensor.infrastructural:xanadu:temperature no_collect with
+      STATEMENT definition cli_sensor erikp xanadu.fritz.box ./cpu/temperature;
       STATEMENT entity light.physical:main_spots no_collect;
       STATEMENT entity light.physical:main no_collect;
       BLOCK entity light.social:main with:
@@ -689,41 +548,27 @@ Interpretation:
       END BLOCK
       BLOCK space social:rack with:
         STATEMENT entity sensor.physical:aqara_multi:humidity;
-        BLOCK entity sensor.physical:aqara_multi:pressure with:
-          STATEMENT adjustment 38 1;
-        END BLOCK
+        STATEMENT entity sensor.physical:aqara_multi:pressure with adjustment 38 1;
         STATEMENT entity sensor.physical:aqara_multi:temperature;
-        BLOCK battery_level_device aqara_multi with:
-          STATEMENT alert_level 15;
-        END BLOCK
+        STATEMENT battery_level_device aqara_multi with alert_level 15;
       END BLOCK
       STATEMENT entity sensor.physical:aqara_multi:humidity;
-      BLOCK entity sensor.physical:aqara_multi:pressure with:
-        STATEMENT adjustment 38 1;
-      END BLOCK
+      STATEMENT entity sensor.physical:aqara_multi:pressure with adjustment 38 1;
       STATEMENT entity sensor.physical:aqara_multi:temperature;
-      BLOCK battery_level_device aqara_multi with:
-        STATEMENT alert_level 15;
-      END BLOCK
+      STATEMENT battery_level_device aqara_multi with alert_level 15;
       STATEMENT entity sensor.physical:philips_motion:temperature;
       STATEMENT entity sensor.physical:philips_motion:illuminance;
       STATEMENT entity binary_sensor.physical:philips_motion:motion;
-      BLOCK battery_level_device philips_motion with:
-        STATEMENT alert_level 10;
-      END BLOCK
+      STATEMENT battery_level_device philips_motion with alert_level 10;
       STATEMENT light on: social:main;
       STATEMENT lights_motion_guarded with delay 10;
       STATEMENT space off: @light;
     END BLOCK
     BLOCK space social:corridor with:
       STATEMENT entity switch.physical::heating_raw;
-      BLOCK entity switch.physical::heating with:
-        STATEMENT definition flip switch.physical::heating_raw;
-      END BLOCK
+      STATEMENT entity switch.physical::heating with definition flip switch.physical::heating_raw;
       STATEMENT entity light.physical:main_spots no_collect;
-      BLOCK entity light.physical:main no_collect with:
-        STATEMENT providing node /house/server_room/fuse_box/zwave/021;
-      END BLOCK
+      STATEMENT entity light.physical:main no_collect with providing node /house/server_room/fuse_box/zwave/021;
       BLOCK entity light.social:main with:
         STATEMENT icon mdi:lightbulb;
         STATEMENT definition switched_device light.physical:main_spots light.physical:main;
@@ -736,35 +581,22 @@ Interpretation:
       STATEMENT entity sensor.physical:netatmo:temperature;
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
-      BLOCK entity binary_sensor.infrastructural:netatmo:node with:
-        STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
-      END BLOCK
+      STATEMENT entity binary_sensor.infrastructural:netatmo:node with
+      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
       STATEMENT entity sensor.infrastructural:netatmo:battery_level;
-      BLOCK battery_alert netatmo with:
-        STATEMENT alert_level 20;
-      END BLOCK
-      BLOCK entity sensor.social:ring:volume with:
-        STATEMENT providing node ring;
-      END BLOCK
+      STATEMENT battery_alert netatmo with alert_level 20;
+      STATEMENT entity sensor.social:ring:volume with providing node ring;
       STATEMENT entity sensor.physical:aqara_multi:humidity;
-      BLOCK entity sensor.physical:aqara_multi:pressure with:
-        STATEMENT adjustment 38 1;
-      END BLOCK
+      STATEMENT entity sensor.physical:aqara_multi:pressure with adjustment 38 1;
       STATEMENT entity sensor.physical:aqara_multi:temperature;
-      BLOCK battery_level_device aqara_multi with:
-        STATEMENT alert_level 15;
-      END BLOCK
+      STATEMENT battery_level_device aqara_multi with alert_level 15;
       STATEMENT entity sensor.physical:philips_motion:temperature;
       STATEMENT entity sensor.physical:philips_motion:illuminance;
       STATEMENT entity binary_sensor.physical:philips_motion:motion;
-      BLOCK battery_level_device philips_motion with:
-        STATEMENT alert_level 10;
-      END BLOCK
+      STATEMENT battery_level_device philips_motion with alert_level 10;
       BLOCK space social:entrance with:
         STATEMENT entity binary_sensor.physical:aqara_magnet:door;
-        BLOCK battery_level_device aqara_magnet with:
-          STATEMENT alert_level 10;
-        END BLOCK
+        STATEMENT battery_level_device aqara_magnet with alert_level 10;
       END BLOCK
       STATEMENT heating leak binary_sensor.social:door;
       STATEMENT light on: social:main;
@@ -773,113 +605,76 @@ Interpretation:
     END BLOCK
     BLOCK space social:storage_room with:
       STATEMENT entity switch.physical::heating_raw;
-      BLOCK entity switch.physical::heating with:
-        STATEMENT definition flip switch.physical::heating_raw;
-      END BLOCK
+      STATEMENT entity switch.physical::heating with definition flip switch.physical::heating_raw;
       STATEMENT entity light.social:main;
       BLOCK entity switch.physical:backup with:
         STATEMENT icon mdi:server;
         STATEMENT providing node backup_innr;
       END BLOCK
       STATEMENT entity binary_sensor.infrastructural:backup:node;
-      BLOCK entity sensor.infrastructural:backup:load with:
-        STATEMENT definition cli_sensor pi backup.fritz.box ./cpu/load;
-      END BLOCK
-      BLOCK entity sensor.infrastructural:backup:temperature no_collect with:
-        STATEMENT definition cli_sensor pi backup.fritz.box ./cpu/temperature;
-      END BLOCK
+      STATEMENT entity sensor.infrastructural:backup:load with
+      STATEMENT definition cli_sensor pi backup.fritz.box ./cpu/load;
+      STATEMENT entity sensor.infrastructural:backup:temperature no_collect with
+      STATEMENT definition cli_sensor pi backup.fritz.box ./cpu/temperature;
       STATEMENT entity binary_sensor.physical:windows/aqara_magnet:window;
-      BLOCK battery_level_device windows/aqara_magnet with:
-        STATEMENT alert_level 10;
-      END BLOCK
+      STATEMENT battery_level_device windows/aqara_magnet with alert_level 10;
       STATEMENT entity sensor.physical:netatmo:co2;
       STATEMENT entity sensor.physical:netatmo:humidity;
       STATEMENT entity sensor.physical:netatmo:temperature;
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
-      BLOCK entity binary_sensor.infrastructural:netatmo:node with:
-        STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
-      END BLOCK
+      STATEMENT entity binary_sensor.infrastructural:netatmo:node with
+      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
       STATEMENT entity sensor.infrastructural:netatmo:battery_level;
-      BLOCK battery_alert netatmo with:
-        STATEMENT alert_level 20;
-      END BLOCK
+      STATEMENT battery_alert netatmo with alert_level 20;
       STATEMENT entity sensor.physical:door/aqara_multi:humidity;
-      BLOCK entity sensor.physical:door/aqara_multi:pressure with:
-        STATEMENT adjustment 38 1;
-      END BLOCK
+      STATEMENT entity sensor.physical:door/aqara_multi:pressure with adjustment 38 1;
       STATEMENT entity sensor.physical:door/aqara_multi:temperature;
-      BLOCK battery_level_device door/aqara_multi with:
-        STATEMENT alert_level 15;
-      END BLOCK
+      STATEMENT battery_level_device door/aqara_multi with alert_level 15;
       STATEMENT entity sensor.physical:philips_motion:temperature;
       STATEMENT entity sensor.physical:philips_motion:illuminance;
       STATEMENT entity binary_sensor.physical:philips_motion:motion;
-      BLOCK battery_level_device philips_motion with:
-        STATEMENT alert_level 10;
-      END BLOCK
+      STATEMENT battery_level_device philips_motion with alert_level 10;
       STATEMENT light on: social:main;
       STATEMENT lights_motion_guarded with delay 10;
       STATEMENT space off: @light;
     END BLOCK
     BLOCK space social:bathroom with:
       STATEMENT entity switch.physical::heating_raw;
-      BLOCK entity switch.physical::heating with:
-        STATEMENT definition flip switch.physical::heating_raw;
-      END BLOCK
+      STATEMENT entity switch.physical::heating with definition flip switch.physical::heating_raw;
       STATEMENT entity light.physical:main_disc no_collect;
-      BLOCK entity light.physical:main no_collect with:
-        STATEMENT providing node /house/server_room/fuse_box/zwave/029;
-      END BLOCK
+      STATEMENT entity light.physical:main no_collect with providing node /house/server_room/fuse_box/zwave/029;
       BLOCK entity light.social:main with:
         STATEMENT icon mdi:lightbulb;
         STATEMENT definition switched_device light.physical:main_disc light.physical:main;
       END BLOCK
-      BLOCK entity switch.social:whirlpool with:
-        STATEMENT providing node bathtub/relais_box;
-      END BLOCK
-      BLOCK entity binary_sensor.physical:whirlpool:motion with:
-        STATEMENT definition has_state switch.social:whirlpool on;
-      END BLOCK
-      BLOCK battery_level_device philips_dimmer with:
-        STATEMENT alert_level 20;
-      END BLOCK
+      STATEMENT entity switch.social:whirlpool with providing node bathtub/relais_box;
+      STATEMENT entity binary_sensor.physical:whirlpool:motion with
+      STATEMENT definition has_state switch.social:whirlpool on;
+      STATEMENT battery_level_device philips_dimmer with alert_level 20;
       STATEMENT entity binary_sensor.physical:windows/aqara_magnet:window;
-      BLOCK battery_level_device windows/aqara_magnet with:
-        STATEMENT alert_level 10;
-      END BLOCK
+      STATEMENT battery_level_device windows/aqara_magnet with alert_level 10;
       STATEMENT entity sensor.physical:netatmo:co2;
       STATEMENT entity sensor.physical:netatmo:humidity;
       STATEMENT entity sensor.physical:netatmo:temperature;
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
-      BLOCK entity binary_sensor.infrastructural:netatmo:node with:
-        STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
-      END BLOCK
+      STATEMENT entity binary_sensor.infrastructural:netatmo:node with
+      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
       STATEMENT entity sensor.infrastructural:netatmo:battery_level;
-      BLOCK battery_alert netatmo with:
-        STATEMENT alert_level 20;
-      END BLOCK
+      STATEMENT battery_alert netatmo with alert_level 20;
       STATEMENT entity sensor.physical:aqara_multi:humidity;
-      BLOCK entity sensor.physical:aqara_multi:pressure with:
-        STATEMENT adjustment 38 1;
-      END BLOCK
+      STATEMENT entity sensor.physical:aqara_multi:pressure with adjustment 38 1;
       STATEMENT entity sensor.physical:aqara_multi:temperature;
-      BLOCK battery_level_device aqara_multi with:
-        STATEMENT alert_level 15;
-      END BLOCK
+      STATEMENT battery_level_device aqara_multi with alert_level 15;
       STATEMENT entity sensor.physical:right/philips_motion:temperature;
       STATEMENT entity sensor.physical:right/philips_motion:illuminance;
       STATEMENT entity binary_sensor.physical:right/philips_motion:motion;
-      BLOCK battery_level_device right/philips_motion with:
-        STATEMENT alert_level 10;
-      END BLOCK
+      STATEMENT battery_level_device right/philips_motion with alert_level 10;
       STATEMENT entity sensor.physical:left/philips_motion:temperature;
       STATEMENT entity sensor.physical:left/philips_motion:illuminance;
       STATEMENT entity binary_sensor.physical:left/philips_motion:motion;
-      BLOCK battery_level_device left/philips_motion with:
-        STATEMENT alert_level 10;
-      END BLOCK
+      STATEMENT battery_level_device left/philips_motion with alert_level 10;
       STATEMENT media_player sonos;
       STATEMENT heating leak binary_sensor.social:window;
       STATEMENT light on: social:main;
@@ -888,9 +683,7 @@ Interpretation:
     END BLOCK
     BLOCK space social:office with:
       STATEMENT entity switch.physical::heating_raw;
-      BLOCK entity switch.physical::heating with:
-        STATEMENT definition flip switch.physical::heating_raw;
-      END BLOCK
+      STATEMENT entity switch.physical::heating with definition flip switch.physical::heating_raw;
       STATEMENT entity binary_sensor.infrastructural:sonos_left:node;
       STATEMENT entity binary_sensor.infrastructural:sonos_right:node;
       STATEMENT entity sensor.physical:netatmo:co2;
@@ -900,9 +693,8 @@ Interpretation:
       STATEMENT entity sensor.physical:netatmo:temperature;
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
-      BLOCK entity binary_sensor.infrastructural:netatmo:node with:
-        STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
-      END BLOCK
+      STATEMENT entity binary_sensor.infrastructural:netatmo:node with
+      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
       STATEMENT entity binary_sensor.infrastructural:orbi:node;
       STATEMENT switch_device social desktop;
       STATEMENT switch_device social media_drive;
@@ -913,34 +705,28 @@ Interpretation:
       STATEMENT switch_device social cycling;
       STATEMENT switch_device social cycling_fans;
       STATEMENT media_player sonos;
-      STATEMENT media_player apple_tv no_collect switch.social:cycling;
-      STATEMENT media_player tv       no_collect switch.social:cycling;
-      STATEMENT entity light.physical:ceiling no_collect;
-      BLOCK entity light.physical:main no_collect with:
-        STATEMENT providing node /house/server_room/fuse_box/zwave/023;
+      BLOCK media_player apple_tv with:
+        STATEMENT enabler no_collect;
+        STATEMENT delay_off switch.social:cycling;
       END BLOCK
+      BLOCK media_player tv with:
+        STATEMENT enabler no_collect;
+        STATEMENT delay_off switch.social:cycling;
+      END BLOCK
+      STATEMENT entity light.physical:ceiling no_collect;
+      STATEMENT entity light.physical:main no_collect with providing node /house/server_room/fuse_box/zwave/023;
       BLOCK entity light.social:main with:
         STATEMENT icon mdi:lightbulb;
         STATEMENT definition switched_device light.physical:ceiling light.physical:main;
       END BLOCK
-      BLOCK entity light.social:lower_strip with:
-        STATEMENT providing node lower_strip;
-      END BLOCK
-      BLOCK entity light.social:upper_strip with:
-        STATEMENT providing node upper_strip;
-      END BLOCK
-      BLOCK entity light.social:low_board with:
-        STATEMENT providing node low_board;
-      END BLOCK
+      STATEMENT entity light.social:lower_strip with providing node lower_strip;
+      STATEMENT entity light.social:upper_strip with providing node upper_strip;
+      STATEMENT entity light.social:low_board with providing node low_board;
       STATEMENT follows light.social:low_board light.social:main;
       STATEMENT entity sensor.physical:door/aqara_multi:humidity;
-      BLOCK entity sensor.physical:door/aqara_multi:pressure with:
-        STATEMENT adjustment 38 1;
-      END BLOCK
+      STATEMENT entity sensor.physical:door/aqara_multi:pressure with adjustment 38 1;
       STATEMENT entity sensor.physical:door/aqara_multi:temperature;
-      BLOCK battery_level_device door/aqara_multi with:
-        STATEMENT alert_level 15;
-      END BLOCK
+      STATEMENT battery_level_device door/aqara_multi with alert_level 15;
       BLOCK space social:drain with:
         STATEMENT entity binary_sensor.social:left/luminea:water;
         STATEMENT battery_level_device left/luminea;
@@ -948,13 +734,9 @@ Interpretation:
         STATEMENT battery_level_device right/luminea;
       END BLOCK
       STATEMENT entity binary_sensor.physical:windows/left/aqara_magnet:window;
-      BLOCK battery_level_device windows/left/aqara_magnet with:
-        STATEMENT alert_level 10;
-      END BLOCK
+      STATEMENT battery_level_device windows/left/aqara_magnet with alert_level 10;
       STATEMENT entity binary_sensor.physical:windows/right/aqara_magnet:window;
-      BLOCK battery_level_device windows/right/aqara_magnet with:
-        STATEMENT alert_level 10;
-      END BLOCK
+      STATEMENT battery_level_device windows/right/aqara_magnet with alert_level 10;
       STATEMENT light on: social:main;
       STATEMENT heating leak binary_sensor.social:window;
       STATEMENT space off: switch.social:cycling switch.social:cycling_fans @light @media;
@@ -982,17 +764,11 @@ Interpretation:
     STATEMENT space off: cover.social:/terrace/awnings @light @media;
   END BLOCK
   BLOCK space social:loft with:
-    BLOCK entity light.social:main with:
-      STATEMENT providing node switch_box/nodon;
-    END BLOCK
+    STATEMENT entity light.social:main with providing node switch_box/nodon;
     STATEMENT entity sensor.physical:aqara_multi:humidity;
-    BLOCK entity sensor.physical:aqara_multi:pressure with:
-      STATEMENT adjustment 38 1;
-    END BLOCK
+    STATEMENT entity sensor.physical:aqara_multi:pressure with adjustment 38 1;
     STATEMENT entity sensor.physical:aqara_multi:temperature;
-    BLOCK battery_level_device aqara_multi with:
-      STATEMENT alert_level 15;
-    END BLOCK
+    STATEMENT battery_level_device aqara_multi with alert_level 15;
   END BLOCK
   BLOCK space social:cars with:
     BLOCK space social:xc40 with:
@@ -1019,9 +795,7 @@ Interpretation:
     END BLOCK
   END BLOCK
   STATEMENT entity sun.[sun];
-  BLOCK entity binary_sensor.social::daylight with:
-    STATEMENT condition sun.sun!elevation "$ > 4";
-  END BLOCK
+  STATEMENT entity binary_sensor.social::daylight with condition sun.sun!elevation "$ > 4";
   STATEMENT space off: @light @media;
   COMMENT ######
   COMMENT # HERE

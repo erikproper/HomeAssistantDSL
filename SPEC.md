@@ -194,6 +194,123 @@ Option-passing rules:
 - Unknown option names should be treated as expansion errors.
 - The option block form is preferred when readability is better than positional arguments.
 
+
+Macro definitions and parameter declarations:
+
+Macro syntax:
+
+```
+macro <name> [constraints...] { <parameter-list> }:
+   <body>
+end;
+```
+
+General form:
+```
+macro <name> [no_raw] [space_level] { $p_1 t_1 [op], ..., $p_n t_n [op] }:
+```
+
+Where:
+- `<name>` — macro identifier
+- `[no_raw]` — optional constraint: disallow raw entity specifications `[...]` in the target
+- `[space_level]` — optional constraint: bind the macro target from the immediate surrounding space specification instead of an explicit entity target
+- `{ $p_i t_i, ... }` — parameter set (order-independent when using option block form)
+- `$p_i` — parameter name (used in macro body with $ prefix)
+- `t_i` — parameter type (see Supported types below)
+- `[op]` — optional marker on a parameter; omitted argument binds as empty (or macro-defined default when present)
+
+Braces `{ }` signal "this is a parameter set" similar to Rust/Swift function parameters.
+The order of parameters is only significant in positional invocation form.
+When using the option block form (`with: ... end;`), parameter order is irrelevant.
+
+Supported parameter types:
+- `string` — any text value
+- `integer` — numeric value; validated as parseable to int64
+- `boolean` — true/false flag; missing flag = false, present flag = true
+- `entity_spec` — an entity specification (type.sphere:path form); validated for proper syntax
+- `set<string>` — comma-separated list of string values, each validated independently
+- `set<integer>` — comma-separated list of integer values
+- `path` — Home Assistant entity or node path; basic format checking
+
+Implicit target binding:
+- For regular macros, the entity target from the invocation is implicitly available as `$entity`.
+- For `space_level` macros, the implicit target is the immediate surrounding space specification.
+- In both cases, the implicit target is resolved to extensional form before macro body execution.
+- Macros do not declare `$entity` explicitly; it is automatically bound.
+
+`space_level` binding details:
+- The surrounding space contributes implicit target components (type/sphere/path/sub-type where relevant).
+- This allows a macro to operate on "the current space" without passing a separate entity target.
+- A `space_level` macro is invalid outside a space context and should raise an expansion error.
+
+Optional parameter (`op`) rules:
+- If a parameter is marked `op`, it may be omitted in positional form.
+- In option-block form, an `op` parameter may be absent.
+- When omitted, the value binds as empty unless the macro defines a default.
+- A non-optional parameter (no `op`) is mandatory.
+- Type validation is applied only when a value is present or when a default is injected.
+
+Example macro definitions:
+
+```
+macro battery_alert { $alert_level integer }:
+   # $entity is implicit from the create target
+   declare entity binary_sensor.infrastructural:$entity:battery_alert;
+   if "$alert_level" != "" then
+      define satisfies sensor.infrastructural:$entity:battery_level "($ | int(0)) < $alert_level";
+   end;
+end;
+
+macro power_switch { $node string, $threshold integer }:
+   # Implicit $entity from create target
+   declare entity sensor.social:$entity:power;
+   declare entity binary_sensor.social:$entity:consumes with
+      define satisfies sensor.social:$entity:power "($ | int(0)) > $threshold";
+   end;
+   declare entity switch.social:$entity;
+   providing node $entity/$node;
+end;
+
+macro zigbee_group { $group set<string> }:
+   # Implicit $entity (the light target)
+   # $group contains { 1, 2, 3, 4, 5, 6 } etc.
+   for member in $group do
+      declare entity light.physical:$member;
+   end;
+end;
+
+macro light_device { $sphere string, $name string }:
+   declare entity light.$sphere:$name;
+   providing node $name/light;
+end;
+```
+
+Macro invocations:
+
+Positional form (parameters in declared order):
+```
+create battery_alert front_door/ring 20;
+create power_switch /home/garden/lamp robb 1;
+```
+
+Option block form (parameters by name, order-independent):
+```
+create battery_alert front_door/ring with
+   alert_level 20;
+end;
+
+create power_switch /home/garden/lamp with
+   node robb;
+   threshold 1;
+end;
+```
+
+Type validation during macro expansion:
+- Argument values are checked against the declared parameter type.
+- Type mismatch errors are reported with the invocation location and expected/actual types.
+- For `set<T>` types, each element is validated (e.g., `set<integer>` validates each comma-separated item).
+- Unknown macro parameters are treated as expansion errors.
+- Missing non-optional parameters are treated as expansion errors.
 Some macro definitions contain intentional aggregate references, such as "all light entities in a given space".
 If macro expansion were applied repeatedly, this could lead to a fixed-point computation because each expansion round might add new entities that satisfy the aggregate reference in the next round.
 To avoid this complexity — and to keep the semantics predictable — macro expansion is performed exactly once, after the base entity definitions have been fully read.
@@ -280,6 +397,17 @@ Verbatim naming convention:
 Example:
 "declare entity [sensor.ems_esp_boiler_boiler_outside_temperature];"
 
+Set syntax for macro arguments:
+- Comma-separated lists used as macro arguments are wrapped in curly braces { }.
+- Each item in the set is separated by commas and optional whitespace.
+- Braces provide explicit boundaries for the list.
+
+Example:
+"zigbee_group light.social:main with group { kitchen, middle, living };"
+"zigbee_group light.social:left with group { 1, 2, 3, 4, 5, 6 };"
+
+This notation makes parsing unambiguous and future-proof for enhancements like range syntax { 1..6 }.
+
 Alias assignment convention on declarations:
 - A declare entity statement may bind an alias using as <alias>.
 - Alias scope is lexical by space tree: the alias is visible in the declaring space and all its nested sub-spaces.
@@ -359,7 +487,8 @@ Current active work items are:
 - [ ] Clean up entity definitions before further macro changes.
 - [ ] Revisit begin/end representation for Entities.def and define a consistent block-style guideline.
 - [ ] Freeze macro target syntax.
-- [ ] Define macro argument grammar.
+- [ ] Define macro argument grammar and parameter types.
+- [ ] Implement macro parameter type validation (string, integer, boolean, entity_spec, set<T>, path).
 - [ ] Specify macro expansion semantics.
 - [ ] Implement entity target resolution (intensional -> extensional) before macro execution.
 - [ ] Implement macro target constraints such as [no raw].

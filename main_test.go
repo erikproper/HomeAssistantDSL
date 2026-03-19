@@ -272,6 +272,66 @@ func TestMigrationNormalizesLightDeviceSphereAndName(t *testing.T) {
 	}
 }
 
+func TestMigrationNormalizesMediaPlayerAsBlock(t *testing.T) {
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to determine working directory: %v", err)
+	}
+
+	if err := runMigration(root, THouseNames); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	definitionPath := filepath.Join(root, "New", "Vienna", "Definitions", "Entities.def")
+	content, readErr := os.ReadFile(definitionPath)
+	if readErr != nil {
+		t.Fatalf("failed to read %s: %v", definitionPath, readErr)
+	}
+	text := string(content)
+	if !strings.Contains(text, "media_player tv with:") {
+		t.Fatalf("expected media_player tv with: block form in %s", definitionPath)
+	}
+	if !strings.Contains(text, "enabler switch.social:tv;") {
+		t.Fatalf("expected enabler switch.social:tv; in media_player block in %s", definitionPath)
+	}
+	if !strings.Contains(text, "delay_off 00:01:00;") {
+		t.Fatalf("expected delay_off 00:01:00; in media_player block in %s", definitionPath)
+	}
+	if strings.Contains(text, "media_player tv switch.social:tv") {
+		t.Fatalf("unexpected positional media_player form in %s", definitionPath)
+	}
+}
+
+func TestMigrationCollapesSingleStatementWithBlocks(t *testing.T) {
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to determine working directory: %v", err)
+	}
+
+	if err := runMigration(root, THouseNames); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	definitionPath := filepath.Join(root, "New", "Vienna", "Definitions", "Entities.def")
+	content, readErr := os.ReadFile(definitionPath)
+	if readErr != nil {
+		t.Fatalf("failed to read %s: %v", definitionPath, readErr)
+	}
+	text := string(content)
+	if !strings.Contains(text, "battery_level_device bed/moes with alert_level 20;") {
+		t.Fatalf("expected collapsed battery_level_device inline-with form in %s", definitionPath)
+	}
+	if !strings.Contains(text, "battery_alert roborock with alert_level 15;") {
+		t.Fatalf("expected collapsed battery_alert inline-with form in %s", definitionPath)
+	}
+	if !strings.Contains(text, "zigbee_group light.social:main with group { kitchen, middle, living };") {
+		t.Fatalf("expected collapsed zigbee_group inline-with form in %s", definitionPath)
+	}
+	if strings.Contains(text, "battery_level_device bed/moes with:\n") {
+		t.Fatalf("unexpected multi-line battery_level_device block form in %s", definitionPath)
+	}
+}
+
 func TestMigrationKeepsCuratedMacrosDefinition(t *testing.T) {
 	root, err := os.Getwd()
 	if err != nil {
