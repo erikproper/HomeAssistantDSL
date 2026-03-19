@@ -156,7 +156,7 @@ space social:garage with:
   heating leak binary_sensor.social:door;
 
   light on: social:main;
-  lights_motion_guarded 10;
+  lights_motion_guarded with delay 10;
   space off: @light @media;
 end;
 
@@ -230,7 +230,7 @@ space social:house with:
     end;
 
     light on: social:main;
-    lights_motion_guarded 10;
+    lights_motion_guarded with delay 10;
     space off: @light;
   end;
 
@@ -463,7 +463,7 @@ space social:house with:
     end;
 
     light on: social:main;
-    lights_motion_guarded 10;
+    lights_motion_guarded with delay 10;
     space off: @light;
   end;
 
@@ -505,7 +505,7 @@ space social:house with:
     end;
 
     light on: social:main;
-    lights_motion_guarded 10;
+    lights_motion_guarded with delay 10;
     space off: @light;
   end;
 
@@ -751,7 +751,7 @@ space social:house with:
     end;
 
     light on: social:main;
-    lights_motion_guarded 15;
+    lights_motion_guarded with delay 15;
     heating leak binary_sensor.social:window;
     space off: @light @media;
   end;
@@ -825,7 +825,7 @@ space social:house with:
     end;
 
     light on: social:main;
-    lights_motion_guarded 10;
+    lights_motion_guarded with delay 10;
     space off: @light;
   end;
 
@@ -892,7 +892,7 @@ space social:house with:
     heating leak binary_sensor.social:door;
 
     light on: social:main;
-    lights_motion_guarded 10;
+    lights_motion_guarded with delay 10;
     space off: @light;
   end;
 
@@ -952,7 +952,7 @@ space social:house with:
     end;
 
     light on: social:main;
-    lights_motion_guarded 10;
+    lights_motion_guarded with delay 10;
     space off: @light;
   end;
 
@@ -1027,7 +1027,7 @@ space social:house with:
 
     heating leak binary_sensor.social:window;
     light on: social:main;
-    lights_motion_guarded 10;
+    lights_motion_guarded with delay 10;
     space off: @light @media switch.social:whirlpool;
   end;
 
@@ -1185,7 +1185,7 @@ space social:cars with:
   end;
 end;
 
-declare entity sun.sun;
+declare entity sun.[sun];
 declare entity binary_sensor.social::daylight with:
   condition sun.sun!elevation "$ > 4";
 end;

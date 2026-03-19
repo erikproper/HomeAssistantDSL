@@ -1022,6 +1022,10 @@ func transformEntitiesDefinition(content string) string {
 					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"end;")
 					continue
 				}
+				if len(statementFields) == 2 && statementFields[0] == "lights_motion_guarded" {
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"lights_motion_guarded with delay "+statementFields[1]+";")
+					continue
+				}
 				if len(statementFields) >= 6 && statementFields[0] == "create" && statementFields[1] == "zigbee_group" {
 					target := statementFields[2] + "." + statementFields[3] + ":" + statementFields[4]
 					groupValues := strings.Join(statementFields[5:], ", ")
@@ -1226,6 +1230,9 @@ func normalizeEntitySyntaxText(line string) string {
 	}
 	if strings.HasPrefix(trimmedLine, "provides device_node ") {
 		trimmedLine = "providing node " + strings.TrimPrefix(trimmedLine, "provides device_node ")
+	}
+	if trimmedLine == "declare entity sun.sun" {
+		trimmedLine = "declare entity sun.[sun]"
 	}
 	return trimmedLine
 }

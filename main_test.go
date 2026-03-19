@@ -141,6 +141,56 @@ func TestMigrationNormalizesPowerSwitchCreateBlocks(t *testing.T) {
 	}
 }
 
+func TestMigrationNormalizesSunDeclarationAsRawEntity(t *testing.T) {
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to determine working directory: %v", err)
+	}
+
+	if err := runMigration(root, THouseNames); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	for _, houseName := range THouseNames {
+		definitionPath := filepath.Join(root, "New", houseName, "Definitions", "Entities.def")
+		content, readErr := os.ReadFile(definitionPath)
+		if readErr != nil {
+			t.Fatalf("failed to read %s: %v", definitionPath, readErr)
+		}
+		text := string(content)
+		if !strings.Contains(text, "declare entity sun.[sun];") {
+			t.Fatalf("expected normalized sun declaration in %s", definitionPath)
+		}
+		if strings.Contains(text, "declare entity sun.sun;") {
+			t.Fatalf("unexpected legacy sun declaration in %s", definitionPath)
+		}
+	}
+}
+
+func TestMigrationNormalizesLightsMotionGuardedAsInlineWith(t *testing.T) {
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to determine working directory: %v", err)
+	}
+
+	if err := runMigration(root, THouseNames); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	definitionPath := filepath.Join(root, "New", "Vienna", "Definitions", "Entities.def")
+	content, readErr := os.ReadFile(definitionPath)
+	if readErr != nil {
+		t.Fatalf("failed to read %s: %v", definitionPath, readErr)
+	}
+	text := string(content)
+	if !strings.Contains(text, "lights_motion_guarded with delay 15;") {
+		t.Fatalf("expected normalized lights_motion_guarded inline-with form in %s", definitionPath)
+	}
+	if strings.Contains(text, "lights_motion_guarded 15;") {
+		t.Fatalf("unexpected positional lights_motion_guarded form in %s", definitionPath)
+	}
+}
+
 func TestMigrationKeepsCuratedMacrosDefinition(t *testing.T) {
 	root, err := os.Getwd()
 	if err != nil {

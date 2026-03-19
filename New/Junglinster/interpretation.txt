@@ -155,7 +155,7 @@ Interpretation:
     STATEMENT create battery_level radiator/aqara_thermostat 20;
     STATEMENT heating leak binary_sensor.social:door;
     STATEMENT light on: social:main;
-    STATEMENT lights_motion_guarded 10;
+    STATEMENT lights_motion_guarded with delay 10;
     STATEMENT space off: @light @media;
   END BLOCK
   BLOCK space social:house with:
@@ -215,7 +215,7 @@ Interpretation:
         STATEMENT create battery_level_device aqara_water;
       END BLOCK
       STATEMENT light on: social:main;
-      STATEMENT lights_motion_guarded 10;
+      STATEMENT lights_motion_guarded with delay 10;
       STATEMENT space off: @light;
     END BLOCK
     BLOCK space social:living_room with:
@@ -408,7 +408,7 @@ Interpretation:
         STATEMENT alert_level 10;
       END BLOCK
       STATEMENT light on: social:main;
-      STATEMENT lights_motion_guarded 10;
+      STATEMENT lights_motion_guarded with delay 10;
       STATEMENT space off: @light;
     END BLOCK
     BLOCK space social:downward_hallway with:
@@ -444,7 +444,7 @@ Interpretation:
         END BLOCK
       END BLOCK
       STATEMENT light on: social:main;
-      STATEMENT lights_motion_guarded 10;
+      STATEMENT lights_motion_guarded with delay 10;
       STATEMENT space off: @light;
     END BLOCK
     BLOCK space social:upward_hallway with:
@@ -647,7 +647,7 @@ Interpretation:
         STATEMENT alert_level 10;
       END BLOCK
       STATEMENT light on: social:main;
-      STATEMENT lights_motion_guarded 15;
+      STATEMENT lights_motion_guarded with delay 15;
       STATEMENT heating leak binary_sensor.social:window;
       STATEMENT space off: @light @media;
     END BLOCK
@@ -712,7 +712,7 @@ Interpretation:
         STATEMENT alert_level 10;
       END BLOCK
       STATEMENT light on: social:main;
-      STATEMENT lights_motion_guarded 10;
+      STATEMENT lights_motion_guarded with delay 10;
       STATEMENT space off: @light;
     END BLOCK
     BLOCK space social:corridor with:
@@ -768,7 +768,7 @@ Interpretation:
       END BLOCK
       STATEMENT heating leak binary_sensor.social:door;
       STATEMENT light on: social:main;
-      STATEMENT lights_motion_guarded 10;
+      STATEMENT lights_motion_guarded with delay 10;
       STATEMENT space off: @light;
     END BLOCK
     BLOCK space social:storage_room with:
@@ -819,7 +819,7 @@ Interpretation:
         STATEMENT alert_level 10;
       END BLOCK
       STATEMENT light on: social:main;
-      STATEMENT lights_motion_guarded 10;
+      STATEMENT lights_motion_guarded with delay 10;
       STATEMENT space off: @light;
     END BLOCK
     BLOCK space social:bathroom with:
@@ -883,7 +883,7 @@ Interpretation:
       STATEMENT create media_player sonos;
       STATEMENT heating leak binary_sensor.social:window;
       STATEMENT light on: social:main;
-      STATEMENT lights_motion_guarded 10;
+      STATEMENT lights_motion_guarded with delay 10;
       STATEMENT space off: @light @media switch.social:whirlpool;
     END BLOCK
     BLOCK space social:office with:
@@ -1018,7 +1018,7 @@ Interpretation:
       STATEMENT declare entity sensor.social::fuel/range;
     END BLOCK
   END BLOCK
-  STATEMENT declare entity sun.sun;
+  STATEMENT declare entity sun.[sun];
   BLOCK declare entity binary_sensor.social::daylight with:
     STATEMENT condition sun.sun!elevation "$ > 4";
   END BLOCK

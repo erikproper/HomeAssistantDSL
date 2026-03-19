@@ -356,7 +356,7 @@ space social:apartment with:
     end;
 
     light on: social:main;
-    lights_motion_guarded 15;
+    lights_motion_guarded with delay 15;
   end;
 
   light on: social:living_room social:hallway;
@@ -424,4 +424,4 @@ end;
 
 light on: social;
 
-declare entity sun.sun;
+declare entity sun.[sun];

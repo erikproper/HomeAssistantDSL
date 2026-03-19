@@ -230,6 +230,32 @@ Resolution inside current space x:
 
 This resolution must happen before macro body execution, so macros always receive an extensional target representation.
 
+Partial entity specifications in macro call arguments:
+
+Macro call arguments may omit any or all of type, sphere, and sub_type.
+A bare name is the most common partial form.
+Resolution rules for partial specs:
+
+1. If the argument is wrapped in []: raw form, $raw = true, $name = the bracketed string, all other implied variables = empty.
+2. If the argument contains '.': the part before '.' is $type; the rest is parsed as sphere and path as in the intensional form.
+3. If the argument contains no '.': $type = empty.
+4. If there is no sphere component: $sphere = empty.
+5. If there is no sub_type component: $sub_type = empty.
+6. For the path/name component:
+   - If it starts with '/': absolute path relative to the house root, used as-is.
+   - Otherwise: relative name, completed by prepending the current space path.
+
+Example: create battery_alert netatmo_outdoor inside space social:terrace resolves as:
+- $raw = false
+- $type = empty (no '.' in the argument)
+- $sphere = empty
+- $sub_type = empty
+- $entity = terrace/netatmo_outdoor  (current space path 'terrace' prepended to the bare name)
+
+A macro that does not use $type or $sphere from its call argument is independent of how the caller specified the target.
+The macro entity_battery_alert is a clear example: it supplies binary_sensor.infrastructural and sensor.infrastructural as fixed types and spheres in its body, and uses $entity only as the path component.
+This means it works correctly whether called with a bare name, a partial path, or a full entity spec — as long as $entity carries the right resolved path.
+
 ** Entity definitions
 Using the Junglinster example:
 

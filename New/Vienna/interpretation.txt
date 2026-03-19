@@ -324,7 +324,7 @@ Interpretation:
         STATEMENT alert_level 20;
       END BLOCK
       STATEMENT light on: social:main;
-      STATEMENT lights_motion_guarded 15;
+      STATEMENT lights_motion_guarded with delay 15;
     END BLOCK
     STATEMENT light on: social:living_room social:hallway;
   END BLOCK
@@ -383,7 +383,7 @@ Interpretation:
     STATEMENT sunny physical:signify_motion:illuminance 00:05:00 00:05:00;
   END BLOCK
   STATEMENT light on: social;
-  STATEMENT declare entity sun.sun;
+  STATEMENT declare entity sun.[sun];
 
 File: Lists.def
 Status: ok
