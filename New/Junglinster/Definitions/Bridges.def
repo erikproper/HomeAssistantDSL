@@ -5,5 +5,3 @@
 
 # Local bridge declarations are intentionally omitted; host context is defined in Entities.def.
 
-bridges:
-end;

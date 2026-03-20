@@ -11,7 +11,7 @@ space social:apartment with:
     battery_level_device aqara_windoor with alert_level 10;
 
     entity sensor.physical:door/aqara_multi:temperature;
-    entity sensor.physical:door/aqara_multi:pressure with adjustment 20 1;
+    entity sensor.physical:door/aqara_multi:pressure with definition as adjustment 20 1;
     entity sensor.physical:door/aqara_multi:humidity;
     battery_level_device door/aqara_multi with alert_level 15;
 
@@ -43,7 +43,7 @@ space social:apartment with:
       imported rest junglinster sensor.infrastructural_vienna_living_room_netatmo_reachability 60 "$ == 'True'";
 
     entity switch.social:picture_frame with
-      definition cli_switch pi frame.fritz.box ./bin/start_slideshow ./bin/stop_slideshow ./bin/check_slideshow;
+      definition as cli_switch pi frame.fritz.box ./bin/start_slideshow ./bin/stop_slideshow ./bin/check_slideshow;
 
     entity sensor.physical:philips_motion:illuminance;
     entity sensor.physical:philips_motion:temperature;
@@ -127,15 +127,15 @@ space social:apartment with:
 
     space social:rack with:
       entity sensor.physical:aqara_multi:temperature;
-      entity sensor.physical:aqara_multi:pressure with adjustment 20 1;
+      entity sensor.physical:aqara_multi:pressure with definition as adjustment 20 1;
       entity sensor.physical:aqara_multi:humidity;
       battery_level_device aqara_multi with alert_level 15;
 
       entity binary_sensor.infrastructural:frame:node;
       entity sensor.infrastructural:frame:load with
-        definition cli_sensor pi frame.fritz.box ./cpu/load;
+        definition as cli_sensor pi frame.fritz.box ./cpu/load;
       entity sensor.infrastructural:frame:temperature no_collect with
-        definition cli_sensor pi frame.fritz.box ./cpu/temperature;
+        definition as cli_sensor pi frame.fritz.box ./cpu/temperature;
 
       entity sensor.infrastructural:vienna:load;
       entity sensor.infrastructural:vienna:temperature no_collect;
@@ -287,7 +287,7 @@ space social:terrace with:
     delay_off 00:10:00;
   end;
 
-  entity binary_sensor.social::daylight with condition sun.[sun]!elevation "$ > 4";
+  entity binary_sensor.social::daylight with definition as condition sun.[sun]!elevation "$ > 4";
 
   light_device physical:left;
   light_device physical:right;

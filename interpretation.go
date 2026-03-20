@@ -33,11 +33,11 @@ func runInterpretation(root string, houses []string) error {
 }
 
 func interpretHouse(root, house string) error {
-	definitionFiles, err := filepath.Glob(filepath.Join(root, "New", house, "Definitions", "*.def"))
+	definitionDir := filepath.Join(root, "New", house, "Definitions")
+	definitionFiles, err := resolveDefinitionLoadOrder(definitionDir)
 	if err != nil {
 		return err
 	}
-	sort.Strings(definitionFiles)
 
 	parsedFiles := []TParsedFile{}
 	for _, definitionFile := range definitionFiles {
@@ -74,6 +74,78 @@ func interpretHouse(root, house string) error {
 
 	interpretationPath := filepath.Join(root, "New", house, "interpretation.txt")
 	return os.WriteFile(interpretationPath, []byte(builder.String()), 0o644)
+}
+
+func resolveDefinitionLoadOrder(definitionDir string) ([]string, error) {
+	mainPath := filepath.Join(definitionDir, "Main.def")
+	mainContent, err := readOptionalFile(mainPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if strings.TrimSpace(mainContent) == "" {
+		fallbackFiles, fallbackErr := filepath.Glob(filepath.Join(definitionDir, "*.def"))
+		if fallbackErr != nil {
+			return nil, fallbackErr
+		}
+		sort.Strings(fallbackFiles)
+		return fallbackFiles, nil
+	}
+
+	orderedFiles := []string{mainPath}
+	seenFiles := map[string]bool{"Main.def": true}
+	mainLines := strings.Split(strings.ReplaceAll(mainContent, "\r\n", "\n"), "\n")
+
+	for lineIndex, mainLine := range mainLines {
+		trimmedLine := strings.TrimSpace(mainLine)
+		if trimmedLine == "" || strings.HasPrefix(trimmedLine, "#") {
+			continue
+		}
+
+		syntaxLine := stripTrailingInlineComment(trimmedLine)
+		syntaxLine = trimTrailingPunctuation(syntaxLine)
+		if !strings.HasPrefix(syntaxLine, "include ") {
+			continue
+		}
+
+		includedName := strings.TrimSpace(strings.TrimPrefix(syntaxLine, "include "))
+		if includedName == "" {
+			return nil, fmt.Errorf("%s:%d: include target is empty", mainPath, lineIndex+1)
+		}
+		if !strings.Contains(includedName, ".") {
+			includedName += ".def"
+		}
+
+		if seenFiles[includedName] {
+			continue
+		}
+
+		includedPath := filepath.Join(definitionDir, includedName)
+		if _, statErr := os.Stat(includedPath); statErr != nil {
+			if os.IsNotExist(statErr) {
+				return nil, fmt.Errorf("%s:%d: included file not found: %s", mainPath, lineIndex+1, includedName)
+			}
+			return nil, statErr
+		}
+
+		orderedFiles = append(orderedFiles, includedPath)
+		seenFiles[includedName] = true
+	}
+
+	allDefinitionFiles, err := filepath.Glob(filepath.Join(definitionDir, "*.def"))
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(allDefinitionFiles)
+	for _, definitionPath := range allDefinitionFiles {
+		definitionName := filepath.Base(definitionPath)
+		if seenFiles[definitionName] {
+			continue
+		}
+		orderedFiles = append(orderedFiles, definitionPath)
+	}
+
+	return orderedFiles, nil
 }
 
 func writeNodeInterpretation(builder *strings.Builder, nodes []TNode, indent int) {

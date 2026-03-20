@@ -31,7 +31,7 @@ func TestMigrationOperationalForKnownHouses(t *testing.T) {
 		t.Fatalf("migration failed: %v", err)
 	}
 
-	definitionNames := []string{"Settings.def", "Secrets.def", "Server.def", "Bridges.def", "Entities.def", "Lists.def", "Macros.def"}
+	definitionNames := []string{"Main.def", "Settings.def", "Secrets.def", "Server.def", "Bridges.def", "Entities.def", "Lists.def", "Macros.def"}
 	for _, houseName := range THouseNames {
 		for _, definitionName := range definitionNames {
 			definitionPath := filepath.Join(root, "New", houseName, "Definitions", definitionName)
@@ -186,7 +186,7 @@ func TestMigrationNormalizesSunAttributeReference(t *testing.T) {
 		t.Fatalf("failed to read %s: %v", definitionPath, readErr)
 	}
 	text := string(content)
-	if !strings.Contains(text, "condition sun.[sun]!elevation \"$ > 4\";") {
+	if !strings.Contains(text, "definition as condition sun.[sun]!elevation \"$ > 4\";") {
 		t.Fatalf("expected normalized sun attribute reference in %s", definitionPath)
 	}
 	if strings.Contains(text, "condition sun.sun:/!elevation") {
@@ -366,5 +366,76 @@ func TestMigrationKeepsCuratedMacrosDefinition(t *testing.T) {
 	}
 	if !strings.Contains(string(contentAfterMigration), curatedMarker) {
 		t.Fatalf("expected curated macros file to be preserved, marker missing in %s", macrosPath)
+	}
+}
+
+func TestMigrationGeneratesMainDefinitionWithLogicalIncludeOrder(t *testing.T) {
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to determine working directory: %v", err)
+	}
+
+	if err := runMigration(root, THouseNames); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	for _, houseName := range THouseNames {
+		mainPath := filepath.Join(root, "New", houseName, "Definitions", "Main.def")
+		content, readErr := os.ReadFile(mainPath)
+		if readErr != nil {
+			t.Fatalf("failed to read %s: %v", mainPath, readErr)
+		}
+		text := string(content)
+		expectedOrder := []string{
+			"include Macros.def;",
+			"include Secrets.def;",
+			"include Settings.def;",
+			"include Server.def;",
+			"include Bridges.def;",
+			"include Entities.def;",
+			"include Lists.def;",
+		}
+		lastIndex := -1
+		for _, expectedInclude := range expectedOrder {
+			currentIndex := strings.Index(text, expectedInclude)
+			if currentIndex < 0 {
+				t.Fatalf("expected %q in %s", expectedInclude, mainPath)
+			}
+			if currentIndex <= lastIndex {
+				t.Fatalf("expected include order %v in %s", expectedOrder, mainPath)
+			}
+			lastIndex = currentIndex
+		}
+	}
+}
+
+func TestInterpretationRespectsMainIncludeOrder(t *testing.T) {
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to determine working directory: %v", err)
+	}
+
+	if err := runMigration(root, []string{"Vienna"}); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+	if err := runInterpretation(root, []string{"Vienna"}); err != nil {
+		t.Fatalf("interpretation failed: %v", err)
+	}
+
+	interpretationPath := filepath.Join(root, "New", "Vienna", "interpretation.txt")
+	content, readErr := os.ReadFile(interpretationPath)
+	if readErr != nil {
+		t.Fatalf("failed to read %s: %v", interpretationPath, readErr)
+	}
+	text := string(content)
+
+	mainIndex := strings.Index(text, "File: Main.def")
+	macrosIndex := strings.Index(text, "File: Macros.def")
+	entitiesIndex := strings.Index(text, "File: Entities.def")
+	if mainIndex < 0 || macrosIndex < 0 || entitiesIndex < 0 {
+		t.Fatalf("expected Main.def, Macros.def and Entities.def sections in %s", interpretationPath)
+	}
+	if !(mainIndex < macrosIndex && macrosIndex < entitiesIndex) {
+		t.Fatalf("expected Main.def -> Macros.def -> Entities.def ordering in %s", interpretationPath)
 	}
 }

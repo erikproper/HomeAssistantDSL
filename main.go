@@ -49,6 +49,25 @@ type TMigrator struct {
 	Root string
 }
 
+type TEntityIdentity struct {
+	Domain  string
+	IsRaw   bool
+	RawName string
+	Sphere  string
+	Path    string
+}
+
+type TEntityRecord struct {
+	Name                  string
+	Identity              TEntityIdentity
+	NoCollect             bool
+	HasDefinitionOrImport bool
+}
+
+func defaultDefinitionLoadOrder() []string {
+	return []string{"Macros.def", "Secrets.def", "Settings.def", "Server.def", "Bridges.def", "Entities.def", "Lists.def"}
+}
+
 func main() {
 	root, err := os.Getwd()
 	if err != nil {
@@ -90,6 +109,12 @@ func runCLI(root string, args []string) error {
 			return err
 		}
 		return runInterpretation(root, houses)
+	case "expand":
+		houses, err := resolveRequestedHouses(args[1:])
+		if err != nil {
+			return err
+		}
+		return runExpansion(root, houses)
 	default:
 		// Backward compatibility: go run . Vienna Junglinster
 		houses, err := resolveRequestedHouses(args)
@@ -172,8 +197,13 @@ func (m *TMigrator) MigrateHouse(house string) error {
 	if err != nil {
 		return err
 	}
+	mainContent, err := m.BuildMainDefinition(house)
+	if err != nil {
+		return err
+	}
 
 	outputs := map[string]string{
+		"Main.def":     mainContent,
 		"Settings.def": settingsContent,
 		"Secrets.def":  secretsContent,
 		"Server.def":   serverContent,
@@ -423,8 +453,6 @@ func (m *TMigrator) BuildBridges(house string) (string, error) {
 		builder := strings.Builder{}
 		writeGeneratedHeader(&builder, house, "Bridges.def", filepath.Join("Old", house, "Definitions", "01_bridges.def"))
 		builder.WriteString("# Local bridge declarations are intentionally omitted; host context is defined in Entities.def.\n\n")
-		builder.WriteString("bridges:\n")
-		builder.WriteString("end;\n")
 		return builder.String(), nil
 	}
 
@@ -437,7 +465,7 @@ func (m *TMigrator) BuildBridges(house string) (string, error) {
 			continue
 		}
 		if strings.HasPrefix(trimmedLine, "#") {
-			statementLines = append(statementLines, "  "+trimmedLine)
+			statementLines = append(statementLines, trimmedLine)
 			continue
 		}
 
@@ -451,15 +479,15 @@ func (m *TMigrator) BuildBridges(house string) (string, error) {
 			if len(fields) >= 5 && fields[1] == "rest" {
 				secretName := fmt.Sprintf("%s_authorization", sanitizeName(fields[2]))
 				statementLines = append(statementLines,
-					fmt.Sprintf("  bridge rest %s %s authorization $%s;", fields[2], fields[3], secretName),
+					fmt.Sprintf("bridge rest %s %s authorization $%s;", fields[2], fields[3], secretName),
 				)
 			} else {
-				statementLines = append(statementLines, fmt.Sprintf("  %s;", strings.Join(fields, " ")))
+				statementLines = append(statementLines, fmt.Sprintf("%s;", strings.Join(fields, " ")))
 			}
 		case "main":
-			statementLines = append(statementLines, fmt.Sprintf("  %s;", strings.Join(fields, " ")))
+			statementLines = append(statementLines, fmt.Sprintf("%s;", strings.Join(fields, " ")))
 		default:
-			statementLines = append(statementLines, fmt.Sprintf("  %s;", strings.Join(fields, " ")))
+			statementLines = append(statementLines, fmt.Sprintf("%s;", strings.Join(fields, " ")))
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -469,12 +497,10 @@ func (m *TMigrator) BuildBridges(house string) (string, error) {
 	builder := strings.Builder{}
 	writeGeneratedHeader(&builder, house, "Bridges.def", filepath.Join("Old", house, "Definitions", "01_bridges.def"))
 	builder.WriteString("# Secret-bearing bridge parameters are externalized and referenced as variables.\n\n")
-	builder.WriteString("bridges:\n")
 	for _, statementLine := range statementLines {
 		builder.WriteString(statementLine)
 		builder.WriteString("\n")
 	}
-	builder.WriteString("end;\n")
 
 	return builder.String(), nil
 }
@@ -526,6 +552,27 @@ func (m *TMigrator) BuildListsDefinition(house string) (string, error) {
 	return builder.String(), nil
 }
 
+func (m *TMigrator) BuildMainDefinition(house string) (string, error) {
+	curatedMainPath := filepath.Join(m.Root, "New", house, "Definitions", "Main.def")
+	curatedMainContent, err := readOptionalFile(curatedMainPath)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(curatedMainContent) != "" {
+		return curatedMainContent, nil
+	}
+
+	builder := strings.Builder{}
+	writeGeneratedHeader(&builder, house, "Main.def", "generated entrypoint")
+	builder.WriteString("# File load order entrypoint for parser and generator phases.\n")
+	builder.WriteString("# Macros.def must be read before definitions that invoke create-based macros.\n\n")
+	for _, definitionName := range defaultDefinitionLoadOrder() {
+		fmt.Fprintf(&builder, "include %s;\n", definitionName)
+	}
+
+	return builder.String(), nil
+}
+
 func (m *TMigrator) BuildMacros(house string) (string, error) {
 	curatedMacrosPath := filepath.Join(m.Root, "New", house, "Definitions", "Macros.def")
 	curatedMacrosContent, err := readOptionalFile(curatedMacrosPath)
@@ -551,6 +598,9 @@ func (m *TMigrator) BuildMacros(house string) (string, error) {
 		macro, err := parseMacro(string(content), filepath.Base(macroPath))
 		if err != nil {
 			return "", err
+		}
+		if macro.Name == "lights_motion_guarded" {
+			continue
 		}
 		macros = append(macros, macro)
 	}
@@ -1316,17 +1366,35 @@ func normalizeEntitySyntaxText(line string) string {
 		trimmedLine = "create " + strings.TrimPrefix(trimmedLine, "entity ")
 	}
 	if strings.HasPrefix(trimmedLine, "define value ") {
-		trimmedLine = "value " + strings.TrimPrefix(trimmedLine, "define value ")
+		trimmedLine = "definition as value " + strings.TrimPrefix(trimmedLine, "define value ")
 	}
 	if strings.HasPrefix(trimmedLine, "defining value ") {
-		trimmedLine = "value " + strings.TrimPrefix(trimmedLine, "defining value ")
+		trimmedLine = "definition as value " + strings.TrimPrefix(trimmedLine, "defining value ")
+	}
+	if strings.HasPrefix(trimmedLine, "value ") {
+		trimmedLine = "definition as value " + strings.TrimPrefix(trimmedLine, "value ")
 	}
 	if strings.HasPrefix(trimmedLine, "define satisfies ") {
-		trimmedLine = "condition " + strings.TrimPrefix(trimmedLine, "define satisfies ")
+		trimmedLine = "definition as condition " + strings.TrimPrefix(trimmedLine, "define satisfies ")
+	}
+	if strings.HasPrefix(trimmedLine, "condition ") {
+		trimmedLine = "definition as condition " + strings.TrimPrefix(trimmedLine, "condition ")
 	}
 	if strings.HasPrefix(trimmedLine, "define adjust ") {
-		trimmedLine = "adjustment " + strings.TrimPrefix(trimmedLine, "define adjust ")
+		trimmedLine = "definition as adjustment " + strings.TrimPrefix(trimmedLine, "define adjust ")
 	}
+	if strings.HasPrefix(trimmedLine, "adjustment ") {
+		trimmedLine = "definition as adjustment " + strings.TrimPrefix(trimmedLine, "adjustment ")
+	}
+	if strings.HasPrefix(trimmedLine, "define flip ") {
+		trimmedLine = "definition as flipped " + strings.TrimPrefix(trimmedLine, "define flip ")
+	}
+	if strings.HasPrefix(trimmedLine, "flipped ") {
+		trimmedLine = "definition as flipped " + strings.TrimPrefix(trimmedLine, "flipped ")
+	}
+	trimmedLine = strings.Replace(trimmedLine, " with condition ", " with definition as condition ", 1)
+	trimmedLine = strings.Replace(trimmedLine, " with value ", " with definition as value ", 1)
+	trimmedLine = strings.Replace(trimmedLine, " with adjustment ", " with definition as adjustment ", 1)
 	if strings.HasPrefix(trimmedLine, "begin_virtual_space ") {
 		trimmedLine = "virtual space " + strings.TrimPrefix(trimmedLine, "begin_virtual_space ")
 	}
@@ -1346,7 +1414,10 @@ func normalizeEntitySyntaxText(line string) string {
 		trimmedLine = "imported rest " + strings.TrimPrefix(trimmedLine, "import rest ")
 	}
 	if strings.HasPrefix(trimmedLine, "define ") {
-		trimmedLine = "definition " + strings.TrimPrefix(trimmedLine, "define ")
+		trimmedLine = "definition as " + strings.TrimPrefix(trimmedLine, "define ")
+	}
+	if strings.HasPrefix(trimmedLine, "definition ") && !strings.HasPrefix(trimmedLine, "definition as ") {
+		trimmedLine = "definition as " + strings.TrimPrefix(trimmedLine, "definition ")
 	}
 	if strings.HasPrefix(trimmedLine, "provides device_node ") {
 		trimmedLine = "providing node " + strings.TrimPrefix(trimmedLine, "provides device_node ")
@@ -1474,4 +1545,692 @@ func readOptionalFile(path string) (string, error) {
 		return "", err
 	}
 	return string(content), nil
+}
+
+func runExpansion(root string, houses []string) error {
+	for _, house := range houses {
+		if err := expandHouse(root, house); err != nil {
+			return fmt.Errorf("error expanding %s: %w", house, err)
+		}
+		fmt.Printf("expanded %s\n", house)
+	}
+	return nil
+}
+
+func expandHouse(root string, house string) error {
+	definitionDir := filepath.Join(root, "New", house, "Definitions")
+
+	// Read Macros.def
+	macrosPath := filepath.Join(definitionDir, "Macros.def")
+	macrosContent, err := os.ReadFile(macrosPath)
+	if err != nil {
+		return fmt.Errorf("error reading macros: %w", err)
+	}
+
+	// Parse creation macros
+	macroLines := strings.Split(string(macrosContent), "\n")
+	ctx := &TMacroExpansionContext{
+		Macros: make(map[string]*TParsedCreationMacro),
+		Config: TExpanderConfig{Verbose: false, CheckTypes: true},
+	}
+
+	idx := 0
+	for idx < len(macroLines) {
+		macro, nextIdx, err := ctx.ParseCreationMacro(macroLines, idx)
+		if err != nil {
+			return fmt.Errorf("error parsing macro at line %d: %w", idx+1, err)
+		}
+		if macro != nil {
+			ctx.Macros[macro.Name] = macro
+		}
+		if nextIdx == idx {
+			idx++
+		} else {
+			idx = nextIdx
+		}
+	}
+
+	// Read Entities.def
+	entitiesPath := filepath.Join(definitionDir, "Entities.def")
+	entitiesContent, err := os.ReadFile(entitiesPath)
+	if err != nil {
+		return fmt.Errorf("error reading entities: %w", err)
+	}
+
+	// Generate output file
+	outputPath := filepath.Join(definitionDir, "Expansion.txt")
+	output := strings.Builder{}
+
+	output.WriteString("=== MACRO EXPANSION REPORT ===\n")
+	output.WriteString(fmt.Sprintf("House: %s\n", house))
+	output.WriteString(fmt.Sprintf("Generated: 20.03.2026\n\n"))
+
+	// Write macro definitions summary
+	output.WriteString("=== CREATION MACRO DEFINITIONS ===\n\n")
+	for name := range ctx.Macros {
+		macro := ctx.Macros[name]
+		output.WriteString(fmt.Sprintf("creation macro %s { ", name))
+		for i, param := range macro.Parameters {
+			if i > 0 {
+				output.WriteString(", ")
+			}
+			output.WriteString(fmt.Sprintf("%s %s", param.Name, paramKindString(param.Kind)))
+			if param.Optional {
+				output.WriteString(" op")
+			}
+		}
+		output.WriteString(fmt.Sprintf(" }:\n  SourceLine: %d, Body lines: %d\n\n", macro.SourceLine, len(macro.Body)))
+	}
+
+	output.WriteString("\n=== MACRO INVOCATIONS IN ENTITIES.DEF ===\n\n")
+
+	// Analyze macro invocations with better context tracking
+	entityLines := strings.Split(string(entitiesContent), "\n")
+	spacePath := []string{}
+	openBlocks := []string{}
+	spaceOrder := []string{}
+	entitiesBySpace := map[string][]string{}
+	entityRecordsBySpace := map[string][]TEntityRecord{}
+	externalEntitiesBySpace := map[string][]string{}
+	spaceDepthByName := map[string]int{}
+	invocationCount := 0
+	validInvocations := 0
+	typeErrors := 0
+
+	for i := 0; i < len(entityLines); i++ {
+		trimmed := strings.TrimSpace(entityLines[i])
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		if entityDecl, ok := extractEntityDeclaration(trimmed); ok {
+			if len(spacePath) == 0 {
+				spaceName := "root"
+				if _, seen := entitiesBySpace[spaceName]; !seen {
+					spaceOrder = append(spaceOrder, spaceName)
+					spaceDepthByName[spaceName] = 0
+					entitiesBySpace[spaceName] = []string{}
+					entityRecordsBySpace[spaceName] = []TEntityRecord{}
+				}
+			} else {
+				for level := 1; level <= len(spacePath); level++ {
+					prefix := append([]string{}, spacePath[:level]...)
+					spaceName := formatNestedSpaceName(prefix)
+					if _, seen := entitiesBySpace[spaceName]; !seen {
+						spaceOrder = append(spaceOrder, spaceName)
+						spaceDepthByName[spaceName] = nestedSpaceDepth(prefix)
+						entitiesBySpace[spaceName] = []string{}
+						entityRecordsBySpace[spaceName] = []TEntityRecord{}
+					}
+				}
+			}
+
+			spaceName := formatNestedSpaceName(spacePath)
+			fullName := normalizeEntityFullName(entityDecl.Specification, spacePath)
+			hasDefOrImport, optionKeys := analyzeEntityDefinitionContext(entityLines, i)
+			hasConfigOptions := len(optionKeys) > 0
+			entry := fmt.Sprintf("%s (line %d)", fullName, i+1)
+			if entityDecl.NoCollect {
+				entry += " [no_collect]"
+			}
+			entitiesBySpace[spaceName] = append(entitiesBySpace[spaceName], entry)
+			if !hasDefOrImport {
+				externalEntry := fmt.Sprintf("%s (line %d)", fullName, i+1)
+				if hasConfigOptions {
+					externalEntry += fmt.Sprintf(" [config options: %s]", strings.Join(optionKeys, ", "))
+				}
+				externalEntitiesBySpace[spaceName] = append(externalEntitiesBySpace[spaceName], externalEntry)
+			}
+			entityRecordsBySpace[spaceName] = append(entityRecordsBySpace[spaceName], TEntityRecord{
+				Name:                  fullName,
+				Identity:              extractEntityIdentity(fullName),
+				NoCollect:             entityDecl.NoCollect,
+				HasDefinitionOrImport: hasDefOrImport,
+			})
+		}
+
+		// Check if line contains a macro invocation
+		if isMacroInvocation(trimmed, ctx.Macros) {
+			invocationCount++
+			output.WriteString(fmt.Sprintf("Line %d (in %s):\n", i+1, formatSpacePath(spacePath)))
+			output.WriteString(fmt.Sprintf("  Invocation: %s\n", trimmed))
+
+			invocationText := trimmed
+			if strings.HasSuffix(trimmed, "with:") {
+				j := i + 1
+				for ; j < len(entityLines); j++ {
+					nextTrimmed := strings.TrimSpace(entityLines[j])
+					invocationText += "\n" + nextTrimmed
+					if nextTrimmed == "end;" {
+						break
+					}
+				}
+				if j < len(entityLines) {
+					i = j
+				}
+			}
+
+			invocation, parseErr := ctx.ParseMacroInvocation(invocationText)
+			if parseErr != nil {
+				output.WriteString(fmt.Sprintf("  ERROR: Failed to parse invocation: %v\n", parseErr))
+				typeErrors++
+			} else {
+				macro := ctx.Macros[invocation.Name]
+
+				// Validate parameters
+				validationErrors := ctx.ValidateInvocationParameters(invocation, macro)
+				if len(validationErrors) > 0 {
+					output.WriteString(fmt.Sprintf("  Type/Validation Errors:\n"))
+					for _, errMsg := range validationErrors {
+						output.WriteString(fmt.Sprintf("    - %s\n", errMsg))
+					}
+					typeErrors++
+				} else {
+					validInvocations++
+					output.WriteString(fmt.Sprintf("  Status: OK (all parameters valid)\n"))
+				}
+
+				// Show parameter bindings
+				if len(invocation.Parameters) > 0 {
+					output.WriteString(fmt.Sprintf("  Parameters:\n"))
+					for pkey, pval := range invocation.Parameters {
+						output.WriteString(fmt.Sprintf("    %s = %q\n", pkey, pval))
+					}
+				}
+			}
+			output.WriteString("\n")
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "space ") && strings.HasSuffix(trimmed, "with:") {
+			spaceName := extractSpaceName(trimmed)
+			openBlocks = append(openBlocks, "space")
+			if spaceName == "" {
+				spacePath = append(spacePath, "?")
+			} else {
+				spacePath = append(spacePath, spaceName)
+			}
+			continue
+		}
+
+		if strings.HasSuffix(trimmed, "with:") || trimmed == "begin" {
+			openBlocks = append(openBlocks, "other")
+			continue
+		}
+
+		if trimmed == "end;" {
+			if len(openBlocks) == 0 {
+				continue
+			}
+
+			last := openBlocks[len(openBlocks)-1]
+			openBlocks = openBlocks[:len(openBlocks)-1]
+			if last == "space" && len(spacePath) > 0 {
+				spacePath = spacePath[:len(spacePath)-1]
+			}
+		}
+	}
+
+	output.WriteString("\n=== ENTITIES BY SPACE (FULL NAMES) ===\n\n")
+	entityCount := 0
+	for _, spaceName := range spaceOrder {
+		indent := strings.Repeat("  ", spaceDepthByName[spaceName])
+		output.WriteString(fmt.Sprintf("%sSpace %q:\n", indent, spaceName))
+		for _, entityLine := range entitiesBySpace[spaceName] {
+			entityCount++
+			output.WriteString(fmt.Sprintf("%s  - %s\n", indent, entityLine))
+		}
+		output.WriteString("\n")
+	}
+
+	output.WriteString("\n=== EXTERNAL ENTITIES (NO DEFINITION/IMPORTED) ===\n")
+	output.WriteString("Assumption: these entities are already defined in Home Assistant; no core entity YAML generation needed here.\n")
+	output.WriteString("Note: entities with local options (e.g., icon/providing) may still require configuration/customization YAML.\n")
+	output.WriteString("Availability check status: not checked (offline mode).\n\n")
+	externalCount := 0
+	externalWithConfigCount := 0
+	for _, spaceName := range spaceOrder {
+		externalEntities := externalEntitiesBySpace[spaceName]
+		if len(externalEntities) == 0 {
+			continue
+		}
+
+		indent := strings.Repeat("  ", spaceDepthByName[spaceName])
+		output.WriteString(fmt.Sprintf("%sSpace %q:\n", indent, spaceName))
+		for _, item := range externalEntities {
+			externalCount++
+			if strings.Contains(item, "[config options:") {
+				externalWithConfigCount++
+			}
+			output.WriteString(fmt.Sprintf("%s  - %s\n", indent, item))
+		}
+		output.WriteString("\n")
+	}
+	if externalCount == 0 {
+		output.WriteString("(none)\n\n")
+	}
+
+	output.WriteString("\n=== IMPLIED SPACE AGGREGATE ENTITIES (EXCLUDING no_collect) ===\n\n")
+	aggregateCount := 0
+	for _, spaceName := range spaceOrder {
+		if spaceName == "root" {
+			continue
+		}
+
+		aggregates := impliedAggregatesForSpace(spaceName, spaceOrder, entityRecordsBySpace)
+		if len(aggregates) == 0 {
+			continue
+		}
+
+		indent := strings.Repeat("  ", spaceDepthByName[spaceName])
+		for _, aggregate := range aggregates {
+			aggregateCount++
+			output.WriteString(fmt.Sprintf("%s- %s\n", indent, aggregate))
+		}
+	}
+	if aggregateCount == 0 {
+		output.WriteString("(none)\n")
+	}
+	output.WriteString("\n")
+
+	output.WriteString("\n=== SUMMARY ===\n")
+	output.WriteString(fmt.Sprintf("Total macro invocations: %d\n", invocationCount))
+	output.WriteString(fmt.Sprintf("Valid invocations: %d\n", validInvocations))
+	output.WriteString(fmt.Sprintf("Type/validation errors: %d\n", typeErrors))
+	output.WriteString(fmt.Sprintf("Creation macros defined: %d\n", len(ctx.Macros)))
+	output.WriteString(fmt.Sprintf("Entities listed by space: %d\n", entityCount))
+	output.WriteString(fmt.Sprintf("External entities (no definition/imported): %d\n", externalCount))
+	output.WriteString(fmt.Sprintf("External entities with config options: %d\n", externalWithConfigCount))
+	output.WriteString(fmt.Sprintf("Implied aggregates: %d\n", aggregateCount))
+
+	outputErr := os.WriteFile(outputPath, []byte(output.String()), 0644)
+	if outputErr != nil {
+		return fmt.Errorf("error writing expansion report: %w", outputErr)
+	}
+
+	fmt.Printf("  expansion report: %s\n", outputPath)
+	return nil
+}
+
+func extractSpaceName(line string) string {
+	// Extract from "space type:name with:" or "space name with:"
+	line = strings.TrimPrefix(line, "space ")
+	if idx := strings.Index(line, " with"); idx > 0 {
+		return line[:idx]
+	}
+	return ""
+}
+
+func formatSpacePath(spacePath []string) string {
+	if len(spacePath) == 0 {
+		return "root"
+	}
+	return strings.Join(spacePath, " / ")
+}
+
+type TEntityDeclaration struct {
+	Specification string
+	NoCollect     bool
+}
+
+func extractEntityDeclaration(line string) (*TEntityDeclaration, bool) {
+	if !strings.HasPrefix(line, "entity ") {
+		return nil, false
+	}
+
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "entity "))
+	if rest == "" {
+		return nil, false
+	}
+
+	fields := strings.Fields(rest)
+	if len(fields) == 0 {
+		return nil, false
+	}
+
+	decl := &TEntityDeclaration{
+		Specification: strings.TrimSuffix(fields[0], ";"),
+		NoCollect:     false,
+	}
+
+	for _, field := range fields[1:] {
+		if strings.TrimSuffix(field, ";") == "no_collect" {
+			decl.NoCollect = true
+			break
+		}
+	}
+
+	return decl, true
+}
+
+func analyzeEntityDefinitionContext(lines []string, entityLineIdx int) (bool, []string) {
+	if entityLineIdx < 0 || entityLineIdx >= len(lines) {
+		return false, nil
+	}
+
+	line := strings.TrimSpace(lines[entityLineIdx])
+	if !strings.HasPrefix(line, "entity ") {
+		return false, nil
+	}
+
+	hasDefinitionOrImported := false
+	optionKeys := map[string]bool{}
+
+	consume := func(statement string) {
+		clean := strings.TrimSpace(strings.TrimSuffix(statement, ";"))
+		if clean == "" {
+			return
+		}
+
+		lower := strings.ToLower(clean)
+		if strings.HasPrefix(lower, "definition as ") || strings.HasPrefix(lower, "imported ") {
+			hasDefinitionOrImported = true
+			return
+		}
+
+		fields := strings.Fields(lower)
+		if len(fields) == 0 {
+			return
+		}
+
+		optionKeys[fields[0]] = true
+	}
+
+	if withIdx := strings.Index(line, " with "); withIdx >= 0 && !strings.HasSuffix(line, " with:") {
+		consume(line[withIdx+len(" with "):])
+	}
+
+	if strings.HasSuffix(line, " with") {
+		for i := entityLineIdx + 1; i < len(lines); i++ {
+			next := strings.TrimSpace(lines[i])
+			if next == "" || strings.HasPrefix(next, "#") {
+				continue
+			}
+			consume(next)
+			break
+		}
+	}
+
+	if strings.HasSuffix(line, " with:") {
+		depth := 1
+		for i := entityLineIdx + 1; i < len(lines); i++ {
+			next := strings.TrimSpace(lines[i])
+			if next == "" || strings.HasPrefix(next, "#") {
+				continue
+			}
+
+			if strings.HasSuffix(next, " with:") {
+				depth++
+				continue
+			}
+
+			if next == "end;" {
+				depth--
+				if depth == 0 {
+					break
+				}
+				continue
+			}
+
+			if depth == 1 {
+				consume(next)
+			}
+		}
+	}
+
+	keys := []string{}
+	for key := range optionKeys {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	return hasDefinitionOrImported, keys
+}
+
+func normalizeEntityFullName(spec string, spacePath []string) string {
+	spec = strings.TrimSpace(strings.TrimSuffix(spec, ";"))
+	if spec == "" {
+		return spec
+	}
+
+	// Keep raw-name entities as-is, e.g. sun.[sun]
+	if strings.Contains(spec, ".[") {
+		return spec
+	}
+
+	dotIdx := strings.Index(spec, ".")
+	if dotIdx <= 0 || dotIdx >= len(spec)-1 {
+		return strings.ReplaceAll(spec, ":", "/")
+	}
+
+	typePart := spec[:dotIdx]
+	remainder := spec[dotIdx+1:]
+	colonIdx := strings.Index(remainder, ":")
+	if colonIdx < 0 {
+		_, contextPath := normalizeSpaceContext(spacePath)
+		if contextPath == "" {
+			return spec
+		}
+		return fmt.Sprintf("%s/%s", spec, contextPath)
+	}
+
+	spherePart := remainder[:colonIdx]
+	rawPathPart := remainder[colonIdx+1:]
+	// Internal normalized raw references use sphere "_" and a leading slash path.
+	// Render these back to the external raw syntax expected in reports.
+	if spherePart == "_" {
+		rawName := strings.TrimPrefix(rawPathPart, "/")
+		if rawName != "" {
+			return fmt.Sprintf("%s.[%s]", typePart, rawName)
+		}
+	}
+	pathPart := rawPathPart
+	pathPart = strings.ReplaceAll(pathPart, ":", "/")
+	_, contextPath := normalizeSpaceContext(spacePath)
+	if strings.HasPrefix(rawPathPart, "/") {
+		pathPart = strings.TrimPrefix(pathPart, "/")
+	} else {
+		pathPart = strings.TrimPrefix(pathPart, "/")
+		pathPart = strings.Trim(pathPart, "/")
+		if contextPath != "" {
+			if pathPart == "" {
+				pathPart = contextPath
+			} else {
+				pathPart = contextPath + "/" + pathPart
+			}
+		}
+	}
+	pathPart = strings.Trim(pathPart, "/")
+
+	if pathPart == "" {
+		return fmt.Sprintf("%s.%s", typePart, spherePart)
+	}
+
+	return fmt.Sprintf("%s.%s/%s", typePart, spherePart, pathPart)
+}
+
+func extractEntityIdentity(fullName string) TEntityIdentity {
+	identity := TEntityIdentity{}
+
+	dotIdx := strings.Index(fullName, ".")
+	if dotIdx <= 0 || dotIdx >= len(fullName)-1 {
+		return identity
+	}
+
+	identity.Domain = fullName[:dotIdx]
+	remainder := fullName[dotIdx+1:]
+
+	if strings.HasPrefix(remainder, "[") && strings.HasSuffix(remainder, "]") {
+		identity.IsRaw = true
+		identity.RawName = strings.TrimSuffix(strings.TrimPrefix(remainder, "["), "]")
+		return identity
+	}
+
+	slashIdx := strings.Index(remainder, "/")
+	if slashIdx < 0 {
+		identity.Sphere = remainder
+		return identity
+	}
+
+	identity.Sphere = remainder[:slashIdx]
+	if slashIdx+1 < len(remainder) {
+		identity.Path = remainder[slashIdx+1:]
+	}
+
+	return identity
+}
+
+func formatNestedSpaceName(spacePath []string) string {
+	if len(spacePath) == 0 {
+		return "root"
+	}
+
+	spaceType, contextPath := normalizeSpaceContext(spacePath)
+	if spaceType == "" {
+		if contextPath == "" {
+			return "root"
+		}
+		return contextPath
+	}
+	if contextPath == "" {
+		return spaceType
+	}
+	return fmt.Sprintf("%s/%s", spaceType, contextPath)
+}
+
+func nestedSpaceDepth(spacePath []string) int {
+	if len(spacePath) == 0 {
+		return 0
+	}
+
+	_, contextPath := normalizeSpaceContext(spacePath)
+	if contextPath == "" {
+		return 0
+	}
+
+	parts := strings.Split(contextPath, "/")
+	if len(parts) <= 1 {
+		return 0
+	}
+	return len(parts) - 1
+}
+
+func normalizeSpaceContext(spacePath []string) (string, string) {
+	spaceType := ""
+	contextParts := []string{}
+
+	for _, segment := range spacePath {
+		segmentType, segmentName := splitSpaceSegment(segment)
+		if segmentType != "" && spaceType == "" {
+			spaceType = segmentType
+		}
+
+		segmentName = strings.ReplaceAll(segmentName, ":", "/")
+		if strings.HasPrefix(segmentName, "/") {
+			contextParts = []string{}
+			segmentName = strings.TrimPrefix(segmentName, "/")
+		}
+
+		segmentName = strings.Trim(segmentName, "/")
+		if segmentName == "" {
+			continue
+		}
+
+		contextParts = append(contextParts, strings.Split(segmentName, "/")...)
+	}
+
+	return spaceType, strings.Join(contextParts, "/")
+}
+
+func splitSpaceSegment(segment string) (string, string) {
+	if idx := strings.Index(segment, ":"); idx >= 0 {
+		return segment[:idx], segment[idx+1:]
+	}
+	return "", segment
+}
+
+func impliedAggregatesForSpace(spaceName string, spaceOrder []string, entityRecordsBySpace map[string][]TEntityRecord) []string {
+	domainAggregates := map[string]bool{}
+	sensorMetricAggregates := map[string]bool{}
+
+	for _, candidateSpace := range spaceOrder {
+		if candidateSpace != spaceName && !strings.HasPrefix(candidateSpace, spaceName+"/") {
+			continue
+		}
+
+		for _, record := range entityRecordsBySpace[candidateSpace] {
+			if record.NoCollect {
+				continue
+			}
+			if record.Identity.Domain == "" {
+				continue
+			}
+
+			domain := record.Identity.Domain
+			path := record.Identity.Path
+
+			switch domain {
+			case "light", "media_player":
+				domainAggregates[domain] = true
+			case "sensor":
+				metric := lastPathSegment(path)
+				if isAggregateSensorMetric(metric) {
+					sensorMetricAggregates[metric] = true
+				}
+			}
+		}
+	}
+
+	aggregates := []string{}
+	for _, domain := range []string{"light", "media_player"} {
+		if domainAggregates[domain] {
+			aggregates = append(aggregates, fmt.Sprintf("%s.%s", domain, spaceName))
+		}
+	}
+
+	metrics := []string{}
+	for metric := range sensorMetricAggregates {
+		metrics = append(metrics, metric)
+	}
+	sort.Strings(metrics)
+	for _, metric := range metrics {
+		aggregates = append(aggregates, fmt.Sprintf("sensor.%s/%s", spaceName, metric))
+	}
+
+	return aggregates
+}
+
+func lastPathSegment(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	parts := strings.Split(path, "/")
+	return parts[len(parts)-1]
+}
+
+func isAggregateSensorMetric(metric string) bool {
+	switch metric {
+	case "temperature", "humidity", "co2", "pressure", "illuminance", "noise", "wind_speed", "wind_direction":
+		return true
+	default:
+		return false
+	}
+}
+
+func isMacroInvocation(line string, macros map[string]*TParsedCreationMacro) bool {
+	parts := strings.Fields(line)
+	if len(parts) < 1 {
+		return false
+	}
+
+	// Check if line starts with "create" followed by a macro name
+	startIdx := 0
+	if parts[0] == "create" && len(parts) > 1 {
+		startIdx = 1
+	}
+
+	macroName := parts[startIdx]
+	_, exists := macros[macroName]
+	return exists
 }

@@ -1,6 +1,221 @@
 House: Junglinster
 Definitions folder: New/Junglinster/Definitions
 
+File: Main.def
+Status: ok
+Interpretation:
+  COMMENT # Migrated preview; generated on 18.03.2026.
+  COMMENT # House: Junglinster
+  COMMENT # Target: Main.def
+  COMMENT # Source: generated entrypoint
+  COMMENT # File load order entrypoint for parser and generator phases.
+  COMMENT # Macros.def must be read before definitions that invoke create-based macros.
+  STATEMENT include Macros.def;
+  STATEMENT include Secrets.def;
+  STATEMENT include Settings.def;
+  STATEMENT include Server.def;
+  STATEMENT include Bridges.def;
+  STATEMENT include Entities.def;
+  STATEMENT include Lists.def;
+
+File: Macros.def
+Status: ok
+Interpretation:
+  COMMENT # Migrated preview; generated on 18.03.2026.
+  COMMENT # House: Junglinster
+  COMMENT # Target: Macros.def
+  COMMENT # Source: Old/Junglinster/Macros
+  COMMENT # Macros are collapsed into one file, but still form a prelude that should be read before other definitions.
+  BLOCK creation macro battery_alert { $alertLevel int op }:
+    COMMENT # Source: entity_battery_alert.def
+    STATEMENT if $alertLevel is provided then
+    BLOCK entity binary_sensor.infrastructural:$entity:battery_alert with:
+      STATEMENT definition as condition sensor.infrastructural:$entity:battery_level "($ | int(0)) < $alertLevel";
+      STATEMENT available always;
+    END BLOCK
+    STATEMENT else
+    STATEMENT entity binary_sensor.infrastructural:$entity:battery_alert;
+  END BLOCK
+  BLOCK creation macro battery_from_device { $sourceEntity entityReference, $alertLevel int op }:
+    COMMENT # Source: entity_battery_from_device.def
+    BLOCK entity sensor.infrastructural:$entity:battery_level with:
+      STATEMENT definition as value $sourceEntity!battery_level;
+    END BLOCK
+    STATEMENT entity battery_alert $entity $alertLevel;
+  END BLOCK
+  BLOCK creation macro battery_level { $alertLevel int op }:
+    COMMENT # Source: entity_battery_level.def
+    STATEMENT entity battery_alert $entity $alertLevel;
+    STATEMENT entity sensor.infrastructural:$entity:battery_level;
+  END BLOCK
+  BLOCK creation macro battery_level_device { $alertLevel int op }:
+    COMMENT # Source: entity_battery_level_device.def
+    STATEMENT entity battery_level $entity $alertLevel with providing node $entity;
+  END BLOCK
+  BLOCK creation macro light_device:
+    STATEMENT entity light.$sphere:$entity with providing node $entity/light;
+  END BLOCK
+  BLOCK creation macro media_player { $enabler string op, $offDelay string op, $noPlayInput string op, $no_collect option}:
+    BLOCK mediaPlayer = entity media_player.social:$entity with:
+      STATEMENT maybe apply $no_collect;
+      STATEMENT if $enabler is provided then
+      STATEMENT providing node $entity $enabler $offDelay;
+    END BLOCK
+    BLOCK entity switch.social:mediaPlayer:media with:
+      STATEMENT if $noPlayInput is provided then
+      STATEMENT definition as media_switch $mediaPlayer $input;
+      STATEMENT maybe apply $no_collect;
+      STATEMENT icon $MediaSwitchIcon;
+    END BLOCK
+  END BLOCK
+  BLOCK creation macro power_switch { $node string, $threshold int }:
+    COMMENT # Source: entity_power_switch.def
+    STATEMENT entity sensor.$sphere:$entity:power;
+    BLOCK entity binary_sensor.$sphere:$entity:consumes with:
+      STATEMENT definition as condition sensor.$sphere:$entity:power "($ | int(0)) > $threshold";
+      STATEMENT icon $ConsumesIcon;
+    END BLOCK
+    STATEMENT entity switch.$sphere::$entity with providing node $entity/$node;
+  END BLOCK
+  BLOCK creation macro switch_device { $name string op }:
+    STATEMENT entity switch.$sphere:$entity with providing node $entity/switch;
+  END BLOCK
+  BLOCK creation macro thermostat:
+    COMMENT # Source: entity_thermostat.def
+    STATEMENT entity climate.physical:$entity with providing node $entity;
+    BLOCK entity sensor.physical:$entity:temperature with:
+      STATEMENT definition as value climate.physical:$entity!current_temperature;
+    END BLOCK
+  END BLOCK
+  BLOCK creation macro zigbee_group { $elements set of entityReference }:
+    COMMENT # Source: entity_zigbee_group.def
+    COMMENT # $1 = Domain, $2 = Sphere, $3 = Location, $4 ... $n = Entity names
+    STATEMENT create <$type>_device $sphere:$entity;
+    BLOCK space physical:$entity with:
+      STATEMENT no_collect
+      STATEMENT for $element in $elements do
+      STATEMENT create <$type>_device physical:$e;
+    END BLOCK
+  END BLOCK
+  BLOCK creation macro zwave_node:
+    COMMENT # Source: entity_zwave_node.def
+    STATEMENT entity sensor.infrastructural:$entity/status;
+    STATEMENT entity binary_sensor.infrastructural:$entity:node with definition as condition sensor.infrastructural:$entity/status "($ == 'alive')";
+  END BLOCK
+  BLOCK creation macro windy { $sensor entityReference, $delay_on string op, $delay_off string op }:
+    COMMENT # Windy condition: compares wind speed threshold against a sensor value.
+    COMMENT # Multi-parameter condition syntax: $1 is threshold, $2 is sensor value.
+    BLOCK $windyThreshold = entity input_number.social:/:windy_threshold with:
+      STATEMENT defined as input_number;
+      STATEMENT minimum $WindSpeedMin;
+      STATEMENT maximum $WindSpeedMax;
+      STATEMENT icon $WindSpeedIcon;
+      STATEMENT units $WindSpeedUnit;
+    END BLOCK
+    BLOCK entity binary_sensor.social::windy with:
+      STATEMENT definition as condition $windyThreshold $sensor "($1 | int) > ($2 | int)";
+      STATEMENT device_class $WindyDeviceClass;
+      STATEMENT maybe use $delay_on;
+      STATEMENT maybe use $delay_off;
+    END BLOCK
+  END BLOCK
+  BLOCK creation macro sunny { $sensor entityReference, $delay_on string op, $delay_off string op }:
+    COMMENT # Sunny condition: compares illuminance threshold against a sensor value.
+    COMMENT # Multi-parameter condition syntax: $1 is threshold, $2 is sensor value.
+    BLOCK $sunnyThreshold = entity input_number.social:/:sunny_threshold with:
+      STATEMENT defined as input_number;
+      STATEMENT minimum $IlluminanceMin;
+      STATEMENT maximum $IlluminanceMax;
+      STATEMENT icon $IlluminanceIcon;
+      STATEMENT units $IlluminanceUnit;
+    END BLOCK
+    BLOCK entity binary_sensor.social::sunny with:
+      STATEMENT definition as condition $sunnyThreshold $sensor "($1 | int) < ($2 | int)";
+      STATEMENT device_class $SunnyDeviceClass;
+      STATEMENT maybe use $delay_on;
+      STATEMENT maybe use $delay_off;
+    END BLOCK
+  END BLOCK
+
+File: Secrets.def
+Status: ok
+Interpretation:
+  COMMENT # Migrated preview; generated on 18.03.2026.
+  COMMENT # House: Junglinster
+  COMMENT # Target: Secrets.def
+  COMMENT # Source: Old/Junglinster/Settings/secrets.def
+  COMMENT # Secret values are intentionally not migrated.
+  COMMENT # Fill in deployment values locally and keep this file out of version control.
+  BLOCK secrets:
+    STATEMENT $rest_authorization_xanadu = "";
+    STATEMENT $smarty_key = "";
+    STATEMENT $telnet_password = "";
+    STATEMENT $telnet_port = "";
+    STATEMENT $volvo_login = "";
+    STATEMENT $volvo_password = "";
+    STATEMENT $xiaomi_token = "";
+    STATEMENT $zigbee_deconz_key = "";
+    STATEMENT $zigbee_importer_key = "";
+    STATEMENT $zwave_deconz_home_id = "";
+    STATEMENT $zwave_zwave_home_id = "";
+    STATEMENT $MainAPIToken = "";
+  END BLOCK
+
+File: Settings.def
+Status: ok
+Interpretation:
+  COMMENT # Migrated preview; generated on 18.03.2026.
+  COMMENT # House: Junglinster
+  COMMENT # Target: Settings.def
+  COMMENT # Source: Old/Junglinster/Settings
+  COMMENT # Domain settings are retained here; secrets remain external.
+  BLOCK settings:
+    STATEMENT Workdays "LU";
+    STATEMENT AroundIcon "mdi:city";
+    STATEMENT AwayIcon "mdi:airplane";
+    STATEMENT ConsumesIcon "mdi:flash";
+    STATEMENT CoverCloseIcon "mdi:triangle-down";
+    STATEMENT CoversAutoControlIcon "mdi:dots-vertical";
+    STATEMENT CoversAutoControlOnIcon "mdi:dots-vertical-circle";
+    STATEMENT DayTimeIcon "mdi:sun-clock";
+    STATEMENT CoverageTimeIcon "mdi:clock-start";
+    STATEMENT CPUIcon "mdi:cpu-64-bit";
+    STATEMENT HeatingIcon "mdi:radiator";
+    STATEMENT IgnoreNoMotionIcon "mdi:motion-sensor-off";
+    STATEMENT HomeIcon "mdi:home";
+    STATEMENT MediaSwitchIcon "mdi:monitor-speaker";
+    STATEMENT NightTimeIcon "mdi:bed-clock";
+    STATEMENT NodeIcon "mdi:server-network";
+    STATEMENT VacuumIcon "mdi:robot-vacuum";
+    STATEMENT WorkdayIcon "mdi:office-building-cog";
+    STATEMENT WaterIcon "mdi:water-off";
+    STATEMENT SunnyIcon "mdi:sunglasses";
+    STATEMENT LightGroupIcon "mdi:lightbulb-group";
+    STATEMENT LightIcon "mdi:lightbulb";
+    STATEMENT TemperatureIcon "mdi:thermometer";
+    STATEMENT WindSpeedIcon "mdi:weather-windy";
+    STATEMENT IlluminanceIcon "mdi:brightness-5";
+  END BLOCK
+
+File: Server.def
+Status: ok
+Interpretation:
+  COMMENT # Migrated preview; generated on 18.03.2026.
+  COMMENT # House: Junglinster
+  COMMENT # Target: Server.def
+  COMMENT # Source: Old/Junglinster/Definitions/00_server.def
+  COMMENT # The conditional routing logic is preserved here, but concrete deployment values stay external.
+  BLOCK servers:
+    STATEMENT external LocalServer;
+    STATEMENT external MainInstance__LocalServer;
+    STATEMENT external MainInstance__otherwise;
+    STATEMENT secret MainAPIToken;
+    BLOCK choose MainInstance:
+      STATEMENT when server_is_up LocalServer then MainInstance__LocalServer;
+      STATEMENT otherwise MainInstance__otherwise;
+    END BLOCK
+  END BLOCK
+
 File: Bridges.def
 Status: ok
 Interpretation:
@@ -9,8 +224,6 @@ Interpretation:
   COMMENT # Target: Bridges.def
   COMMENT # Source: Old/Junglinster/Definitions/01_bridges.def
   COMMENT # Local bridge declarations are intentionally omitted; host context is defined in Entities.def.
-  BLOCK bridges:
-  END BLOCK
 
 File: Entities.def
 Status: ok
@@ -28,7 +241,7 @@ Interpretation:
   BLOCK space social:entrance with:
     STATEMENT entity sensor._:/ems_esp_boiler_boiler_outside_temperature;
     STATEMENT entity sensor.physical:garage_door:temperature with
-    STATEMENT value sensor._:/ems_esp_boiler_boiler_outside_temperature;
+    STATEMENT definition as value sensor._:/ems_esp_boiler_boiler_outside_temperature;
     COMMENT # Available if binary_sensor.infrastructural:/house/laundry_kitchen/ems:node is available.
     STATEMENT entity switch.social:sockets with providing node /garage/fuse_box/zwave/028;
     STATEMENT entity light.social:front_door;
@@ -48,7 +261,7 @@ Interpretation:
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
       STATEMENT entity binary_sensor.infrastructural:netatmo:node with
-      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+      STATEMENT definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
       STATEMENT entity sensor.infrastructural:netatmo:battery_level;
       STATEMENT battery_alert netatmo with alert_level 20;
       STATEMENT entity light.social:main with providing node /house/server_room/fuse_box/zwave/024;
@@ -75,23 +288,23 @@ Interpretation:
   BLOCK space social:garage with:
     STATEMENT entity binary_sensor.infrastructural:smarty:node;
     BLOCK entity sensor.infrastructural:smarty:load with:
-      STATEMENT definition cli_sensor pi smarty.fritz.box ./cpu/load;
+      STATEMENT definition as cli_sensor pi smarty.fritz.box ./cpu/load;
       COMMENT # Availability depends on binary_sensor.infrastructural:smarty:node
     END BLOCK
     BLOCK entity sensor.infrastructural:smarty:temperature no_collect with:
-      STATEMENT definition cli_sensor pi smarty.fritz.box ./cpu/temperature;
+      STATEMENT definition as cli_sensor pi smarty.fritz.box ./cpu/temperature;
       COMMENT # Availability depends on binary_sensor.infrastructural:smarty:node
     END BLOCK
     STATEMENT entity switch.infrastructural:smarty with providing node smarty/innr;
     STATEMENT entity sensor.physical:rear/aqara_multi:humidity;
-    STATEMENT entity sensor.physical:rear/aqara_multi:pressure with adjustment 38 1;
+    STATEMENT entity sensor.physical:rear/aqara_multi:pressure with definition as adjustment 38 1;
     STATEMENT entity sensor.physical:rear/aqara_multi:temperature;
     STATEMENT battery_level_device rear/aqara_multi with alert_level 15;
     STATEMENT entity binary_sensor.physical:rear/ikea_motion:motion with providing node rear/ikea_motion;
     STATEMENT entity sensor.infrastructural:rear/ikea_motion:battery_level;
     STATEMENT battery_alert rear/ikea_motion with alert_level 10;
     STATEMENT entity sensor.physical:front/aqara_multi:humidity;
-    STATEMENT entity sensor.physical:front/aqara_multi:pressure with adjustment 38 1;
+    STATEMENT entity sensor.physical:front/aqara_multi:pressure with definition as adjustment 38 1;
     STATEMENT entity sensor.physical:front/aqara_multi:temperature;
     STATEMENT battery_level_device front/aqara_multi with alert_level 15;
     STATEMENT entity binary_sensor.physical:front/ikea_motion:motion with providing node front/ikea_motion;
@@ -123,11 +336,11 @@ Interpretation:
         STATEMENT entity sensor.infrastructural:junglinster:temperature no_collect;
       END BLOCK
       STATEMENT entity sensor.physical:front/aqara_multi:humidity;
-      STATEMENT entity sensor.physical:front/aqara_multi:pressure with adjustment 38 1;
+      STATEMENT entity sensor.physical:front/aqara_multi:pressure with definition as adjustment 38 1;
       STATEMENT entity sensor.physical:front/aqara_multi:temperature;
       STATEMENT battery_level_device front/aqara_multi with alert_level 15;
       STATEMENT entity sensor.physical:rear/aqara_multi:humidity;
-      STATEMENT entity sensor.physical:rear/aqara_multi:pressure with adjustment 38 1;
+      STATEMENT entity sensor.physical:rear/aqara_multi:pressure with definition as adjustment 38 1;
       STATEMENT entity sensor.physical:rear/aqara_multi:temperature;
       STATEMENT battery_level_device rear/aqara_multi with alert_level 15;
       STATEMENT entity binary_sensor.physical:rear/frient:motion;
@@ -174,9 +387,9 @@ Interpretation:
       STATEMENT entity binary_sensor.infrastructural:connexoon:node;
       STATEMENT entity binary_sensor.infrastructural:frame:node;
       STATEMENT entity sensor.infrastructural:frame:load with
-      STATEMENT definition cli_sensor pi 192.168.178.58 ./cpu/load;
+      STATEMENT definition as cli_sensor pi 192.168.178.58 ./cpu/load;
       STATEMENT entity sensor.infrastructural:frame:temperature no_collect with
-      STATEMENT definition cli_sensor pi 192.168.178.58 ./cpu/temperature;
+      STATEMENT definition as cli_sensor pi 192.168.178.58 ./cpu/temperature;
       BLOCK entity cover.social:front with:
         STATEMENT open_stop_close;
         STATEMENT providing node front/somfy;
@@ -203,7 +416,7 @@ Interpretation:
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
       STATEMENT entity binary_sensor.infrastructural:netatmo:node with
-      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+      STATEMENT definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
       STATEMENT battery_level_device dining/philips_dimmer with alert_level 20;
       STATEMENT battery_level_device living/philips_dimmer with alert_level 20;
       STATEMENT light_device social:indirect;
@@ -212,7 +425,7 @@ Interpretation:
         STATEMENT entity light.physical:main_dimmer no_collect;
         BLOCK entity light.social:main with:
           STATEMENT icon mdi:lightbulb;
-          STATEMENT definition switched_device light.physical:main_dimmer light.physical:main;
+          STATEMENT definition as switched_device light.physical:main_dimmer light.physical:main;
         END BLOCK
         STATEMENT light_device social:hanging_sideboard;
         STATEMENT light_device social:bloom_left;
@@ -220,7 +433,7 @@ Interpretation:
         STATEMENT light_device social:christmas_tree;
         STATEMENT light_device social:gray_sideboard;
         STATEMENT entity switch.social:picture_frame with
-        STATEMENT definition cli_switch pi 192.168.178.58 ./bin/start_slideshow ./bin/stop_slideshow ./bin/check_slideshow;
+        STATEMENT definition as cli_switch pi 192.168.178.58 ./bin/start_slideshow ./bin/stop_slideshow ./bin/check_slideshow;
         STATEMENT entity binary_sensor.physical:windows/aqara_magnet:window;
         STATEMENT battery_level_device windows/aqara_magnet with alert_level 10;
         STATEMENT light on: social:main;
@@ -230,7 +443,7 @@ Interpretation:
         STATEMENT entity light.physical:main_dimmer no_collect;
         BLOCK entity light.social:main with:
           STATEMENT icon mdi:lightbulb;
-          STATEMENT definition switched_device light.physical:main_dimmer light.physical:main;
+          STATEMENT definition as switched_device light.physical:main_dimmer light.physical:main;
         END BLOCK
         STATEMENT entity light.social:red_highboard;
         STATEMENT entity binary_sensor.physical:windows/aqara_magnet:window;
@@ -254,9 +467,9 @@ Interpretation:
         STATEMENT threshold 10;
       END BLOCK
       STATEMENT entity binary_sensor.social:nespresso:brews with
-      STATEMENT condition sensor.social:nespresso:power "( $ | int(0) > 200 )";
+      STATEMENT definition as condition sensor.social:nespresso:power "( $ | int(0) > 200 )";
       STATEMENT entity binary_sensor.social:nespresso:in_use with
-      STATEMENT definition has_state binary_sensor.social:nespresso:brews "on" "" "00:10:00";
+      STATEMENT definition as has_state binary_sensor.social:nespresso:brews "on" "" "00:10:00";
       STATEMENT media_player sonos;
       STATEMENT entity sensor.infrastructural:sonos:battery_level;
       STATEMENT battery_alert sonos with alert_level 10;
@@ -266,7 +479,7 @@ Interpretation:
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
       STATEMENT entity binary_sensor.infrastructural:netatmo:node with
-      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+      STATEMENT definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
       STATEMENT entity sensor.infrastructural:netatmo:battery_level;
       STATEMENT battery_alert netatmo with alert_level 20;
       STATEMENT thermostat radiator/aqara_thermostat;
@@ -276,14 +489,14 @@ Interpretation:
       BLOCK space social:workplace with:
         STATEMENT entity sensor.physical:furnace:power;
         STATEMENT entity binary_sensor.social:furnace:consumes with
-        STATEMENT condition sensor.physical:furnace:power "( $ | int(0) > 50 )";
+        STATEMENT definition as condition sensor.physical:furnace:power "( $ | int(0) > 50 )";
         STATEMENT entity switch.physical:furnace;
-        STATEMENT entity switch.social:furnace with definition flip switch.physical:furnace;
+        STATEMENT entity switch.social:furnace with definition as flipped switch.physical:furnace;
         STATEMENT entity light.physical:: no_collect;
         STATEMENT entity light.physical::dimmer no_collect;
         BLOCK entity light.social::main with:
           STATEMENT icon mdi:lightbulb;
-          STATEMENT definition switched_device light.physical::dimmer light.physical;
+          STATEMENT definition as switched_device light.physical::dimmer light.physical;
         END BLOCK
         STATEMENT entity binary_sensor.physical:aqara_magnet:window;
         STATEMENT battery_level_device aqara_magnet with alert_level 10;
@@ -303,7 +516,7 @@ Interpretation:
       STATEMENT entity binary_sensor.physical:philips_motion:motion;
       STATEMENT battery_level_device philips_motion with alert_level 10;
       STATEMENT entity fan.social with providing node /house/kitchen/hallway_door/switch_box/fibaro;
-      STATEMENT entity timer.social:removing_smell with definition timer "00:03:00";
+      STATEMENT entity timer.social:removing_smell with definition as timer "00:03:00";
       STATEMENT limits timer.social:removing_smell fan.social: off on;
       STATEMENT entity light.social:main with providing node /house/kitchen/hallway_door/power_socket/fibaro;
       STATEMENT entity binary_sensor.physical:window/aqara_magnet:window;
@@ -315,11 +528,11 @@ Interpretation:
     BLOCK space social:downward_hallway with:
       STATEMENT entity sensor.infrastructural:laserjet/status with providing node laserjet;
       STATEMENT entity sensor.infrastructural:laserjet/message with
-      STATEMENT value sensor.infrastructural:laserjet/status!state_message;
+      STATEMENT definition as value sensor.infrastructural:laserjet/status!state_message;
       STATEMENT entity sensor.infrastructural:laserjet/uptime;
       STATEMENT entity binary_sensor.infrastructural:orbi:node;
       STATEMENT entity sensor.physical:aqara_multi:humidity;
-      STATEMENT entity sensor.physical:aqara_multi:pressure with adjustment 38 1;
+      STATEMENT entity sensor.physical:aqara_multi:pressure with definition as adjustment 38 1;
       STATEMENT entity sensor.physical:aqara_multi:temperature;
       STATEMENT battery_level_device aqara_multi with alert_level 15;
       STATEMENT entity sensor.physical:philips_motion:temperature;
@@ -347,7 +560,7 @@ Interpretation:
         STATEMENT entity sensor.infrastructural:netatmo:radio;
         STATEMENT entity sensor.infrastructural:netatmo:reachability;
         STATEMENT entity binary_sensor.infrastructural:netatmo:node with
-        STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+        STATEMENT definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
         STATEMENT entity sensor.infrastructural:netatmo:battery_level;
         STATEMENT battery_alert netatmo with alert_level 20;
         STATEMENT entity binary_sensor.physical:entrance/aqara_magnet:door;
@@ -373,7 +586,7 @@ Interpretation:
         COMMENT #        icon mdi:lightbulb
         COMMENT #        define enabled_device light.physical:main light.social:/house/upward_hallway/main
         STATEMENT entity sensor.physical:aqara_multi:humidity;
-        STATEMENT entity sensor.physical:aqara_multi:pressure with adjustment 38 1;
+        STATEMENT entity sensor.physical:aqara_multi:pressure with definition as adjustment 38 1;
         STATEMENT entity sensor.physical:aqara_multi:temperature;
         STATEMENT battery_level_device aqara_multi with alert_level 15;
         STATEMENT entity binary_sensor.physical:aqara_magnet:window;
@@ -404,7 +617,7 @@ Interpretation:
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
       STATEMENT entity binary_sensor.infrastructural:netatmo:node with
-      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+      STATEMENT definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
       STATEMENT entity light.social:main with providing node door_switch_box/fibaro;
       STATEMENT entity binary_sensor.physical:windows/aqara_magnet:window;
       STATEMENT battery_level_device windows/aqara_magnet with alert_level 10;
@@ -431,7 +644,7 @@ Interpretation:
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
       STATEMENT entity binary_sensor.infrastructural:netatmo:node with
-      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+      STATEMENT definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
       STATEMENT entity binary_sensor.physical:windows/aqara_magnet:window;
       STATEMENT battery_level_device windows/aqara_magnet with alert_level 10;
       STATEMENT light on: social:main;
@@ -459,7 +672,7 @@ Interpretation:
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
       STATEMENT entity binary_sensor.infrastructural:netatmo:node with
-      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+      STATEMENT definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
       BLOCK space social:bed with:
         STATEMENT light_device left;
         STATEMENT light_device right;
@@ -492,7 +705,7 @@ Interpretation:
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
       STATEMENT entity binary_sensor.infrastructural:netatmo:node with
-      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+      STATEMENT definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
       STATEMENT entity sensor.infrastructural:netatmo:battery_level;
       STATEMENT battery_alert netatmo with alert_level 20;
       STATEMENT entity light.social:main with
@@ -529,23 +742,23 @@ Interpretation:
       STATEMENT entity binary_sensor.infrastructural:fritzbox:node;
       STATEMENT entity binary_sensor.infrastructural:xanadu:node;
       STATEMENT entity sensor.infrastructural:xanadu:load with
-      STATEMENT definition cli_sensor erikp xanadu.fritz.box ./cpu/load;
+      STATEMENT definition as cli_sensor erikp xanadu.fritz.box ./cpu/load;
       STATEMENT entity sensor.infrastructural:xanadu:temperature no_collect with
-      STATEMENT definition cli_sensor erikp xanadu.fritz.box ./cpu/temperature;
+      STATEMENT definition as cli_sensor erikp xanadu.fritz.box ./cpu/temperature;
       STATEMENT entity light.physical:main_spots no_collect;
       STATEMENT entity light.physical:main no_collect;
       BLOCK entity light.social:main with:
         STATEMENT icon mdi:lightbulb;
-        STATEMENT definition switched_device light.physical:main_spots light.physical:main;
+        STATEMENT definition as switched_device light.physical:main_spots light.physical:main;
       END BLOCK
       BLOCK space social:rack with:
         STATEMENT entity sensor.physical:aqara_multi:humidity;
-        STATEMENT entity sensor.physical:aqara_multi:pressure with adjustment 38 1;
+        STATEMENT entity sensor.physical:aqara_multi:pressure with definition as adjustment 38 1;
         STATEMENT entity sensor.physical:aqara_multi:temperature;
         STATEMENT battery_level_device aqara_multi with alert_level 15;
       END BLOCK
       STATEMENT entity sensor.physical:aqara_multi:humidity;
-      STATEMENT entity sensor.physical:aqara_multi:pressure with adjustment 38 1;
+      STATEMENT entity sensor.physical:aqara_multi:pressure with definition as adjustment 38 1;
       STATEMENT entity sensor.physical:aqara_multi:temperature;
       STATEMENT battery_level_device aqara_multi with alert_level 15;
       STATEMENT entity sensor.physical:philips_motion:temperature;
@@ -558,12 +771,12 @@ Interpretation:
     END BLOCK
     BLOCK space social:corridor with:
       STATEMENT entity switch.physical::heating_raw;
-      STATEMENT entity switch.physical::heating with definition flip switch.physical::heating_raw;
+      STATEMENT entity switch.physical::heating with definition as flipped switch.physical::heating_raw;
       STATEMENT entity light.physical:main_spots no_collect;
       STATEMENT entity light.physical:main no_collect with providing node /house/server_room/fuse_box/zwave/021;
       BLOCK entity light.social:main with:
         STATEMENT icon mdi:lightbulb;
-        STATEMENT definition switched_device light.physical:main_spots light.physical:main;
+        STATEMENT definition as switched_device light.physical:main_spots light.physical:main;
       END BLOCK
       STATEMENT light_device social:corb;
       STATEMENT follows light.social:corb light.social:main;
@@ -574,12 +787,12 @@ Interpretation:
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
       STATEMENT entity binary_sensor.infrastructural:netatmo:node with
-      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+      STATEMENT definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
       STATEMENT entity sensor.infrastructural:netatmo:battery_level;
       STATEMENT battery_alert netatmo with alert_level 20;
       STATEMENT entity sensor.social:ring:volume with providing node ring;
       STATEMENT entity sensor.physical:aqara_multi:humidity;
-      STATEMENT entity sensor.physical:aqara_multi:pressure with adjustment 38 1;
+      STATEMENT entity sensor.physical:aqara_multi:pressure with definition as adjustment 38 1;
       STATEMENT entity sensor.physical:aqara_multi:temperature;
       STATEMENT battery_level_device aqara_multi with alert_level 15;
       STATEMENT entity sensor.physical:philips_motion:temperature;
@@ -597,7 +810,7 @@ Interpretation:
     END BLOCK
     BLOCK space social:storage_room with:
       STATEMENT entity switch.physical::heating_raw;
-      STATEMENT entity switch.physical::heating with definition flip switch.physical::heating_raw;
+      STATEMENT entity switch.physical::heating with definition as flipped switch.physical::heating_raw;
       STATEMENT entity light.social:main;
       BLOCK entity switch.physical:backup with:
         STATEMENT icon mdi:server;
@@ -605,9 +818,9 @@ Interpretation:
       END BLOCK
       STATEMENT entity binary_sensor.infrastructural:backup:node;
       STATEMENT entity sensor.infrastructural:backup:load with
-      STATEMENT definition cli_sensor pi backup.fritz.box ./cpu/load;
+      STATEMENT definition as cli_sensor pi backup.fritz.box ./cpu/load;
       STATEMENT entity sensor.infrastructural:backup:temperature no_collect with
-      STATEMENT definition cli_sensor pi backup.fritz.box ./cpu/temperature;
+      STATEMENT definition as cli_sensor pi backup.fritz.box ./cpu/temperature;
       STATEMENT entity binary_sensor.physical:windows/aqara_magnet:window;
       STATEMENT battery_level_device windows/aqara_magnet with alert_level 10;
       STATEMENT entity sensor.physical:netatmo:co2;
@@ -616,11 +829,11 @@ Interpretation:
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
       STATEMENT entity binary_sensor.infrastructural:netatmo:node with
-      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+      STATEMENT definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
       STATEMENT entity sensor.infrastructural:netatmo:battery_level;
       STATEMENT battery_alert netatmo with alert_level 20;
       STATEMENT entity sensor.physical:door/aqara_multi:humidity;
-      STATEMENT entity sensor.physical:door/aqara_multi:pressure with adjustment 38 1;
+      STATEMENT entity sensor.physical:door/aqara_multi:pressure with definition as adjustment 38 1;
       STATEMENT entity sensor.physical:door/aqara_multi:temperature;
       STATEMENT battery_level_device door/aqara_multi with alert_level 15;
       STATEMENT entity sensor.physical:philips_motion:temperature;
@@ -633,16 +846,16 @@ Interpretation:
     END BLOCK
     BLOCK space social:bathroom with:
       STATEMENT entity switch.physical::heating_raw;
-      STATEMENT entity switch.physical::heating with definition flip switch.physical::heating_raw;
+      STATEMENT entity switch.physical::heating with definition as flipped switch.physical::heating_raw;
       STATEMENT entity light.physical:main_disc no_collect;
       STATEMENT entity light.physical:main no_collect with providing node /house/server_room/fuse_box/zwave/029;
       BLOCK entity light.social:main with:
         STATEMENT icon mdi:lightbulb;
-        STATEMENT definition switched_device light.physical:main_disc light.physical:main;
+        STATEMENT definition as switched_device light.physical:main_disc light.physical:main;
       END BLOCK
       STATEMENT entity switch.social:whirlpool with providing node bathtub/relais_box;
       STATEMENT entity binary_sensor.physical:whirlpool:motion with
-      STATEMENT definition has_state switch.social:whirlpool on;
+      STATEMENT definition as has_state switch.social:whirlpool on;
       STATEMENT battery_level_device philips_dimmer with alert_level 20;
       STATEMENT entity binary_sensor.physical:windows/aqara_magnet:window;
       STATEMENT battery_level_device windows/aqara_magnet with alert_level 10;
@@ -652,11 +865,11 @@ Interpretation:
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
       STATEMENT entity binary_sensor.infrastructural:netatmo:node with
-      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+      STATEMENT definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
       STATEMENT entity sensor.infrastructural:netatmo:battery_level;
       STATEMENT battery_alert netatmo with alert_level 20;
       STATEMENT entity sensor.physical:aqara_multi:humidity;
-      STATEMENT entity sensor.physical:aqara_multi:pressure with adjustment 38 1;
+      STATEMENT entity sensor.physical:aqara_multi:pressure with definition as adjustment 38 1;
       STATEMENT entity sensor.physical:aqara_multi:temperature;
       STATEMENT battery_level_device aqara_multi with alert_level 15;
       STATEMENT entity sensor.physical:right/philips_motion:temperature;
@@ -675,7 +888,7 @@ Interpretation:
     END BLOCK
     BLOCK space social:office with:
       STATEMENT entity switch.physical::heating_raw;
-      STATEMENT entity switch.physical::heating with definition flip switch.physical::heating_raw;
+      STATEMENT entity switch.physical::heating with definition as flipped switch.physical::heating_raw;
       STATEMENT entity binary_sensor.infrastructural:sonos_left:node;
       STATEMENT entity binary_sensor.infrastructural:sonos_right:node;
       STATEMENT entity sensor.physical:netatmo:co2;
@@ -686,7 +899,7 @@ Interpretation:
       STATEMENT entity sensor.infrastructural:netatmo:radio;
       STATEMENT entity sensor.infrastructural:netatmo:reachability;
       STATEMENT entity binary_sensor.infrastructural:netatmo:node with
-      STATEMENT condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+      STATEMENT definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
       STATEMENT entity binary_sensor.infrastructural:orbi:node;
       STATEMENT switch_device social desktop;
       STATEMENT switch_device social media_drive;
@@ -709,14 +922,14 @@ Interpretation:
       STATEMENT entity light.physical:main no_collect with providing node /house/server_room/fuse_box/zwave/023;
       BLOCK entity light.social:main with:
         STATEMENT icon mdi:lightbulb;
-        STATEMENT definition switched_device light.physical:ceiling light.physical:main;
+        STATEMENT definition as switched_device light.physical:ceiling light.physical:main;
       END BLOCK
       STATEMENT entity light.social:lower_strip with providing node lower_strip;
       STATEMENT entity light.social:upper_strip with providing node upper_strip;
       STATEMENT entity light.social:low_board with providing node low_board;
       STATEMENT follows light.social:low_board light.social:main;
       STATEMENT entity sensor.physical:door/aqara_multi:humidity;
-      STATEMENT entity sensor.physical:door/aqara_multi:pressure with adjustment 38 1;
+      STATEMENT entity sensor.physical:door/aqara_multi:pressure with definition as adjustment 38 1;
       STATEMENT entity sensor.physical:door/aqara_multi:temperature;
       STATEMENT battery_level_device door/aqara_multi with alert_level 15;
       BLOCK space social:drain with:
@@ -758,7 +971,7 @@ Interpretation:
   BLOCK space social:loft with:
     STATEMENT entity light.social:main with providing node switch_box/nodon;
     STATEMENT entity sensor.physical:aqara_multi:humidity;
-    STATEMENT entity sensor.physical:aqara_multi:pressure with adjustment 38 1;
+    STATEMENT entity sensor.physical:aqara_multi:pressure with definition as adjustment 38 1;
     STATEMENT entity sensor.physical:aqara_multi:temperature;
     STATEMENT battery_level_device aqara_multi with alert_level 15;
   END BLOCK
@@ -787,7 +1000,7 @@ Interpretation:
     END BLOCK
   END BLOCK
   STATEMENT entity sun.[sun];
-  STATEMENT entity binary_sensor.social::daylight with condition sun.sun!elevation "$ > 4";
+  STATEMENT entity binary_sensor.social::daylight with definition as condition sun.sun!elevation "$ > 4";
   STATEMENT space off: @light @media;
   COMMENT ######
   COMMENT # HERE
@@ -891,214 +1104,5 @@ Interpretation:
   BLOCK list "Ignore leakage" all input_boolean.*:*:heating/leakage/ignore
     STATEMENT clean_prefix  social;
     STATEMENT clean_postfix heating.leakage.ignore;
-  END BLOCK
-
-File: Macros.def
-Status: ok
-Interpretation:
-  COMMENT # Migrated preview; generated on 18.03.2026.
-  COMMENT # House: Junglinster
-  COMMENT # Target: Macros.def
-  COMMENT # Source: Old/Junglinster/Macros
-  COMMENT # Macros are collapsed into one file, but still form a prelude that should be read before other definitions.
-  BLOCK macro battery_alert ($entity $alertLevel):
-    COMMENT # Source: entity_battery_alert.def
-    STATEMENT declare entity binary_sensor.infrastructural:$entity:battery_alert;
-    BLOCK if "$alertLevel" != "" then
-      STATEMENT condition sensor.infrastructural:$entity:battery_level "($ | int(0)) < $alertLevel";
-      STATEMENT available always;
-    END BLOCK
-  END BLOCK
-  BLOCK macro battery_from_device ($entity $sourceEntity $alertLevel):
-    COMMENT # Source: entity_battery_from_device.def
-    STATEMENT declare entity sensor.infrastructural:$entity:battery_level;
-    STATEMENT define value $sourceEntity!battery_level;
-    STATEMENT entity battery_alert $entity $alertLevel;
-  END BLOCK
-  BLOCK macro battery_level ($entity $alertLevel):
-    COMMENT # Source: entity_battery_level.def
-    STATEMENT entity battery_alert $entity $alertLevel;
-    STATEMENT declare entity sensor.infrastructural:$entity:battery_level;
-  END BLOCK
-  BLOCK macro battery_level_device ($entity $alertLevel):
-    COMMENT # Source: entity_battery_level_device.def
-    STATEMENT entity battery_level $entity $alertLevel;
-    STATEMENT providing node $entity;
-  END BLOCK
-  BLOCK macro light_device ($sphereOrName $name):
-    COMMENT # Source: entity_light_device.def
-    BLOCK if "$name" == "" then
-      STATEMENT lightSphere="social";
-      STATEMENT lightName="$sphereOrName";
-    END BLOCK
-    BLOCK else
-      STATEMENT lightSphere="$sphereOrName";
-      STATEMENT lightName="$name";
-    END BLOCK
-    STATEMENT declare entity light.$lightSphere:$lightName;
-    STATEMENT providing node $lightName/light;
-  END BLOCK
-  BLOCK macro media_player ($entity $option $value):
-    COMMENT # Source: entity_media_player.def
-    STATEMENT thisEntity="$entity";
-    BLOCK if "$option" == "no_collect" then
-      STATEMENT noCollect="no_collect";
-      STATEMENT shift;
-    END BLOCK
-    BLOCK else
-      STATEMENT noCollect="";
-    END BLOCK
-    BLOCK if "$option" == "no_play" then
-      STATEMENT enabler="";
-      STATEMENT delayOffety="";
-      STATEMENT inputety="$value";
-    END BLOCK
-    BLOCK else
-      STATEMENT enabler="$option";
-      STATEMENT delayOffety="$value";
-      STATEMENT inputety="";
-    END BLOCK
-    STATEMENT declare entity media_player.social:$thisEntity $noCollect;
-    STATEMENT providing node $thisEntity $enabler $delayOffety;
-    STATEMENT mediaPlayerSpecification=$CurrentEntitySpecification;
-    STATEMENT declare entity switch.social:$thisEntity:media $noCollect;
-    STATEMENT icon $MediaSwitchIcon;
-    STATEMENT define media_switch $mediaPlayerSpecification "$inputety";
-  END BLOCK
-  BLOCK macro power_switch { $node string, $threshold int }:
-    COMMENT # Source: entity_power_switch.def
-    STATEMENT declare entity sensor.$sphere:$entity:power;
-    BLOCK declare entity binary_sensor.$sphere:$entity:consumes with:
-      STATEMENT icon $ConsumesIcon;
-      STATEMENT condition sensor.$sphere:$entity:power "($ | int(0)) > $threshold";
-    END BLOCK
-    STATEMENT declare entity switch.$sphere::$entity with providing node $entity/$node;
-  END BLOCK
-  BLOCK macro switch_device ($sphereOrName $name):
-    COMMENT # Source: entity_switch_device.def
-    BLOCK if "$name" == "" then
-      STATEMENT switchSphere="social";
-      STATEMENT switchName="$sphereOrName";
-    END BLOCK
-    BLOCK else
-      STATEMENT switchSphere="$sphereOrName";
-      STATEMENT switchName="$name";
-    END BLOCK
-    STATEMENT declare entity switch.$switchSphere:$switchName;
-    STATEMENT providing node $switchName/switch;
-  END BLOCK
-  BLOCK macro thermostat ($entity):
-    COMMENT # Source: entity_thermostat.def
-    STATEMENT declare entity climate.physical:$entity;
-    STATEMENT providing node $entity;
-    STATEMENT declare entity sensor.physical:$entity:temperature;
-    STATEMENT define value climate.physical:$entity!current_temperature;
-  END BLOCK
-  BLOCK macro zigbee_group ($domain $sphere $location $entities...):
-    COMMENT # Source: entity_zigbee_group.def
-    COMMENT # $1 = Domain, $2 = Sphere, $3 = Location, $4 ... $n = Entity names
-    STATEMENT groupDomain=$domain;
-    STATEMENT groupLocation=$location;
-    STATEMENT entity ${groupDomain}_device $sphere $groupLocation;
-    BLOCK space physical:$groupLocation no_collect
-      STATEMENT shift; shift; shift;
-      BLOCK for e in $* do
-        STATEMENT entity ${groupDomain}_device physical $e;
-      END BLOCK
-    END BLOCK
-  END BLOCK
-  BLOCK macro zwave_node ($node):
-    COMMENT # Source: entity_zwave_node.def
-    STATEMENT declare entity sensor.infrastructural:$node/status;
-    STATEMENT declare entity binary_sensor.infrastructural:$node:node;
-    STATEMENT condition sensor.infrastructural:$node/status "($ == 'alive')";
-  END BLOCK
-  BLOCK macro lights_motion_guarded { $delay int }:
-    COMMENT # Built-in macro marker. Runtime semantics are currently handled by the entity processing pipeline.
-  END BLOCK
-  BLOCK macro windy { $sensor entity_spec, $delay_on string op, $delay_off string op }:
-    COMMENT # Built-in macro marker. Runtime semantics are currently handled by the entity processing pipeline.
-  END BLOCK
-  BLOCK macro sunny { $sensor entity_spec, $delay_on string op, $delay_off string op }:
-    COMMENT # Built-in macro marker. Runtime semantics are currently handled by the entity processing pipeline.
-  END BLOCK
-
-File: Secrets.def
-Status: ok
-Interpretation:
-  COMMENT # Migrated preview; generated on 18.03.2026.
-  COMMENT # House: Junglinster
-  COMMENT # Target: Secrets.def
-  COMMENT # Source: Old/Junglinster/Settings/secrets.def
-  COMMENT # Secret values are intentionally not migrated.
-  COMMENT # Fill in deployment values locally and keep this file out of version control.
-  BLOCK secrets:
-    STATEMENT $rest_authorization_xanadu = "";
-    STATEMENT $smarty_key = "";
-    STATEMENT $telnet_password = "";
-    STATEMENT $telnet_port = "";
-    STATEMENT $volvo_login = "";
-    STATEMENT $volvo_password = "";
-    STATEMENT $xiaomi_token = "";
-    STATEMENT $zigbee_deconz_key = "";
-    STATEMENT $zigbee_importer_key = "";
-    STATEMENT $zwave_deconz_home_id = "";
-    STATEMENT $zwave_zwave_home_id = "";
-    STATEMENT $MainAPIToken = "";
-  END BLOCK
-
-File: Server.def
-Status: ok
-Interpretation:
-  COMMENT # Migrated preview; generated on 18.03.2026.
-  COMMENT # House: Junglinster
-  COMMENT # Target: Server.def
-  COMMENT # Source: Old/Junglinster/Definitions/00_server.def
-  COMMENT # The conditional routing logic is preserved here, but concrete deployment values stay external.
-  BLOCK servers:
-    STATEMENT external LocalServer;
-    STATEMENT external MainInstance__LocalServer;
-    STATEMENT external MainInstance__otherwise;
-    STATEMENT secret MainAPIToken;
-    BLOCK choose MainInstance:
-      STATEMENT when server_is_up LocalServer then MainInstance__LocalServer;
-      STATEMENT otherwise MainInstance__otherwise;
-    END BLOCK
-  END BLOCK
-
-File: Settings.def
-Status: ok
-Interpretation:
-  COMMENT # Migrated preview; generated on 18.03.2026.
-  COMMENT # House: Junglinster
-  COMMENT # Target: Settings.def
-  COMMENT # Source: Old/Junglinster/Settings
-  COMMENT # Domain settings are retained here; secrets remain external.
-  BLOCK settings:
-    STATEMENT Workdays "LU";
-    STATEMENT AroundIcon "mdi:city";
-    STATEMENT AwayIcon "mdi:airplane";
-    STATEMENT ConsumesIcon "mdi:flash";
-    STATEMENT CoverCloseIcon "mdi:triangle-down";
-    STATEMENT CoversAutoControlIcon "mdi:dots-vertical";
-    STATEMENT CoversAutoControlOnIcon "mdi:dots-vertical-circle";
-    STATEMENT DayTimeIcon "mdi:sun-clock";
-    STATEMENT CoverageTimeIcon "mdi:clock-start";
-    STATEMENT CPUIcon "mdi:cpu-64-bit";
-    STATEMENT HeatingIcon "mdi:radiator";
-    STATEMENT IgnoreNoMotionIcon "mdi:motion-sensor-off";
-    STATEMENT HomeIcon "mdi:home";
-    STATEMENT MediaSwitchIcon "mdi:monitor-speaker";
-    STATEMENT NightTimeIcon "mdi:bed-clock";
-    STATEMENT NodeIcon "mdi:server-network";
-    STATEMENT VacuumIcon "mdi:robot-vacuum";
-    STATEMENT WorkdayIcon "mdi:office-building-cog";
-    STATEMENT WaterIcon "mdi:water-off";
-    STATEMENT SunnyIcon "mdi:sunglasses";
-    STATEMENT LightGroupIcon "mdi:lightbulb-group";
-    STATEMENT LightIcon "mdi:lightbulb";
-    STATEMENT TemperatureIcon "mdi:thermometer";
-    STATEMENT WindSpeedIcon "mdi:weather-windy";
-    STATEMENT IlluminanceIcon "mdi:brightness-5";
   END BLOCK
 

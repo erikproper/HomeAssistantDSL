@@ -31,7 +31,7 @@ Based on the existing definition files, the normalized target per home should be
 - Definitions/Lists.def
 - Definitions/Macros.def
 
-Macros are normalized into one file during migration, but must still be read before the regular definitions because they act as DSL extensions.
+Creation macros are normalized into one file during migration, but must still be read before the regular definitions because they act as DSL extensions.
 
 See the earlier mailfilter project regarding the Pascal-ish formatting style.
 
@@ -44,11 +44,72 @@ Current parser milestone:
 
 This interpretation output is intended for verification while grammar and migration are still evolving.
 
+3b] Macro expansion and semantic validation (20.03.2026).
+
+The "expand" command analyzes creation macro definitions and their usage in Entities.def:
+- Parses all creation macro definitions from Macros.def with full parameter type information
+- Identifies all macro invocations in Entities.def with line numbers and nested space context
+- Validates macro invocation parameters against defined parameter types (int, string, entityReference, etc.)
+- Generates a comprehensive report: Expansion.txt in each house's Definitions folder
+- Reports summary statistics: total invocations, valid vs. invalid, type/validation errors
+
+Usage: go run . expand [Vienna|Junglinster]
+
+This tool enables verification of:
+- Alignment between Macros.def definitions and actual usage patterns
+- Parameter type correctness (e.g., integer values passed to int parameters)
+- Coverage of creation macros (which are defined but may not be used, or vice versa)
+- Inconsistencies between Vienna and Junglinster implementations
+
+Output example (Expansion.txt):
+- CREATION MACRO DEFINITIONS section: lists all macros with parameter signatures and type information
+- MACRO INVOCATIONS IN ENTITIES.DEF section: each invocation with validation status and parameter bindings
+- SUMMARY section: statistics on valid vs. error invocations
+
 4] Develop the dependency checks.
 
 5] Generate YAML.
 
 Note: it makes sense to have parse / check / generate Go files, with smaller generate_<<xx>> files per entity type, such as sensor, light, switch, etc.
+
+** Next Steps (implementation backlog)
+
+1] Cross-check the "=== ENTITIES BY SPACE (FULL NAMES) ===" output against source intent.
+
+- Verify representative spaces in Vienna and Junglinster (root, top-level spaces, and a few deep nested spaces).
+- Confirm raw entities are reported in bracket form (`type.[raw_name]`) and not internal normalized form.
+- Confirm contextual path expansion for relative entity specs is correct.
+- Confirm `no_collect` markers are present where expected.
+- Confirm external-entity classification is only a "needs-check" list, not yet a hard generation decision.
+
+2] Harden macro call checking to fully match DSL intent.
+
+- Keep required/optional checks for declared parameters.
+- Add explicit unknown-parameter detection for `with:` blocks.
+- Complete runtime checks for all declared parameter kinds (`boolean`, `path`, `option`, `set<...>`, etc.), not only `int` and `entityReference`.
+- Ensure `option` style flags are interpreted consistently (presence=true, absence=false unless defaulted).
+
+3] Define and implement the generation data model.
+
+- Introduce one canonical in-memory model after parse+expand containing:
+   - entity identity (type/sphere/path/raw),
+   - space context (full path, nesting level),
+   - definition/import status,
+   - options (`providing`, `icon`, `open_stop_close`, `no_collect`, etc.),
+   - dependencies/references used by generated templates.
+- Record provenance (source file + line + originating macro) for diagnostics.
+- Use this model as the sole input for YAML generation and list generation.
+
+4] Implement generation policy split for external entities.
+
+- External without local options: do not generate core entity YAML.
+- External with local options: generate customization/configuration YAML only.
+- Defined/imported entities: generate full entity YAML as today.
+
+5] Add optional online availability checks.
+
+- Keep current offline mode as default.
+- Add a mode that validates external entities against Home Assistant and reports `available/missing/unreachable`.
 
 Operational commands used during development:
 - go run . migrate [Vienna|Junglinster]
@@ -125,17 +186,17 @@ The answers currently fixed for step 1 are:
 - macros are collapsed into one normalized Macros.def file
 - icon-style global constants used by macros should move into Settings.def instead of remaining implicit in legacy Modules/Settings.1.hass
 
-** Macro definitions
-The macros should be read before the regular definitions.
+** Creation Macro definitions
+The creation macros should be read before the regular definitions.
 They allow the DSL to be extended with more specific notions.
 
-Macro expansion must preserve semantic flags and attributes from the target DSL.
-In particular, no_collect is a specific point of attention for macro definitions: if a macro introduces or wraps entities that should stay out of space-based aggregate collections, that exclusion must remain explicit and correct in the expanded result.
+Creation macro expansion must preserve semantic flags and attributes from the target DSL.
+In particular, no_collect is a specific point of attention for creation macro definitions: if a creation macro introduces or wraps entities that should stay out of space-based aggregate collections, that exclusion must remain explicit and correct in the expanded result.
 
-Macro bodies also need access to the entity specification passed by the create target itself.
-The create target passed to a macro must be resolved to an extensional entity specification first.
+Creation macro bodies also need access to the entity specification passed by the create target itself.
+The create target passed to a creation macro must be resolved to an extensional entity specification first.
 
-Implied macro variables from the resolved target:
+Implied creation macro variables from the resolved target:
 - $raw: boolean, true when the target uses raw Home Assistant naming
 - $type: the part before the '.' in the entity specification
 - $name: the raw Home Assistant name (only meaningful when $raw is true)
@@ -144,12 +205,12 @@ Implied macro variables from the resolved target:
    - $entity: the remaining path after $sphere
    - $sub_type: optional semantic subtype derived from the path tail
 
-Macro headers may constrain accepted target forms.
+Creation macro headers may constrain accepted target forms.
 Example intent:
-- macro power_switch [no raw] (...):
-This means the macro may only be called with non-raw (structured) targets.
+- creation macro power_switch [no raw] (...):
+This means the creation macro may only be called with non-raw (structured) targets.
 
-Typed macro parameters such as `($node string, $threshold int)` are a design goal, but this is not implemented yet in the current parser/runtime.
+Typed creation macro parameters such as `($node entityReference, $threshold int)` are a design goal, but this is not implemented yet in the current parser/runtime.
 
 Examples from the legacy version are:
 - entity_battery_level_device
@@ -197,17 +258,17 @@ Option-passing rules:
 
 Macro definitions and parameter declarations:
 
-Macro syntax:
+Creation Macro syntax:
 
 ```
-macro <name> [constraints...] { <parameter-list> }:
+creation macro <name> [constraints...] { <parameter-list> }:
    <body>
 end;
 ```
 
 General form:
 ```
-macro <name> [no_raw] [space_level] { $p_1 t_1 [op], ..., $p_n t_n [op] }:
+creation macro <name> [no_raw] [space_level] { $p_1 t_1 [op], ..., $p_n t_n [op] }:
 ```
 
 Where:
@@ -224,24 +285,26 @@ The order of parameters is only significant in positional invocation form.
 When using the option block form (`with: ... end;`), parameter order is irrelevant.
 
 Supported parameter types:
+- (default, omitted) — entity specification (`type.sphere:path` form); validated for proper syntax; this is the implied type and need not be written
+- `entityReference` — an extensionally identified entity specification; a concrete reference to an existing or derived entity
 - `string` — any text value
-- `integer` — numeric value; validated as parseable to int64
+- `int` — numeric value; validated as parseable to int64
 - `boolean` — true/false flag; missing flag = false, present flag = true
-- `entity_spec` — an entity specification (type.sphere:path form); validated for proper syntax
+- `set<entityReference>` — comma-separated list of entity references, each validated as a well-formed entity specification
 - `set<string>` — comma-separated list of string values, each validated independently
-- `set<integer>` — comma-separated list of integer values
+- `set<int>` — comma-separated list of integer values
 - `path` — Home Assistant entity or node path; basic format checking
 
 Implicit target binding:
-- For regular macros, the entity target from the invocation is implicitly available as `$entity`.
-- For `space_level` macros, the implicit target is the immediate surrounding space specification.
+- For regular creation macros, the entity target from the invocation is implicitly available as `$entity`.
+- For `space_level` creation macros, the implicit target is the immediate surrounding space specification.
 - In both cases, the implicit target is resolved to extensional form before macro body execution.
-- Macros do not declare `$entity` explicitly; it is automatically bound.
+- Creation macros do not declare `$entity` explicitly; it is automatically bound.
 
 `space_level` binding details:
 - The surrounding space contributes implicit target components (type/sphere/path/sub-type where relevant).
-- This allows a macro to operate on "the current space" without passing a separate entity target.
-- A `space_level` macro is invalid outside a space context and should raise an expansion error.
+- This allows a creation macro to operate on "the current space" without passing a separate entity target.
+- A `space_level` creation macro is invalid outside a space context and should raise an expansion error.
 
 Optional parameter (`op`) rules:
 - If a parameter is marked `op`, it may be omitted in positional form.
@@ -347,6 +410,8 @@ Resolution inside current space x:
 - <<type>>.<<sphere>>:<<path>>:<<sub-type>> -> <<type>>.<<sphere>>/x/<<path>>/<<sub-type>>
 - <<type>>.<<sphere>>:/<<path>>:<<sub-type>> -> <<type>>.<<sphere>>/<<path>>/<<sub-type>>
 
+If the sphere component is omitted in an intensional specification, the default sphere is social before extensionalization.
+
 Illustrative example (relative intensional form):
 - Input in space path x: sensor.physical:frient:illuminance
 - First ':' introduces the context-relative path part (frient), so x is inserted before it.
@@ -364,7 +429,7 @@ Resolution rules for partial specs:
 1. If the argument is wrapped in []: raw form, $raw = true, $name = the bracketed string, all other implied variables = empty.
 2. If the argument contains '.': the part before '.' is $type; the rest is parsed as sphere and path as in the intensional form.
 3. If the argument contains no '.': $type = empty.
-4. If there is no sphere component: $sphere = empty.
+4. If there is no sphere component: $sphere = social.
 5. If there is no sub_type component: $sub_type = empty.
 6. For the path/name component:
    - If it starts with '/': absolute path relative to the house root, used as-is.
@@ -419,29 +484,64 @@ Alias assignment convention on declarations:
 Example:
 "declare entity [sensor.ems_esp_boiler_boiler_outside_temperature] as boilerOutsideTemp;"
 "declare entity sensor.physical:garage_door:temperature with:
-    value boilerOutsideTemp;
+    definition as value boilerOutsideTemp;
  end;"
 
 "declare entity binary_sensor.infrastructural:netatmo:node
-   condition sensor.infrastructural:netatmo:reachability \"$ == 'True'\""
+   definition as condition sensor.infrastructural:netatmo:reachability \"$ == 'True'\""
 
-The condition following declare entity binary_sensor.infrastructural:netatmo:node clarifies that this entity is not only assumed to be present, but can also be derived. In this case it is a binary sensor based on a Home Assistant-compatible condition, where the $ placeholder is replaced with a reference to the current value.
+The condition following declare entity binary_sensor.infrastructural:netatmo:node clarifies that this entity is not only assumed to be present, but can also be derived. In this case it is a binary sensor based on a Home Assistant-compatible condition.
 
-For direct value derivations, use value, e.g.:
-"value sensor.infrastructural:laserjet/status!state_message"
+Condition syntax variations:
+
+Single-parameter conditions use `$` or `$1` to refer to the entity value:
+  definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'"
+
+Multi-parameter conditions allow multiple entity references and use positional parameters `$1`, `$2`, etc.:
+  definition as condition $sunnyThreshold $sensor "($1 | int) < ($2 | int)"
+
+In this form:
+- `$sunnyThreshold` is the first entity reference (available as `$1` in the expression)
+- `$sensor` is the second entity reference (available as `$2` in the expression)
+- The expression evaluates using Home Assistant template syntax with explicit parameter indexing
+
+This allows binary sensors to be derived from the relationship between two entities, for example comparing an illuminance threshold against a sensor value.
+
+For direct value derivations, use `definition as value`, e.g.:
+"definition as value sensor.infrastructural:laserjet/status!state_message"
 
 "declare entity light.social:carport with:
    providing node /house/server_room/zwave/027"
 
 The providing node statement is an explicit DSL notion.
-It means that the referenced computational node has a corresponding availability entity, conceptually at a path such as /house/server_room/zwave/027/node, represented in Home Assistant as an infrastructural binary_sensor.
-This node entity is true when the node is up and running, and false when it is not.
+The path argument `<XXX>` after `node` is used verbatim to form the entity name:
+  `binary_sensor.infrastructural:<XXX>:node`
+This entity is true when the node is up and running, and false when it is not.
+
+Examples:
+- `providing node /house/server_room/zwave/027` → `binary_sensor.infrastructural:/house/server_room/zwave/027:node`
+- `providing node laserjet` → `binary_sensor.infrastructural:laserjet:node`
 
 Because some Home Assistant integrations do not expose node-up/node-down state directly, the generator must be able to materialize these node entities as virtual/template-based binary sensors.
 
 "create battery_level_device dining/philips_dimmer 20"
 
 This is a macro call. The keyword battery_level_device triggers the macro definition from the Macros folder.
+
+Macro application phase:
+- Macros are applied during parsing, not as a later rendering/post-processing step.
+- The parser must resolve and bind macro invocations while building the interpretation/execution structure.
+
+Dynamic macro-name interpolation:
+- A macro name may include an interpolation segment in angle brackets, for example:
+   `create <$type>_device physical:$e;`
+- In this form, `$type` is the currently bound type value from the provided entity specification/context.
+- The value is inserted into the macro name token itself (before lookup), yielding `<resolved_type>_device`.
+- This is not the same as rewriting `_device` to a separate `device <x>` token sequence.
+
+Built-in DSL constructs:
+- `lights_motion_guarded` is a built-in DSL statement, not a macro definition.
+- It should be parsed directly by the DSL and is intended to compile to rules/automations rather than ordinary entity-declaration expansion.
 
 "declare entity cover.social:front with:
    open_stop_close"
@@ -455,16 +555,39 @@ The no_collect flag is an explicit DSL attribute.
 It means that the entity must be excluded from the space-based collection of entities of the same kind.
 For example, a light marked no_collect inside a space X must not be included in the aggregated light entity for that space.
 
+Entity availability and conditional properties:
+
+The "available" property specifies the availability conditions for an entity. Currently supported forms:
+
+- `available always;` — The entity is always available (unconditional)
+- `available is defined by <entity>;` — The entity is available when a referenced entity is defined (future: planned for implementation)
+- `available <condition>;` — The entity is available when a condition evaluates to true (future: planned for implementation)
+
+The "available" property is often set within entity blocks in creation macros. For example:
+```
+entity binary_sensor.infrastructural:$entity:battery_alert with:
+  begin
+    definition as condition sensor.infrastructural:$entity:battery_level "...";
+    available always;
+  end;
+```
+
+This declares that the binary_sensor is always available (not dependent on external factors). The "available" setting is a declarative property that Home Assistant generators will use to determine:
+- Whether to always materialize the entity
+- Whether to materialize conditionally based on other entities
+- Default visibility and refresh behavior
+
 The entity grammar families that are already visible from the legacy files are:
 - begin space / end space
 - declare entity ...
 - declare entity ... as <alias>
 - declare entity [<verbatim-home-assistant-entity-id>] ...
-- value ...
-- condition ...
-- define ... (for specialised declarations such as cli_sensor, switched_device, has_state, etc.)
+- definition as value ...
+- definition as condition ...
+- definition as <kind> ... (for specialised declarations such as cli_sensor, switched_device, has_state, adjustment, flipped, etc.)
 - providing node ...
 - macro invocations such as create battery_level_device ...
+- built-in DSL statements such as lights_motion_guarded with delay ...
 - list ... with clean_prefix / clean_postfix filters
 
 ** Priority Update
@@ -490,7 +613,7 @@ Current active work items are:
 - [ ] Revisit begin/end representation for Entities.def and define a consistent block-style guideline.
 - [ ] Freeze macro target syntax.
 - [ ] Define macro argument grammar and parameter types.
-- [ ] Implement macro parameter type validation (string, integer, boolean, entity_spec, set<T>, path).
+- [ ] Implement macro parameter type validation (string, int, boolean, set<T>, path).
 - [ ] Specify macro expansion semantics.
 - [ ] Implement entity target resolution (intensional -> extensional) before macro execution.
 - [ ] Implement macro target constraints such as [no raw].
