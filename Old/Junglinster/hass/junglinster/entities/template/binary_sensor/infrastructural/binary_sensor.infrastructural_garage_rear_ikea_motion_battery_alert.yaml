@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/garage/rear/ikea_motion/battery_alert
-  unique_id: binary_sensor.infrastructural_garage_rear_ikea_motion_battery_alert
-  device_class: battery
-  state: "{{ (states('sensor.infrastructural_garage_rear_ikea_motion_battery_level') | int(0)) < 10 }}"

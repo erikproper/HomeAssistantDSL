@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/house/shower_room/radiator/aqara_thermostat/node
-  unique_id: binary_sensor.infrastructural_house_shower_room_radiator_aqara_thermostat_node
-  device_class: connectivity
-  state: "{{ states('climate.physical_house_shower_room_radiator_aqara_thermostat') != 'unavailable' }}"

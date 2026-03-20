@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.infrastructural_terrace_signify_motion_battery_level:
-  icon: mdi:battery
-  friendly_name: infrastructural/terrace/signify_motion/battery_level

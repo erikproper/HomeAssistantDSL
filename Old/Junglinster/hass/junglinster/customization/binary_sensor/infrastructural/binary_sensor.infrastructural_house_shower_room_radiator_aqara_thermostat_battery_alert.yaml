@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_house_shower_room_radiator_aqara_thermostat_battery_alert:
-  icon: mdi:battery-alert
-  friendly_name: infrastructural/house/shower_room/radiator/aqara_thermostat/battery_alert

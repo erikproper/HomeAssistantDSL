@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.infrastructural_house_bathroom_philips_dimmer_battery_level:
-  icon: mdi:battery
-  friendly_name: infrastructural/house/bathroom/philips_dimmer/battery_level

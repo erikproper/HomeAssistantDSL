@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/terrace/front
-unique_id: light.social_terrace_front
-entities:
-- light.social_terrace_front_main

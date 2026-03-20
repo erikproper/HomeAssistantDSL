@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: physical/house/upward_hallway/first_floor/heating/leakage/evidence
-unique_id: binary_sensor.physical_house_upward_hallway_first_floor_heating_leakage_evidence
-entities:
-- binary_sensor.social_house_upward_hallway_first_floor_door

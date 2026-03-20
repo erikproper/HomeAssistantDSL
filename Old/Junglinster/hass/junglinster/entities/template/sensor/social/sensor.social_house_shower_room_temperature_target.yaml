@@ -1,8 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor:
-- name: social/house/shower_room/temperature_target
-  unique_id: sensor.social_house_shower_room_temperature_target
-  unit_of_measurement: "°C"
-  device_class: temperature
-  state_class: measurement
-  state: "{{ states('input_number.physical_house_shower_room_temperature_target') }}"

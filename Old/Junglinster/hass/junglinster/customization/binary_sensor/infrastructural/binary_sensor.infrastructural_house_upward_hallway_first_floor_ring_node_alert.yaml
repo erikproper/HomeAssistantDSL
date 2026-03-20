@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_house_upward_hallway_first_floor_ring_node_alert:
-  icon: mdi:server-off
-  friendly_name: infrastructural/house/upward_hallway/first_floor/ring/node_alert

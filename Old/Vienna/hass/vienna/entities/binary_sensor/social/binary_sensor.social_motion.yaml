@@ -1,7 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/motion
-unique_id: binary_sensor.social_motion
-entities:
-- binary_sensor.social_apartment_motion
-- binary_sensor.social_terrace_motion

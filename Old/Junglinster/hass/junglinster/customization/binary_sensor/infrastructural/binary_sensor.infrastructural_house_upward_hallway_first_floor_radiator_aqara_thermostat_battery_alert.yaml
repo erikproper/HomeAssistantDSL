@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_house_upward_hallway_first_floor_radiator_aqara_thermostat_battery_alert:
-  icon: mdi:battery-alert
-  friendly_name: infrastructural/house/upward_hallway/first_floor/radiator/aqara_thermostat/battery_alert

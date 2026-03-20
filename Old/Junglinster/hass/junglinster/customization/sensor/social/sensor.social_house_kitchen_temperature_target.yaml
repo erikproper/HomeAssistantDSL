@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.social_house_kitchen_temperature_target:
-  icon: mdi:thermometer
-  friendly_name: social/house/kitchen/temperature_target

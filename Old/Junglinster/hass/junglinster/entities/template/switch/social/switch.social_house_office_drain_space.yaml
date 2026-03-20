@@ -1,9 +1,0 @@
-### This file was automatically generated. Don't edit it!
-switch:
-- name: social/house/office/drain/space
-  unique_id: switch.social_house_office_drain_space
-  default_entity_id: switch.social_house_office_drain_space
-  turn_on:
-  turn_off:
-  state: >-
-      }}

@@ -3,11 +3,9 @@
 # Target: Bridges.def
 # Source: Old/Vienna/Definitions/01_bridges.def
 
-# Secret-bearing bridge parameters are externalized into named bindings.
+# Secret-bearing bridge parameters are externalized and referenced as variables.
 
 bridges:
-  secret junglinster_authorization;
-
-  bridge rest junglinster $JunglinsterInstance/api/states authorization junglinster_authorization;
+  bridge rest junglinster $JunglinsterInstance/api/states authorization $junglinster_authorization;
   main vienna;
 end;

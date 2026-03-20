@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/house/kitchen/go/light/node
-  unique_id: binary_sensor.infrastructural_house_kitchen_go_light_node
-  device_class: connectivity
-  state: "{{ states('light.social_house_kitchen_go') != 'unavailable' }}"

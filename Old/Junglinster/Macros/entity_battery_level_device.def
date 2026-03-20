@@ -1,4 +1,0 @@
-function entity_battery_level_device {
-  entity battery_level $1 $2
-    provides device_node $1
-}

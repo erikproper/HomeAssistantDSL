@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/garage/front/aqara_multi/node
-  unique_id: binary_sensor.infrastructural_garage_front_aqara_multi_node
-  device_class: connectivity
-  state: "{{ states('sensor.infrastructural_garage_front_aqara_multi_battery_level') != 'unavailable' }}"

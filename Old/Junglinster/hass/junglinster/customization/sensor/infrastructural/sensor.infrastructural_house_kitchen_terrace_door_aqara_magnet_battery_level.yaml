@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.infrastructural_house_kitchen_terrace_door_aqara_magnet_battery_level:
-  icon: mdi:battery
-  friendly_name: infrastructural/house/kitchen/terrace_door/aqara_magnet/battery_level

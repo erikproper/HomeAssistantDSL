@@ -1,7 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/house/water
-unique_id: binary_sensor.social_house_water
-entities:
-- binary_sensor.social_house_laundry_kitchen_water
-- binary_sensor.social_house_office_water

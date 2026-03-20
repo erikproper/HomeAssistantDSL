@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.physical_house_laundry_kitchen_water_pump_aqara_water_water:
-  icon: mdi:water-off
-  friendly_name: physical/house/laundry_kitchen/water_pump/aqara_water/water

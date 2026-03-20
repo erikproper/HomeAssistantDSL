@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/house/david_bedroom/windows/aqara_magnet/node_alert
-  unique_id: binary_sensor.infrastructural_house_david_bedroom_windows_aqara_magnet_node_alert
-  device_class: connectivity
-  state: "{{ is_state('binary_sensor.infrastructural_house_david_bedroom_windows_aqara_magnet_node', 'off') }}"

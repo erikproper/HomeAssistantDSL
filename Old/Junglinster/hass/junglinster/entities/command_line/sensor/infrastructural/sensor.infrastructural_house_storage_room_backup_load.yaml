@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-- sensor:
-    name: infrastructural/house/storage_room/backup/load
-    command: "bash /config/bin/run pi backup.fritz.box ./cpu/load"
-    command_timeout: 15
-    scan_interval: 60

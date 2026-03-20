@@ -1,7 +1,0 @@
-### This file was automatically generated. Don't edit it!
-social_apartment_bedroom_apartment_bedroom_cover_close:
-  alias: social/apartment/bedroom/apartment/bedroom/cover_close
-  mode: queued
-  sequence:
-  - service: cover.close_cover
-    entity_id: cover.social_apartment_bedroom

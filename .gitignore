@@ -1,3 +1,9 @@
 .DS_Store
 *.swp
 *.swo
+
+# Local deployment secret bindings
+New/*/Definitions/Secrets.def
+
+# Legacy source tree may contain sensitive values
+Old/

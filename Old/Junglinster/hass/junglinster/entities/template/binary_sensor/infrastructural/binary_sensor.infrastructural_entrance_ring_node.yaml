@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/entrance/ring/node
-  unique_id: binary_sensor.infrastructural_entrance_ring_node
-  device_class: connectivity
-  state: "{{ states('binary_sensor.social_entrance_front_door_ding') != 'unavailable' }}"

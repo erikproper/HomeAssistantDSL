@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/house/kitchen/nespresso/zigbee/node
-  unique_id: binary_sensor.infrastructural_house_kitchen_nespresso_zigbee_node
-  device_class: connectivity
-  state: "{{ states('switch.social_house_kitchen_nespresso') != 'unavailable' }}"

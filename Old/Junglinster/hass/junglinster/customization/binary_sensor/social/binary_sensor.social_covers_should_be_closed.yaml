@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.social_covers_should_be_closed:
-  icon: mdi:triangle-down
-  friendly_name: social/covers/should_be_closed

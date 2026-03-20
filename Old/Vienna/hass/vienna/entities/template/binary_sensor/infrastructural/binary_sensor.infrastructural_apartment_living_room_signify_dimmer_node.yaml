@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/apartment/living_room/signify_dimmer/node
-  unique_id: binary_sensor.infrastructural_apartment_living_room_signify_dimmer_node
-  device_class: connectivity
-  state: "{{ states('sensor.infrastructural_apartment_living_room_signify_dimmer_battery_level') != 'unavailable' }}"

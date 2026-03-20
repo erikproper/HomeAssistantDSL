@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.physical_house_sarah_bedroom_netatmo_pressure:
-  icon: mdi:gauge
-  friendly_name: physical/house/sarah_bedroom/netatmo/pressure

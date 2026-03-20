@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_house_bathroom_philips_dimmer_battery_alert:
-  icon: mdi:battery-alert
-  friendly_name: infrastructural/house/bathroom/philips_dimmer/battery_alert

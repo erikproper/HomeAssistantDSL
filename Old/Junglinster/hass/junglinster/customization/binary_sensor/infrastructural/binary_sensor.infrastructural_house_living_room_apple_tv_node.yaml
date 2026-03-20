@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_house_living_room_apple_tv_node:
-  icon: mdi:server-network
-  friendly_name: infrastructural/house/living_room/apple_tv/node

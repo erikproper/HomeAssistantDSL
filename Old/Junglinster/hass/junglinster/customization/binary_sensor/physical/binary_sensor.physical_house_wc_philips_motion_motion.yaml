@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.physical_house_wc_philips_motion_motion:
-  icon: mdi:motion-sensor
-  friendly_name: physical/house/wc/philips_motion/motion

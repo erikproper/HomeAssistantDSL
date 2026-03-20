@@ -1,7 +1,0 @@
-### This file was automatically generated. Don't edit it!
-social_set_heating_to_away:
-  alias: social/set_heating_to_away
-  mode: queued
-  sequence:
-  - service: script.turn_on
-    entity_id: script.social_apartment_set_heating_to_away

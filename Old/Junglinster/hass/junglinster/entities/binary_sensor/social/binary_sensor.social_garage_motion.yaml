@@ -1,7 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/garage/motion
-unique_id: binary_sensor.social_garage_motion
-entities:
-- binary_sensor.physical_garage_front_ikea_motion_motion
-- binary_sensor.physical_garage_rear_ikea_motion_motion

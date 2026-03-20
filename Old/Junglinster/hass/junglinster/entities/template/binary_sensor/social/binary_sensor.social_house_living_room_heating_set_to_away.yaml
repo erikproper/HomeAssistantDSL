@@ -1,8 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: social/house/living_room/heating_set_to_away
-  unique_id: binary_sensor.social_house_living_room_heating_set_to_away
-  state: >-
-    {{
-      (states('input_number.social_house_living_room_temperature_desired') | round(1)) == (states('input_number.social_house_living_room_heating_target_preset_for_away') | round(1))
-    }}

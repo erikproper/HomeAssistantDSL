@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.social_pressure:
-  icon: mdi:gauge
-  friendly_name: social/pressure

@@ -1,9 +1,0 @@
-### This file was automatically generated. Don't edit it!
-social_apartment_living_room_cover_close:
-  alias: social/apartment/living_room/cover_close
-  mode: queued
-  sequence:
-  - service: script.turn_on
-    entity_id: script.social_apartment_living_room_kitchen_cover_close
-  - service: script.turn_on
-    entity_id: script.social_apartment_living_room_apartment_living_room_living_cover_close

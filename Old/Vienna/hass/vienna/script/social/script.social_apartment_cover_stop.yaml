@@ -1,9 +1,0 @@
-### This file was automatically generated. Don't edit it!
-social_apartment_cover_stop:
-  alias: social/apartment/cover_stop
-  mode: queued
-  sequence:
-  - service: script.turn_on
-    entity_id: script.social_apartment_living_room_cover_stop
-  - service: script.turn_on
-    entity_id: script.social_apartment_bedroom_cover_stop

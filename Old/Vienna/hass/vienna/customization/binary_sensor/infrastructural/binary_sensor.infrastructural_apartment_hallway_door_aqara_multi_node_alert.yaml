@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_apartment_hallway_door_aqara_multi_node_alert:
-  icon: mdi:server-off
-  friendly_name: infrastructural/apartment/hallway/door/aqara_multi/node_alert

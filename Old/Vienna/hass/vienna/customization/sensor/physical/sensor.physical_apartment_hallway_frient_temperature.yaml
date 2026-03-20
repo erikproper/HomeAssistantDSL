@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.physical_apartment_hallway_frient_temperature:
-  icon: mdi:thermometer
-  friendly_name: physical/apartment/hallway/frient/temperature

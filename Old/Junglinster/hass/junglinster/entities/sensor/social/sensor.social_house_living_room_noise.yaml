@@ -1,9 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/house/living_room/noise
-unique_id: sensor.social_house_living_room_noise
-type: mean
-ignore_non_numeric: true
-state_class: measurement
-entities:
-- sensor.physical_house_living_room_netatmo_noise

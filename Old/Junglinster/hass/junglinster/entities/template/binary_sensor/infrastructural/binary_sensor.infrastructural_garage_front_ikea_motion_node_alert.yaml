@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/garage/front/ikea_motion/node_alert
-  unique_id: binary_sensor.infrastructural_garage_front_ikea_motion_node_alert
-  device_class: connectivity
-  state: "{{ is_state('binary_sensor.infrastructural_garage_front_ikea_motion_node', 'off') }}"

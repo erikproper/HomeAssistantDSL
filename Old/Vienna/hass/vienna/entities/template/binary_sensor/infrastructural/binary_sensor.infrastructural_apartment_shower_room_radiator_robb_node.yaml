@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/apartment/shower_room/radiator/robb/node
-  unique_id: binary_sensor.infrastructural_apartment_shower_room_radiator_robb_node
-  device_class: connectivity
-  state: "{{ states('switch.social_apartment_shower_room_radiator') != 'unavailable' }}"

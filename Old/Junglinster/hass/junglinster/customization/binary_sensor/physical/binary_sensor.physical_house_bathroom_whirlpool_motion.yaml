@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.physical_house_bathroom_whirlpool_motion:
-  icon: mdi:motion-sensor
-  friendly_name: physical/house/bathroom/whirlpool/motion

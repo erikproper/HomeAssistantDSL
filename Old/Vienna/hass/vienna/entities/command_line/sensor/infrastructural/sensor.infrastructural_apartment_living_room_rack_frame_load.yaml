@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-- sensor:
-    name: infrastructural/apartment/living_room/rack/frame/load
-    command: "bash /config/bin/run pi frame.fritz.box ./cpu/load"
-    command_timeout: 15
-    scan_interval: 60

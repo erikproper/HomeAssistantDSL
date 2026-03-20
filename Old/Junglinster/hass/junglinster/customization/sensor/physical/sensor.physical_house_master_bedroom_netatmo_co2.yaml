@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.physical_house_master_bedroom_netatmo_co2:
-  icon: mdi:cloud
-  friendly_name: physical/house/master_bedroom/netatmo/co2

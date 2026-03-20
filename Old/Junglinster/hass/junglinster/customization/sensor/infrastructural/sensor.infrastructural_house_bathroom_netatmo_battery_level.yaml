@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.infrastructural_house_bathroom_netatmo_battery_level:
-  icon: mdi:battery
-  friendly_name: infrastructural/house/bathroom/netatmo/battery_level

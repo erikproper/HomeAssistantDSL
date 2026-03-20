@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/terrace/netatmo_windmeter/node_alert
-  unique_id: binary_sensor.infrastructural_terrace_netatmo_windmeter_node_alert
-  device_class: connectivity
-  state: "{{ is_state('binary_sensor.infrastructural_terrace_netatmo_windmeter_node', 'off') }}"

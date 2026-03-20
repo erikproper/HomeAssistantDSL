@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.physical_terrace_netatmo_outdoor_temperature:
-  icon: mdi:thermometer
-  friendly_name: physical/terrace/netatmo_outdoor/temperature

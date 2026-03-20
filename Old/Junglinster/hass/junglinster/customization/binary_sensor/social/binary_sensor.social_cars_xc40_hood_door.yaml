@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.social_cars_xc40_hood_door:
-  icon: mdi:door-open
-  friendly_name: social/cars/xc40/hood/door

@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_terrace_signify_motion_battery_alert:
-  icon: mdi:battery-alert
-  friendly_name: infrastructural/terrace/signify_motion/battery_alert

@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.social_terrace_motion:
-  icon: mdi:motion-sensor
-  friendly_name: social/terrace/motion

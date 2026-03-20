@@ -1,9 +1,0 @@
-#bridge duofern duofern duofern /dev/ttyUSB0@115200 6FEDCB
-#bridge fhz fhz duofern "FHZ /dev/ttyUSB1@9600 1034"
-#bridge fhz fhz xanadu "CUL /dev/ttyACM0@9600 1034"
-bridge cpu cpu smarty
-bridge cpu cpu deconz
-bridge cpu cpu zwave
-bridge cpu cpu xanadu
-bridge cpu cpu frame
-main junglinster

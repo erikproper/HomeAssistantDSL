@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.physical_apartment_shower_room_netatmo_humidity:
-  icon: mdi:water-percent
-  friendly_name: physical/apartment/shower_room/netatmo/humidity

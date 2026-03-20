@@ -5,6 +5,8 @@
 
 # This file keeps the legacy entity structure, but normalizes blocks using with:/end; and statement ';'.
 
+host junglinster;
+
 entity sensor.social:power_total;
 # Availability depends on binary_sensor.infrastructural:smarty:node
 entity sensor.social:power_current;

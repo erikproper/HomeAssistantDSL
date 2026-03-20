@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/terrace/front/netatmo/battery_alert
-  unique_id: binary_sensor.infrastructural_terrace_front_netatmo_battery_alert
-  device_class: battery
-  state: "{{ (states('sensor.infrastructural_terrace_front_netatmo_battery_level') | int(0)) < 20 }}"

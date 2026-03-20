@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.physical_apartment_hallway_door_aqara_multi_humidity:
-  icon: mdi:water-percent
-  friendly_name: physical/apartment/hallway/door/aqara_multi/humidity

@@ -1,7 +1,0 @@
-### This file was automatically generated. Don't edit it!
-social_house_kitchen_house_kitchen_cover_close:
-  alias: social/house/kitchen/house/kitchen/cover_close
-  mode: queued
-  sequence:
-  - service: cover.close_cover
-    entity_id: cover.social_house_kitchen

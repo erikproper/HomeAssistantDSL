@@ -1,8 +1,0 @@
-### This file was automatically generated. Don't edit it!
-social_house_shower_room_heating_target_preset_for_away:
-  name: social/house/shower_room/heating_target_preset_for_away
-  min: 10
-  max: 30
-  step: 1
-  icon: mdi:thermometer
-  unit_of_measurement: °C

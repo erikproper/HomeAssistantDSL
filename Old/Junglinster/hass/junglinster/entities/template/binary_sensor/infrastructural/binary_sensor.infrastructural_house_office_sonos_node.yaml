@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/house/office/sonos/node
-  unique_id: binary_sensor.infrastructural_house_office_sonos_node
-  device_class: connectivity
-  state: "{{ states('media_player.social_house_office_sonos') != 'unavailable' }}"

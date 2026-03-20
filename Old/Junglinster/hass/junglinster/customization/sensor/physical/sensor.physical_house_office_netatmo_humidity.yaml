@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.physical_house_office_netatmo_humidity:
-  icon: mdi:water-percent
-  friendly_name: physical/house/office/netatmo/humidity

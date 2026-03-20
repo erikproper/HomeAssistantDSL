@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.physical_house_office_door_aqara_multi_temperature:
-  icon: mdi:thermometer
-  friendly_name: physical/house/office/door/aqara_multi/temperature

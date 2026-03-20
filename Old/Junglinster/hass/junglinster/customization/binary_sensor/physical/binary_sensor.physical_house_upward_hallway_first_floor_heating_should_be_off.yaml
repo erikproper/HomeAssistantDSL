@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.physical_house_upward_hallway_first_floor_heating_should_be_off:
-  icon: mdi:radiator
-  friendly_name: physical/house/upward_hallway/first_floor/heating/should_be_off

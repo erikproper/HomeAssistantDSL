@@ -1,5 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: social/is_heating_night_time
-  unique_id: binary_sensor.social_is_heating_night_time
-  state: "{{ is_state('binary_sensor.social_is_heating_day_time', 'off') }}"

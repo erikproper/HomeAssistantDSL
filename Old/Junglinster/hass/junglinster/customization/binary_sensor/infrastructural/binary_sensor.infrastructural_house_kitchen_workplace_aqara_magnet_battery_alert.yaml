@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_house_kitchen_workplace_aqara_magnet_battery_alert:
-  icon: mdi:battery-alert
-  friendly_name: infrastructural/house/kitchen/workplace/aqara_magnet/battery_alert

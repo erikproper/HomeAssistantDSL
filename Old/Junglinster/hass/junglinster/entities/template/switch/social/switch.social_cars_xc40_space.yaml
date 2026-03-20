@@ -1,9 +1,0 @@
-### This file was automatically generated. Don't edit it!
-switch:
-- name: social/cars/xc40/space
-  unique_id: switch.social_cars_xc40_space
-  default_entity_id: switch.social_cars_xc40_space
-  turn_on:
-  turn_off:
-  state: >-
-      }}

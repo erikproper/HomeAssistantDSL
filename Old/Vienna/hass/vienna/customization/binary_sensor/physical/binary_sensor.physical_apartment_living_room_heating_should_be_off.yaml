@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.physical_apartment_living_room_heating_should_be_off:
-  icon: mdi:radiator
-  friendly_name: physical/apartment/living_room/heating/should_be_off

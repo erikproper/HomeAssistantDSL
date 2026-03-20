@@ -1,9 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/apartment/living_room/vidja
-unique_id: light.social_apartment_living_room_vidja
-entities:
-- light.physical_apartment_living_room_vidja_left
-- light.physical_apartment_living_room_vidja_right
-- light.social_apartment_living_room_vidja_left
-- light.social_apartment_living_room_vidja_right

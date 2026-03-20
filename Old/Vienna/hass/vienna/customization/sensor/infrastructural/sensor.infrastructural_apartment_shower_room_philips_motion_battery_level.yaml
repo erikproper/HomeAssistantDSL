@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.infrastructural_apartment_shower_room_philips_motion_battery_level:
-  icon: mdi:battery
-  friendly_name: infrastructural/apartment/shower_room/philips_motion/battery_level

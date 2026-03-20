@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: physical/house/bathroom/whirlpool/motion
-  unique_id: binary_sensor.physical_house_bathroom_whirlpool_motion
-  device_class: motion
-  state: "{{ is_state('switch.social_house_bathroom_whirlpool', 'on') }}"

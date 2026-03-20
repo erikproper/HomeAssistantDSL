@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_house_shower_room_windows_aqara_magnet_node:
-  icon: mdi:server-network
-  friendly_name: infrastructural/house/shower_room/windows/aqara_magnet/node

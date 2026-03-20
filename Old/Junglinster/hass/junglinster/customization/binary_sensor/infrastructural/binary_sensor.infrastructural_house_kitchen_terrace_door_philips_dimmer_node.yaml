@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_house_kitchen_terrace_door_philips_dimmer_node:
-  icon: mdi:server-network
-  friendly_name: infrastructural/house/kitchen/terrace_door/philips_dimmer/node

@@ -1,8 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: physical/apartment/living_room/main
-unique_id: light.physical_apartment_living_room_main
-entities:
-- light.physical_apartment_living_room_main_kitchen
-- light.physical_apartment_living_room_main_living
-- light.physical_apartment_living_room_main_middle

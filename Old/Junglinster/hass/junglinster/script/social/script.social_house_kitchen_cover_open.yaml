@@ -1,7 +1,0 @@
-### This file was automatically generated. Don't edit it!
-social_house_kitchen_cover_open:
-  alias: social/house/kitchen/cover_open
-  mode: queued
-  sequence:
-  - service: script.turn_on
-    entity_id: script.social_house_kitchen_house_kitchen_cover_open

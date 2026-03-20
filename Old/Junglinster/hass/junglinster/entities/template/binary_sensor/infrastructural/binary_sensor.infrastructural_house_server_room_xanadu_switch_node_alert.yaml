@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/house/server_room/xanadu/switch/node_alert
-  unique_id: binary_sensor.infrastructural_house_server_room_xanadu_switch_node_alert
-  device_class: connectivity
-  state: "{{ is_state('binary_sensor.infrastructural_house_server_room_xanadu_switch_node', 'off') }}"

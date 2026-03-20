@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.physical_apartment_living_room_kitchen_dishwasher_robb_temperature:
-  icon: mdi:thermometer
-  friendly_name: physical/apartment/living_room/kitchen/dishwasher/robb/temperature

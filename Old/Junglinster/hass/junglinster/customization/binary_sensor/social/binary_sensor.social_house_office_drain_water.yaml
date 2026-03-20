@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.social_house_office_drain_water:
-  icon: mdi:water-off
-  friendly_name: social/house/office/drain/water

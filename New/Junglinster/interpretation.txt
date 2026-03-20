@@ -8,17 +8,8 @@ Interpretation:
   COMMENT # House: Junglinster
   COMMENT # Target: Bridges.def
   COMMENT # Source: Old/Junglinster/Definitions/01_bridges.def
-  COMMENT # Secret-bearing bridge parameters are externalized into named bindings.
+  COMMENT # Local bridge declarations are intentionally omitted; host context is defined in Entities.def.
   BLOCK bridges:
-    COMMENT #bridge duofern duofern duofern /dev/ttyUSB0@115200 6FEDCB
-    COMMENT #bridge fhz fhz duofern "FHZ /dev/ttyUSB1@9600 1034"
-    COMMENT #bridge fhz fhz xanadu "CUL /dev/ttyACM0@9600 1034"
-    STATEMENT bridge cpu cpu smarty;
-    STATEMENT bridge cpu cpu deconz;
-    STATEMENT bridge cpu cpu zwave;
-    STATEMENT bridge cpu cpu xanadu;
-    STATEMENT bridge cpu cpu frame;
-    STATEMENT main junglinster;
   END BLOCK
 
 File: Entities.def
@@ -29,6 +20,7 @@ Interpretation:
   COMMENT # Target: Entities.def
   COMMENT # Source: Old/Junglinster/Definitions/02_entities.def
   COMMENT # This file keeps the legacy entity structure, but normalizes blocks using with:/end; and statement ';'.
+  STATEMENT host junglinster;
   STATEMENT entity sensor.social:power_total;
   COMMENT # Availability depends on binary_sensor.infrastructural:smarty:node
   STATEMENT entity sensor.social:power_current;
@@ -1031,6 +1023,30 @@ Interpretation:
     COMMENT # Built-in macro marker. Runtime semantics are currently handled by the entity processing pipeline.
   END BLOCK
 
+File: Secrets.def
+Status: ok
+Interpretation:
+  COMMENT # Migrated preview; generated on 18.03.2026.
+  COMMENT # House: Junglinster
+  COMMENT # Target: Secrets.def
+  COMMENT # Source: Old/Junglinster/Settings/secrets.def
+  COMMENT # Secret values are intentionally not migrated.
+  COMMENT # Fill in deployment values locally and keep this file out of version control.
+  BLOCK secrets:
+    STATEMENT $rest_authorization_xanadu = "";
+    STATEMENT $smarty_key = "";
+    STATEMENT $telnet_password = "";
+    STATEMENT $telnet_port = "";
+    STATEMENT $volvo_login = "";
+    STATEMENT $volvo_password = "";
+    STATEMENT $xiaomi_token = "";
+    STATEMENT $zigbee_deconz_key = "";
+    STATEMENT $zigbee_importer_key = "";
+    STATEMENT $zwave_deconz_home_id = "";
+    STATEMENT $zwave_zwave_home_id = "";
+    STATEMENT $MainAPIToken = "";
+  END BLOCK
+
 File: Server.def
 Status: ok
 Interpretation:
@@ -1085,16 +1101,4 @@ Interpretation:
     STATEMENT WindSpeedIcon "mdi:weather-windy";
     STATEMENT IlluminanceIcon "mdi:brightness-5";
   END BLOCK
-  COMMENT # External secret bindings detected in legacy Settings/secrets.def:
-  COMMENT # - rest_authorization_xanadu
-  COMMENT # - smarty_key
-  COMMENT # - telnet_password
-  COMMENT # - telnet_port
-  COMMENT # - volvo_login
-  COMMENT # - volvo_password
-  COMMENT # - xiaomi_token
-  COMMENT # - zigbee_deconz_key
-  COMMENT # - zigbee_importer_key
-  COMMENT # - zwave_deconz_home_id
-  COMMENT # - zwave_zwave_home_id
 

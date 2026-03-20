@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_house_storage_room_backup_innr_node_alert:
-  icon: mdi:server-off
-  friendly_name: infrastructural/house/storage_room/backup_innr/node_alert

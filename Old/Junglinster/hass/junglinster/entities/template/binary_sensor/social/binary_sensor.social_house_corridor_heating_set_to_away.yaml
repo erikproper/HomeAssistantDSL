@@ -1,8 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: social/house/corridor/heating_set_to_away
-  unique_id: binary_sensor.social_house_corridor_heating_set_to_away
-  state: >-
-    {{
-      (states('input_boolean.social_house_corridor_heating_mode_desired') == states('input_boolean.social_house_corridor_heating_mode_preset_for_away'))
-    }}

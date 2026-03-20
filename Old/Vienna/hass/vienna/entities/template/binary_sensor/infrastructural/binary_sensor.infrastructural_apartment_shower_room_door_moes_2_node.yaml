@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/apartment/shower_room/door/moes/2/node
-  unique_id: binary_sensor.infrastructural_apartment_shower_room_door_moes_2_node
-  device_class: connectivity
-  state: "{{ states('sensor.infrastructural_apartment_shower_room_door_moes_2_battery_level') != 'unavailable' }}"

@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.physical_house_server_room_philips_motion_motion:
-  icon: mdi:motion-sensor
-  friendly_name: physical/house/server_room/philips_motion/motion

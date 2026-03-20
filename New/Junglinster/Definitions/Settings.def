@@ -32,16 +32,3 @@ settings:
   WindSpeedIcon "mdi:weather-windy";
   IlluminanceIcon "mdi:brightness-5";
 end;
-
-# External secret bindings detected in legacy Settings/secrets.def:
-# - rest_authorization_xanadu
-# - smarty_key
-# - telnet_password
-# - telnet_port
-# - volvo_login
-# - volvo_password
-# - xiaomi_token
-# - zigbee_deconz_key
-# - zigbee_importer_key
-# - zwave_deconz_home_id
-# - zwave_zwave_home_id

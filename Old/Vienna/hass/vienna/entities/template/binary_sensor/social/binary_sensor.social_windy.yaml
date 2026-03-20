@@ -1,8 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: social/windy
-  unique_id: binary_sensor.social_windy
-  device_class: safety
-  delay_on: 00:01:00
-  delay_off: 00:10:00
-  state: "{{ (states('sensor.social_terrace_wind_speed') == 'unknown') or (states('sensor.social_terrace_wind_speed') == 'unavailable') or (states('input_number.social_windy_threshold') | int) < (states('sensor.social_terrace_wind_speed') | int) }}"

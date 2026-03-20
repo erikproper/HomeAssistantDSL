@@ -1,8 +1,0 @@
-### This file was automatically generated. Don't edit it!
-physical_house_upward_hallway_first_floor_temperature_target:
-  name: physical/house/upward_hallway/first_floor/temperature_target
-  min: 10
-  max: 30
-  step: 1
-  icon: mdi:thermometer
-  unit_of_measurement: °C

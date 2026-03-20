@@ -1,7 +1,0 @@
-### This file was automatically generated. Don't edit it!
-- switch:
-    name: social/house/living_room/living/picture_frame
-    unique_id: switch.social_house_living_room_living_picture_frame
-    command_on: "bash /config/bin/run pi 192.168.178.58 ./bin/start_slideshow"
-    command_off: "bash /config/bin/run pi 192.168.178.58 ./bin/stop_slideshow"
-    command_state: "bash /config/bin/run pi 192.168.178.58 ./bin/check_slideshow"

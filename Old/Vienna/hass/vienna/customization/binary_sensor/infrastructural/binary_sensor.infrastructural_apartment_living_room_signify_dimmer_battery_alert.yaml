@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_apartment_living_room_signify_dimmer_battery_alert:
-  icon: mdi:battery-alert
-  friendly_name: infrastructural/apartment/living_room/signify_dimmer/battery_alert

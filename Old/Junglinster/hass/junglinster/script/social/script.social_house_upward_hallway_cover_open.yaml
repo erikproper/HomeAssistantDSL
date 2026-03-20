@@ -1,7 +1,0 @@
-### This file was automatically generated. Don't edit it!
-social_house_upward_hallway_cover_open:
-  alias: social/house/upward_hallway/cover_open
-  mode: queued
-  sequence:
-  - service: script.turn_on
-    entity_id: script.social_house_upward_hallway_second_floor_cover_open

@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.physical_house_wc_window_aqara_magnet_window:
-  icon: mdi:window-open
-  friendly_name: physical/house/wc/window/aqara_magnet/window

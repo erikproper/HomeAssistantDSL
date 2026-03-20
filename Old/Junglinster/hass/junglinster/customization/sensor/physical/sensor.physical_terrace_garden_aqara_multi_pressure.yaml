@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.physical_terrace_garden_aqara_multi_pressure:
-  icon: mdi:gauge
-  friendly_name: physical/terrace/garden/aqara_multi/pressure

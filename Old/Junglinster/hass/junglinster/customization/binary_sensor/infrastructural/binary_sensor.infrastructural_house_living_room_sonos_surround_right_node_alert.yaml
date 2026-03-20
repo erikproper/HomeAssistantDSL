@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_house_living_room_sonos_surround_right_node_alert:
-  icon: mdi:server-off
-  friendly_name: infrastructural/house/living_room/sonos_surround_right/node_alert

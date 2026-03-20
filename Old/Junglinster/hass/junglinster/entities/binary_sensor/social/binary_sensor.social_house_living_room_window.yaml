@@ -1,7 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/house/living_room/window
-unique_id: binary_sensor.social_house_living_room_window
-entities:
-- binary_sensor.social_house_living_room_dining_window
-- binary_sensor.social_house_living_room_living_window

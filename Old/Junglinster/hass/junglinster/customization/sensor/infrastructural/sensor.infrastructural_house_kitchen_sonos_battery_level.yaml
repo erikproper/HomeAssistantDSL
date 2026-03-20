@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.infrastructural_house_kitchen_sonos_battery_level:
-  icon: mdi:battery
-  friendly_name: infrastructural/house/kitchen/sonos/battery_level

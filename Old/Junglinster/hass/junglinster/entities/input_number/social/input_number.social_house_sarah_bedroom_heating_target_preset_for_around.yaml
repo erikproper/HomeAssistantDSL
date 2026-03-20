@@ -1,8 +1,0 @@
-### This file was automatically generated. Don't edit it!
-social_house_sarah_bedroom_heating_target_preset_for_around:
-  name: social/house/sarah_bedroom/heating_target_preset_for_around
-  min: 10
-  max: 30
-  step: 1
-  icon: mdi:thermometer
-  unit_of_measurement: °C

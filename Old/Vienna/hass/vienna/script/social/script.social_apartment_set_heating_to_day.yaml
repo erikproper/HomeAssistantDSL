@@ -1,7 +1,0 @@
-### This file was automatically generated. Don't edit it!
-social_apartment_set_heating_to_day:
-  alias: social/apartment/set_heating_to_day
-  mode: queued
-  sequence:
-  - service: script.turn_on
-    entity_id: script.social_apartment_living_room_set_heating_to_day

@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_apartment_hallway_main_light_node:
-  icon: mdi:server-network
-  friendly_name: infrastructural/apartment/hallway/main/light/node

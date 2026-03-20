@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_garage_front_ikea_motion_battery_alert:
-  icon: mdi:battery-alert
-  friendly_name: infrastructural/garage/front/ikea_motion/battery_alert

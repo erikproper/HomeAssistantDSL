@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.physical_garage_garage_door_aqara_magnet_door:
-  icon: mdi:door-open
-  friendly_name: physical/garage/garage_door/aqara_magnet/door

@@ -1,7 +1,0 @@
-### This file was automatically generated. Don't edit it!
-social_house_living_room_house_living_room_front_cover_stop:
-  alias: social/house/living_room/house/living_room/front/cover_stop
-  mode: queued
-  sequence:
-  - service: cover.stop_cover
-    entity_id: cover.social_house_living_room_front

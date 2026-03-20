@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.physical_apartment_bedroom_humidity:
-  icon: mdi:water-percent
-  friendly_name: physical/apartment/bedroom/humidity

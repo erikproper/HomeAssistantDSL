@@ -1,7 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/apartment/living_room/kitchen/door
-unique_id: binary_sensor.social_apartment_living_room_kitchen_door
-entities:
-- binary_sensor.social_apartment_living_room_kitchen_fridge_door
-- binary_sensor.social_apartment_living_room_kitchen_terrace_door

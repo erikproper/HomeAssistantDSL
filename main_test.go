@@ -31,7 +31,7 @@ func TestMigrationOperationalForKnownHouses(t *testing.T) {
 		t.Fatalf("migration failed: %v", err)
 	}
 
-	definitionNames := []string{"Settings.def", "Server.def", "Bridges.def", "Entities.def", "Lists.def", "Macros.def"}
+	definitionNames := []string{"Settings.def", "Secrets.def", "Server.def", "Bridges.def", "Entities.def", "Lists.def", "Macros.def"}
 	for _, houseName := range THouseNames {
 		for _, definitionName := range definitionNames {
 			definitionPath := filepath.Join(root, "New", houseName, "Definitions", definitionName)

@@ -1,4 +1,0 @@
-function import_cpu { # $1 = Sensor, $2 = Host
-  echo from $2 import $1
-  # should lead to "DoReport <command>  ${mqtt_server}  ${mqtt_port}  ${mqtt_login} ${mqtt_password} ${load_topic} 
-}

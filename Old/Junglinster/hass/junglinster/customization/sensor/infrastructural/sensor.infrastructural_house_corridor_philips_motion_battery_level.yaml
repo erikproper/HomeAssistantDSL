@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.infrastructural_house_corridor_philips_motion_battery_level:
-  icon: mdi:battery
-  friendly_name: infrastructural/house/corridor/philips_motion/battery_level

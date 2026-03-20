@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/house/living_room/living/windows/aqara_magnet/node
-  unique_id: binary_sensor.infrastructural_house_living_room_living_windows_aqara_magnet_node
-  device_class: connectivity
-  state: "{{ states('sensor.infrastructural_house_living_room_living_windows_aqara_magnet_battery_level') != 'unavailable' }}"

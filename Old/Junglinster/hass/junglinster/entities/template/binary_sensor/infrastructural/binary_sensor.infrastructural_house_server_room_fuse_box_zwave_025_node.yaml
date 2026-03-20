@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/house/server_room/fuse_box/zwave/025/node
-  unique_id: binary_sensor.infrastructural_house_server_room_fuse_box_zwave_025_node
-  device_class: connectivity
-  state: "{{ states('switch.social_terrace_sockets') != 'unavailable' }}"

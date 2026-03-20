@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/house/storage_room/motion
-unique_id: binary_sensor.social_house_storage_room_motion
-entities:
-- binary_sensor.physical_house_storage_room_philips_motion_motion

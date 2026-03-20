@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.social_garage_temperature:
-  icon: mdi:thermometer
-  friendly_name: social/garage/temperature

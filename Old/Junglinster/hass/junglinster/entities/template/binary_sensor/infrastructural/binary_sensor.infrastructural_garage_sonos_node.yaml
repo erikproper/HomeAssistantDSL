@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/garage/sonos/node
-  unique_id: binary_sensor.infrastructural_garage_sonos_node
-  device_class: connectivity
-  state: "{{ states('media_player.social_garage_sonos') != 'unavailable' }}"

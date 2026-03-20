@@ -1,5 +1,0 @@
-function entity_battery_level {
-  entity battery_alert $1 $2 
-
-  entity declare sensor.infrastructural:$1:battery_level
-}

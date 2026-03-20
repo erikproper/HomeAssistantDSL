@@ -1,9 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/cars/xc40/window
-unique_id: binary_sensor.social_cars_xc40_window
-entities:
-- binary_sensor.social_cars_xc40_front_left_window
-- binary_sensor.social_cars_xc40_front_right_window
-- binary_sensor.social_cars_xc40_rear_left_window
-- binary_sensor.social_cars_xc40_rear_right_window

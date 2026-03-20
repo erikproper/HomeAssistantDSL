@@ -1,9 +1,0 @@
-### This file was automatically generated. Don't edit it!
-switch:
-- name: social/house/laundry_kitchen/water_pump/space
-  unique_id: switch.social_house_laundry_kitchen_water_pump_space
-  default_entity_id: switch.social_house_laundry_kitchen_water_pump_space
-  turn_on:
-  turn_off:
-  state: >-
-      }}

@@ -1,9 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/terrace/front/temperature
-unique_id: sensor.social_terrace_front_temperature
-type: mean
-ignore_non_numeric: true
-state_class: measurement
-entities:
-- sensor.physical_terrace_front_netatmo_temperature

@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/apartment/hallway/motion
-unique_id: binary_sensor.social_apartment_hallway_motion
-entities:
-- binary_sensor.physical_apartment_hallway_frient_motion

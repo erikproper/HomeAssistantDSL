@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_apartment_living_room_kitchen_workplace_light_node:
-  icon: mdi:server-network
-  friendly_name: infrastructural/apartment/living_room/kitchen/workplace/light/node

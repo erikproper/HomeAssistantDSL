@@ -1,9 +1,0 @@
-### This file was automatically generated. Don't edit it!
-switch:
-- name: social/apartment/living_room/rack/space
-  unique_id: switch.social_apartment_living_room_rack_space
-  default_entity_id: switch.social_apartment_living_room_rack_space
-  turn_on:
-  turn_off:
-  state: >-
-      }}

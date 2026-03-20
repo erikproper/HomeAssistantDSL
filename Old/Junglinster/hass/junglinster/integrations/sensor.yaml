@@ -1,2 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor: !include_dir_list ../entities/sensor

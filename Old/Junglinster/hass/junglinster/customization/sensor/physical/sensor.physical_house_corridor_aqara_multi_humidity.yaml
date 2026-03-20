@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor.physical_house_corridor_aqara_multi_humidity:
-  icon: mdi:water-percent
-  friendly_name: physical/house/corridor/aqara_multi/humidity

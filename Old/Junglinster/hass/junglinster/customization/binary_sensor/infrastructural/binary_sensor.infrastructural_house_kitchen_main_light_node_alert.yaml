@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_house_kitchen_main_light_node_alert:
-  icon: mdi:server-off
-  friendly_name: infrastructural/house/kitchen/main/light/node_alert

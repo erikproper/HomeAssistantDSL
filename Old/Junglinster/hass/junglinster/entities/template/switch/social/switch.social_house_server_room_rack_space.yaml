@@ -1,9 +1,0 @@
-### This file was automatically generated. Don't edit it!
-switch:
-- name: social/house/server_room/rack/space
-  unique_id: switch.social_house_server_room_rack_space
-  default_entity_id: switch.social_house_server_room_rack_space
-  turn_on:
-  turn_off:
-  state: >-
-      }}

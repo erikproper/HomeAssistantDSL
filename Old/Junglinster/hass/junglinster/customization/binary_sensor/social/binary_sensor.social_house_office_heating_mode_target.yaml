@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.social_house_office_heating_mode_target:
-  icon: mdi:radiator
-  friendly_name: social/house/office/heating_mode_target

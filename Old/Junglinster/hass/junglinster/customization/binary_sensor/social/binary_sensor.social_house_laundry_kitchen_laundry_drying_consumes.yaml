@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.social_house_laundry_kitchen_laundry_drying_consumes:
-  icon: mdi:flash
-  friendly_name: social/house/laundry_kitchen/laundry/drying/consumes

@@ -1,5 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/apartment/living_room/tv/node/raw
-  unique_id: binary_sensor.infrastructural_apartment_living_room_tv_node_raw
-  state: "{{ states('media_player.social_apartment_living_room_tv') != 'unavailable' }}"

@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/house/office/imac/switch/node
-  unique_id: binary_sensor.infrastructural_house_office_imac_switch_node
-  device_class: connectivity
-  state: "{{ states('switch.social_house_office_imac') != 'unavailable' }}"

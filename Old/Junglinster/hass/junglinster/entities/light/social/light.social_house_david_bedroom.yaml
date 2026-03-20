@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/house/david_bedroom
-unique_id: light.social_house_david_bedroom
-entities:
-- light.social_house_david_bedroom_main

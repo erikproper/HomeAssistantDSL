@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: social/garage/heating/leakage/identified
-  unique_id: binary_sensor.social_garage_heating_leakage_identified
-  delay_on: 00:05:00
-  state: "{{ is_state('binary_sensor.physical_garage_heating_leakage_evidence', 'on') }}"

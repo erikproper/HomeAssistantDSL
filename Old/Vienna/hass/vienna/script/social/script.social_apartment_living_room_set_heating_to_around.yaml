@@ -1,9 +1,0 @@
-### This file was automatically generated. Don't edit it!
-social_apartment_living_room_set_heating_to_around:
-  alias: social/apartment/living_room/set_heating_to_around
-  mode: queued
-  sequence:
-  - service: input_number.set_value
-    data:
-      entity_id: input_number.social_apartment_living_room_temperature_desired
-      value: "{{ states('input_number.social_apartment_living_room_heating_target_preset_for_around') }}"

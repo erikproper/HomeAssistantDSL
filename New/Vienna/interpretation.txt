@@ -8,10 +8,9 @@ Interpretation:
   COMMENT # House: Vienna
   COMMENT # Target: Bridges.def
   COMMENT # Source: Old/Vienna/Definitions/01_bridges.def
-  COMMENT # Secret-bearing bridge parameters are externalized into named bindings.
+  COMMENT # Secret-bearing bridge parameters are externalized and referenced as variables.
   BLOCK bridges:
-    STATEMENT secret junglinster_authorization;
-    STATEMENT bridge rest junglinster $JunglinsterInstance/api/states authorization junglinster_authorization;
+    STATEMENT bridge rest junglinster $JunglinsterInstance/api/states authorization $junglinster_authorization;
     STATEMENT main vienna;
   END BLOCK
 
@@ -455,6 +454,20 @@ Interpretation:
   END BLOCK
   BLOCK macro sunny { $sensor entity_spec, $delay_on string op, $delay_off string op }:
     COMMENT # Built-in macro marker. Runtime semantics are currently handled by the entity processing pipeline.
+  END BLOCK
+
+File: Secrets.def
+Status: ok
+Interpretation:
+  COMMENT # Migrated preview; generated on 18.03.2026.
+  COMMENT # House: Vienna
+  COMMENT # Target: Secrets.def
+  COMMENT # Source: Old/Vienna/Settings/secrets.def
+  COMMENT # Secret values are intentionally not migrated.
+  COMMENT # Fill in deployment values locally and keep this file out of version control.
+  BLOCK secrets:
+    STATEMENT $MainAPIToken = "";
+    STATEMENT $junglinster_authorization = "";
   END BLOCK
 
 File: Server.def

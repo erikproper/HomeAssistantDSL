@@ -1,9 +1,0 @@
-### This file was automatically generated. Don't edit it!
-social_house_upward_hallway_first_floor_set_heating_to_around:
-  alias: social/house/upward_hallway/first_floor/set_heating_to_around
-  mode: queued
-  sequence:
-  - service: input_number.set_value
-    data:
-      entity_id: input_number.social_house_upward_hallway_first_floor_temperature_desired
-      value: "{{ states('input_number.social_house_upward_hallway_first_floor_heating_target_preset_for_around') }}"

@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.social_garage_door:
-  icon: mdi:door-open
-  friendly_name: social/garage/door

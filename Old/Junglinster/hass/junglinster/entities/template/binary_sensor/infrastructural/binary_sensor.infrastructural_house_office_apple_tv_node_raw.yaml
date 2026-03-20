@@ -1,5 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/house/office/apple_tv/node/raw
-  unique_id: binary_sensor.infrastructural_house_office_apple_tv_node_raw
-  state: "{{ states('media_player.social_house_office_apple_tv') != 'unavailable' }}"

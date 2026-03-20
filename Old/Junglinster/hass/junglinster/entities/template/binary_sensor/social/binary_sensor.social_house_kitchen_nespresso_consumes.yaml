@@ -1,5 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: social/house/kitchen/nespresso/consumes
-  unique_id: binary_sensor.social_house_kitchen_nespresso_consumes
-  state: "{{ (states('sensor.social_house_kitchen_nespresso_power') | int(0)) > 10 }}"

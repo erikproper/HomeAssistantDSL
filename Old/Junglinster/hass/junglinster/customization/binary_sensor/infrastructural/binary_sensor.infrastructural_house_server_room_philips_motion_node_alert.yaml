@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_house_server_room_philips_motion_node_alert:
-  icon: mdi:server-off
-  friendly_name: infrastructural/house/server_room/philips_motion/node_alert

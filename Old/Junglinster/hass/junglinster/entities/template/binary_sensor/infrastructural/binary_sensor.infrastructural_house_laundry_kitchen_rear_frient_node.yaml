@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/house/laundry_kitchen/rear/frient/node
-  unique_id: binary_sensor.infrastructural_house_laundry_kitchen_rear_frient_node
-  device_class: connectivity
-  state: "{{ states('sensor.infrastructural_house_laundry_kitchen_rear_frient_battery_level') != 'unavailable' }}"

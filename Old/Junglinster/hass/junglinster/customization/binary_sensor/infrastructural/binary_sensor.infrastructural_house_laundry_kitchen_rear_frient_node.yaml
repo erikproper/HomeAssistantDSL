@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_house_laundry_kitchen_rear_frient_node:
-  icon: mdi:server-network
-  friendly_name: infrastructural/house/laundry_kitchen/rear/frient/node

@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/house/sarah_bedroom/apple_tv/node
-  unique_id: binary_sensor.infrastructural_house_sarah_bedroom_apple_tv_node
-  device_class: connectivity
-  state: "{{ is_state('switch.social_house_sarah_bedroom_media_media', 'off') or is_state('binary_sensor.infrastructural_house_sarah_bedroom_apple_tv_node_raw', 'on') }}"

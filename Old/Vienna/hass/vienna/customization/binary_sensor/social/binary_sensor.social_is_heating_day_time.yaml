@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.social_is_heating_day_time:
-  icon: mdi:sun-clock
-  friendly_name: social/is_heating_day_time

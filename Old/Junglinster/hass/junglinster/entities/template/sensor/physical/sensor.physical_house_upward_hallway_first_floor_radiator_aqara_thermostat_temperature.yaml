@@ -1,8 +1,0 @@
-### This file was automatically generated. Don't edit it!
-sensor:
-- name: physical/house/upward_hallway/first_floor/radiator/aqara_thermostat/temperature
-  unique_id: sensor.physical_house_upward_hallway_first_floor_radiator_aqara_thermostat_temperature
-  unit_of_measurement: "°C"
-  device_class: temperature
-  state_class: measurement
-  state: "{{ state_attr('climate.physical_house_upward_hallway_first_floor_radiator_aqara_thermostat', 'current_temperature') }}"

@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_house_office_door_aqara_multi_node:
-  icon: mdi:server-network
-  friendly_name: infrastructural/house/office/door/aqara_multi/node

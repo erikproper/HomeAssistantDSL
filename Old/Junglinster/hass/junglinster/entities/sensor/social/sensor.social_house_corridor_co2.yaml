@@ -1,9 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/house/corridor/co2
-unique_id: sensor.social_house_corridor_co2
-type: mean
-ignore_non_numeric: true
-state_class: measurement
-entities:
-- sensor.physical_house_corridor_netatmo_co2

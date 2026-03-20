@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/loft/switch_box/nodon/node
-  unique_id: binary_sensor.infrastructural_loft_switch_box_nodon_node
-  device_class: connectivity
-  state: "{{ states('light.social_loft_main') != 'unavailable' }}"

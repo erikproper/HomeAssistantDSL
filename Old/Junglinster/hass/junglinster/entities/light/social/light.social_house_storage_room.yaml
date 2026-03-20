@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/house/storage_room
-unique_id: light.social_house_storage_room
-entities:
-- light.social_house_storage_room_main

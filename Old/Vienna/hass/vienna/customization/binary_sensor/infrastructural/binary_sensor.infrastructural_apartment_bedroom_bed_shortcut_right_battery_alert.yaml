@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_apartment_bedroom_bed_shortcut_right_battery_alert:
-  icon: mdi:battery-alert
-  friendly_name: infrastructural/apartment/bedroom/bed/shortcut/right/battery_alert

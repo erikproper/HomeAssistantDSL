@@ -1,7 +1,0 @@
-function entity_thermostat {
-  entity declare climate.physical:$1
-    provides device_node $1
-    
-  entity declare sensor.physical:$1:temperature
-    define value climate.physical:$1!current_temperature
-}

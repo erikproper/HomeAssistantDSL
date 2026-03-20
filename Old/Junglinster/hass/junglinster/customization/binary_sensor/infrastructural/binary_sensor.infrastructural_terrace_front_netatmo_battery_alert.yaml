@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_terrace_front_netatmo_battery_alert:
-  icon: mdi:battery-alert
-  friendly_name: infrastructural/terrace/front/netatmo/battery_alert

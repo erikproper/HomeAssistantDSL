@@ -1,9 +1,0 @@
-LocalServer=junglinster.fritz.box
-
-if ServerIsUp $LocalServer; then
-  MainInstance=http://junglinster.fritz.box:8123
-else
-  MainInstance=https://junglinster.homelinux.org
-fi
-
-MainAPIToken="XXX"

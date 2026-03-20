@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_garage_radiator_aqara_thermostat_node:
-  icon: mdi:server-network
-  friendly_name: infrastructural/garage/radiator/aqara_thermostat/node

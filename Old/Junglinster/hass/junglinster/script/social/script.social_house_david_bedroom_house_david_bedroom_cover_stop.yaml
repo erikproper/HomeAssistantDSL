@@ -1,7 +1,0 @@
-### This file was automatically generated. Don't edit it!
-social_house_david_bedroom_house_david_bedroom_cover_stop:
-  alias: social/house/david_bedroom/house/david_bedroom/cover_stop
-  mode: queued
-  sequence:
-  - service: cover.stop_cover
-    entity_id: cover.social_house_david_bedroom

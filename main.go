@@ -148,6 +148,10 @@ func (m *TMigrator) MigrateHouse(house string) error {
 	if err != nil {
 		return err
 	}
+	secretsContent, err := m.BuildSecrets(house)
+	if err != nil {
+		return err
+	}
 	serverContent, err := m.BuildServer(house)
 	if err != nil {
 		return err
@@ -171,6 +175,7 @@ func (m *TMigrator) MigrateHouse(house string) error {
 
 	outputs := map[string]string{
 		"Settings.def": settingsContent,
+		"Secrets.def":  secretsContent,
 		"Server.def":   serverContent,
 		"Bridges.def":  bridgesContent,
 		"Entities.def": entitiesContent,
@@ -204,12 +209,6 @@ func (m *TMigrator) BuildSettings(house string) (string, error) {
 	}
 	assignments = appendMissingAssignments(assignments, filterAssignments(parseAssignments(legacyModuleSettings), isLegacyIconSetting))
 
-	secretAssignments, err := readOptionalFile(filepath.Join(settingsDir, "secrets.def"))
-	if err != nil {
-		return "", err
-	}
-	secretNames := orderedAssignmentNames(parseAssignments(secretAssignments))
-
 	builder := strings.Builder{}
 	writeGeneratedHeader(&builder, house, "Settings.def", filepath.Join("Old", house, "Settings"))
 	builder.WriteString("# Domain settings are retained here; secrets remain external.\n\n")
@@ -222,12 +221,71 @@ func (m *TMigrator) BuildSettings(house string) (string, error) {
 	}
 	builder.WriteString("end;\n")
 
-	if len(secretNames) > 0 {
-		builder.WriteString("\n# External secret bindings detected in legacy Settings/secrets.def:\n")
-		for _, secretName := range secretNames {
-			fmt.Fprintf(&builder, "# - %s\n", secretName)
+	return builder.String(), nil
+}
+
+func (m *TMigrator) BuildSecrets(house string) (string, error) {
+	curatedSecretsPath := filepath.Join(m.Root, "New", house, "Definitions", "Secrets.def")
+	curatedSecretsContent, err := readOptionalFile(curatedSecretsPath)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(curatedSecretsContent) != "" {
+		return curatedSecretsContent, nil
+	}
+
+	secretNames := []string{}
+
+	legacySettingsSecrets, err := readOptionalFile(filepath.Join(m.Root, "Old", house, "Settings", "secrets.def"))
+	if err != nil {
+		return "", err
+	}
+	for _, secretName := range orderedAssignmentNames(parseAssignments(legacySettingsSecrets)) {
+		secretNames = appendUnique(secretNames, secretName)
+	}
+
+	legacyServerDefinition, err := readOptionalFile(filepath.Join(m.Root, "Old", house, "Definitions", "00_server.def"))
+	if err != nil {
+		return "", err
+	}
+	for _, assignment := range parseAssignments(legacyServerDefinition) {
+		if looksSensitive(assignment.Name) {
+			secretNames = appendUnique(secretNames, assignment.Name)
 		}
 	}
+
+	legacyBridgeDefinition, err := readOptionalFile(filepath.Join(m.Root, "Old", house, "Definitions", "01_bridges.def"))
+	if err != nil {
+		return "", err
+	}
+	bridgeScanner := bufio.NewScanner(strings.NewReader(legacyBridgeDefinition))
+	for bridgeScanner.Scan() {
+		trimmedLine := strings.TrimSpace(bridgeScanner.Text())
+		if trimmedLine == "" || strings.HasPrefix(trimmedLine, "#") {
+			continue
+		}
+		fields := splitShellFields(trimmedLine)
+		if len(fields) >= 5 && fields[0] == "bridge" && fields[1] == "rest" {
+			secretNames = appendUnique(secretNames, fmt.Sprintf("%s_authorization", sanitizeName(fields[2])))
+		}
+	}
+	if err := bridgeScanner.Err(); err != nil {
+		return "", err
+	}
+
+	builder := strings.Builder{}
+	writeGeneratedHeader(&builder, house, "Secrets.def", filepath.Join("Old", house, "Settings", "secrets.def"))
+	builder.WriteString("# Secret values are intentionally not migrated.\n")
+	builder.WriteString("# Fill in deployment values locally and keep this file out of version control.\n\n")
+	builder.WriteString("secrets:\n")
+	if len(secretNames) == 0 {
+		builder.WriteString("  # No legacy secret names were discovered for this house.\n")
+	} else {
+		for _, secretName := range secretNames {
+			fmt.Fprintf(&builder, "  $%s = \"\";\n", secretName)
+		}
+	}
+	builder.WriteString("end;\n")
 
 	return builder.String(), nil
 }
@@ -361,7 +419,15 @@ func (m *TMigrator) BuildBridges(house string) (string, error) {
 		return "", err
 	}
 
-	secretNames := []string{}
+	if house == "Junglinster" {
+		builder := strings.Builder{}
+		writeGeneratedHeader(&builder, house, "Bridges.def", filepath.Join("Old", house, "Definitions", "01_bridges.def"))
+		builder.WriteString("# Local bridge declarations are intentionally omitted; host context is defined in Entities.def.\n\n")
+		builder.WriteString("bridges:\n")
+		builder.WriteString("end;\n")
+		return builder.String(), nil
+	}
+
 	statementLines := []string{}
 
 	scanner := bufio.NewScanner(strings.NewReader(string(content)))
@@ -384,9 +450,8 @@ func (m *TMigrator) BuildBridges(house string) (string, error) {
 		case "bridge":
 			if len(fields) >= 5 && fields[1] == "rest" {
 				secretName := fmt.Sprintf("%s_authorization", sanitizeName(fields[2]))
-				secretNames = appendUnique(secretNames, secretName)
 				statementLines = append(statementLines,
-					fmt.Sprintf("  bridge rest %s %s authorization %s;", fields[2], fields[3], secretName),
+					fmt.Sprintf("  bridge rest %s %s authorization $%s;", fields[2], fields[3], secretName),
 				)
 			} else {
 				statementLines = append(statementLines, fmt.Sprintf("  %s;", strings.Join(fields, " ")))
@@ -403,14 +468,8 @@ func (m *TMigrator) BuildBridges(house string) (string, error) {
 
 	builder := strings.Builder{}
 	writeGeneratedHeader(&builder, house, "Bridges.def", filepath.Join("Old", house, "Definitions", "01_bridges.def"))
-	builder.WriteString("# Secret-bearing bridge parameters are externalized into named bindings.\n\n")
+	builder.WriteString("# Secret-bearing bridge parameters are externalized and referenced as variables.\n\n")
 	builder.WriteString("bridges:\n")
-	for _, secretName := range secretNames {
-		fmt.Fprintf(&builder, "  secret %s;\n", secretName)
-	}
-	if len(secretNames) > 0 && len(statementLines) > 0 {
-		builder.WriteString("\n")
-	}
 	for _, statementLine := range statementLines {
 		builder.WriteString(statementLine)
 		builder.WriteString("\n")
@@ -445,7 +504,11 @@ func (m *TMigrator) BuildEntitiesDefinition(house string) (string, error) {
 	builder := strings.Builder{}
 	writeGeneratedHeader(&builder, house, "Entities.def", filepath.Join("Old", house, "Definitions", "02_entities.def"))
 	builder.WriteString("# This file keeps the legacy entity structure, but normalizes blocks using with:/end; and statement ';'.\n\n")
-	builder.WriteString(transformEntitiesDefinition(string(content)))
+	entitiesBody := transformEntitiesDefinition(string(content))
+	if house == "Junglinster" {
+		entitiesBody = "host junglinster;\n\n" + entitiesBody
+	}
+	builder.WriteString(entitiesBody)
 	return builder.String(), nil
 }
 

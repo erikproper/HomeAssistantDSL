@@ -1,9 +1,0 @@
-### This file was automatically generated. Don't edit it!
-social_house_living_room_set_heating_to_night:
-  alias: social/house/living_room/set_heating_to_night
-  mode: queued
-  sequence:
-  - service: input_number.set_value
-    data:
-      entity_id: input_number.social_house_living_room_temperature_desired
-      value: "{{ states('input_number.social_house_living_room_heating_target_preset_for_night') }}"

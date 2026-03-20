@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/house/david_bedroom/window
-unique_id: binary_sensor.social_house_david_bedroom_window
-entities:
-- binary_sensor.physical_house_david_bedroom_windows_aqara_magnet_window

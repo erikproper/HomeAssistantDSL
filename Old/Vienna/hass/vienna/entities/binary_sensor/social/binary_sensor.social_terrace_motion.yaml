@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/terrace/motion
-unique_id: binary_sensor.social_terrace_motion
-entities:
-- binary_sensor.physical_terrace_signify_motion_motion

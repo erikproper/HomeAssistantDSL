@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_house_upward_hallway_second_floor_aqara_multi_battery_alert:
-  icon: mdi:battery-alert
-  friendly_name: infrastructural/house/upward_hallway/second_floor/aqara_multi/battery_alert

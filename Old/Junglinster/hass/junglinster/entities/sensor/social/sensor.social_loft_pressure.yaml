@@ -1,9 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/loft/pressure
-unique_id: sensor.social_loft_pressure
-type: mean
-ignore_non_numeric: true
-state_class: measurement
-entities:
-- sensor.physical_loft_aqara_multi_pressure

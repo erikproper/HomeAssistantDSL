@@ -1,5 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-  name: social/house/office/heating_mode_desired
-  unique_id: binary_sensor.social_house_office_heating_mode_desired
-  state: "{{ is_state('input_boolean.social_house_office_heating_mode_desired', 'on') }}"

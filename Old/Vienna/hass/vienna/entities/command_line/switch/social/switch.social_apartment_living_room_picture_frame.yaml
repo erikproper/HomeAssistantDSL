@@ -1,7 +1,0 @@
-### This file was automatically generated. Don't edit it!
-- switch:
-    name: social/apartment/living_room/picture_frame
-    unique_id: switch.social_apartment_living_room_picture_frame
-    command_on: "bash /config/bin/run pi frame.fritz.box ./bin/start_slideshow"
-    command_off: "bash /config/bin/run pi frame.fritz.box ./bin/stop_slideshow"
-    command_state: "bash /config/bin/run pi frame.fritz.box ./bin/check_slideshow"

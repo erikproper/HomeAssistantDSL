@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.social_terrace_sunny:
-  icon: mdi:sunglasses
-  friendly_name: social/terrace/sunny

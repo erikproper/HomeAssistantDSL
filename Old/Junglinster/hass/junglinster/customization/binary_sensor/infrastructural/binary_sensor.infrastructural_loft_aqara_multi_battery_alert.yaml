@@ -1,4 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor.infrastructural_loft_aqara_multi_battery_alert:
-  icon: mdi:battery-alert
-  friendly_name: infrastructural/loft/aqara_multi/battery_alert

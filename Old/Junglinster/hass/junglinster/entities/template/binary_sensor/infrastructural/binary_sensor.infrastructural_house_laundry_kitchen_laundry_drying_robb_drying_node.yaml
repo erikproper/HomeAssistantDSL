@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/house/laundry_kitchen/laundry/drying/robb/drying/node
-  unique_id: binary_sensor.infrastructural_house_laundry_kitchen_laundry_drying_robb_drying_node
-  device_class: connectivity
-  state: "{{ states('switch.social_house_laundry_kitchen_laundry_drying') != 'unavailable' }}"

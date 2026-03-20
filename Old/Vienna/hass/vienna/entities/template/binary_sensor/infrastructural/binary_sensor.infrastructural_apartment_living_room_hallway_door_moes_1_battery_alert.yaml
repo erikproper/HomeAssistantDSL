@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/apartment/living_room/hallway_door/moes/1/battery_alert
-  unique_id: binary_sensor.infrastructural_apartment_living_room_hallway_door_moes_1_battery_alert
-  device_class: battery
-  state: "{{ (states('sensor.infrastructural_apartment_living_room_hallway_door_moes_1_battery_level') | int(0)) < 20 }}"

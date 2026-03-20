@@ -1,5 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: social/covers/should_be_closed
-  unique_id: binary_sensor.social_covers_should_be_closed
-  state: "{{ (is_state('binary_sensor.social_is_coverage_time', 'on') or is_state('binary_sensor.social_terrace_daylight', 'off') or is_state('binary_sensor.social_sunny', 'on')) and is_state('binary_sensor.social_windy', 'off') }}"

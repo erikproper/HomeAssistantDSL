@@ -1,7 +1,0 @@
-### This file was automatically generated. Don't edit it!
-social_cover_close:
-  alias: social/cover_close
-  mode: queued
-  sequence:
-  - service: script.turn_on
-    entity_id: script.social_apartment_cover_close

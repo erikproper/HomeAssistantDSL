@@ -1,8 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/door
-unique_id: binary_sensor.social_door
-entities:
-- binary_sensor.social_cars_door
-- binary_sensor.social_garage_door
-- binary_sensor.social_house_door

@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-binary_sensor:
-- name: infrastructural/house/living_room/living/hallway_door_switch_box/fibaro/node
-  unique_id: binary_sensor.infrastructural_house_living_room_living_hallway_door_switch_box_fibaro_node
-  device_class: connectivity
-  state: "{{ states('light.physical_house_living_room_living_main') != 'unavailable' }}"

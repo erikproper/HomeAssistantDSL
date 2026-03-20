@@ -1,9 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/house/david_bedroom/pressure
-unique_id: sensor.social_house_david_bedroom_pressure
-type: mean
-ignore_non_numeric: true
-state_class: measurement
-entities:
-- sensor.physical_house_david_bedroom_netatmo_pressure

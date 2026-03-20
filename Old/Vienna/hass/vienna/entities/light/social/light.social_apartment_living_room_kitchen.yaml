@@ -1,6 +1,0 @@
-### This file was automatically generated. Don't edit it!
-platform: group
-name: social/apartment/living_room/kitchen
-unique_id: light.social_apartment_living_room_kitchen
-entities:
-- light.social_apartment_living_room_kitchen_workplace

@@ -1,9 +1,0 @@
-### This file was automatically generated. Don't edit it!
-social_house_sarah_bedroom_set_heating_to_day:
-  alias: social/house/sarah_bedroom/set_heating_to_day
-  mode: queued
-  sequence:
-  - service: input_number.set_value
-    data:
-      entity_id: input_number.social_house_sarah_bedroom_temperature_desired
-      value: "{{ states('input_number.social_house_sarah_bedroom_heating_target_preset_for_day') }}"
