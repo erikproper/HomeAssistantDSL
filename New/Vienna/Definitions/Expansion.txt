@@ -1,0 +1,628 @@
+=== MACRO EXPANSION REPORT ===
+House: Vienna
+Generated: 20.03.2026
+
+=== CREATION MACRO DEFINITIONS ===
+
+creation macro battery_level_device { $alertLevel int op }:
+  SourceLine: 34, Body lines: 1
+
+creation macro media_player { $enabler string op, $offDelay string op, $noPlayInput string op, $no_collect option }:
+  SourceLine: 43, Body lines: 4
+
+creation macro switch_device { $name string op }:
+  SourceLine: 75, Body lines: 1
+
+creation macro sunny { $sensor entityReference, $delay_on string op, $delay_off string op }:
+  SourceLine: 127, Body lines: 6
+
+creation macro light_device {  }:
+  SourceLine: 39, Body lines: 1
+
+creation macro power_switch { $node string, $threshold int, $icon string op }:
+  SourceLine: 59, Body lines: 7
+
+creation macro thermostat {  }:
+  SourceLine: 79, Body lines: 3
+
+creation macro zigbee_group { $elements set of string }:
+  SourceLine: 88, Body lines: 5
+
+creation macro zwave_node {  }:
+  SourceLine: 101, Body lines: 2
+
+creation macro windy { $sensor entityReference, $delay_on string op, $delay_off string op }:
+  SourceLine: 108, Body lines: 6
+
+creation macro battery_alert { $alertLevel int op }:
+  SourceLine: 8, Body lines: 4
+
+creation macro battery_from_device { $sourceEntity entityReference, $alertLevel int op }:
+  SourceLine: 19, Body lines: 3
+
+creation macro battery_level { $alertLevel int op }:
+  SourceLine: 27, Body lines: 2
+
+
+=== MACRO INVOCATIONS IN ENTITIES.DEF ===
+
+Line 11 (in social:apartment / social:hallway):
+  Invocation: battery_level_device aqara_windoor with alert_level 10;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "10"
+
+Line 16 (in social:apartment / social:hallway):
+  Invocation: battery_level_device door/aqara_multi with alert_level 15;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "15"
+
+Line 21 (in social:apartment / social:hallway):
+  Invocation: battery_level_device frient;
+  Status: OK (all parameters valid)
+
+Line 23 (in social:apartment / social:hallway):
+  Invocation: light_device main;
+  Status: OK (all parameters valid)
+
+Line 25 (in social:apartment / social:hallway):
+  Invocation: battery_level_device bedroom/door/moes with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 26 (in social:apartment / social:hallway):
+  Invocation: battery_level_device door/moes with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 51 (in social:apartment / social:living_room):
+  Invocation: battery_level_device philips_motion with alert_level 10;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "10"
+
+Line 53 (in social:apartment / social:living_room):
+  Invocation: battery_level_device signify_dimmer with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 57 (in social:apartment / social:living_room):
+  Invocation: battery_alert roborock with alert_level 15;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "15"
+
+Line 59 (in social:apartment / social:living_room):
+  Invocation: thermostat bitron_thermostat;
+  Status: OK (all parameters valid)
+
+Line 60 (in social:apartment / social:living_room):
+  Invocation: battery_level bitron_thermostat;
+  Status: OK (all parameters valid)
+
+Line 77 (in social:apartment / social:living_room):
+  Invocation: media_player sonos;
+  Type/Validation Errors:
+    - missing required parameter $no_collect for macro media_player
+
+Line 78 (in social:apartment / social:living_room):
+  Invocation: media_player apple_tv;
+  Type/Validation Errors:
+    - missing required parameter $no_collect for macro media_player
+
+Line 79 (in social:apartment / social:living_room):
+  Invocation: media_player tv with:
+  Type/Validation Errors:
+    - missing required parameter $no_collect for macro media_player
+  Parameters:
+    enabler = "switch.social:tv"
+    delay_off = "00:01:00"
+
+Line 85 (in social:apartment / social:living_room):
+  Invocation: battery_level_device living/aqara_windoor with alert_level 10;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "10"
+
+Line 87 (in social:apartment / social:living_room):
+  Invocation: zigbee_group light.social:main with group { kitchen, middle, living };
+  Type/Validation Errors:
+    - missing required parameter $elements for macro zigbee_group
+  Parameters:
+    group = "{ kitchen, middle, living }"
+
+Line 90 (in social:apartment / social:living_room / social:vidja):
+  Invocation: zigbee_group light.social:left with group { 1, 2, 3, 4, 5, 6 };
+  Type/Validation Errors:
+    - missing required parameter $elements for macro zigbee_group
+  Parameters:
+    group = "{ 1, 2, 3, 4, 5, 6 }"
+
+Line 91 (in social:apartment / social:living_room / social:vidja):
+  Invocation: zigbee_group light.social:right with group { 1, 2, 3, 4, 5, 6 };
+  Type/Validation Errors:
+    - missing required parameter $elements for macro zigbee_group
+  Parameters:
+    group = "{ 1, 2, 3, 4, 5, 6 }"
+
+Line 96 (in social:apartment / social:living_room / social:kitchen):
+  Invocation: battery_level_device aqara_windoor with alert_level 10;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "10"
+
+Line 101 (in social:apartment / social:living_room / social:kitchen):
+  Invocation: battery_level_device aqara_water;
+  Status: OK (all parameters valid)
+
+Line 104 (in social:apartment / social:living_room / social:kitchen):
+  Invocation: battery_level_device fridge/aqara_windoor with alert_level 10;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "10"
+
+Line 107 (in social:apartment / social:living_room / social:kitchen):
+  Invocation: power_switch switch.social:dishwasher with:
+  Status: OK (all parameters valid)
+  Parameters:
+    node = "robb"
+    threshold = "1"
+    icon = "mdi:dishwasher"
+
+Line 113 (in social:apartment / social:living_room / social:kitchen):
+  Invocation: light_device social:workplace;
+  Status: OK (all parameters valid)
+
+Line 132 (in social:apartment / social:living_room / social:rack):
+  Invocation: battery_level_device aqara_multi with alert_level 15;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "15"
+
+Line 144 (in social:apartment / social:living_room):
+  Invocation: battery_level_device hallway_door/moes/1 with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 145 (in social:apartment / social:living_room):
+  Invocation: battery_level_device hallway_door/moes/2 with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 146 (in social:apartment / social:living_room):
+  Invocation: battery_level_device hallway_door/moes/3 with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 147 (in social:apartment / social:living_room):
+  Invocation: battery_level_device hallway_door/moes/4 with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 149 (in social:apartment / social:living_room):
+  Invocation: battery_level_device kitchen/door/moes/1 with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 150 (in social:apartment / social:living_room):
+  Invocation: battery_level_device kitchen/door/moes/2 with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 152 (in social:apartment / social:living_room):
+  Invocation: battery_level_device living/door/moes/1 with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 153 (in social:apartment / social:living_room):
+  Invocation: battery_level_device living/door/moes/2 with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 163 (in social:apartment / social:bedroom):
+  Invocation: battery_alert netatmo with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 178 (in social:apartment / social:bedroom):
+  Invocation: battery_level_device frient;
+  Status: OK (all parameters valid)
+
+Line 180 (in social:apartment / social:bedroom):
+  Invocation: battery_level_device bed/moes with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 181 (in social:apartment / social:bedroom):
+  Invocation: battery_level_device bed/shortcut/left with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 182 (in social:apartment / social:bedroom):
+  Invocation: battery_level_device bed/shortcut/right with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 183 (in social:apartment / social:bedroom):
+  Invocation: battery_level_device door/moes/1 with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 184 (in social:apartment / social:bedroom):
+  Invocation: battery_level_device door/moes/2 with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 185 (in social:apartment / social:bedroom):
+  Invocation: battery_level_device hallway/door/moes/1 with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 186 (in social:apartment / social:bedroom):
+  Invocation: battery_level_device hallway/door/moes/2 with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 189 (in social:apartment / social:bedroom):
+  Invocation: battery_level_device aqara_windoor with alert_level 10;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "10"
+
+Line 192 (in social:apartment / social:bedroom / social:bed):
+  Invocation: light_device left;
+  Status: OK (all parameters valid)
+
+Line 193 (in social:apartment / social:bedroom / social:bed):
+  Invocation: light_device right;
+  Status: OK (all parameters valid)
+
+Line 195 (in social:apartment / social:bedroom):
+  Invocation: light_device main;
+  Status: OK (all parameters valid)
+
+Line 197 (in social:apartment / social:bedroom):
+  Invocation: media_player sonos;
+  Type/Validation Errors:
+    - missing required parameter $no_collect for macro media_player
+
+Line 199 (in social:apartment / social:bedroom):
+  Invocation: battery_alert sonos with alert_level 10;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "10"
+
+Line 212 (in social:apartment / social:shower_room):
+  Invocation: battery_alert netatmo with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 227 (in social:apartment / social:shower_room):
+  Invocation: battery_level_device philips_motion with alert_level 10;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "10"
+
+Line 230 (in social:apartment / social:shower_room):
+  Invocation: battery_level_device aqara_water;
+  Status: OK (all parameters valid)
+
+Line 233 (in social:apartment / social:shower_room):
+  Invocation: power_switch switch.social:radiator with:
+  Status: OK (all parameters valid)
+  Parameters:
+    threshold = "1"
+    icon = "mdi:heating-coil"
+    node = "robb"
+
+Line 240 (in social:apartment / social:shower_room):
+  Invocation: power_switch switch.social:washing_machine with:
+  Status: OK (all parameters valid)
+  Parameters:
+    icon = "mdi:washing-machine"
+    node = "robb"
+    threshold = "1"
+
+Line 246 (in social:apartment / social:shower_room):
+  Invocation: light_device main;
+  Status: OK (all parameters valid)
+
+Line 247 (in social:apartment / social:shower_room):
+  Invocation: light_device mirror;
+  Status: OK (all parameters valid)
+
+Line 249 (in social:apartment / social:shower_room):
+  Invocation: battery_level_device door/moes/1 with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 250 (in social:apartment / social:shower_room):
+  Invocation: battery_level_device door/moes/2 with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 251 (in social:apartment / social:shower_room):
+  Invocation: battery_level_device mirror/moes with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 263 (in social:terrace):
+  Invocation: battery_alert netatmo_outdoor with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 275 (in social:terrace):
+  Invocation: battery_alert netatmo_windmeter with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 285 (in social:terrace):
+  Invocation: windy social:wind_speed with:
+  Type/Validation Errors:
+    - missing required parameter $sensor for macro windy
+  Parameters:
+    delay_on = "00:01:00"
+    delay_off = "00:10:00"
+
+Line 292 (in social:terrace):
+  Invocation: light_device physical:left;
+  Status: OK (all parameters valid)
+
+Line 293 (in social:terrace):
+  Invocation: light_device physical:right;
+  Status: OK (all parameters valid)
+
+Line 299 (in social:terrace):
+  Invocation: battery_alert signify_motion with alert_level 20;
+  Status: OK (all parameters valid)
+  Parameters:
+    alert_level = "20"
+
+Line 300 (in social:terrace):
+  Invocation: sunny physical:signify_motion:illuminance with:
+  Type/Validation Errors:
+    - missing required parameter $sensor for macro sunny
+  Parameters:
+    delay_on = "00:05:00"
+    delay_off = "00:05:00"
+
+
+=== ENTITIES BY SPACE (FULL NAMES) ===
+
+Space "social/apartment":
+
+  Space "social/apartment/hallway":
+    - binary_sensor.physical/apartment/hallway/door (line 10)
+    - sensor.physical/apartment/hallway/door/aqara_multi/temperature (line 13)
+    - sensor.physical/apartment/hallway/door/aqara_multi/pressure (line 14)
+    - sensor.physical/apartment/hallway/door/aqara_multi/humidity (line 15)
+    - sensor.physical/apartment/hallway/frient/illuminance (line 18)
+    - sensor.physical/apartment/hallway/frient/temperature (line 19)
+    - binary_sensor.physical/apartment/hallway/frient/motion (line 20)
+
+  Space "social/apartment/living_room":
+    - sensor.physical/apartment/living_room/netatmo/co2 (line 30)
+    - sensor.physical/apartment/living_room/netatmo/humidity (line 32)
+    - sensor.physical/apartment/living_room/netatmo/noise (line 34)
+    - sensor.physical/apartment/living_room/netatmo/pressure (line 36)
+    - sensor.physical/apartment/living_room/netatmo/temperature (line 38)
+    - sensor.infrastructural/apartment/living_room/netatmo/radio (line 40)
+    - binary_sensor.infrastructural/apartment/living_room/netatmo/node (line 42)
+    - switch.social/apartment/living_room/picture_frame (line 45)
+    - sensor.physical/apartment/living_room/philips_motion/illuminance (line 48)
+    - sensor.physical/apartment/living_room/philips_motion/temperature (line 49)
+    - binary_sensor.physical/apartment/living_room/philips_motion/motion (line 50)
+    - vacuum.social/apartment/living_room (line 55)
+    - sensor.infrastructural/apartment/living_room/roborock/battery_level (line 56)
+    - sensor.infrastructural/apartment/living_room/fritz_box_7590_ax_gb_received (line 67)
+    - sensor.infrastructural/apartment/living_room/fritz_box_7590_ax_gb_sent (line 68)
+    - switch.social/apartment/living_room/desktop (line 70)
+    - switch.social/apartment/living_room/tv (line 75)
+    - binary_sensor.social/apartment/living_room/living/door (line 84)
+    - cover.social/apartment/living_room/living (line 123)
+
+    Space "social/apartment/living_room/kitchen":
+      - binary_sensor.social/apartment/living_room/kitchen/terrace/door (line 95)
+      - switch.social/apartment/living_room/kitchen/nespresso (line 98)
+      - binary_sensor.physical/apartment/living_room/kitchen/aqara_water/water (line 100)
+      - binary_sensor.social/apartment/living_room/kitchen/fridge/door (line 103)
+      - sensor.physical/apartment/living_room/kitchen/dishwasher/robb/temperature (line 106) [no_collect]
+      - cover.social/apartment/living_room/kitchen (line 115)
+
+    Space "social/apartment/living_room/rack":
+      - sensor.physical/apartment/living_room/rack/aqara_multi/temperature (line 129)
+      - sensor.physical/apartment/living_room/rack/aqara_multi/pressure (line 130)
+      - sensor.physical/apartment/living_room/rack/aqara_multi/humidity (line 131)
+      - binary_sensor.infrastructural/apartment/living_room/rack/frame/node (line 134)
+      - sensor.infrastructural/apartment/living_room/rack/frame/load (line 135)
+      - sensor.infrastructural/apartment/living_room/rack/frame/temperature (line 137) [no_collect]
+      - sensor.infrastructural/apartment/living_room/rack/vienna/load (line 140)
+      - sensor.infrastructural/apartment/living_room/rack/vienna/temperature (line 141) [no_collect]
+
+  Space "social/apartment/bedroom":
+    - sensor.infrastructural/apartment/bedroom/netatmo/battery_level (line 161)
+    - sensor.physical/apartment/bedroom/co2 (line 164)
+    - sensor.physical/apartment/bedroom/humidity (line 166)
+    - sensor.physical/apartment/bedroom/netatmo/temperature (line 168)
+    - sensor.infrastructural/apartment/bedroom/netatmo/radio (line 170)
+    - binary_sensor.infrastructural/apartment/bedroom/netatmo/node (line 172)
+    - sensor.physical/apartment/bedroom/frient/illuminance (line 175)
+    - sensor.physical/apartment/bedroom/frient/temperature (line 176)
+    - binary_sensor.physical/apartment/bedroom/frient/motion (line 177)
+    - binary_sensor.physical/apartment/bedroom/door (line 188)
+    - sensor.infrastructural/apartment/bedroom/sonos/battery_level (line 198)
+    - cover.social/apartment/bedroom (line 201)
+
+  Space "social/apartment/shower_room":
+    - sensor.infrastructural/apartment/shower_room/netatmo/battery_level (line 210)
+    - sensor.physical/apartment/shower_room/netatmo/co2 (line 213)
+    - sensor.physical/apartment/shower_room/netatmo/humidity (line 215)
+    - sensor.physical/apartment/shower_room/netatmo/temperature (line 217)
+    - sensor.infrastructural/apartment/shower_room/netatmo/radio (line 219)
+    - binary_sensor.infrastructural/apartment/shower_room/netatmo/node (line 221)
+    - sensor.physical/apartment/shower_room/philips_motion/illuminance (line 224)
+    - sensor.physical/apartment/shower_room/philips_motion/temperature (line 225)
+    - binary_sensor.physical/apartment/shower_room/philips_motion/motion (line 226)
+    - binary_sensor.physical/apartment/shower_room/aqara_water/water (line 229)
+    - sensor.physical/apartment/shower_room/radiator/robb/temperature (line 232) [no_collect]
+    - sensor.physical/apartment/shower_room/washing_machine/robb/temperature (line 239) [no_collect]
+
+Space "social/terrace":
+  - sensor.infrastructural/terrace/netatmo_outdoor/battery_level (line 261)
+  - sensor.physical/terrace/netatmo_outdoor/humidity (line 264)
+  - sensor.physical/terrace/netatmo_outdoor/temperature (line 266)
+  - sensor.infrastructural/terrace/netatmo_outdoor/radio (line 268)
+  - binary_sensor.infrastructural/terrace/netatmo_outdoor/node (line 270)
+  - sensor.infrastructural/terrace/netatmo_windmeter/battery_level (line 273)
+  - sensor.social/terrace/wind_direction (line 276)
+  - sensor.social/terrace/wind_speed (line 278)
+  - sensor.infrastructural/terrace/netatmo_windmeter/radio (line 280)
+  - binary_sensor.infrastructural/terrace/netatmo_windmeter/node (line 282)
+  - binary_sensor.social/terrace/daylight (line 290)
+  - sensor.physical/terrace/signify_motion/illuminance (line 295)
+  - sensor.physical/terrace/signify_motion/temperature (line 296)
+  - binary_sensor.physical/terrace/signify_motion/motion (line 297)
+  - sensor.infrastructural/terrace/signify_motion/battery_level (line 298)
+
+Space "root":
+  - sun.[sun] (line 308)
+
+
+=== EXTERNAL ENTITIES (NO DEFINITION/IMPORTED) ===
+Assumption: these entities are already defined in Home Assistant; no core entity YAML generation needed here.
+Note: entities with local options (e.g., icon/providing) may still require configuration/customization YAML.
+Availability check status: not checked (offline mode).
+
+  Space "social/apartment/hallway":
+    - binary_sensor.physical/apartment/hallway/door (line 10)
+    - sensor.physical/apartment/hallway/door/aqara_multi/temperature (line 13)
+    - sensor.physical/apartment/hallway/door/aqara_multi/humidity (line 15)
+    - sensor.physical/apartment/hallway/frient/illuminance (line 18)
+    - sensor.physical/apartment/hallway/frient/temperature (line 19)
+    - binary_sensor.physical/apartment/hallway/frient/motion (line 20)
+
+  Space "social/apartment/living_room":
+    - sensor.physical/apartment/living_room/philips_motion/illuminance (line 48)
+    - sensor.physical/apartment/living_room/philips_motion/temperature (line 49)
+    - binary_sensor.physical/apartment/living_room/philips_motion/motion (line 50)
+    - vacuum.social/apartment/living_room (line 55) [config options: providing]
+    - sensor.infrastructural/apartment/living_room/roborock/battery_level (line 56)
+    - sensor.infrastructural/apartment/living_room/fritz_box_7590_ax_gb_received (line 67) [config options: providing]
+    - sensor.infrastructural/apartment/living_room/fritz_box_7590_ax_gb_sent (line 68)
+    - switch.social/apartment/living_room/desktop (line 70) [config options: icon, providing]
+    - switch.social/apartment/living_room/tv (line 75) [config options: providing]
+    - binary_sensor.social/apartment/living_room/living/door (line 84)
+    - cover.social/apartment/living_room/living (line 123) [config options: open_stop_close, providing]
+
+    Space "social/apartment/living_room/kitchen":
+      - binary_sensor.social/apartment/living_room/kitchen/terrace/door (line 95)
+      - switch.social/apartment/living_room/kitchen/nespresso (line 98)
+      - binary_sensor.physical/apartment/living_room/kitchen/aqara_water/water (line 100)
+      - binary_sensor.social/apartment/living_room/kitchen/fridge/door (line 103) [config options: icon]
+      - sensor.physical/apartment/living_room/kitchen/dishwasher/robb/temperature (line 106)
+      - cover.social/apartment/living_room/kitchen (line 115) [config options: open_stop_close, providing]
+
+    Space "social/apartment/living_room/rack":
+      - sensor.physical/apartment/living_room/rack/aqara_multi/temperature (line 129)
+      - sensor.physical/apartment/living_room/rack/aqara_multi/humidity (line 131)
+      - binary_sensor.infrastructural/apartment/living_room/rack/frame/node (line 134)
+      - sensor.infrastructural/apartment/living_room/rack/vienna/load (line 140)
+      - sensor.infrastructural/apartment/living_room/rack/vienna/temperature (line 141)
+
+  Space "social/apartment/bedroom":
+    - sensor.physical/apartment/bedroom/frient/illuminance (line 175)
+    - sensor.physical/apartment/bedroom/frient/temperature (line 176)
+    - binary_sensor.physical/apartment/bedroom/frient/motion (line 177)
+    - binary_sensor.physical/apartment/bedroom/door (line 188)
+    - sensor.infrastructural/apartment/bedroom/sonos/battery_level (line 198)
+    - cover.social/apartment/bedroom (line 201) [config options: open_stop_close, providing]
+
+  Space "social/apartment/shower_room":
+    - sensor.physical/apartment/shower_room/philips_motion/illuminance (line 224)
+    - sensor.physical/apartment/shower_room/philips_motion/temperature (line 225)
+    - binary_sensor.physical/apartment/shower_room/philips_motion/motion (line 226)
+    - binary_sensor.physical/apartment/shower_room/aqara_water/water (line 229)
+    - sensor.physical/apartment/shower_room/radiator/robb/temperature (line 232)
+    - sensor.physical/apartment/shower_room/washing_machine/robb/temperature (line 239)
+
+Space "social/terrace":
+  - sensor.physical/terrace/signify_motion/illuminance (line 295) [config options: providing]
+  - sensor.physical/terrace/signify_motion/temperature (line 296)
+  - binary_sensor.physical/terrace/signify_motion/motion (line 297)
+  - sensor.infrastructural/terrace/signify_motion/battery_level (line 298)
+
+Space "root":
+  - sun.[sun] (line 308)
+
+
+=== IMPLIED SPACE AGGREGATE ENTITIES (EXCLUDING no_collect) ===
+
+- sensor.social/apartment/co2
+- sensor.social/apartment/humidity
+- sensor.social/apartment/illuminance
+- sensor.social/apartment/noise
+- sensor.social/apartment/pressure
+- sensor.social/apartment/temperature
+  - sensor.social/apartment/hallway/humidity
+  - sensor.social/apartment/hallway/illuminance
+  - sensor.social/apartment/hallway/pressure
+  - sensor.social/apartment/hallway/temperature
+  - sensor.social/apartment/living_room/co2
+  - sensor.social/apartment/living_room/humidity
+  - sensor.social/apartment/living_room/illuminance
+  - sensor.social/apartment/living_room/noise
+  - sensor.social/apartment/living_room/pressure
+  - sensor.social/apartment/living_room/temperature
+    - sensor.social/apartment/living_room/rack/humidity
+    - sensor.social/apartment/living_room/rack/pressure
+    - sensor.social/apartment/living_room/rack/temperature
+  - sensor.social/apartment/bedroom/co2
+  - sensor.social/apartment/bedroom/humidity
+  - sensor.social/apartment/bedroom/illuminance
+  - sensor.social/apartment/bedroom/temperature
+  - sensor.social/apartment/shower_room/co2
+  - sensor.social/apartment/shower_room/humidity
+  - sensor.social/apartment/shower_room/illuminance
+  - sensor.social/apartment/shower_room/temperature
+- sensor.social/terrace/humidity
+- sensor.social/terrace/illuminance
+- sensor.social/terrace/temperature
+- sensor.social/terrace/wind_direction
+- sensor.social/terrace/wind_speed
+
+
+=== SUMMARY ===
+Total macro invocations: 64
+Valid invocations: 55
+Type/validation errors: 9
+Creation macros defined: 13
+Entities listed by space: 80
+External entities (no definition/imported): 45
+External entities with config options: 9
+Implied aggregates: 32

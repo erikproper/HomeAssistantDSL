@@ -1,0 +1,15 @@
+# Migrated preview; generated on 18.03.2026.
+# House: Vienna
+# Target: Main.def
+# Source: generated entrypoint
+
+# File load order entrypoint for parser and generator phases.
+# Macros.def must be read before definitions that invoke create-based macros.
+
+include Macros.def;
+include Secrets.def;
+include Settings.def;
+include Server.def;
+include Bridges.def;
+include Entities.def;
+include Lists.def;
