@@ -3,17 +3,10 @@
 # Target: Server.def
 # Source: Old/Junglinster/Definitions/00_server.def
 
-# The conditional routing logic is preserved here, but concrete deployment values stay external.
-
-servers:
-  external LocalServer;
-  external MainInstance__LocalServer;
-  external MainInstance__otherwise;
-  secret MainAPIToken;
-
-  choose MainInstance:
-    when server_is_up LocalServer then MainInstance__LocalServer;
-    otherwise MainInstance__otherwise;
-  end;
-
+if is up "junglinster.fritz.box" then
+  $MainInstance = "http://junglinster.fritz.box:8123";
+else
+  $MainInstance = "https://junglinster.homelinux.org";
 end;
+
+main junglinster $MainInstance;

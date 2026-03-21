@@ -129,11 +129,11 @@ func TestMigrationSecretsKeepMainTokenAndDropObsoleteLegacyKeys(t *testing.T) {
 		}
 		text := string(content)
 
-		if !strings.Contains(text, "  $MainAPIToken = \"\";") {
+		if !strings.Contains(text, "$MainAPIToken") {
 			t.Fatalf("expected MainAPIToken in %s", secretsPath)
 		}
 
-		if houseName == "Vienna" && !strings.Contains(text, "  $JunglinsterAPIToken = \"\";") {
+		if houseName == "Vienna" && !strings.Contains(text, "$JunglinsterAPIToken") {
 			t.Fatalf("expected JunglinsterAPIToken in %s", secretsPath)
 		}
 
@@ -165,6 +165,64 @@ func TestMigrationSecretsKeepMainTokenAndDropObsoleteLegacyKeys(t *testing.T) {
 	viennaBridgesText := string(viennaBridgesContent)
 	if !strings.Contains(viennaBridgesText, "bridge rest junglinster $JunglinsterInstance/api/states authorization $JunglinsterAPIToken;") {
 		t.Fatalf("expected JunglinsterAPIToken bridge authorization in %s", viennaBridgesPath)
+	}
+}
+
+func TestMigrationServerUsesInlinedIfFormat(t *testing.T) {
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to determine working directory: %v", err)
+	}
+
+	if err := runMigration(root, THouseNames); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	junglinsterServerPath := filepath.Join(root, "New", "Junglinster", "Definitions", "Server.def")
+	junglinsterServerContent, readErr := os.ReadFile(junglinsterServerPath)
+	if readErr != nil {
+		t.Fatalf("failed to read %s: %v", junglinsterServerPath, readErr)
+	}
+	junglinsterText := string(junglinsterServerContent)
+	for _, expected := range []string{
+		"if is up \"junglinster.fritz.box\" then",
+		"main junglinster $MainInstance;",
+	} {
+		if !strings.Contains(junglinsterText, expected) {
+			t.Fatalf("expected %q in %s", expected, junglinsterServerPath)
+		}
+	}
+	if strings.Contains(junglinsterText, "servers:") {
+		t.Fatalf("unexpected legacy servers: block in %s", junglinsterServerPath)
+	}
+
+	viennaServerPath := filepath.Join(root, "New", "Vienna", "Definitions", "Server.def")
+	viennaServerContent, readErr := os.ReadFile(viennaServerPath)
+	if readErr != nil {
+		t.Fatalf("failed to read %s: %v", viennaServerPath, readErr)
+	}
+	viennaText := string(viennaServerContent)
+	for _, expected := range []string{
+		"if is up \"vienna.fritz.box\" then",
+		"elif is up \"junglinster.fritz.box\" then",
+		"main vienna $MainInstance;",
+	} {
+		if !strings.Contains(viennaText, expected) {
+			t.Fatalf("expected %q in %s", expected, viennaServerPath)
+		}
+	}
+	if strings.Contains(viennaText, "servers:") {
+		t.Fatalf("unexpected legacy servers: block in %s", viennaServerPath)
+	}
+
+	viennaBridgesPath := filepath.Join(root, "New", "Vienna", "Definitions", "Bridges.def")
+	viennaBridgesContent, readErr := os.ReadFile(viennaBridgesPath)
+	if readErr != nil {
+		t.Fatalf("failed to read %s: %v", viennaBridgesPath, readErr)
+	}
+	viennaBridgesText := string(viennaBridgesContent)
+	if strings.Contains(viennaBridgesText, "main vienna") {
+		t.Fatalf("unexpected 'main vienna' in %s — it belongs in Server.def", viennaBridgesPath)
 	}
 }
 

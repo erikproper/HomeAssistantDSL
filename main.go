@@ -337,12 +337,10 @@ func (m *TMigrator) BuildServer(house string) (string, error) {
 		return "", err
 	}
 
-	preBranchAssignments := []TAssignment{}
-	postBranchAssignments := []TAssignment{}
+	preBranchValues := map[string]string{}
 	branches := []TServerBranch{}
 	currentBranchIndex := -1
 	insideBranching := false
-	seenConditional := false
 
 	ifPattern := regexp.MustCompile(`^if\s+ServerIsUp\s+\$([A-Za-z_][A-Za-z0-9_]*)\s*;\s*then$`)
 	elifPattern := regexp.MustCompile(`^elif\s+ServerIsUp\s+\$([A-Za-z_][A-Za-z0-9_]*)\s*;\s*then$`)
@@ -355,19 +353,20 @@ func (m *TMigrator) BuildServer(house string) (string, error) {
 		}
 
 		if matches := ifPattern.FindStringSubmatch(trimmedLine); matches != nil {
-			seenConditional = true
 			insideBranching = true
-			branches = append(branches, TServerBranch{Label: sanitizeName(matches[1]), Condition: matches[1]})
+			hostname := preBranchValues[matches[1]]
+			branches = append(branches, TServerBranch{Condition: hostname})
 			currentBranchIndex = len(branches) - 1
 			continue
 		}
 		if matches := elifPattern.FindStringSubmatch(trimmedLine); matches != nil {
-			branches = append(branches, TServerBranch{Label: sanitizeName(matches[1]), Condition: matches[1]})
+			hostname := preBranchValues[matches[1]]
+			branches = append(branches, TServerBranch{Condition: hostname})
 			currentBranchIndex = len(branches) - 1
 			continue
 		}
 		if trimmedLine == "else" {
-			branches = append(branches, TServerBranch{Label: "otherwise", Otherwise: true})
+			branches = append(branches, TServerBranch{Otherwise: true})
 			currentBranchIndex = len(branches) - 1
 			continue
 		}
@@ -383,71 +382,38 @@ func (m *TMigrator) BuildServer(house string) (string, error) {
 		}
 
 		if insideBranching && currentBranchIndex >= 0 {
-			branches[currentBranchIndex].Assignments = append(branches[currentBranchIndex].Assignments, assignment)
-			continue
-		}
-
-		if !seenConditional {
-			preBranchAssignments = append(preBranchAssignments, assignment)
-		} else {
-			postBranchAssignments = append(postBranchAssignments, assignment)
+			// Only keep non-sensitive assignments; secrets are handled in Secrets.def.
+			if !looksSensitive(assignment.Name) {
+				branches[currentBranchIndex].Assignments = append(branches[currentBranchIndex].Assignments, assignment)
+			}
+		} else if !insideBranching {
+			// Pre-branch assignments define the hostnames used in conditions.
+			preBranchValues[assignment.Name] = assignment.Value
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return "", err
 	}
 
-	derivedExternalNames := []string{}
-	resultVariables := []string{}
-	seenResultVariables := map[string]bool{}
-	for _, branch := range branches {
-		for _, assignment := range branch.Assignments {
-			if !seenResultVariables[assignment.Name] {
-				seenResultVariables[assignment.Name] = true
-				resultVariables = append(resultVariables, assignment.Name)
-			}
-			derivedExternalNames = appendUnique(derivedExternalNames, fmt.Sprintf("%s__%s", assignment.Name, branch.Label))
-		}
-	}
-
+	houseName := strings.ToLower(house)
 	builder := strings.Builder{}
 	writeGeneratedHeader(&builder, house, "Server.def", filepath.Join("Old", house, "Definitions", "00_server.def"))
-	builder.WriteString("# The conditional routing logic is preserved here, but concrete deployment values stay external.\n\n")
-	builder.WriteString("servers:\n")
-	for _, assignment := range preBranchAssignments {
-		fmt.Fprintf(&builder, "  external %s;\n", assignment.Name)
-	}
-	for _, externalName := range derivedExternalNames {
-		fmt.Fprintf(&builder, "  external %s;\n", externalName)
-	}
-	for _, assignment := range postBranchAssignments {
-		if looksSensitive(assignment.Name) {
-			fmt.Fprintf(&builder, "  secret %s;\n", assignment.Name)
+	for i, branch := range branches {
+		if i == 0 {
+			fmt.Fprintf(&builder, "if is up \"%s\" then\n", branch.Condition)
+		} else if branch.Otherwise {
+			builder.WriteString("else\n")
 		} else {
-			fmt.Fprintf(&builder, "  external %s;\n", assignment.Name)
+			fmt.Fprintf(&builder, "elif is up \"%s\" then\n", branch.Condition)
+		}
+		for _, assignment := range branch.Assignments {
+			fmt.Fprintf(&builder, "  $%s = \"%s\";\n", assignment.Name, assignment.Value)
 		}
 	}
-	if len(preBranchAssignments) > 0 || len(derivedExternalNames) > 0 || len(postBranchAssignments) > 0 {
-		builder.WriteString("\n")
+	if len(branches) > 0 {
+		builder.WriteString("end;\n")
 	}
-	for _, resultVariable := range resultVariables {
-		fmt.Fprintf(&builder, "  choose %s:\n", resultVariable)
-		for _, branch := range branches {
-			for _, assignment := range branch.Assignments {
-				if assignment.Name != resultVariable {
-					continue
-				}
-				targetName := fmt.Sprintf("%s__%s", assignment.Name, branch.Label)
-				if branch.Otherwise {
-					fmt.Fprintf(&builder, "    otherwise %s;\n", targetName)
-				} else {
-					fmt.Fprintf(&builder, "    when server_is_up %s then %s;\n", branch.Condition, targetName)
-				}
-			}
-		}
-		builder.WriteString("  end;\n\n")
-	}
-	builder.WriteString("end;\n")
+	fmt.Fprintf(&builder, "\nmain %s $MainInstance;\n", houseName)
 
 	return builder.String(), nil
 }
@@ -495,7 +461,7 @@ func (m *TMigrator) BuildBridges(house string) (string, error) {
 				statementLines = append(statementLines, fmt.Sprintf("%s;", strings.Join(fields, " ")))
 			}
 		case "main":
-			statementLines = append(statementLines, fmt.Sprintf("%s;", strings.Join(fields, " ")))
+			// main statement moves to Server.def; skip it here
 		default:
 			statementLines = append(statementLines, fmt.Sprintf("%s;", strings.Join(fields, " ")))
 		}

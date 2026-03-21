@@ -215,7 +215,7 @@ func (p *TDefinitionParser) Sequence(nodes *[]TNode, untilEnd bool) bool {
 			return true
 		}
 
-		if p.Comment(nodes) || p.Statement(nodes) || p.Block(nodes) {
+		if p.Comment(nodes) || p.Conditional(nodes) || p.Statement(nodes) || p.Block(nodes) {
 			continue
 		}
 
@@ -233,6 +233,59 @@ func (p *TDefinitionParser) Sequence(nodes *[]TNode, untilEnd bool) bool {
 		return p.ReportParsingError("unexpected end of file while parsing block")
 	}
 	return true
+}
+
+// ConditionalBody reads statements (and comments) into nodes, stopping before "elif ...", "else", or "end;".
+func (p *TDefinitionParser) ConditionalBody(nodes *[]TNode) bool {
+	for p.HasCurrentLine() {
+		line := p.CurrentLine()
+		if line == "" {
+			p.Advance()
+			continue
+		}
+		if line == "end;" || strings.HasPrefix(line, "elif ") || line == "else" {
+			return true
+		}
+		if p.Comment(nodes) || p.Conditional(nodes) || p.Statement(nodes) || p.Block(nodes) {
+			continue
+		}
+		p.ReportParsingError("unexpected line %q in conditional branch", line)
+		p.Advance()
+	}
+	return true
+}
+
+// Conditional: "if is up" "\"..." "then" ConditionalBody ("elif is up" "\"..." "then" ConditionalBody)* ("else" ConditionalBody)? "end;"
+// Only the is-up form of conditional is recognized here; macro-style if-expressions remain plain statements.
+func (p *TDefinitionParser) Conditional(nodes *[]TNode) bool {
+	if !p.HasCurrentLine() || !strings.HasPrefix(p.CurrentLine(), "if is up \"") {
+		return false
+	}
+	node := TNode{Kind: NodeBlock, SourceLine: p.CurrentLineNumber(), Text: p.CurrentLine()}
+	p.Advance()
+	p.ConditionalBody(&node.Children)
+
+	for p.HasCurrentLine() && strings.HasPrefix(p.CurrentLine(), "elif ") {
+		branch := TNode{Kind: NodeBlock, SourceLine: p.CurrentLineNumber(), Text: p.CurrentLine()}
+		p.Advance()
+		p.ConditionalBody(&branch.Children)
+		node.Children = append(node.Children, branch)
+	}
+
+	if p.HasCurrentLine() && p.CurrentLine() == "else" {
+		branch := TNode{Kind: NodeBlock, SourceLine: p.CurrentLineNumber(), Text: p.CurrentLine()}
+		p.Advance()
+		p.ConditionalBody(&branch.Children)
+		node.Children = append(node.Children, branch)
+	}
+
+	if p.HasCurrentLine() && p.CurrentLine() == "end;" {
+		p.Advance()
+	} else {
+		p.ReportParsingError("expected end; to close if-block")
+	}
+
+	return p.AppendNode(nodes, node)
 }
 
 // Comment: '#' .*
