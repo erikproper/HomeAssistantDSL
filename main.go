@@ -271,6 +271,9 @@ func (m *TMigrator) BuildSecrets(house string) (string, error) {
 		return "", err
 	}
 	for _, secretName := range orderedAssignmentNames(parseAssignments(legacySettingsSecrets)) {
+		if isObsoleteLegacySecretName(secretName) {
+			continue
+		}
 		secretNames = appendUnique(secretNames, secretName)
 	}
 
@@ -279,7 +282,7 @@ func (m *TMigrator) BuildSecrets(house string) (string, error) {
 		return "", err
 	}
 	for _, assignment := range parseAssignments(legacyServerDefinition) {
-		if looksSensitive(assignment.Name) {
+		if looksSensitive(assignment.Name) && !isObsoleteLegacySecretName(assignment.Name) {
 			secretNames = appendUnique(secretNames, assignment.Name)
 		}
 	}
@@ -296,12 +299,19 @@ func (m *TMigrator) BuildSecrets(house string) (string, error) {
 		}
 		fields := splitShellFields(trimmedLine)
 		if len(fields) >= 5 && fields[0] == "bridge" && fields[1] == "rest" {
-			secretNames = appendUnique(secretNames, fmt.Sprintf("%s_authorization", sanitizeName(fields[2])))
+			candidateSecretName := fmt.Sprintf("%sAPIToken", toUpperCamelIdentifier(fields[2]))
+			if isObsoleteLegacySecretName(candidateSecretName) {
+				continue
+			}
+			secretNames = appendUnique(secretNames, candidateSecretName)
 		}
 	}
 	if err := bridgeScanner.Err(); err != nil {
 		return "", err
 	}
+
+	// MainAPIToken is required for local-instance entity existence checks.
+	secretNames = appendUnique(secretNames, "MainAPIToken")
 
 	builder := strings.Builder{}
 	writeGeneratedHeader(&builder, house, "Secrets.def", filepath.Join("Old", house, "Settings", "secrets.def"))
@@ -477,7 +487,7 @@ func (m *TMigrator) BuildBridges(house string) (string, error) {
 		switch fields[0] {
 		case "bridge":
 			if len(fields) >= 5 && fields[1] == "rest" {
-				secretName := fmt.Sprintf("%s_authorization", sanitizeName(fields[2]))
+				secretName := fmt.Sprintf("%sAPIToken", toUpperCamelIdentifier(fields[2]))
 				statementLines = append(statementLines,
 					fmt.Sprintf("bridge rest %s %s authorization $%s;", fields[2], fields[3], secretName),
 				)
@@ -1046,6 +1056,17 @@ func toLowerCamelIdentifier(name string) string {
 	return normalized
 }
 
+func toUpperCamelIdentifier(name string) string {
+	lowerCamelName := toLowerCamelIdentifier(name)
+	if lowerCamelName == "" {
+		return ""
+	}
+	if len(lowerCamelName) == 1 {
+		return strings.ToUpper(lowerCamelName)
+	}
+	return strings.ToUpper(lowerCamelName[:1]) + lowerCamelName[1:]
+}
+
 func ensureStatementSemicolon(line string) string {
 	trimmedLine := strings.TrimSpace(line)
 	if trimmedLine == "" || strings.HasSuffix(trimmedLine, ";") {
@@ -1512,6 +1533,19 @@ func looksSensitive(name string) bool {
 		strings.Contains(lowerName, "password") ||
 		strings.Contains(lowerName, "authorization") ||
 		strings.HasSuffix(lowerName, "key")
+}
+
+func isObsoleteLegacySecretName(name string) bool {
+	switch name {
+	case "smarty_key", "telnet_password", "telnet_port", "volvo_login", "volvo_password", "xiaomi_token", "zigbee_deconz_key", "zigbee_importer_key", "zwave_deconz_home_id", "zwave_zwave_home_id":
+		return true
+	case "junglinster_authorization":
+		return true
+	case "rest_authorization_xanadu":
+		return true
+	default:
+		return false
+	}
 }
 
 func sanitizeName(name string) string {

@@ -5,5 +5,10 @@
 # Local deployment secret bindings
 New/*/Definitions/Secrets.def
 
+# Generated output and transient analysis artifacts
+New/*/hass/
+New/*/interpretation.txt
+New/*/Definitions/Expansion.txt
+
 # Legacy source tree may contain sensitive values
 Old/

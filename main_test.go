@@ -111,6 +111,63 @@ func TestMigrationIncludesLegacyIconSettings(t *testing.T) {
 	}
 }
 
+func TestMigrationSecretsKeepMainTokenAndDropObsoleteLegacyKeys(t *testing.T) {
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to determine working directory: %v", err)
+	}
+
+	if err := runMigration(root, THouseNames); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	for _, houseName := range THouseNames {
+		secretsPath := filepath.Join(root, "New", houseName, "Definitions", "Secrets.def")
+		content, readErr := os.ReadFile(secretsPath)
+		if readErr != nil {
+			t.Fatalf("failed to read %s: %v", secretsPath, readErr)
+		}
+		text := string(content)
+
+		if !strings.Contains(text, "  $MainAPIToken = \"\";") {
+			t.Fatalf("expected MainAPIToken in %s", secretsPath)
+		}
+
+		if houseName == "Vienna" && !strings.Contains(text, "  $JunglinsterAPIToken = \"\";") {
+			t.Fatalf("expected JunglinsterAPIToken in %s", secretsPath)
+		}
+
+		for _, obsoleteSecret := range []string{
+			"$rest_authorization_xanadu",
+			"$smarty_key",
+			"$telnet_password",
+			"$telnet_port",
+			"$volvo_login",
+			"$volvo_password",
+			"$xiaomi_token",
+			"$zigbee_deconz_key",
+			"$zigbee_importer_key",
+			"$zwave_deconz_home_id",
+			"$zwave_zwave_home_id",
+			"$junglinster_authorization",
+		} {
+			if strings.Contains(text, obsoleteSecret) {
+				t.Fatalf("unexpected obsolete secret %s in %s", obsoleteSecret, secretsPath)
+			}
+		}
+	}
+
+	viennaBridgesPath := filepath.Join(root, "New", "Vienna", "Definitions", "Bridges.def")
+	viennaBridgesContent, readBridgesErr := os.ReadFile(viennaBridgesPath)
+	if readBridgesErr != nil {
+		t.Fatalf("failed to read %s: %v", viennaBridgesPath, readBridgesErr)
+	}
+	viennaBridgesText := string(viennaBridgesContent)
+	if !strings.Contains(viennaBridgesText, "bridge rest junglinster $JunglinsterInstance/api/states authorization $JunglinsterAPIToken;") {
+		t.Fatalf("expected JunglinsterAPIToken bridge authorization in %s", viennaBridgesPath)
+	}
+}
+
 func TestMigrationNormalizesPowerSwitchCreateBlocks(t *testing.T) {
 	root, err := os.Getwd()
 	if err != nil {
