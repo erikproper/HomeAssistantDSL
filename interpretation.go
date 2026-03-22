@@ -72,8 +72,14 @@ func interpretHouse(root, house string) error {
 		builder.WriteString("\n")
 	}
 
-	interpretationPath := filepath.Join(root, "New", house, "interpretation.txt")
-	return os.WriteFile(interpretationPath, []byte(builder.String()), 0o644)
+	interpretationReportPath, err := writeDebugReport(root, house, DebugReportInterpretation, builder.String())
+	if err != nil {
+		return err
+	}
+	if interpretationReportPath != "" {
+		fmt.Printf("  interpretation report: %s\n", interpretationReportPath)
+	}
+	return nil
 }
 
 func resolveDefinitionLoadOrder(definitionDir string) ([]string, error) {

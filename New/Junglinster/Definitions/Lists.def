@@ -3,82 +3,70 @@
 # Target: Lists.def
 # Source: Old/Junglinster/Definitions/03_lists.def
 
-# This file keeps the legacy list selections, but normalizes them into explicit begin/end blocks.
+# This file keeps the legacy list selections, but normalizes them into with:/end; blocks.
 
-list "Nodes" all binary_sensor.*:*:node
-  begin
-    clean_prefix  infrastructural;
-    clean_postfix node;
-  end;
+list "Nodes" all binary_sensor.*:*:node with:
+  clean_prefix  infrastructural;
+  clean_postfix node;
+end;
 
-list "Windoors" all binary_sensor.*:*:door binary_sensor.*:*:window
-  begin
-    clean_prefix  social;
-    clean_prefix  physical;
-    clean_prefix  apartment;
-  end;
+list "Windoors" all binary_sensor.*:*:door binary_sensor.*:*:window with:
+  clean_prefix  social;
+  clean_prefix  physical;
+  clean_prefix  apartment;
+end;
 
-list "Water" all binary_sensor.*:*:water
-  begin
-    clean_prefix  social;
-    clean_prefix  physical;
-    clean_prefix  apartment;
-  end;
+list "Water" all binary_sensor.*:*:water with:
+  clean_prefix  social;
+  clean_prefix  physical;
+  clean_prefix  apartment;
+end;
 
-list "Battery levels" all sensor.*:*:battery_level
-  begin
-    clean_prefix  infrastructural;
-    clean_postfix battery_level;
-  end;
+list "Battery levels" all sensor.*:*:battery_level with:
+  clean_prefix  infrastructural;
+  clean_postfix battery_level;
+end;
 
-list "Battery alerts" all binary_sensor.*:*:battery_alert
-  begin
-    clean_prefix  infrastructural;
-    clean_postfix battery_alert;
-  end;
+list "Battery alerts" all binary_sensor.*:*:battery_alert with:
+  clean_prefix  infrastructural;
+  clean_postfix battery_alert;
+end;
 
-list "Radios" all sensor.*:*:radio
-  begin
-    clean_prefix  infrastructural;
-    clean_postfix radio;
-  end;
+list "Radios" all sensor.*:*:radio with:
+  clean_prefix  infrastructural;
+  clean_postfix radio;
+end;
 
-list "Temperatures" all sensor.*:*:temperature
-  begin
-    clean_prefix  social;
-    clean_prefix  physical;
-    clean_prefix  infrastructural;
-  end;
+list "Temperatures" all sensor.*:*:temperature with:
+  clean_prefix  social;
+  clean_prefix  physical;
+  clean_prefix  infrastructural;
+end;
 
-list "Pressures" all sensor.*:*:pressure
-  begin
-    clean_prefix  social;
-    clean_prefix  physical;
-    clean_prefix  infrastructural;
-  end;
+list "Pressures" all sensor.*:*:pressure with:
+  clean_prefix  social;
+  clean_prefix  physical;
+  clean_prefix  infrastructural;
+end;
 
-list "Thermostats" all climate.*
-  begin
-    clean_prefix  social;
-    clean_prefix  physical;
-    clean_postfix thermostat;
-  end;
+list "Thermostats" all climate.* with:
+  clean_prefix  social;
+  clean_prefix  physical;
+  clean_postfix thermostat;
+end;
 
-list "Covers" all cover.*
-  begin
-    clean_prefix  social;
-    clean_prefix  physical;
-    clean_prefix  apartment;
-  end;
+list "Covers" all cover.* with:
+  clean_prefix  social;
+  clean_prefix  physical;
+  clean_prefix  apartment;
+end;
 
-list "Ignore no motion" all input_boolean.*:*:no_motion/ignore
-  begin
-    clean_prefix  social;
-    clean_postfix no_motion.ignore;
-  end;
+list "Ignore no motion" all input_boolean.*:*:no_motion/ignore with:
+  clean_prefix  social;
+  clean_postfix no_motion.ignore;
+end;
 
-list "Ignore leakage" all input_boolean.*:*:heating/leakage/ignore
-  begin
-    clean_prefix  social;
-    clean_postfix heating.leakage.ignore;
-  end;
+list "Ignore leakage" all input_boolean.*:*:heating/leakage/ignore with:
+  clean_prefix  social;
+  clean_postfix heating.leakage.ignore;
+end;

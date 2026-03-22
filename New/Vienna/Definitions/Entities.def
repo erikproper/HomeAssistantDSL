@@ -27,23 +27,31 @@ space social:apartment with:
   end;
 
   space social:living_room with:
-    entity sensor.physical:netatmo:co2 with
+    entity sensor.physical:netatmo:co2 with:
       imported rest junglinster sensor.physical_vienna_living_room_co2 60;
-    entity sensor.physical:netatmo:humidity with
+    end;
+    entity sensor.physical:netatmo:humidity with:
       imported rest junglinster sensor.physical_vienna_living_room_humidity 60;
-    entity sensor.physical:netatmo:noise with
+    end;
+    entity sensor.physical:netatmo:noise with:
       imported rest junglinster sensor.physical_vienna_living_room_noise 60;
-    entity sensor.physical:netatmo:pressure with
+    end;
+    entity sensor.physical:netatmo:pressure with:
       imported rest junglinster sensor.physical_vienna_living_room_pressure 60;
-    entity sensor.physical:netatmo:temperature with
+    end;
+    entity sensor.physical:netatmo:temperature with:
       imported rest junglinster sensor.physical_vienna_living_room_temperature 60;
-    entity sensor.infrastructural:netatmo:radio with
+    end;
+    entity sensor.infrastructural:netatmo:radio with:
       imported rest junglinster sensor.infrastructural_vienna_living_room_netatmo_radio 60;
-    entity binary_sensor.infrastructural:netatmo:node with
+    end;
+    entity binary_sensor.infrastructural:netatmo:node with:
       imported rest junglinster sensor.infrastructural_vienna_living_room_netatmo_reachability 60 "$ == 'True'";
+    end;
 
-    entity switch.social:picture_frame with
+    entity switch.social:picture_frame with:
       definition as cli_switch pi frame.fritz.box ./bin/start_slideshow ./bin/stop_slideshow ./bin/check_slideshow;
+    end;
 
     entity sensor.physical:philips_motion:illuminance;
     entity sensor.physical:philips_motion:temperature;
@@ -132,10 +140,12 @@ space social:apartment with:
       battery_level_device aqara_multi with alert_level 15;
 
       entity binary_sensor.infrastructural:frame:node;
-      entity sensor.infrastructural:frame:load with
+      entity sensor.infrastructural:frame:load with:
         definition as cli_sensor pi frame.fritz.box ./cpu/load;
-      entity sensor.infrastructural:frame:temperature no_collect with
+      end;
+      entity sensor.infrastructural:frame:temperature no_collect with:
         definition as cli_sensor pi frame.fritz.box ./cpu/temperature;
+      end;
 
       entity sensor.infrastructural:vienna:load;
       entity sensor.infrastructural:vienna:temperature no_collect;
@@ -158,19 +168,25 @@ space social:apartment with:
   end;
 
   space social:bedroom with:
-    entity sensor.infrastructural:netatmo:battery_level with
+    entity sensor.infrastructural:netatmo:battery_level with:
       imported rest junglinster sensor.infrastructural_vienna_bedroom_netatmo_battery_level 60;
+    end;
     battery_alert netatmo with alert_level 20;
-    entity sensor.physical::co2 with
+    entity sensor.physical::co2 with:
       imported rest junglinster sensor.physical_vienna_bedroom_co2 60;
-    entity sensor.physical::humidity with
+    end;
+    entity sensor.physical::humidity with:
       imported rest junglinster sensor.physical_vienna_bedroom_humidity 60;
-    entity sensor.physical:netatmo:temperature with
+    end;
+    entity sensor.physical:netatmo:temperature with:
       imported rest junglinster sensor.physical_vienna_bedroom_temperature 60;
-    entity sensor.infrastructural:netatmo:radio with
+    end;
+    entity sensor.infrastructural:netatmo:radio with:
       imported rest junglinster sensor.infrastructural_vienna_bedroom_netatmo_radio 60;
-    entity binary_sensor.infrastructural:netatmo:node with
+    end;
+    entity binary_sensor.infrastructural:netatmo:node with:
       imported rest junglinster sensor.infrastructural_vienna_bedroom_netatmo_reachability 60 "$ == 'True'";
+    end;
 
     entity sensor.physical:frient:illuminance;
     entity sensor.physical:frient:temperature;
@@ -207,19 +223,25 @@ space social:apartment with:
   end;
 
   space social:shower_room with:
-    entity sensor.infrastructural:netatmo:battery_level with
+    entity sensor.infrastructural:netatmo:battery_level with:
       imported rest junglinster sensor.infrastructural_vienna_shower_room_netatmo_battery_level 60;
+    end;
     battery_alert netatmo with alert_level 20;
-    entity sensor.physical:netatmo:co2 with
+    entity sensor.physical:netatmo:co2 with:
       imported rest junglinster sensor.physical_vienna_shower_room_netatmo_co2 60;
-    entity sensor.physical:netatmo:humidity with
+    end;
+    entity sensor.physical:netatmo:humidity with:
       imported rest junglinster sensor.physical_vienna_shower_room_netatmo_humidity 60;
-    entity sensor.physical:netatmo:temperature with
+    end;
+    entity sensor.physical:netatmo:temperature with:
       imported rest junglinster sensor.physical_vienna_shower_room_netatmo_temperature 60;
-    entity sensor.infrastructural:netatmo:radio with
+    end;
+    entity sensor.infrastructural:netatmo:radio with:
       imported rest junglinster sensor.infrastructural_vienna_shower_room_netatmo_radio 60;
-    entity binary_sensor.infrastructural:netatmo:node with
+    end;
+    entity binary_sensor.infrastructural:netatmo:node with:
       imported rest junglinster sensor.infrastructural_vienna_shower_room_netatmo_reachability 60 "$ == 'True'";
+    end;
 
     entity sensor.physical:philips_motion:illuminance;
     entity sensor.physical:philips_motion:temperature;
@@ -258,29 +280,39 @@ space social:apartment with:
 end;
 
 space social:terrace with:
-  entity sensor.infrastructural:netatmo_outdoor:battery_level with
+  entity sensor.infrastructural:netatmo_outdoor:battery_level with:
     imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_outdoor_battery_level 60;
+  end;
   battery_alert netatmo_outdoor with alert_level 20;
-  entity sensor.physical:netatmo_outdoor:humidity with
+  entity sensor.physical:netatmo_outdoor:humidity with:
     imported rest junglinster sensor.physical_vienna_terrace_netatmo_outdoor_humidity 60;
-  entity sensor.physical:netatmo_outdoor:temperature with
+  end;
+  entity sensor.physical:netatmo_outdoor:temperature with:
     imported rest junglinster sensor.physical_vienna_terrace_netatmo_outdoor_temperature 60;
-  entity sensor.infrastructural:netatmo_outdoor:radio with
+  end;
+  entity sensor.infrastructural:netatmo_outdoor:radio with:
     imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_outdoor_radio 60;
-  entity binary_sensor.infrastructural:netatmo_outdoor:node with
+  end;
+  entity binary_sensor.infrastructural:netatmo_outdoor:node with:
     imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_outdoor_reachability 60 "$ == 'True'";
+  end;
 
-  entity sensor.infrastructural:netatmo_windmeter:battery_level with
+  entity sensor.infrastructural:netatmo_windmeter:battery_level with:
     imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_windmeter_battery_level 60;
+  end;
   battery_alert netatmo_windmeter with alert_level 20;
-  entity sensor.social::wind_direction with
+  entity sensor.social::wind_direction with:
     imported rest junglinster sensor.physical_vienna_terrace_netatmo_windmeter_wind_direction 60;
-  entity sensor.social::wind_speed with
+  end;
+  entity sensor.social::wind_speed with:
     imported rest junglinster sensor.physical_vienna_terrace_netatmo_windmeter_wind_speed 60;
-  entity sensor.infrastructural:netatmo_windmeter:radio with
+  end;
+  entity sensor.infrastructural:netatmo_windmeter:radio with:
     imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_windmeter_radio 60;
-  entity binary_sensor.infrastructural:netatmo_windmeter:node with
+  end;
+  entity binary_sensor.infrastructural:netatmo_windmeter:node with:
     imported rest junglinster sensor.infrastructural_vienna_terrace_netatmo_windmeter_reachability 60 "$ == 'True'";
+  end;
 
   windy social:wind_speed with:
     delay_on 00:01:00;

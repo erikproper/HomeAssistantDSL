@@ -7,10 +7,10 @@ if is up "vienna.fritz.box" then
   $MainInstance = "http://vienna.fritz.box:8123";
   $JunglinsterInstance = "https://junglinster.homelinux.org";
 elif is up "junglinster.fritz.box" then
-  $MainInstance = "https://junglinster.homelinux.org";
+  $MainInstance = "https://vienna.homelinux.org";
   $JunglinsterInstance = "http://junglinster.fritz.box:8123";
 else
-  $MainInstance = "https://junglinster.homelinux.org";
+  $MainInstance = "https://vienna.homelinux.org";
   $JunglinsterInstance = "https://junglinster.homelinux.org";
 end;
 

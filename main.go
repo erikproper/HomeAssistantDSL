@@ -8,65 +8,32 @@
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 18.03.2026
+ * Version of: 21.03.2026
  *
  */
 
 package main
 
 import (
-	"bufio"
+	"context"
+	"crypto/tls"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 )
 
 var THouseNames = []string{"Vienna", "Junglinster"}
-
-type TAssignment struct {
-	Name  string
-	Value string
-}
-
-type TServerBranch struct {
-	Label       string
-	Condition   string
-	Assignments []TAssignment
-	Otherwise   bool
-}
-
-type TMacro struct {
-	Name      string
-	Signature string
-	Body      []string
-	Source    string
-}
-
-type TMigrator struct {
-	Root string
-}
-
-type TEntityIdentity struct {
-	Domain  string
-	IsRaw   bool
-	RawName string
-	Sphere  string
-	Path    string
-}
-
-type TEntityRecord struct {
-	Name                  string
-	Identity              TEntityIdentity
-	NoCollect             bool
-	HasDefinitionOrImport bool
-}
-
-func defaultDefinitionLoadOrder() []string {
-	return []string{"Macros.def", "Secrets.def", "Settings.def", "Server.def", "Bridges.def", "Entities.def", "Lists.def"}
-}
 
 func main() {
 	root, err := os.Getwd()
@@ -82,6 +49,13 @@ func main() {
 }
 
 func runCLI(root string, args []string) error {
+	args = applyDebugOptionArgs(args)
+	if DebugEnabled {
+		if err := consolidateLegacyDebugReports(root, THouseNames); err != nil {
+			return err
+		}
+	}
+
 	if len(args) == 0 {
 		return runMigration(root, THouseNames)
 	}
@@ -115,6 +89,12 @@ func runCLI(root string, args []string) error {
 			return err
 		}
 		return runExpansion(root, houses)
+	case "check":
+		houses, err := resolveRequestedHouses(args[1:])
+		if err != nil {
+			return err
+		}
+		return runAvailabilityCheck(root, houses)
 	default:
 		// Backward compatibility: go run . Vienna Junglinster
 		houses, err := resolveRequestedHouses(args)
@@ -123,17 +103,6 @@ func runCLI(root string, args []string) error {
 		}
 		return runMigration(root, houses)
 	}
-}
-
-func runMigration(root string, houses []string) error {
-	migrator := TMigrator{Root: root}
-	for _, house := range houses {
-		if err := migrator.MigrateHouse(house); err != nil {
-			return fmt.Errorf("error migrating %s: %w", house, err)
-		}
-		fmt.Printf("migrated %s\n", house)
-	}
-	return nil
 }
 
 func resolveRequestedHouses(args []string) ([]string, error) {
@@ -159,455 +128,31 @@ func resolveRequestedHouses(args []string) ([]string, error) {
 			resolvedHouses = append(resolvedHouses, houseName)
 		}
 	}
-
 	return resolvedHouses, nil
 }
 
-func (m *TMigrator) MigrateHouse(house string) error {
-	definitionDir := filepath.Join(m.Root, "New", house, "Definitions")
-	if err := os.MkdirAll(definitionDir, 0o755); err != nil {
-		return err
-	}
-
-	settingsContent, err := m.BuildSettings(house)
-	if err != nil {
-		return err
-	}
-	secretsContent, err := m.BuildSecrets(house)
-	if err != nil {
-		return err
-	}
-	serverContent, err := m.BuildServer(house)
-	if err != nil {
-		return err
-	}
-	bridgesContent, err := m.BuildBridges(house)
-	if err != nil {
-		return err
-	}
-	entitiesContent, err := m.BuildEntitiesDefinition(house)
-	if err != nil {
-		return err
-	}
-	listsContent, err := m.BuildListsDefinition(house)
-	if err != nil {
-		return err
-	}
-	macrosContent, err := m.BuildMacros(house)
-	if err != nil {
-		return err
-	}
-	mainContent, err := m.BuildMainDefinition(house)
-	if err != nil {
-		return err
-	}
-
-	outputs := map[string]string{
-		"Main.def":     mainContent,
-		"Settings.def": settingsContent,
-		"Secrets.def":  secretsContent,
-		"Server.def":   serverContent,
-		"Bridges.def":  bridgesContent,
-		"Entities.def": entitiesContent,
-		"Lists.def":    listsContent,
-		"Macros.def":   macrosContent,
-	}
-
-	for fileName, content := range outputs {
-		if err := os.WriteFile(filepath.Join(definitionDir, fileName), []byte(content), 0o644); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (m *TMigrator) BuildSettings(house string) (string, error) {
-	settingsDir := filepath.Join(m.Root, "Old", house, "Settings")
-	assignments := []TAssignment{}
-	for _, fileName := range []string{"general.def", "local.def"} {
-		content, err := readOptionalFile(filepath.Join(settingsDir, fileName))
-		if err != nil {
-			return "", err
-		}
-		assignments = append(assignments, parseAssignments(content)...)
-	}
-
-	legacyModuleSettings, err := readOptionalFile(filepath.Join(m.Root, "Old", house, "Modules", "Settings.1.hass"))
-	if err != nil {
-		return "", err
-	}
-	assignments = appendMissingAssignments(assignments, filterAssignments(parseAssignments(legacyModuleSettings), isLegacyIconSetting))
-
-	builder := strings.Builder{}
-	writeGeneratedHeader(&builder, house, "Settings.def", filepath.Join("Old", house, "Settings"))
-	builder.WriteString("# Domain settings are retained here; secrets remain external.\n\n")
-	builder.WriteString("settings:\n")
-	for _, assignment := range assignments {
-		fmt.Fprintf(&builder, "  %s %q;\n", assignment.Name, assignment.Value)
-	}
-	if len(assignments) == 0 {
-		builder.WriteString("  # No non-secret settings were present in the legacy source.\n")
-	}
-	builder.WriteString("end;\n")
-
-	return builder.String(), nil
-}
-
-func (m *TMigrator) BuildSecrets(house string) (string, error) {
-	curatedSecretsPath := filepath.Join(m.Root, "New", house, "Definitions", "Secrets.def")
-	curatedSecretsContent, err := readOptionalFile(curatedSecretsPath)
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(curatedSecretsContent) != "" {
-		return curatedSecretsContent, nil
-	}
-
-	secretNames := []string{}
-
-	legacySettingsSecrets, err := readOptionalFile(filepath.Join(m.Root, "Old", house, "Settings", "secrets.def"))
-	if err != nil {
-		return "", err
-	}
-	for _, secretName := range orderedAssignmentNames(parseAssignments(legacySettingsSecrets)) {
-		if isObsoleteLegacySecretName(secretName) {
-			continue
-		}
-		secretNames = appendUnique(secretNames, secretName)
-	}
-
-	legacyServerDefinition, err := readOptionalFile(filepath.Join(m.Root, "Old", house, "Definitions", "00_server.def"))
-	if err != nil {
-		return "", err
-	}
-	for _, assignment := range parseAssignments(legacyServerDefinition) {
-		if looksSensitive(assignment.Name) && !isObsoleteLegacySecretName(assignment.Name) {
-			secretNames = appendUnique(secretNames, assignment.Name)
-		}
-	}
-
-	legacyBridgeDefinition, err := readOptionalFile(filepath.Join(m.Root, "Old", house, "Definitions", "01_bridges.def"))
-	if err != nil {
-		return "", err
-	}
-	bridgeScanner := bufio.NewScanner(strings.NewReader(legacyBridgeDefinition))
-	for bridgeScanner.Scan() {
-		trimmedLine := strings.TrimSpace(bridgeScanner.Text())
-		if trimmedLine == "" || strings.HasPrefix(trimmedLine, "#") {
-			continue
-		}
-		fields := splitShellFields(trimmedLine)
-		if len(fields) >= 5 && fields[0] == "bridge" && fields[1] == "rest" {
-			candidateSecretName := fmt.Sprintf("%sAPIToken", toUpperCamelIdentifier(fields[2]))
-			if isObsoleteLegacySecretName(candidateSecretName) {
-				continue
+func normalizeCuratedMacrosContent(content string) string {
+	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	headerPattern := regexp.MustCompile(`^(\s*)macro\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(([^)]*)\))?:\s*$`)
+	for index, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		if matches := headerPattern.FindStringSubmatch(line); matches != nil {
+			parameterNames := []string{}
+			for _, token := range strings.Fields(strings.TrimSpace(matches[3])) {
+				token = strings.TrimPrefix(strings.TrimSpace(token), "$")
+				if token != "" {
+					parameterNames = append(parameterNames, token)
+				}
 			}
-			secretNames = appendUnique(secretNames, candidateSecretName)
-		}
-	}
-	if err := bridgeScanner.Err(); err != nil {
-		return "", err
-	}
-
-	// MainAPIToken is required for local-instance entity existence checks.
-	secretNames = appendUnique(secretNames, "MainAPIToken")
-
-	builder := strings.Builder{}
-	writeGeneratedHeader(&builder, house, "Secrets.def", filepath.Join("Old", house, "Settings", "secrets.def"))
-	builder.WriteString("# Secret values are intentionally not migrated.\n")
-	builder.WriteString("# Fill in deployment values locally and keep this file out of version control.\n\n")
-	builder.WriteString("secrets:\n")
-	if len(secretNames) == 0 {
-		builder.WriteString("  # No legacy secret names were discovered for this house.\n")
-	} else {
-		for _, secretName := range secretNames {
-			fmt.Fprintf(&builder, "  $%s = \"\";\n", secretName)
-		}
-	}
-	builder.WriteString("end;\n")
-
-	return builder.String(), nil
-}
-
-func (m *TMigrator) BuildServer(house string) (string, error) {
-	serverPath := filepath.Join(m.Root, "Old", house, "Definitions", "00_server.def")
-	content, err := os.ReadFile(serverPath)
-	if err != nil {
-		return "", err
-	}
-
-	preBranchValues := map[string]string{}
-	branches := []TServerBranch{}
-	currentBranchIndex := -1
-	insideBranching := false
-
-	ifPattern := regexp.MustCompile(`^if\s+ServerIsUp\s+\$([A-Za-z_][A-Za-z0-9_]*)\s*;\s*then$`)
-	elifPattern := regexp.MustCompile(`^elif\s+ServerIsUp\s+\$([A-Za-z_][A-Za-z0-9_]*)\s*;\s*then$`)
-
-	scanner := bufio.NewScanner(strings.NewReader(string(content)))
-	for scanner.Scan() {
-		trimmedLine := strings.TrimSpace(scanner.Text())
-		if trimmedLine == "" || strings.HasPrefix(trimmedLine, "#") {
+			parameterDeclarations := inferMacroParameterDeclarations(matches[2], parameterNames)
+			lines[index] = matches[1] + formatMacroHeader(matches[2], parameterDeclarations)
 			continue
 		}
-
-		if matches := ifPattern.FindStringSubmatch(trimmedLine); matches != nil {
-			insideBranching = true
-			hostname := preBranchValues[matches[1]]
-			branches = append(branches, TServerBranch{Condition: hostname})
-			currentBranchIndex = len(branches) - 1
-			continue
-		}
-		if matches := elifPattern.FindStringSubmatch(trimmedLine); matches != nil {
-			hostname := preBranchValues[matches[1]]
-			branches = append(branches, TServerBranch{Condition: hostname})
-			currentBranchIndex = len(branches) - 1
-			continue
-		}
-		if trimmedLine == "else" {
-			branches = append(branches, TServerBranch{Otherwise: true})
-			currentBranchIndex = len(branches) - 1
-			continue
-		}
-		if trimmedLine == "fi" {
-			insideBranching = false
-			currentBranchIndex = -1
-			continue
-		}
-
-		assignment, matched := parseAssignmentLine(trimmedLine)
-		if !matched {
-			continue
-		}
-
-		if insideBranching && currentBranchIndex >= 0 {
-			// Only keep non-sensitive assignments; secrets are handled in Secrets.def.
-			if !looksSensitive(assignment.Name) {
-				branches[currentBranchIndex].Assignments = append(branches[currentBranchIndex].Assignments, assignment)
-			}
-		} else if !insideBranching {
-			// Pre-branch assignments define the hostnames used in conditions.
-			preBranchValues[assignment.Name] = assignment.Value
+		if trimmedLine == "no_collect" || trimmedLine == "open_stop_close" {
+			lines[index] = line + StatementEndToken
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		return "", err
-	}
-
-	houseName := strings.ToLower(house)
-	builder := strings.Builder{}
-	writeGeneratedHeader(&builder, house, "Server.def", filepath.Join("Old", house, "Definitions", "00_server.def"))
-	for i, branch := range branches {
-		if i == 0 {
-			fmt.Fprintf(&builder, "if is up \"%s\" then\n", branch.Condition)
-		} else if branch.Otherwise {
-			builder.WriteString("else\n")
-		} else {
-			fmt.Fprintf(&builder, "elif is up \"%s\" then\n", branch.Condition)
-		}
-		for _, assignment := range branch.Assignments {
-			fmt.Fprintf(&builder, "  $%s = \"%s\";\n", assignment.Name, assignment.Value)
-		}
-	}
-	if len(branches) > 0 {
-		builder.WriteString("end;\n")
-	}
-	fmt.Fprintf(&builder, "\nmain %s $MainInstance;\n", houseName)
-
-	return builder.String(), nil
-}
-
-func (m *TMigrator) BuildBridges(house string) (string, error) {
-	bridgePath := filepath.Join(m.Root, "Old", house, "Definitions", "01_bridges.def")
-	content, err := os.ReadFile(bridgePath)
-	if err != nil {
-		return "", err
-	}
-
-	if house == "Junglinster" {
-		builder := strings.Builder{}
-		writeGeneratedHeader(&builder, house, "Bridges.def", filepath.Join("Old", house, "Definitions", "01_bridges.def"))
-		builder.WriteString("# Local bridge declarations are intentionally omitted; host context is defined in Entities.def.\n\n")
-		return builder.String(), nil
-	}
-
-	statementLines := []string{}
-
-	scanner := bufio.NewScanner(strings.NewReader(string(content)))
-	for scanner.Scan() {
-		trimmedLine := strings.TrimSpace(scanner.Text())
-		if trimmedLine == "" {
-			continue
-		}
-		if strings.HasPrefix(trimmedLine, "#") {
-			statementLines = append(statementLines, trimmedLine)
-			continue
-		}
-
-		fields := splitShellFields(trimmedLine)
-		if len(fields) == 0 {
-			continue
-		}
-
-		switch fields[0] {
-		case "bridge":
-			if len(fields) >= 5 && fields[1] == "rest" {
-				secretName := fmt.Sprintf("%sAPIToken", toUpperCamelIdentifier(fields[2]))
-				statementLines = append(statementLines,
-					fmt.Sprintf("bridge rest %s %s authorization $%s;", fields[2], fields[3], secretName),
-				)
-			} else {
-				statementLines = append(statementLines, fmt.Sprintf("%s;", strings.Join(fields, " ")))
-			}
-		case "main":
-			// main statement moves to Server.def; skip it here
-		default:
-			statementLines = append(statementLines, fmt.Sprintf("%s;", strings.Join(fields, " ")))
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return "", err
-	}
-
-	builder := strings.Builder{}
-	writeGeneratedHeader(&builder, house, "Bridges.def", filepath.Join("Old", house, "Definitions", "01_bridges.def"))
-	builder.WriteString("# Secret-bearing bridge parameters are externalized and referenced as variables.\n\n")
-	for _, statementLine := range statementLines {
-		builder.WriteString(statementLine)
-		builder.WriteString("\n")
-	}
-
-	return builder.String(), nil
-}
-
-func (m *TMigrator) BuildVerbatimDefinition(house, fileName, label string) (string, error) {
-	definitionPath := filepath.Join(m.Root, "Old", house, "Definitions", fileName)
-	content, err := os.ReadFile(definitionPath)
-	if err != nil {
-		return "", err
-	}
-
-	builder := strings.Builder{}
-	writeGeneratedHeader(&builder, house, label+".def", filepath.Join("Old", house, "Definitions", fileName))
-	builder.WriteString("# This file intentionally stays close to the legacy DSL while the parser grammar is still being fixed.\n\n")
-	builder.WriteString(strings.TrimRight(string(content), "\n"))
-	builder.WriteString("\n")
-	return builder.String(), nil
-}
-
-func (m *TMigrator) BuildEntitiesDefinition(house string) (string, error) {
-	definitionPath := filepath.Join(m.Root, "Old", house, "Definitions", "02_entities.def")
-	content, err := os.ReadFile(definitionPath)
-	if err != nil {
-		return "", err
-	}
-
-	builder := strings.Builder{}
-	writeGeneratedHeader(&builder, house, "Entities.def", filepath.Join("Old", house, "Definitions", "02_entities.def"))
-	builder.WriteString("# This file keeps the legacy entity structure, but normalizes blocks using with:/end; and statement ';'.\n\n")
-	entitiesBody := transformEntitiesDefinition(string(content))
-	if house == "Junglinster" {
-		entitiesBody = "host junglinster;\n\n" + entitiesBody
-	}
-	builder.WriteString(entitiesBody)
-	return builder.String(), nil
-}
-
-func (m *TMigrator) BuildListsDefinition(house string) (string, error) {
-	definitionPath := filepath.Join(m.Root, "Old", house, "Definitions", "03_lists.def")
-	content, err := os.ReadFile(definitionPath)
-	if err != nil {
-		return "", err
-	}
-
-	builder := strings.Builder{}
-	writeGeneratedHeader(&builder, house, "Lists.def", filepath.Join("Old", house, "Definitions", "03_lists.def"))
-	builder.WriteString("# This file keeps the legacy list selections, but normalizes them into explicit begin/end blocks.\n\n")
-	builder.WriteString(transformListsDefinition(string(content)))
-	return builder.String(), nil
-}
-
-func (m *TMigrator) BuildMainDefinition(house string) (string, error) {
-	curatedMainPath := filepath.Join(m.Root, "New", house, "Definitions", "Main.def")
-	curatedMainContent, err := readOptionalFile(curatedMainPath)
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(curatedMainContent) != "" {
-		return curatedMainContent, nil
-	}
-
-	builder := strings.Builder{}
-	writeGeneratedHeader(&builder, house, "Main.def", "generated entrypoint")
-	builder.WriteString("# File load order entrypoint for parser and generator phases.\n")
-	builder.WriteString("# Macros.def must be read before definitions that invoke create-based macros.\n\n")
-	for _, definitionName := range defaultDefinitionLoadOrder() {
-		fmt.Fprintf(&builder, "include %s;\n", definitionName)
-	}
-
-	return builder.String(), nil
-}
-
-func (m *TMigrator) BuildMacros(house string) (string, error) {
-	curatedMacrosPath := filepath.Join(m.Root, "New", house, "Definitions", "Macros.def")
-	curatedMacrosContent, err := readOptionalFile(curatedMacrosPath)
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(curatedMacrosContent) != "" {
-		return curatedMacrosContent, nil
-	}
-
-	macroFiles, err := filepath.Glob(filepath.Join(m.Root, "Old", house, "Macros", "*.def"))
-	if err != nil {
-		return "", err
-	}
-	sort.Strings(macroFiles)
-
-	macros := []TMacro{}
-	for _, macroPath := range macroFiles {
-		content, err := os.ReadFile(macroPath)
-		if err != nil {
-			return "", err
-		}
-		macro, err := parseMacro(string(content), filepath.Base(macroPath))
-		if err != nil {
-			return "", err
-		}
-		if macro.Name == "lights_motion_guarded" {
-			continue
-		}
-		macros = append(macros, macro)
-	}
-
-	builder := strings.Builder{}
-	writeGeneratedHeader(&builder, house, "Macros.def", filepath.Join("Old", house, "Macros"))
-	builder.WriteString("# Macros are collapsed into one file, but still form a prelude that should be read before other definitions.\n\n")
-	for index, macro := range macros {
-		parameterNames := inferMacroParameterNames(macro)
-		fmt.Fprintf(&builder, "%s\n", formatMacroHeader(macro.Name, parameterNames))
-		fmt.Fprintf(&builder, "  # Source: %s\n", macro.Source)
-		if signatureComment := normalizeMacroSignatureComment(macro.Signature); signatureComment != "" {
-			fmt.Fprintf(&builder, "  %s\n", signatureComment)
-		}
-		normalizedBodyLines := normalizeMacroBody(macro.Body, parameterNames)
-		for _, bodyLine := range normalizedBodyLines {
-			if strings.TrimSpace(bodyLine) == "" {
-				builder.WriteString("\n")
-				continue
-			}
-			builder.WriteString("  ")
-			builder.WriteString(strings.TrimRight(bodyLine, " \t"))
-			builder.WriteString("\n")
-		}
-		builder.WriteString("end;\n")
-		if index < len(macros)-1 {
-			builder.WriteString("\n")
-		}
-	}
-
-	return builder.String(), nil
+	return strings.Join(lines, "\n")
 }
 
 func parseMacro(content, source string) (TMacro, error) {
@@ -689,7 +234,7 @@ func normalizeMacroBody(bodyLines []string, parameterNames []string) []string {
 				return false
 			}
 		}
-		emit(top.BaseIndent+1, "end;")
+		emit(top.BaseIndent, "end;")
 		blockStack = blockStack[:len(blockStack)-1]
 		contentIndent = top.BaseIndent
 		return true
@@ -697,9 +242,8 @@ func normalizeMacroBody(bodyLines []string, parameterNames []string) []string {
 	openBlock := func(kind, header string) {
 		baseIndent := contentIndent
 		emit(baseIndent, header)
-		emit(baseIndent+1, "begin")
 		blockStack = append(blockStack, TMacroBlock{Kind: kind, BaseIndent: baseIndent})
-		contentIndent = baseIndent + 2
+		contentIndent = baseIndent + 1
 	}
 
 	for _, rawLine := range preprocessedLines {
@@ -727,7 +271,7 @@ func normalizeMacroBody(bodyLines []string, parameterNames []string) []string {
 
 		if strings.HasPrefix(trimmedLine, "begin space ") {
 			spaceName := strings.TrimSpace(strings.TrimPrefix(trimmedLine, "begin space "))
-			openBlock("space", "space "+trimTrailingPunctuation(spaceName))
+			openBlock("space", "space "+trimTrailingPunctuation(spaceName)+" with:")
 			continue
 		}
 
@@ -735,10 +279,8 @@ func normalizeMacroBody(bodyLines []string, parameterNames []string) []string {
 		case "else":
 			if len(blockStack) > 0 && blockStack[len(blockStack)-1].Kind == "if" {
 				top := blockStack[len(blockStack)-1]
-				emit(top.BaseIndent+1, "end;")
 				emit(top.BaseIndent, "else")
-				emit(top.BaseIndent+1, "begin")
-				contentIndent = top.BaseIndent + 2
+				contentIndent = top.BaseIndent + 1
 			} else {
 				emit(contentIndent, "else;")
 			}
@@ -784,19 +326,88 @@ func normalizeMacroSignatureComment(signature string) string {
 	return "# " + trimmedSignature
 }
 
-func formatMacroHeader(macroName string, parameterNames []string) string {
-	if len(parameterNames) == 0 {
-		return fmt.Sprintf("macro %s:", macroName)
+func formatMacroHeader(macroName string, parameterDeclarations []string) string {
+	if len(parameterDeclarations) == 0 {
+		return fmt.Sprintf("creation macro %s:", macroName)
 	}
-	parameters := []string{}
+	return fmt.Sprintf("creation macro %s { %s }:", macroName, strings.Join(parameterDeclarations, ", "))
+}
+
+func inferMacroParameterDeclarations(macroName string, parameterNames []string) []string {
+	knownByMacroAndName := map[string]map[string]string{
+		"entity_battery_alert": {
+			"entity":     "entityReference",
+			"alertLevel": "int op",
+		},
+		"entity_battery_from_device": {
+			"entity":       "entityReference",
+			"sourceEntity": "entityReference",
+			"alertLevel":   "int op",
+		},
+		"entity_battery_level": {
+			"entity":     "entityReference",
+			"alertLevel": "int op",
+		},
+		"entity_battery_level_device": {
+			"entity":     "entityReference",
+			"alertLevel": "int op",
+		},
+		"entity_light_device": {
+			"sphereOrName": "string",
+			"name":         "string op",
+		},
+		"entity_media_player": {
+			"entity": "entityReference",
+			"option": "string",
+			"value":  "string",
+		},
+		"entity_power_switch": {
+			"sphere":         "string",
+			"entity":         "entityReference",
+			"deviceNode":     "string",
+			"powerThreshold": "int",
+		},
+		"entity_switch_device": {
+			"sphereOrName": "string",
+			"name":         "string op",
+		},
+		"entity_thermostat": {
+			"entity": "entityReference",
+		},
+		"entity_zigbee_group": {
+			"domain":   "string",
+			"sphere":   "string",
+			"location": "string",
+			"entities": "set of string",
+		},
+		"entity_zwave_node": {
+			"node": "string",
+		},
+	}
+
+	declarations := []string{}
 	for _, parameterName := range parameterNames {
 		trimmedParameterName := strings.TrimSpace(parameterName)
 		if trimmedParameterName == "" {
 			continue
 		}
-		parameters = append(parameters, "$"+trimmedParameterName)
+
+		isVariadic := strings.HasSuffix(trimmedParameterName, "...")
+		baseName := strings.TrimSuffix(trimmedParameterName, "...")
+		typeDeclaration := "string"
+		if byName, found := knownByMacroAndName[macroName]; found {
+			if knownType, typed := byName[baseName]; typed {
+				typeDeclaration = knownType
+			}
+		}
+		if isVariadic && typeDeclaration == "string" {
+			typeDeclaration = "set of string"
+		}
+
+		declarations = append(declarations, fmt.Sprintf("$%s %s", baseName, typeDeclaration))
 	}
-	return fmt.Sprintf("macro %s (%s):", macroName, strings.Join(parameters, " "))
+
+	return declarations
 }
 
 func positionalParameterMap(parameterNames []string) map[int]string {
@@ -1078,7 +689,7 @@ func transformEntitiesDefinition(content string) string {
 		trimmedLine := strings.TrimSpace(rawLine)
 		if trimmedLine == "" {
 			// Keep user-intended visual grouping, but close synthetic sub-blocks first
-			// so blank separators do not end up inside generated begin/end bodies.
+			// so blank separators do not end up inside generated with:/end; bodies.
 			closeSyntheticBlocks(0)
 			outputLines = append(outputLines, "")
 			continue
@@ -1161,8 +772,22 @@ func transformEntitiesDefinition(content string) string {
 				}
 				if len(statementFields) == 4 && statementFields[0] == "media_player" {
 					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"media_player "+statementFields[1]+" with:")
+					switch statementFields[2] {
+					case "no_collect":
+						outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"no_collect;")
+						outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"enabler "+statementFields[3]+";")
+					case "no_play":
+						outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"no_play_input "+statementFields[3]+";")
+					default:
+						outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"enabler "+statementFields[2]+";")
+						outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"delay_off "+statementFields[3]+";")
+					}
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"end;")
+					continue
+				}
+				if len(statementFields) == 3 && statementFields[0] == "media_player" {
+					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"media_player "+statementFields[1]+" with:")
 					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"enabler "+statementFields[2]+";")
-					outputLines = append(outputLines, strings.Repeat(" ", statementIndent+2)+"delay_off "+statementFields[3]+";")
 					outputLines = append(outputLines, strings.Repeat(" ", statementIndent)+"end;")
 					continue
 				}
@@ -1205,9 +830,10 @@ func transformEntitiesDefinition(content string) string {
 				header := strings.TrimSuffix(trimmed, " with:")
 				inlineLine := strings.Repeat(" ", indent) + header + " with " + bodyTrimmed
 				if len(inlineLine) > 100 {
-					// Long lines get the body on its own line, indented two spaces.
-					collapsed = append(collapsed, strings.Repeat(" ", indent)+header+" with")
+					// Long lines stay explicit to keep structure clear.
+					collapsed = append(collapsed, strings.Repeat(" ", indent)+header+" with:")
 					collapsed = append(collapsed, strings.Repeat(" ", indent+2)+bodyTrimmed)
+					collapsed = append(collapsed, strings.Repeat(" ", indent)+"end;")
 				} else {
 					collapsed = append(collapsed, inlineLine)
 				}
@@ -1240,7 +866,7 @@ func transformListsDefinition(content string) string {
 		if !insideList {
 			return
 		}
-		outputLines = append(outputLines, strings.Repeat(" ", listHeaderIndent+2)+"end;")
+		outputLines = append(outputLines, strings.Repeat(" ", listHeaderIndent)+"end;")
 		insideList = false
 	}
 
@@ -1257,8 +883,7 @@ func transformListsDefinition(content string) string {
 			closeList()
 			flushBlankLines()
 			listHeaderIndent = 0
-			outputLines = append(outputLines, strings.Repeat(" ", listHeaderIndent)+trimTrailingPunctuation(trimmedLine))
-			outputLines = append(outputLines, strings.Repeat(" ", listHeaderIndent+2)+"begin")
+			outputLines = append(outputLines, strings.Repeat(" ", listHeaderIndent)+trimTrailingPunctuation(trimmedLine)+" with:")
 			insideList = true
 			continue
 		}
@@ -1270,14 +895,14 @@ func transformListsDefinition(content string) string {
 
 		if strings.HasPrefix(trimmedLine, "#") {
 			if insideList {
-				outputLines = append(outputLines, strings.Repeat(" ", listHeaderIndent+4)+trimmedLine)
+				outputLines = append(outputLines, strings.Repeat(" ", listHeaderIndent+2)+trimmedLine)
 			} else {
 				outputLines = append(outputLines, trimmedLine)
 			}
 			continue
 		}
 		if insideList {
-			outputLines = append(outputLines, strings.Repeat(" ", listHeaderIndent+4)+trimTrailingPunctuation(trimmedLine)+";")
+			outputLines = append(outputLines, strings.Repeat(" ", listHeaderIndent+2)+trimTrailingPunctuation(trimmedLine)+";")
 		} else {
 			outputLines = append(outputLines, trimTrailingPunctuation(trimmedLine)+";")
 		}
@@ -1406,12 +1031,15 @@ func normalizeEntitySyntaxText(line string) string {
 	if strings.HasPrefix(trimmedLine, "definition ") && !strings.HasPrefix(trimmedLine, "definition as ") {
 		trimmedLine = "definition as " + strings.TrimPrefix(trimmedLine, "definition ")
 	}
+	trimmedLine = strings.ReplaceAll(trimmedLine, "defined as ", "definition as ")
 	if strings.HasPrefix(trimmedLine, "provides device_node ") {
 		trimmedLine = "providing node " + strings.TrimPrefix(trimmedLine, "provides device_node ")
 	}
 	if strings.HasPrefix(trimmedLine, "declare entity ") {
 		trimmedLine = "entity " + strings.TrimPrefix(trimmedLine, "declare entity ")
 	}
+	legacyRawReferencePattern := regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\._:/([A-Za-z0-9_]+)\b`)
+	trimmedLine = legacyRawReferencePattern.ReplaceAllString(trimmedLine, `${1}.[${2}]`)
 	trimmedLine = strings.ReplaceAll(trimmedLine, "sun.sun:/!", "sun.[sun]!")
 	if trimmedLine == "entity sun.sun" {
 		trimmedLine = "entity sun.[sun]"
@@ -1590,6 +1218,10 @@ func expandHouse(root string, house string) error {
 		}
 	}
 
+	if err := validateMacroDefinitionOrdering(ctx); err != nil {
+		return fmt.Errorf("strict macro validation failed in %s: %w", macrosPath, err)
+	}
+
 	// Read Entities.def
 	entitiesPath := filepath.Join(definitionDir, "Entities.def")
 	entitiesContent, err := os.ReadFile(entitiesPath)
@@ -1597,13 +1229,11 @@ func expandHouse(root string, house string) error {
 		return fmt.Errorf("error reading entities: %w", err)
 	}
 
-	// Generate output file
-	outputPath := filepath.Join(definitionDir, "Expansion.txt")
 	output := strings.Builder{}
 
 	output.WriteString("=== MACRO EXPANSION REPORT ===\n")
 	output.WriteString(fmt.Sprintf("House: %s\n", house))
-	output.WriteString(fmt.Sprintf("Generated: 20.03.2026\n\n"))
+	output.WriteString("Generated: 20.03.2026\n\n")
 
 	// Write macro definitions summary
 	output.WriteString("=== CREATION MACRO DEFINITIONS ===\n\n")
@@ -1619,164 +1249,34 @@ func expandHouse(root string, house string) error {
 				output.WriteString(" op")
 			}
 		}
-		output.WriteString(fmt.Sprintf(" }:\n  SourceLine: %d, Body lines: %d\n\n", macro.SourceLine, len(macro.Body)))
+		output.WriteString(fmt.Sprintf(" }:\n  SourceLine: %d, Body lines: %d\n", macro.SourceLine, len(macro.Body)))
+
+		definitionWarnings := ctx.MacroDefinitionWarnings(macro)
+		if len(definitionWarnings) > 0 {
+			output.WriteString("  Definition Warnings:\n")
+			for _, warning := range definitionWarnings {
+				output.WriteString(fmt.Sprintf("    - %s\n", warning))
+			}
+		}
+		output.WriteString("\n")
 	}
 
 	output.WriteString("\n=== MACRO INVOCATIONS IN ENTITIES.DEF ===\n\n")
-
-	// Analyze macro invocations with better context tracking
-	entityLines := strings.Split(string(entitiesContent), "\n")
-	spacePath := []string{}
-	openBlocks := []string{}
-	spaceOrder := []string{}
-	entitiesBySpace := map[string][]string{}
-	entityRecordsBySpace := map[string][]TEntityRecord{}
-	externalEntitiesBySpace := map[string][]string{}
-	spaceDepthByName := map[string]int{}
-	invocationCount := 0
-	validInvocations := 0
-	typeErrors := 0
-
-	for i := 0; i < len(entityLines); i++ {
-		trimmed := strings.TrimSpace(entityLines[i])
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-
-		if entityDecl, ok := extractEntityDeclaration(trimmed); ok {
-			if len(spacePath) == 0 {
-				spaceName := "root"
-				if _, seen := entitiesBySpace[spaceName]; !seen {
-					spaceOrder = append(spaceOrder, spaceName)
-					spaceDepthByName[spaceName] = 0
-					entitiesBySpace[spaceName] = []string{}
-					entityRecordsBySpace[spaceName] = []TEntityRecord{}
-				}
-			} else {
-				for level := 1; level <= len(spacePath); level++ {
-					prefix := append([]string{}, spacePath[:level]...)
-					spaceName := formatNestedSpaceName(prefix)
-					if _, seen := entitiesBySpace[spaceName]; !seen {
-						spaceOrder = append(spaceOrder, spaceName)
-						spaceDepthByName[spaceName] = nestedSpaceDepth(prefix)
-						entitiesBySpace[spaceName] = []string{}
-						entityRecordsBySpace[spaceName] = []TEntityRecord{}
-					}
-				}
-			}
-
-			spaceName := formatNestedSpaceName(spacePath)
-			fullName := normalizeEntityFullName(entityDecl.Specification, spacePath)
-			hasDefOrImport, optionKeys := analyzeEntityDefinitionContext(entityLines, i)
-			hasConfigOptions := len(optionKeys) > 0
-			entry := fmt.Sprintf("%s (line %d)", fullName, i+1)
-			if entityDecl.NoCollect {
-				entry += " [no_collect]"
-			}
-			entitiesBySpace[spaceName] = append(entitiesBySpace[spaceName], entry)
-			if !hasDefOrImport {
-				externalEntry := fmt.Sprintf("%s (line %d)", fullName, i+1)
-				if hasConfigOptions {
-					externalEntry += fmt.Sprintf(" [config options: %s]", strings.Join(optionKeys, ", "))
-				}
-				externalEntitiesBySpace[spaceName] = append(externalEntitiesBySpace[spaceName], externalEntry)
-			}
-			entityRecordsBySpace[spaceName] = append(entityRecordsBySpace[spaceName], TEntityRecord{
-				Name:                  fullName,
-				Identity:              extractEntityIdentity(fullName),
-				NoCollect:             entityDecl.NoCollect,
-				HasDefinitionOrImport: hasDefOrImport,
-			})
-		}
-
-		// Check if line contains a macro invocation
-		if isMacroInvocation(trimmed, ctx.Macros) {
-			invocationCount++
-			output.WriteString(fmt.Sprintf("Line %d (in %s):\n", i+1, formatSpacePath(spacePath)))
-			output.WriteString(fmt.Sprintf("  Invocation: %s\n", trimmed))
-
-			invocationText := trimmed
-			if strings.HasSuffix(trimmed, "with:") {
-				j := i + 1
-				for ; j < len(entityLines); j++ {
-					nextTrimmed := strings.TrimSpace(entityLines[j])
-					invocationText += "\n" + nextTrimmed
-					if nextTrimmed == "end;" {
-						break
-					}
-				}
-				if j < len(entityLines) {
-					i = j
-				}
-			}
-
-			invocation, parseErr := ctx.ParseMacroInvocation(invocationText)
-			if parseErr != nil {
-				output.WriteString(fmt.Sprintf("  ERROR: Failed to parse invocation: %v\n", parseErr))
-				typeErrors++
-			} else {
-				macro := ctx.Macros[invocation.Name]
-
-				// Validate parameters
-				validationErrors := ctx.ValidateInvocationParameters(invocation, macro)
-				if len(validationErrors) > 0 {
-					output.WriteString(fmt.Sprintf("  Type/Validation Errors:\n"))
-					for _, errMsg := range validationErrors {
-						output.WriteString(fmt.Sprintf("    - %s\n", errMsg))
-					}
-					typeErrors++
-				} else {
-					validInvocations++
-					output.WriteString(fmt.Sprintf("  Status: OK (all parameters valid)\n"))
-				}
-
-				// Show parameter bindings
-				if len(invocation.Parameters) > 0 {
-					output.WriteString(fmt.Sprintf("  Parameters:\n"))
-					for pkey, pval := range invocation.Parameters {
-						output.WriteString(fmt.Sprintf("    %s = %q\n", pkey, pval))
-					}
-				}
-			}
-			output.WriteString("\n")
-			continue
-		}
-
-		if strings.HasPrefix(trimmed, "space ") && strings.HasSuffix(trimmed, "with:") {
-			spaceName := extractSpaceName(trimmed)
-			openBlocks = append(openBlocks, "space")
-			if spaceName == "" {
-				spacePath = append(spacePath, "?")
-			} else {
-				spacePath = append(spacePath, spaceName)
-			}
-			continue
-		}
-
-		if strings.HasSuffix(trimmed, "with:") || trimmed == "begin" {
-			openBlocks = append(openBlocks, "other")
-			continue
-		}
-
-		if trimmed == "end;" {
-			if len(openBlocks) == 0 {
-				continue
-			}
-
-			last := openBlocks[len(openBlocks)-1]
-			openBlocks = openBlocks[:len(openBlocks)-1]
-			if last == "space" && len(spacePath) > 0 {
-				spacePath = spacePath[:len(spacePath)-1]
-			}
-		}
+	parseResult, err := ParseEntitiesAndFillAdministration(strings.Split(string(entitiesContent), "\n"), entitiesPath, ctx, &output)
+	if err != nil {
+		return err
 	}
+	admin := parseResult.Administration
+	invocationCount := parseResult.InvocationCount
+	validInvocations := parseResult.ValidInvocations
+	typeErrors := parseResult.TypeErrors
 
 	output.WriteString("\n=== ENTITIES BY SPACE (FULL NAMES) ===\n\n")
 	entityCount := 0
-	for _, spaceName := range spaceOrder {
-		indent := strings.Repeat("  ", spaceDepthByName[spaceName])
-		output.WriteString(fmt.Sprintf("%sSpace %q:\n", indent, spaceName))
-		for _, entityLine := range entitiesBySpace[spaceName] {
+	for _, spaceName := range admin.SpaceOrder {
+		indent := strings.Repeat("  ", admin.SpaceDepthByName[spaceName])
+		output.WriteString(fmt.Sprintf("%s%s %q:\n", indent, formatSpaceLabel(admin.SpaceKindByName[spaceName]), spaceName))
+		for _, entityLine := range admin.EntitiesBySpace[spaceName] {
 			entityCount++
 			output.WriteString(fmt.Sprintf("%s  - %s\n", indent, entityLine))
 		}
@@ -1789,14 +1289,14 @@ func expandHouse(root string, house string) error {
 	output.WriteString("Availability check status: not checked (offline mode).\n\n")
 	externalCount := 0
 	externalWithConfigCount := 0
-	for _, spaceName := range spaceOrder {
-		externalEntities := externalEntitiesBySpace[spaceName]
+	for _, spaceName := range admin.SpaceOrder {
+		externalEntities := admin.ExternalEntitiesBySpace[spaceName]
 		if len(externalEntities) == 0 {
 			continue
 		}
 
-		indent := strings.Repeat("  ", spaceDepthByName[spaceName])
-		output.WriteString(fmt.Sprintf("%sSpace %q:\n", indent, spaceName))
+		indent := strings.Repeat("  ", admin.SpaceDepthByName[spaceName])
+		output.WriteString(fmt.Sprintf("%s%s %q:\n", indent, formatSpaceLabel(admin.SpaceKindByName[spaceName]), spaceName))
 		for _, item := range externalEntities {
 			externalCount++
 			if strings.Contains(item, "[config options:") {
@@ -1812,17 +1312,17 @@ func expandHouse(root string, house string) error {
 
 	output.WriteString("\n=== IMPLIED SPACE AGGREGATE ENTITIES (EXCLUDING no_collect) ===\n\n")
 	aggregateCount := 0
-	for _, spaceName := range spaceOrder {
+	for _, spaceName := range admin.SpaceOrder {
 		if spaceName == "root" {
 			continue
 		}
 
-		aggregates := impliedAggregatesForSpace(spaceName, spaceOrder, entityRecordsBySpace)
+		aggregates := impliedAggregatesForSpace(spaceName, admin.SpaceKindByName[spaceName], admin.SpaceOrder, admin.EntityRecordsBySpace)
 		if len(aggregates) == 0 {
 			continue
 		}
 
-		indent := strings.Repeat("  ", spaceDepthByName[spaceName])
+		indent := strings.Repeat("  ", admin.SpaceDepthByName[spaceName])
 		for _, aggregate := range aggregates {
 			aggregateCount++
 			output.WriteString(fmt.Sprintf("%s- %s\n", indent, aggregate))
@@ -1843,22 +1343,155 @@ func expandHouse(root string, house string) error {
 	output.WriteString(fmt.Sprintf("External entities with config options: %d\n", externalWithConfigCount))
 	output.WriteString(fmt.Sprintf("Implied aggregates: %d\n", aggregateCount))
 
-	outputErr := os.WriteFile(outputPath, []byte(output.String()), 0644)
+	expansionReportPath, outputErr := writeDebugReport(root, house, DebugReportExpansion, output.String())
 	if outputErr != nil {
 		return fmt.Errorf("error writing expansion report: %w", outputErr)
 	}
+	if expansionReportPath != "" {
+		fmt.Printf("  expansion report: %s\n", expansionReportPath)
+	}
 
-	fmt.Printf("  expansion report: %s\n", outputPath)
+	// --- Generate Collections report ---
+	collections := strings.Builder{}
+
+	collections.WriteString("=== ENTITY COLLECTIONS REPORT ===\n")
+	collections.WriteString(fmt.Sprintf("House: %s\n", house))
+	collections.WriteString("Shows explicit aggregations: which constituent entities are collected into aggregated entities.\n")
+	collections.WriteString("Entities marked [no_collect] are excluded from aggregation.\n\n")
+
+	// Per-space aggregations
+	collections.WriteString("=== AGGREGATIONS BY SPACE ===\n\n")
+	allAggregations := []struct {
+		spaceName     string
+		depth         int
+		aggregateName string
+		constituents  []string
+	}{}
+
+	for _, spaceName := range admin.SpaceOrder {
+		// Get aggregates for this space
+		aggregates := impliedAggregatesForSpace(spaceName, admin.SpaceKindByName[spaceName], admin.SpaceOrder, admin.EntityRecordsBySpace)
+		if len(aggregates) == 0 {
+			continue
+		}
+
+		// For each aggregate, find its constituent entities
+		for _, aggregateName := range aggregates {
+			// Determine which entities contribute to this aggregate
+			constituents := findAggregateConstituents(aggregateName, spaceName, admin.SpaceOrder, admin.EntityRecordsBySpace)
+			if len(constituents) > 0 {
+				allAggregations = append(allAggregations, struct {
+					spaceName     string
+					depth         int
+					aggregateName string
+					constituents  []string
+				}{
+					spaceName:     spaceName,
+					depth:         admin.SpaceDepthByName[spaceName],
+					aggregateName: aggregateName,
+					constituents:  constituents,
+				})
+			}
+		}
+	}
+
+	// Sort aggregations by space name for consistent output
+	sort.Slice(allAggregations, func(i, j int) bool {
+		if allAggregations[i].spaceName != allAggregations[j].spaceName {
+			return allAggregations[i].spaceName < allAggregations[j].spaceName
+		}
+		return allAggregations[i].aggregateName < allAggregations[j].aggregateName
+	})
+
+	// Output aggregations grouped by space
+	currentSpace := ""
+	for _, agg := range allAggregations {
+		if currentSpace != agg.spaceName {
+			if currentSpace != "" {
+				collections.WriteString("\n")
+			}
+			currentSpace = agg.spaceName
+			indent := strings.Repeat("  ", agg.depth)
+			collections.WriteString(fmt.Sprintf("%s%s %q:\n", indent, formatSpaceLabel(admin.SpaceKindByName[agg.spaceName]), agg.spaceName))
+		}
+
+		indent := strings.Repeat("  ", agg.depth+1)
+		collections.WriteString(fmt.Sprintf("%s%s as aggregation of:\n", indent, agg.aggregateName))
+		sort.Strings(agg.constituents)
+		for _, constituent := range agg.constituents {
+			collections.WriteString(fmt.Sprintf("%s  - %s\n", indent, constituent))
+		}
+	}
+
+	// Space-level collections (SpaceOn and SpaceOff)
+	collections.WriteString("\n=== SPACE LEVEL CONTROLS ===\n\n")
+	for _, spaceName := range admin.SpaceOrder {
+		hasSpaceOn := len(admin.SpaceOnByName[spaceName]) > 0
+		hasSpaceOff := len(admin.SpaceOffByName[spaceName]) > 0
+
+		if hasSpaceOn || hasSpaceOff {
+			indent := strings.Repeat("  ", admin.SpaceDepthByName[spaceName])
+			collections.WriteString(fmt.Sprintf("%s%s %q:\n", indent, formatSpaceLabel(admin.SpaceKindByName[spaceName]), spaceName))
+
+			if hasSpaceOn {
+				collections.WriteString(fmt.Sprintf("%s  Lights to turn ON:\n", indent))
+				for _, light := range admin.SpaceOnByName[spaceName] {
+					collections.WriteString(fmt.Sprintf("%s    - %s\n", indent, light))
+				}
+			}
+
+			if hasSpaceOff {
+				collections.WriteString(fmt.Sprintf("%s  Controls to turn OFF:\n", indent))
+				for _, control := range admin.SpaceOffByName[spaceName] {
+					collections.WriteString(fmt.Sprintf("%s    - %s\n", indent, control))
+				}
+			}
+
+			collections.WriteString("\n")
+		}
+	}
+
+	collections.WriteString("\n=== COLLECTION STATISTICS ===\n")
+	collections.WriteString(fmt.Sprintf("Total aggregations: %d\n", len(allAggregations)))
+
+	collectionsReportPath, collectionsErr := writeDebugReport(root, house, DebugReportCollections, collections.String())
+	if collectionsErr != nil {
+		return fmt.Errorf("error writing collections report: %w", collectionsErr)
+	}
+	if collectionsReportPath != "" {
+		fmt.Printf("  collections report: %s\n", collectionsReportPath)
+	}
 	return nil
 }
 
-func extractSpaceName(line string) string {
-	// Extract from "space type:name with:" or "space name with:"
-	line = strings.TrimPrefix(line, "space ")
-	if idx := strings.Index(line, " with"); idx > 0 {
-		return line[:idx]
+func parseSpaceHeader(line string) (string, string, bool) {
+	if !strings.HasSuffix(line, "with:") {
+		return "", "", false
 	}
-	return ""
+
+	spaceKind := SpaceKindRegular
+	header := line
+	if strings.HasPrefix(header, "virtual space ") {
+		spaceKind = SpaceKindVirtual
+		header = strings.TrimPrefix(header, "virtual space ")
+	} else if strings.HasPrefix(header, "space ") {
+		header = strings.TrimPrefix(header, "space ")
+	} else {
+		return "", "", false
+	}
+
+	if idx := strings.Index(header, " with"); idx > 0 {
+		return spaceKind, header[:idx], true
+	}
+
+	return spaceKind, "", true
+}
+
+func formatSpaceLabel(spaceKind string) string {
+	if spaceKind == SpaceKindVirtual {
+		return "Virtual space"
+	}
+	return "Space"
 }
 
 func formatSpacePath(spacePath []string) string {
@@ -1866,6 +1499,16 @@ func formatSpacePath(spacePath []string) string {
 		return "root"
 	}
 	return strings.Join(spacePath, " / ")
+}
+
+// parseSpaceCollectionItems parses items like "social:main @light switch.social:picture_frame"
+// Returns a list of item names
+func parseSpaceCollectionItems(itemsStr string) []string {
+	if itemsStr == "" {
+		return []string{}
+	}
+	parts := strings.Fields(itemsStr)
+	return parts
 }
 
 type TEntityDeclaration struct {
@@ -2006,16 +1649,20 @@ func normalizeEntityFullName(spec string, spacePath []string) string {
 	typePart := spec[:dotIdx]
 	remainder := spec[dotIdx+1:]
 	colonIdx := strings.Index(remainder, ":")
+	var spherePart, rawPathPart string
 	if colonIdx < 0 {
-		_, contextPath := normalizeSpaceContext(spacePath)
-		if contextPath == "" {
-			return spec
+		// No sphere specified: fill in default sphere
+		// Try lookupDefaultSphere(typePart), else default to "social"
+		spherePart, _ = lookupDefaultSphere(typePart)
+		if spherePart == "" {
+			spherePart = "social"
 		}
-		return fmt.Sprintf("%s/%s", spec, contextPath)
+		rawPathPart = remainder
+	} else {
+		spherePart = remainder[:colonIdx]
+		rawPathPart = remainder[colonIdx+1:]
 	}
 
-	spherePart := remainder[:colonIdx]
-	rawPathPart := remainder[colonIdx+1:]
 	// Internal normalized raw references use sphere "_" and a leading slash path.
 	// Render these back to the external raw syntax expected in reports.
 	if spherePart == "_" {
@@ -2027,6 +1674,16 @@ func normalizeEntityFullName(spec string, spacePath []string) string {
 	pathPart := rawPathPart
 	pathPart = strings.ReplaceAll(pathPart, ":", "/")
 	_, contextPath := normalizeSpaceContext(spacePath)
+
+	// Avoid double sphere (e.g., social.social) in the normalized name
+	// If the first segment of contextPath matches the spherePart, skip it
+	if contextPath != "" {
+		contextParts := strings.Split(contextPath, "/")
+		if len(contextParts) > 0 && contextParts[0] == spherePart {
+			contextPath = strings.Join(contextParts[1:], "/")
+		}
+	}
+
 	if strings.HasPrefix(rawPathPart, "/") {
 		pathPart = strings.TrimPrefix(pathPart, "/")
 	} else {
@@ -2118,27 +1775,29 @@ func nestedSpaceDepth(spacePath []string) int {
 func normalizeSpaceContext(spacePath []string) (string, string) {
 	spaceType := ""
 	contextParts := []string{}
-
+	first := true
 	for _, segment := range spacePath {
 		segmentType, segmentName := splitSpaceSegment(segment)
-		if segmentType != "" && spaceType == "" {
-			spaceType = segmentType
+		if first {
+			if segmentType != "" {
+				spaceType = segmentType
+			}
+			// For the first segment, use the name as-is
+			segmentName = strings.ReplaceAll(segmentName, ":", "/")
+			segmentName = strings.Trim(segmentName, "/")
+			if segmentName != "" {
+				contextParts = append(contextParts, strings.Split(segmentName, "/")...)
+			}
+			first = false
+		} else {
+			// For subsequent segments, ignore any type/sphere prefix, just use the name
+			segmentName = strings.ReplaceAll(segmentName, ":", "/")
+			segmentName = strings.Trim(segmentName, "/")
+			if segmentName != "" {
+				contextParts = append(contextParts, strings.Split(segmentName, "/")...)
+			}
 		}
-
-		segmentName = strings.ReplaceAll(segmentName, ":", "/")
-		if strings.HasPrefix(segmentName, "/") {
-			contextParts = []string{}
-			segmentName = strings.TrimPrefix(segmentName, "/")
-		}
-
-		segmentName = strings.Trim(segmentName, "/")
-		if segmentName == "" {
-			continue
-		}
-
-		contextParts = append(contextParts, strings.Split(segmentName, "/")...)
 	}
-
 	return spaceType, strings.Join(contextParts, "/")
 }
 
@@ -2149,45 +1808,48 @@ func splitSpaceSegment(segment string) (string, string) {
 	return "", segment
 }
 
-func impliedAggregatesForSpace(spaceName string, spaceOrder []string, entityRecordsBySpace map[string][]TEntityRecord) []string {
-	domainAggregates := map[string]bool{}
-	sensorMetricAggregates := map[string]bool{}
+func impliedAggregatesForSpace(spaceName, spaceKind string, spaceOrder []string, entityRecordsBySpace map[string][]TEntityRecord) []string {
+	aggregates := []string{}
 
-	for _, candidateSpace := range spaceOrder {
-		if candidateSpace != spaceName && !strings.HasPrefix(candidateSpace, spaceName+"/") {
+	// Restore sensor aggregation (by metric)
+	sensorMetricAggregates := map[string]bool{}
+	includeSensorAggregates := spaceKind != SpaceKindVirtual
+
+	// Check for any switch.social/<space>/media or /space entities
+	hasMediaSwitch := false
+	hasSpaceSwitch := false
+	for _, record := range entityRecordsBySpace[spaceName] {
+		if record.NoCollect {
 			continue
 		}
-
-		for _, record := range entityRecordsBySpace[candidateSpace] {
-			if record.NoCollect {
-				continue
+		if record.Identity.Domain == "switch" && record.Identity.Sphere == "social" {
+			if lastPathSegment(record.Identity.Path) == "media" {
+				hasMediaSwitch = true
 			}
-			if record.Identity.Domain == "" {
-				continue
+			if lastPathSegment(record.Identity.Path) == "space" {
+				hasSpaceSwitch = true
 			}
-
-			domain := record.Identity.Domain
-			path := record.Identity.Path
-
-			switch domain {
-			case "light", "media_player":
-				domainAggregates[domain] = true
-			case "sensor":
-				metric := lastPathSegment(path)
-				if isAggregateSensorMetric(metric) {
-					sensorMetricAggregates[metric] = true
-				}
+		}
+		if record.Identity.Domain == "sensor" && includeSensorAggregates {
+			metric := lastPathSegment(record.Identity.Path)
+			if isAggregateSensorMetric(metric) {
+				sensorMetricAggregates[metric] = true
 			}
 		}
 	}
-
-	aggregates := []string{}
-	for _, domain := range []string{"light", "media_player"} {
-		if domainAggregates[domain] {
-			aggregates = append(aggregates, fmt.Sprintf("%s.%s", domain, spaceName))
-		}
+	// Avoid double sphere (e.g., switch.social/social/...) in aggregate names
+	spacePath := spaceName
+	if strings.HasPrefix(spacePath, "social/") {
+		spacePath = strings.TrimPrefix(spacePath, "social/")
+	}
+	if hasMediaSwitch {
+		aggregates = append(aggregates, fmt.Sprintf("switch.social/%s/media", spacePath))
+	}
+	if hasSpaceSwitch {
+		aggregates = append(aggregates, fmt.Sprintf("switch.social/%s/space", spacePath))
 	}
 
+	// Add sensor aggregates
 	metrics := []string{}
 	for metric := range sensorMetricAggregates {
 		metrics = append(metrics, metric)
@@ -2207,6 +1869,289 @@ func lastPathSegment(path string) string {
 	}
 	parts := strings.Split(path, "/")
 	return parts[len(parts)-1]
+}
+
+func extractSubdomain(identity TEntityIdentity) string {
+	if identity.IsRaw {
+		// Raw names like [some_raw_value] don't have a traditional domain:sphere
+		return "raw"
+	}
+
+	// For normal identities, return domain:sphere as subdomain
+	if identity.Domain != "" {
+		if identity.Sphere != "" {
+			return fmt.Sprintf("%s:%s", identity.Domain, identity.Sphere)
+		}
+		return identity.Domain
+	}
+
+	return ""
+}
+
+func extractDomainFromAggregate(aggregate string) string {
+	// aggregate format: "domain.spaceName" or "sensor.spaceName/metric"
+	parts := strings.Split(aggregate, ".")
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return "unknown"
+}
+
+// findAggregateConstituents finds constituents for an aggregation in a hierarchical way.
+// For a space, includes:
+// - Entities directly in that space (not in child spaces)
+// - Aggregated entities from direct child spaces
+func findAggregateConstituents(aggregateName, spaceName string, spaceOrder []string, entityRecordsBySpace map[string][]TEntityRecord) []string {
+	constituents := []string{}
+
+	// Handle switch.social/<space>/media and /space
+	if strings.HasPrefix(aggregateName, "switch.social/") {
+		for _, rec := range entityRecordsBySpace[spaceName] {
+			if rec.NoCollect {
+				continue
+			}
+			if rec.Identity.Domain == "switch" && rec.Identity.Sphere == "social" {
+				if rec.Name == aggregateName {
+					continue // skip self
+				}
+				if aggregateName == fmt.Sprintf("switch.social/%s/media", spaceName) && lastPathSegment(rec.Identity.Path) == "media" {
+					constituents = append(constituents, rec.Name)
+				}
+				if aggregateName == fmt.Sprintf("switch.social/%s/space", spaceName) && lastPathSegment(rec.Identity.Path) == "space" {
+					constituents = append(constituents, rec.Name)
+				}
+			}
+		}
+		return normalizeFullNames(constituents, spaceName)
+	}
+
+	// Handle sensor.<space>/<metric> aggregates
+	if strings.HasPrefix(aggregateName, "sensor.") {
+		// Parse metric
+		idx := strings.LastIndex(aggregateName, "/")
+		if idx < 0 {
+			return constituents
+		}
+		metric := aggregateName[idx+1:]
+		for _, rec := range entityRecordsBySpace[spaceName] {
+			if rec.NoCollect {
+				continue
+			}
+			if rec.Identity.Domain == "sensor" && lastPathSegment(rec.Identity.Path) == metric {
+				constituents = append(constituents, rec.Name)
+			}
+		}
+		return normalizeFullNames(constituents, spaceName)
+	}
+
+	return normalizeFullNames(constituents, spaceName)
+}
+
+// normalizeFullNames ensures all names are in full normalized format (e.g., social:living_room)
+func normalizeFullNames(names []string, spaceName string) []string {
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		out = append(out, normalizeEntityFullName(n, strings.Split(spaceName, "/")))
+	}
+	return out
+}
+
+type TCollectedExpandedEntityRecord struct {
+	SpacePath []string
+	Record    TEntityRecord
+}
+
+func collectExpandedEntityRecords(ctx *TMacroExpansionContext, invocation *TMacroInvocation, spacePath []string, inheritedNoCollect bool) ([]TCollectedExpandedEntityRecord, error) {
+	macro, exists := ctx.Macros[invocation.Name]
+	if !exists {
+		return nil, fmt.Errorf("unknown macro: %s", invocation.Name)
+	}
+
+	canonicalParameters := canonicalInvocationParameters(invocation.Parameters)
+	substitutions := map[string]string{
+		"$entity": invocation.Target,
+		"$sphere": extractSphere(invocation.Target),
+	}
+	for _, param := range macro.Parameters {
+		if value, provided := canonicalParameters[normalizeParameterKey(param.Name)]; provided {
+			substitutions[param.Name] = value
+		}
+	}
+
+	expandedLines := []string{}
+	for _, bodyLine := range macro.Body {
+		expandedLine := bodyLine
+		for placeholder, value := range substitutions {
+			expandedLine = strings.ReplaceAll(expandedLine, placeholder, value)
+		}
+		expandedLines = append(expandedLines, expandedLine)
+	}
+
+	records := []TCollectedExpandedEntityRecord{}
+	currentSpacePath := append([]string{}, spacePath...)
+	openBlocks := []string{}
+	currentNoCollect := inheritedNoCollect || invocationHasNoCollect(invocation)
+
+	for _, rawLine := range expandedLines {
+		trimmed := strings.TrimSpace(rawLine)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		if entityDecl, ok := extractExpandedEntityDeclaration(trimmed); ok {
+			fullName := normalizeEntityFullName(entityDecl.Specification, currentSpacePath)
+			records = append(records, TCollectedExpandedEntityRecord{
+				SpacePath: append([]string{}, currentSpacePath...),
+				Record: TEntityRecord{
+					Name:                  fullName,
+					Identity:              extractEntityIdentity(fullName),
+					NoCollect:             entityDecl.NoCollect || currentNoCollect,
+					HasDefinitionOrImport: true,
+				},
+			})
+			continue
+		}
+
+		if nestedInvocation, ok := extractNestedMacroInvocation(trimmed); ok {
+			parsedInvocation, parseErr := ctx.ParseMacroInvocation(nestedInvocation)
+			if parseErr != nil {
+				return nil, fmt.Errorf("cannot parse nested macro invocation %q: %w", nestedInvocation, parseErr)
+			}
+			if isTemplatedMacroName(parsedInvocation.Name) {
+				continue
+			}
+			if _, exists := ctx.Macros[parsedInvocation.Name]; !exists {
+				return nil, fmt.Errorf("unknown macro: %s", parsedInvocation.Name)
+			}
+
+			nestedRecords, nestedErr := collectExpandedEntityRecords(ctx, parsedInvocation, currentSpacePath, currentNoCollect)
+			if nestedErr != nil {
+				return nil, nestedErr
+			}
+			records = append(records, nestedRecords...)
+			continue
+		}
+
+		if spaceKind, spaceName, ok := parseSpaceHeader(trimmed); ok {
+			openBlocks = append(openBlocks, spaceKind)
+			if spaceName == "" {
+				currentSpacePath = append(currentSpacePath, "?")
+			} else {
+				currentSpacePath = append(currentSpacePath, spaceName)
+			}
+			continue
+		}
+
+		if strings.HasSuffix(trimmed, "with:") {
+			openBlocks = append(openBlocks, "other")
+			continue
+		}
+
+		if trimmed == "end;" {
+			if len(openBlocks) == 0 {
+				continue
+			}
+
+			last := openBlocks[len(openBlocks)-1]
+			openBlocks = openBlocks[:len(openBlocks)-1]
+			if (last == SpaceKindRegular || last == SpaceKindVirtual) && len(currentSpacePath) > 0 {
+				currentSpacePath = currentSpacePath[:len(currentSpacePath)-1]
+			}
+		}
+	}
+
+	return records, nil
+}
+
+func extractExpandedEntityDeclaration(line string) (*TEntityDeclaration, bool) {
+	trimmed := strings.TrimSpace(line)
+	if strings.Contains(trimmed, "= entity ") {
+		parts := strings.SplitN(trimmed, "= entity ", 2)
+		if len(parts) == 2 {
+			trimmed = "entity " + strings.TrimSpace(parts[1])
+		}
+	}
+
+	decl, ok := extractEntityDeclaration(trimmed)
+	if !ok {
+		return nil, false
+	}
+	if !isConcreteEntitySpecification(decl.Specification) {
+		return nil, false
+	}
+	return decl, true
+}
+
+func extractNestedMacroInvocation(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if strings.HasPrefix(trimmed, "create ") {
+		return trimmed, true
+	}
+	if strings.HasPrefix(trimmed, "entity ") {
+		rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "entity "))
+		fields := strings.Fields(rest)
+		if len(fields) == 0 {
+			return "", false
+		}
+		if !isConcreteEntitySpecification(fields[0]) {
+			return rest, true
+		}
+	}
+	return "", false
+}
+
+func validateMacroDefinitionOrdering(ctx *TMacroExpansionContext) error {
+	for _, macro := range ctx.Macros {
+		for _, rawLine := range macro.Body {
+			trimmed := strings.TrimSpace(rawLine)
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+				continue
+			}
+
+			nestedInvocation, ok := extractNestedMacroInvocation(trimmed)
+			if !ok {
+				continue
+			}
+
+			invocation, err := ctx.ParseMacroInvocation(nestedInvocation)
+			if err != nil {
+				return fmt.Errorf("macro %q contains invalid nested invocation %q: %w", macro.Name, nestedInvocation, err)
+			}
+
+			if isTemplatedMacroName(invocation.Name) {
+				continue
+			}
+
+			calledMacro, exists := ctx.Macros[invocation.Name]
+			if !exists {
+				return fmt.Errorf("macro %q invokes unknown macro %q", macro.Name, invocation.Name)
+			}
+
+			if calledMacro.SourceLine >= macro.SourceLine {
+				return fmt.Errorf("macro %q invokes %q before textual definition (caller line %d, callee line %d)", macro.Name, invocation.Name, macro.SourceLine, calledMacro.SourceLine)
+			}
+		}
+	}
+
+	return nil
+}
+
+func isTemplatedMacroName(name string) bool {
+	return strings.Contains(name, "$") || strings.Contains(name, "<") || strings.Contains(name, ">")
+}
+
+func isConcreteEntitySpecification(spec string) bool {
+	trimmed := strings.TrimSpace(strings.TrimSuffix(spec, ";"))
+	return strings.Contains(trimmed, ".[") || strings.Contains(trimmed, ".")
+}
+
+func invocationHasNoCollect(invocation *TMacroInvocation) bool {
+	for key, value := range canonicalInvocationParameters(invocation.Parameters) {
+		if key == "nocollect" {
+			return strings.EqualFold(strings.TrimSpace(value), "true")
+		}
+	}
+	return false
 }
 
 func isAggregateSensorMetric(metric string) bool {
@@ -2233,4 +2178,900 @@ func isMacroInvocation(line string, macros map[string]*TParsedCreationMacro) boo
 	macroName := parts[startIdx]
 	_, exists := macros[macroName]
 	return exists
+}
+
+func extractCreateInvocationMacroName(line string) (string, bool) {
+	parts := strings.Fields(line)
+	if len(parts) < 2 || parts[0] != "create" {
+		return "", false
+	}
+	return parts[1], true
+}
+
+type THomeAssistantTarget struct {
+	BaseURL         string
+	Token           string
+	InsecureSkipTLS bool
+	StatesPath      string
+}
+
+type TImportedRestDependency struct {
+	BridgeName string
+	EntityID   string
+	ScanEveryS int
+}
+
+type TBridgeRestDefinition struct {
+	BridgeName    string
+	EndpointExpr  string
+	TokenExpr     string
+	InsecureTLS   bool
+	ResolvedURL   string
+	ResolvedToken string
+}
+
+func runAvailabilityCheck(root string, houses []string) error {
+	for _, house := range houses {
+		if err := checkHouseAvailability(root, house); err != nil {
+			return fmt.Errorf("error checking availability for %s: %w", house, err)
+		}
+		fmt.Printf("checked %s\n", house)
+	}
+	return nil
+}
+
+func checkHouseAvailability(root, house string) error {
+	definitionDir := filepath.Join(root, "New", house, "Definitions")
+	externalEntities, err := collectExternalEntities(definitionDir)
+	if err != nil {
+		return err
+	}
+
+	// Detect DSL paths that collide on the same derived entity ID (e.g. d/x_y/z vs d/x/y_z).
+	entityIDToDSLNames := map[string][]string{}
+	for _, fullName := range externalEntities {
+		if id := toHomeAssistantEntityID(fullName); id != "" {
+			entityIDToDSLNames[id] = append(entityIDToDSLNames[id], fullName)
+		}
+	}
+	ambiguousIDs := []string{}
+	for id, names := range entityIDToDSLNames {
+		if len(names) > 1 {
+			ambiguousIDs = append(ambiguousIDs, id)
+		}
+	}
+	sort.Strings(ambiguousIDs)
+	ambiguities := []string{}
+	for _, id := range ambiguousIDs {
+		names := entityIDToDSLNames[id]
+		ambiguities = append(ambiguities, fmt.Sprintf("%s <- %s", id, strings.Join(names, " AND ")))
+	}
+
+	importedDependencies, err := collectImportedRestDependencies(definitionDir)
+	if err != nil {
+		return err
+	}
+
+	target, err := resolveHomeAssistantTarget(definitionDir)
+	if err != nil {
+		return err
+	}
+	bridgeTargets, err := resolveBridgeTargets(definitionDir)
+	if err != nil {
+		return err
+	}
+
+	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
+	if target.InsecureSkipTLS {
+		httpTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+	client := &http.Client{
+		Timeout:   12 * time.Second,
+		Transport: httpTransport,
+	}
+	availableEntityIDs, bulkErr := fetchAllEntityIDs(client, target)
+	foundEntities := []string{}
+	missing := []string{}
+	requestErrors := []string{}
+
+	for _, entityFullName := range externalEntities {
+		entityID := toHomeAssistantEntityID(entityFullName)
+		if entityID == "" {
+			requestErrors = append(requestErrors, fmt.Sprintf("%s -> unable to map to Home Assistant entity_id", entityFullName))
+			continue
+		}
+
+		if bulkErr == nil {
+			if availableEntityIDs[entityID] {
+				foundEntities = append(foundEntities, fmt.Sprintf("%s (%s)", entityFullName, entityID))
+			} else {
+				missing = append(missing, fmt.Sprintf("%s (%s)", entityFullName, entityID))
+			}
+			continue
+		}
+
+		exists, checkErr := checkEntityExists(client, target, entityID)
+		if checkErr != nil {
+			requestErrors = append(requestErrors, fmt.Sprintf("%s (%s): %v", entityFullName, entityID, checkErr))
+			continue
+		}
+		if exists {
+			foundEntities = append(foundEntities, fmt.Sprintf("%s (%s)", entityFullName, entityID))
+		} else {
+			missing = append(missing, fmt.Sprintf("%s (%s)", entityFullName, entityID))
+		}
+	}
+
+	report := strings.Builder{}
+	report.WriteString("=== ASSUMED ENTITY AVAILABILITY CHECK ===\n\n")
+	report.WriteString(fmt.Sprintf("House: %s\n", house))
+	report.WriteString(fmt.Sprintf("Target base URL: %s\n", target.BaseURL))
+	if target.InsecureSkipTLS {
+		report.WriteString("TLS verification: disabled (insecure mode)\n")
+	} else {
+		report.WriteString("TLS verification: strict\n")
+	}
+	if bulkErr == nil {
+		report.WriteString("Check mode: bulk /api/states snapshot\n")
+	} else {
+		report.WriteString("Check mode: per-entity /api/states/<entity_id> fallback\n")
+		report.WriteString(fmt.Sprintf("Bulk states endpoint unavailable: %v\n", bulkErr))
+	}
+	report.WriteString(fmt.Sprintf("Checked endpoint: %s\n", target.StatesPath))
+	report.WriteString(fmt.Sprintf("Assumed external entities checked: %d\n", len(externalEntities)))
+	report.WriteString(fmt.Sprintf("Found: %d\n", len(foundEntities)))
+	report.WriteString(fmt.Sprintf("Missing: %d\n", len(missing)))
+	report.WriteString(fmt.Sprintf("Request errors: %d\n", len(requestErrors)))
+	report.WriteString(fmt.Sprintf("Entity ID ambiguities: %d\n\n", len(ambiguities)))
+
+	report.WriteString("=== ENTITY ID AMBIGUITIES ===\n")
+	if len(ambiguities) == 0 {
+		report.WriteString("(none)\n")
+	} else {
+		report.WriteString("WARNING: the following entity IDs are derived from multiple distinct DSL paths.\n")
+		report.WriteString("Consider renaming path segments that contain '_' to use '-' instead (e.g. living-room).\n")
+		for _, item := range ambiguities {
+			report.WriteString(fmt.Sprintf("- %s\n", item))
+		}
+	}
+	report.WriteString("\n")
+
+	report.WriteString("=== FOUND ASSUMED ENTITIES ===\n")
+	if len(foundEntities) == 0 {
+		report.WriteString("(none)\n")
+	} else {
+		for _, item := range foundEntities {
+			report.WriteString(fmt.Sprintf("- %s\n", item))
+		}
+	}
+	report.WriteString("\n")
+
+	report.WriteString("=== MISSING ASSUMED ENTITIES ===\n")
+	if len(missing) == 0 {
+		report.WriteString("(none)\n")
+	} else {
+		for _, item := range missing {
+			report.WriteString(fmt.Sprintf("- %s\n", item))
+		}
+	}
+	report.WriteString("\n")
+
+	report.WriteString("=== REQUEST ERRORS ===\n")
+	if len(requestErrors) == 0 {
+		report.WriteString("(none)\n")
+	} else {
+		for _, item := range requestErrors {
+			report.WriteString(fmt.Sprintf("- %s\n", item))
+		}
+	}
+	report.WriteString("\n")
+
+	importedFoundEntities := []string{}
+	importedMissing := []string{}
+	importedErrors := []string{}
+	// Cache bulk fetches per bridge to avoid repeated /api/states calls.
+	bridgeBulkCache := map[string]map[string]bool{}
+	bridgeBulkErrCache := map[string]error{}
+	for _, dependency := range importedDependencies {
+		bridgeTarget, exists := bridgeTargets[dependency.BridgeName]
+		if !exists {
+			importedErrors = append(importedErrors, fmt.Sprintf("bridge %q not declared in Bridges.def", dependency.BridgeName))
+			continue
+		}
+		if bridgeTarget.Token == "" {
+			importedErrors = append(importedErrors, fmt.Sprintf("bridge %q has no authorization token", dependency.BridgeName))
+			continue
+		}
+
+		bridgeHTTPTransport := http.DefaultTransport.(*http.Transport).Clone()
+		if bridgeTarget.InsecureSkipTLS {
+			bridgeHTTPTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		}
+		bridgeClient := &http.Client{Timeout: 12 * time.Second, Transport: bridgeHTTPTransport}
+
+		if _, seen := bridgeBulkCache[dependency.BridgeName]; !seen {
+			ids, bulkFetchErr := fetchAllEntityIDs(bridgeClient, bridgeTarget)
+			bridgeBulkCache[dependency.BridgeName] = ids
+			bridgeBulkErrCache[dependency.BridgeName] = bulkFetchErr
+		}
+		availableOnBridge := bridgeBulkCache[dependency.BridgeName]
+		bridgeBulkErr := bridgeBulkErrCache[dependency.BridgeName]
+
+		if bridgeBulkErr == nil {
+			if availableOnBridge[dependency.EntityID] {
+				importedFoundEntities = append(importedFoundEntities, fmt.Sprintf("%s (scan_interval=%ds, bridge=%s, url=%s)", dependency.EntityID, dependency.ScanEveryS, dependency.BridgeName, bridgeTarget.BaseURL))
+			} else {
+				importedMissing = append(importedMissing, fmt.Sprintf("%s (scan_interval=%ds) on bridge %s (%s)", dependency.EntityID, dependency.ScanEveryS, dependency.BridgeName, bridgeTarget.BaseURL))
+			}
+			continue
+		}
+
+		existsOnBridge, bridgeCheckErr := checkEntityExists(bridgeClient, bridgeTarget, dependency.EntityID)
+		if bridgeCheckErr != nil {
+			importedErrors = append(importedErrors, fmt.Sprintf("%s (scan_interval=%ds) on bridge %s (%s): %v", dependency.EntityID, dependency.ScanEveryS, dependency.BridgeName, bridgeTarget.BaseURL, bridgeCheckErr))
+			continue
+		}
+		if existsOnBridge {
+			importedFoundEntities = append(importedFoundEntities, fmt.Sprintf("%s (scan_interval=%ds, bridge=%s, url=%s)", dependency.EntityID, dependency.ScanEveryS, dependency.BridgeName, bridgeTarget.BaseURL))
+		} else {
+			importedMissing = append(importedMissing, fmt.Sprintf("%s (scan_interval=%ds) on bridge %s (%s)", dependency.EntityID, dependency.ScanEveryS, dependency.BridgeName, bridgeTarget.BaseURL))
+		}
+	}
+
+	report.WriteString("=== IMPORTED REST SOURCE CHECK ===\n")
+	report.WriteString(fmt.Sprintf("Imported dependencies checked: %d\n", len(importedDependencies)))
+	report.WriteString("Note: the numeric parameter in 'imported rest' is scan_interval (seconds).\n")
+	report.WriteString(fmt.Sprintf("Found on source bridge: %d\n", len(importedFoundEntities)))
+	report.WriteString(fmt.Sprintf("Missing on source bridge: %d\n", len(importedMissing)))
+	report.WriteString(fmt.Sprintf("Bridge request errors: %d\n\n", len(importedErrors)))
+
+	report.WriteString("=== FOUND IMPORTED SOURCES ===\n")
+	if len(importedFoundEntities) == 0 {
+		report.WriteString("(none)\n")
+	} else {
+		for _, item := range importedFoundEntities {
+			report.WriteString(fmt.Sprintf("- %s\n", item))
+		}
+	}
+	report.WriteString("\n")
+
+	report.WriteString("=== MISSING IMPORTED SOURCES ===\n")
+	if len(importedMissing) == 0 {
+		report.WriteString("(none)\n")
+	} else {
+		for _, item := range importedMissing {
+			report.WriteString(fmt.Sprintf("- %s\n", item))
+		}
+	}
+	report.WriteString("\n")
+
+	report.WriteString("=== IMPORTED SOURCE ERRORS ===\n")
+	if len(importedErrors) == 0 {
+		report.WriteString("(none)\n")
+	} else {
+		for _, item := range importedErrors {
+			report.WriteString(fmt.Sprintf("- %s\n", item))
+		}
+	}
+	report.WriteString("\n")
+
+	availabilityReportPath, writeErr := writeDebugReport(root, house, DebugReportAvailability, report.String())
+	if writeErr != nil {
+		return fmt.Errorf("error writing availability report: %w", writeErr)
+	}
+	if availabilityReportPath != "" {
+		fmt.Printf("  availability report: %s\n", availabilityReportPath)
+	}
+	return nil
+}
+
+func collectExternalEntities(definitionDir string) ([]string, error) {
+	entitiesPath := filepath.Join(definitionDir, "Entities.def")
+	content, err := os.ReadFile(entitiesPath)
+	if err != nil {
+		return nil, fmt.Errorf("error reading entities: %w", err)
+	}
+
+	entityLines := strings.Split(string(content), "\n")
+	spacePath := []string{}
+	openBlocks := []string{}
+	externalByName := map[string]bool{}
+
+	for i := 0; i < len(entityLines); i++ {
+		trimmed := strings.TrimSpace(entityLines[i])
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		if entityDecl, ok := extractEntityDeclaration(trimmed); ok {
+			fullName := normalizeEntityFullName(entityDecl.Specification, spacePath)
+			hasDefOrImport, _ := analyzeEntityDefinitionContext(entityLines, i)
+			if !hasDefOrImport {
+				externalByName[fullName] = true
+			}
+		}
+
+		if spaceKind, spaceName, ok := parseSpaceHeader(trimmed); ok {
+			openBlocks = append(openBlocks, spaceKind)
+			if spaceName == "" {
+				spacePath = append(spacePath, "?")
+			} else {
+				spacePath = append(spacePath, spaceName)
+			}
+			continue
+		}
+
+		if strings.HasSuffix(trimmed, "with:") {
+			openBlocks = append(openBlocks, "other")
+			continue
+		}
+
+		if trimmed == "end;" {
+			if len(openBlocks) == 0 {
+				continue
+			}
+
+			last := openBlocks[len(openBlocks)-1]
+			openBlocks = openBlocks[:len(openBlocks)-1]
+			if (last == SpaceKindRegular || last == SpaceKindVirtual) && len(spacePath) > 0 {
+				spacePath = spacePath[:len(spacePath)-1]
+			}
+		}
+	}
+
+	externalEntities := []string{}
+	for fullName := range externalByName {
+		externalEntities = append(externalEntities, fullName)
+	}
+	sort.Strings(externalEntities)
+	return externalEntities, nil
+}
+
+func collectImportedRestDependencies(definitionDir string) ([]TImportedRestDependency, error) {
+	entitiesPath := filepath.Join(definitionDir, "Entities.def")
+	content, err := os.ReadFile(entitiesPath)
+	if err != nil {
+		return nil, fmt.Errorf("error reading entities: %w", err)
+	}
+
+	dependencies := []TImportedRestDependency{}
+	seen := map[string]bool{}
+	for _, rawLine := range strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n") {
+		trimmed := strings.TrimSpace(rawLine)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		fields := strings.Fields(trimmed)
+		if len(fields) < 5 || fields[0] != "imported" || fields[1] != "rest" {
+			continue
+		}
+		bridgeName := strings.TrimSpace(fields[2])
+		entityID := strings.TrimSpace(strings.TrimSuffix(fields[3], ";"))
+		scanRaw := strings.TrimSpace(strings.TrimSuffix(fields[4], ";"))
+		scanEveryS, scanErr := strconv.Atoi(scanRaw)
+		if scanErr != nil || scanEveryS <= 0 {
+			continue
+		}
+		if bridgeName == "" || entityID == "" {
+			continue
+		}
+		key := bridgeName + "::" + entityID + "::" + strconv.Itoa(scanEveryS)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		dependencies = append(dependencies, TImportedRestDependency{BridgeName: bridgeName, EntityID: entityID, ScanEveryS: scanEveryS})
+	}
+
+	sort.Slice(dependencies, func(i, j int) bool {
+		if dependencies[i].BridgeName != dependencies[j].BridgeName {
+			return dependencies[i].BridgeName < dependencies[j].BridgeName
+		}
+		return dependencies[i].EntityID < dependencies[j].EntityID
+	})
+
+	return dependencies, nil
+}
+
+func resolveBridgeTargets(definitionDir string) (map[string]THomeAssistantTarget, error) {
+	serverPath := filepath.Join(definitionDir, "Server.def")
+	settingsPath := filepath.Join(definitionDir, "Settings.def")
+	secretsPath := filepath.Join(definitionDir, "Secrets.def")
+	bridgesPath := filepath.Join(definitionDir, "Bridges.def")
+
+	serverContent, _ := readOptionalFile(serverPath)
+	settingsContent, _ := readOptionalFile(settingsPath)
+	secretsContent, _ := readOptionalFile(secretsPath)
+	bridgesContent, _ := readOptionalFile(bridgesPath)
+
+	vars := parseServerAssignmentsWithAvailability(serverContent, isServerHostUp)
+	for name, value := range parseDefinitionAssignments(settingsContent) {
+		vars[name] = value
+	}
+	for name, value := range parseDefinitionAssignments(secretsContent) {
+		vars[name] = value
+	}
+
+	bridgeTargets := map[string]THomeAssistantTarget{}
+	for _, bridgeDef := range parseBridgeRestDefinitions(bridgesContent) {
+		resolvedURL := resolveInterpolatedDefinitionValue(bridgeDef.EndpointExpr, vars)
+		baseURL, statesPath := splitStatesEndpointURL(resolvedURL)
+		if baseURL == "" {
+			continue
+		}
+		token := resolveDefinitionReference(bridgeDef.TokenExpr, vars)
+		bridgeTargets[bridgeDef.BridgeName] = THomeAssistantTarget{
+			BaseURL:         strings.TrimSpace(strings.TrimSuffix(baseURL, "/")),
+			Token:           strings.TrimSpace(token),
+			InsecureSkipTLS: resolveDefinitionBoolReference([]string{"$MainAPITLSInsecure", "$MainAPITLSSkipVerify", "$MainAPIInsecureTLS"}, vars),
+			StatesPath:      statesPath,
+		}
+	}
+
+	return bridgeTargets, nil
+}
+
+func parseBridgeRestDefinitions(bridgesContent string) []TBridgeRestDefinition {
+	definitions := []TBridgeRestDefinition{}
+	pattern := regexp.MustCompile(`^bridge\s+rest\s+([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s+authorization\s+(.+?)\s*;\s*$`)
+	for _, rawLine := range strings.Split(strings.ReplaceAll(bridgesContent, "\r\n", "\n"), "\n") {
+		trimmed := strings.TrimSpace(rawLine)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		matches := pattern.FindStringSubmatch(trimmed)
+		if matches == nil {
+			continue
+		}
+		definitions = append(definitions, TBridgeRestDefinition{
+			BridgeName:   strings.TrimSpace(matches[1]),
+			EndpointExpr: strings.TrimSpace(matches[2]),
+			TokenExpr:    strings.TrimSpace(matches[3]),
+		})
+	}
+	return definitions
+}
+
+func resolveInterpolatedDefinitionValue(expression string, vars map[string]string) string {
+	value := strings.TrimSpace(unquoteShellValue(expression))
+	if !strings.HasPrefix(value, "$") {
+		return value
+	}
+
+	nameEnd := 1
+	for ; nameEnd < len(value); nameEnd++ {
+		current := value[nameEnd]
+		if !((current >= 'A' && current <= 'Z') || (current >= 'a' && current <= 'z') || (current >= '0' && current <= '9') || current == '_') {
+			break
+		}
+	}
+	name := value[1:nameEnd]
+	resolvedVar, exists := vars[name]
+	if !exists {
+		return ""
+	}
+
+	return strings.TrimSpace(resolvedVar) + value[nameEnd:]
+}
+
+func splitStatesEndpointURL(endpoint string) (string, string) {
+	trimmed := strings.TrimSpace(endpoint)
+	if trimmed == "" {
+		return "", ""
+	}
+
+	parsedURL, err := url.Parse(trimmed)
+	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		return "", ""
+	}
+
+	baseURL := fmt.Sprintf("%s://%s", parsedURL.Scheme, parsedURL.Host)
+	statesPath := parsedURL.Path
+	if statesPath == "" {
+		statesPath = "/api/states"
+	}
+	if !strings.HasPrefix(statesPath, "/") {
+		statesPath = "/" + statesPath
+	}
+
+	return baseURL, statesPath
+}
+
+func resolveHomeAssistantTarget(definitionDir string) (THomeAssistantTarget, error) {
+	baseURL := ""
+	token := ""
+	insecureSkipTLS := false
+
+	serverPath := filepath.Join(definitionDir, "Server.def")
+	settingsPath := filepath.Join(definitionDir, "Settings.def")
+	secretsPath := filepath.Join(definitionDir, "Secrets.def")
+
+	serverContent, _ := readOptionalFile(serverPath)
+	settingsContent, _ := readOptionalFile(settingsPath)
+	secretsContent, _ := readOptionalFile(secretsPath)
+
+	vars := parseServerAssignmentsWithAvailability(serverContent, isServerHostUp)
+	for name, value := range parseDefinitionAssignments(settingsContent) {
+		vars[name] = value
+	}
+	for name, value := range parseDefinitionAssignments(secretsContent) {
+		vars[name] = value
+	}
+
+	mainTargetExpr := parseMainTargetExpression(serverContent)
+	baseURL = resolveDefinitionReference(mainTargetExpr, vars)
+	token = resolveDefinitionReference("$MainAPIToken", vars)
+	insecureSkipTLS = resolveDefinitionBoolReference([]string{"$MainAPITLSInsecure", "$MainAPITLSSkipVerify", "$MainAPIInsecureTLS"}, vars)
+
+	// Definitions are authoritative. Environment variables are only fallback when
+	// required values are not present in Server.def / Secrets.def.
+	if baseURL == "" {
+		baseURL = firstNonEmptyEnv("HASS_BASE_URL", "HOMEASSISTANT_BASE_URL")
+	}
+	if token == "" {
+		token = firstNonEmptyEnv("HASS_TOKEN", "HOMEASSISTANT_TOKEN")
+	}
+	if !insecureSkipTLS {
+		insecureSkipTLS = parseBoolLike(firstNonEmptyEnv("HASS_INSECURE_SKIP_TLS_VERIFY", "HOMEASSISTANT_INSECURE_SKIP_TLS_VERIFY"))
+	}
+
+	baseURL = strings.TrimSpace(strings.TrimSuffix(baseURL, "/"))
+	token = strings.TrimSpace(token)
+
+	if baseURL == "" {
+		return THomeAssistantTarget{}, fmt.Errorf("missing Home Assistant base URL; provide main target in Server.def or set HASS_BASE_URL/HOMEASSISTANT_BASE_URL")
+	}
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		return THomeAssistantTarget{}, fmt.Errorf("invalid Home Assistant base URL %q; expected http:// or https://", baseURL)
+	}
+	if token == "" {
+		return THomeAssistantTarget{}, fmt.Errorf("missing Home Assistant token; provide $MainAPIToken in Secrets.def or set HASS_TOKEN/HOMEASSISTANT_TOKEN")
+	}
+
+	return THomeAssistantTarget{BaseURL: baseURL, Token: token, InsecureSkipTLS: insecureSkipTLS, StatesPath: "/api/states"}, nil
+}
+
+func resolveDefinitionBoolReference(candidates []string, vars map[string]string) bool {
+	for _, candidate := range candidates {
+		resolved := resolveDefinitionReference(candidate, vars)
+		if resolved == "" {
+			continue
+		}
+		if parseBoolLike(resolved) {
+			return true
+		}
+	}
+	return false
+}
+
+func parseBoolLike(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "y" || normalized == "on"
+}
+
+func parseDefinitionAssignments(content string) map[string]string {
+	assignments := map[string]string{}
+
+	for _, rawLine := range strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		name, value, matched := parseDefinitionAssignmentLine(line)
+		if matched {
+			assignments[name] = value
+		}
+	}
+
+	return assignments
+}
+
+func parseDefinitionAssignmentLine(line string) (string, string, bool) {
+	assignmentPattern := regexp.MustCompile(`^\$([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*;\s*$`)
+	matches := assignmentPattern.FindStringSubmatch(strings.TrimSpace(line))
+	if matches == nil {
+		return "", "", false
+	}
+	name := matches[1]
+	value := unquoteShellValue(strings.TrimSpace(matches[2]))
+	return name, value, true
+}
+
+func parseServerAssignmentsWithAvailability(serverContent string, hostUp func(string) bool) map[string]string {
+	assignments := map[string]string{}
+	ifPattern := regexp.MustCompile(`^if\s+is\s+up\s+"([^"]+)"\s+then$`)
+	elifPattern := regexp.MustCompile(`^elif\s+is\s+up\s+"([^"]+)"\s+then$`)
+
+	inConditional := false
+	branchSelected := false
+	branchApplies := false
+
+	for _, rawLine := range strings.Split(strings.ReplaceAll(serverContent, "\r\n", "\n"), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		if matches := ifPattern.FindStringSubmatch(line); matches != nil {
+			inConditional = true
+			branchSelected = false
+			branchApplies = false
+			host := strings.TrimSpace(matches[1])
+			if host != "" && hostUp(host) {
+				branchSelected = true
+				branchApplies = true
+			}
+			continue
+		}
+
+		if matches := elifPattern.FindStringSubmatch(line); matches != nil {
+			if !inConditional {
+				continue
+			}
+			branchApplies = false
+			if !branchSelected {
+				host := strings.TrimSpace(matches[1])
+				if host != "" && hostUp(host) {
+					branchSelected = true
+					branchApplies = true
+				}
+			}
+			continue
+		}
+
+		if line == "else" {
+			if inConditional && !branchSelected {
+				branchSelected = true
+				branchApplies = true
+			} else {
+				branchApplies = false
+			}
+			continue
+		}
+
+		if line == "end;" {
+			if inConditional {
+				inConditional = false
+				branchSelected = false
+				branchApplies = false
+			}
+			continue
+		}
+
+		name, value, matched := parseDefinitionAssignmentLine(line)
+		if !matched {
+			continue
+		}
+		if !inConditional || branchApplies {
+			assignments[name] = value
+		}
+	}
+
+	return assignments
+}
+
+func isServerHostUp(host string) bool {
+	trimmedHost := strings.TrimSpace(host)
+	if trimmedHost == "" {
+		return false
+	}
+
+	targets := []string{}
+	if strings.Contains(trimmedHost, ":") {
+		targets = append(targets, trimmedHost)
+	} else {
+		targets = append(targets, net.JoinHostPort(trimmedHost, "8123"))
+		targets = append(targets, net.JoinHostPort(trimmedHost, "443"))
+		targets = append(targets, net.JoinHostPort(trimmedHost, "80"))
+	}
+
+	for _, target := range targets {
+		conn, err := net.DialTimeout("tcp", target, 1500*time.Millisecond)
+		if err != nil {
+			continue
+		}
+		_ = conn.Close()
+		return true
+	}
+
+	if strings.Contains(trimmedHost, ":") {
+		return false
+	}
+
+	// Fall back to one ICMP probe for hosts that are reachable on LAN but do not expose these TCP ports.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ping", "-c", "1", trimmedHost)
+	if err := cmd.Run(); err == nil {
+		return true
+	}
+
+	return false
+}
+
+func parseMainTargetExpression(serverContent string) string {
+	mainPattern := regexp.MustCompile(`^main\s+[A-Za-z_][A-Za-z0-9_]*\s+(.+?)\s*;\s*$`)
+	for _, rawLine := range strings.Split(strings.ReplaceAll(serverContent, "\r\n", "\n"), "\n") {
+		line := strings.TrimSpace(rawLine)
+		matches := mainPattern.FindStringSubmatch(line)
+		if matches != nil {
+			return strings.TrimSpace(matches[1])
+		}
+	}
+	return ""
+}
+
+func resolveDefinitionReference(expression string, vars map[string]string) string {
+	value := strings.TrimSpace(unquoteShellValue(expression))
+	for depth := 0; depth < 8; depth++ {
+		if !strings.HasPrefix(value, "$") {
+			return value
+		}
+		name := strings.TrimPrefix(value, "$")
+		nextValue, exists := vars[name]
+		if !exists {
+			return ""
+		}
+		value = strings.TrimSpace(unquoteShellValue(nextValue))
+	}
+	return ""
+}
+
+func firstNonEmptyEnv(names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func toHomeAssistantEntityID(fullName string) string {
+	trimmed := strings.TrimSpace(fullName)
+	if trimmed == "" {
+		return ""
+	}
+
+	if rawPattern := regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.\[([^\]]+)\]$`); rawPattern.MatchString(trimmed) {
+		matches := rawPattern.FindStringSubmatch(trimmed)
+		if matches != nil {
+			return fmt.Sprintf("%s.%s", matches[1], sanitizeObjectID(matches[2]))
+		}
+	}
+
+	dotIdx := strings.Index(trimmed, ".")
+	if dotIdx <= 0 || dotIdx >= len(trimmed)-1 {
+		return ""
+	}
+
+	domain := trimmed[:dotIdx]
+	object := trimmed[dotIdx+1:]
+	object = strings.ReplaceAll(object, "/", "_")
+	object = strings.ReplaceAll(object, ":", "_")
+	object = strings.Trim(object, "_")
+	object = sanitizeObjectID(object)
+	if object == "" {
+		return ""
+	}
+
+	return fmt.Sprintf("%s.%s", domain, object)
+}
+
+func sanitizeObjectID(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	builder := strings.Builder{}
+	lastUnderscore := false
+	for _, r := range value {
+		isAlnum := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if isAlnum {
+			builder.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			builder.WriteRune('_')
+			lastUnderscore = true
+		}
+	}
+	return strings.Trim(builder.String(), "_")
+}
+
+func checkEntityExists(client *http.Client, target THomeAssistantTarget, entityID string) (bool, error) {
+	entityPath := url.PathEscape(entityID)
+	statePath := strings.TrimSpace(target.StatesPath)
+	if statePath == "" {
+		statePath = "/api/states"
+	}
+	statePath = "/" + strings.TrimPrefix(strings.TrimSuffix(statePath, "/"), "/")
+	endpoint := fmt.Sprintf("%s%s/%s", target.BaseURL, statePath, entityPath)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Authorization", "Bearer "+target.Token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		return true, nil
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	return false, fmt.Errorf("api returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+}
+
+func fetchAllEntityIDs(client *http.Client, target THomeAssistantTarget) (map[string]bool, error) {
+	statePath := strings.TrimSpace(target.StatesPath)
+	if statePath == "" {
+		statePath = "/api/states"
+	}
+	statePath = "/" + strings.TrimPrefix(strings.TrimSuffix(statePath, "/"), "/")
+	endpoints := []string{statePath, statePath + "/"}
+	errors := []string{}
+
+	for _, path := range endpoints {
+		endpoint := target.BaseURL + path
+		req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("%s: %v", path, err))
+			continue
+		}
+		req.Header.Set("Authorization", "Bearer "+target.Token)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("%s: %v", path, err))
+			continue
+		}
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
+		resp.Body.Close()
+		if readErr != nil {
+			errors = append(errors, fmt.Sprintf("%s: %v", path, readErr))
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			snippet := strings.TrimSpace(string(body))
+			if len(snippet) > 200 {
+				snippet = snippet[:200]
+			}
+			errors = append(errors, fmt.Sprintf("%s: api returned %d: %s", path, resp.StatusCode, snippet))
+			continue
+		}
+
+		entityIDs, parseErr := extractEntityIDsFromStatesPayload(body)
+		if parseErr != nil {
+			errors = append(errors, fmt.Sprintf("%s: invalid states payload: %v", path, parseErr))
+			continue
+		}
+
+		return entityIDs, nil
+	}
+
+	return nil, fmt.Errorf(strings.Join(errors, "; "))
+}
+
+func extractEntityIDsFromStatesPayload(payload []byte) (map[string]bool, error) {
+	states := []struct {
+		EntityID string `json:"entity_id"`
+	}{}
+	if err := json.Unmarshal(payload, &states); err != nil {
+		return nil, err
+	}
+	entityIDs := map[string]bool{}
+	for _, state := range states {
+		trimmed := strings.TrimSpace(state.EntityID)
+		if trimmed != "" {
+			entityIDs[trimmed] = true
+		}
+	}
+	return entityIDs, nil
 }

@@ -4,11 +4,11 @@
  * Package:   Main
  * Component: Taxonomy
  *
- * This component defines canonical semantic object metadata such as per-object device class, aggregation-domain, icon, and default-sphere mappings.
+ * This component defines canonical semantic object metadata such as per-object device class, aggregation-domain, and default-sphere mappings.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 20.03.2026
+ * Version of: 21.03.2026
  *
  */
 
@@ -63,42 +63,6 @@ var AggregatedDomainOf = map[string]string{
 func lookupAggregatedDomain(object string) (string, bool) {
 	domain, exists := AggregatedDomainOf[object]
 	return domain, exists
-}
-
-// IconOf keeps object-level icon defaults from the legacy DSL settings.
-var IconOf = map[string]string{
-	"battery_alert":  "mdi:battery-alert",
-	"battery_level":  "mdi:battery",
-	"co2":            "mdi:cloud",
-	"condition":      "mdi:weather-cloudy",
-	"cover":          "mdi:blinds-horizontal",
-	"cover_close":    "mdi:triangle-down",
-	"cover_stop":     "mdi:rectangle",
-	"cover_open":     "mdi:triangle",
-	"daylight":       "mdi:weather-sunset-up",
-	"door":           "mdi:door-open",
-	"health":         "mdi:cloud",
-	"humidity":       "mdi:water-percent",
-	"illuminance":    "mdi:brightness-5",
-	"load":           "mdi:cpu-64-bit",
-	"media":          "mdi:monitor-speaker",
-	"motion":         "mdi:motion-sensor",
-	"node":           "mdi:server-network",
-	"node_alert":     "mdi:server-off",
-	"noise":          "mdi:volume-high",
-	"pressure":       "mdi:gauge",
-	"radio":          "mdi:signal",
-	"sunny":          "mdi:sunglasses",
-	"temperature":    "mdi:thermometer",
-	"water":          "mdi:water-off",
-	"window":         "mdi:window-open",
-	"wind_speed":     "mdi:weather-windy",
-	"wind_direction": "mdi:compass-outline",
-}
-
-func lookupIcon(object string) (string, bool) {
-	icon, exists := IconOf[object]
-	return icon, exists
 }
 
 // SphereOf defines the default sphere for objects when no sphere is provided explicitly.

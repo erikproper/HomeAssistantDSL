@@ -18,8 +18,7 @@ end;
 
 creation macro battery_from_device { $sourceEntity entityReference, $alertLevel int op }:
   # Source: entity_battery_from_device.def
-  entity sensor.infrastructural:$entity:battery_level with
-    definition as value $sourceEntity!battery_level;
+  entity sensor.infrastructural:$entity:battery_level with definition as value $sourceEntity!battery_level;
 
   entity battery_alert $entity $alertLevel;
 end;
@@ -40,18 +39,18 @@ creation macro light_device:
   entity light.$sphere:$entity with providing node $entity/light;
 end;
 
-creation macro media_player { $enabler string op, $offDelay string op, $noPlayInput string op, $no_collect option}:
-  mediaPlayer = entity media_player.social:$entity with:
-    maybe apply $no_collect;
+creation macro media_player { $enabler string op, $delayOff string op, $no_play_input string op, $no_collect option}:
+  $mediaPlayer = entity media_player.social:$entity with:
+    maybe apply no_collect;
     if $enabler is provided then
-      providing node $entity $enabler $offDelay;
+      providing node $entity $enabler $delayOff;
   end;
 
-  entity switch.social:mediaPlayer:media with:
-    if $noPlayInput is provided then
-      definition as media_switch $mediaPlayer $input;
+  entity switch.social:$mediaPlayer:media with:
+    if $no_play_input is provided then
+      definition as media_switch $mediaPlayer $no_play_input;
 
-    maybe apply $no_collect;
+    maybe apply no_collect;
     icon $MediaSwitchIcon;
   end;
 end;
@@ -63,10 +62,7 @@ creation macro power_switch { $node string, $threshold int }:
   entity binary_sensor.$sphere:$entity:consumes with:
     definition as condition sensor.$sphere:$entity:power "($ | int(0)) > $threshold";
 
-    if $icon is provided then
-      icon $icon;
-    else
-      icon $ConsumesIcon;
+    icon as provided or default $ConsumesIcon;
   end;
 
   entity switch.$sphere::$entity with providing node $entity/$node;
@@ -80,21 +76,19 @@ creation macro thermostat:
   # Source: entity_thermostat.def
   entity climate.physical:$entity with providing node $entity;
 
-  entity sensor.physical:$entity:temperature with:
-    definition as value climate.physical:$entity!current_temperature;
-  end;
+  entity sensor.physical:$entity:temperature with definition as value climate.physical:$entity!current_temperature;
 end;
 
-creation macro zigbee_group { $elements set of entityReference }:
+creation macro zigbee_group { $group set of string }:
   # Source: entity_zigbee_group.def
   # $1 = Domain, $2 = Sphere, $3 = Location, $4 ... $n = Entity names
   create <$type>_device $sphere:$entity;
 
   space physical:$entity with:
-    no_collect
+    no_collect;
 
-    for $element in $elements do
-      create <$type>_device physical:$e;
+    for $element in $group do
+      create <$type>_device physical:$element;
   end;
 end;
 
@@ -105,11 +99,11 @@ creation macro zwave_node:
   entity binary_sensor.infrastructural:$entity:node with definition as condition sensor.infrastructural:$entity/status "($ == 'alive')";
 end;
 
-creation macro windy { $sensor entityReference, $delay_on string op, $delay_off string op }:
+creation macro windy { $delayOn string, $delayOff string }:
   # Windy condition: compares wind speed threshold against a sensor value.
   # Multi-parameter condition syntax: $1 is threshold, $2 is sensor value.
   $windyThreshold = entity input_number.social:/:windy_threshold with:
-    defined as input_number;
+    definition as input_number;
     minimum $WindSpeedMin;
     maximum $WindSpeedMax;
     icon $WindSpeedIcon;
@@ -117,18 +111,18 @@ creation macro windy { $sensor entityReference, $delay_on string op, $delay_off 
   end;
 
   entity binary_sensor.social::windy with:
-    definition as condition $windyThreshold $sensor "($1 | int) > ($2 | int)";
+    definition as condition $windyThreshold $entity "($1 | int) > ($2 | int)";
     device_class $WindyDeviceClass;
-    maybe use $delay_on;
-    maybe use $delay_off;
+    delay_on $delayOn;
+    delay_off $delayOff;
   end;
 end;
 
-creation macro sunny { $sensor entityReference, $delay_on string op, $delay_off string op }:
+creation macro sunny { $delayOn string, $delayOff string }:
   # Sunny condition: compares illuminance threshold against a sensor value.
   # Multi-parameter condition syntax: $1 is threshold, $2 is sensor value.
   $sunnyThreshold = entity input_number.social:/:sunny_threshold with:
-    defined as input_number;
+    definition as input_number;
     minimum $IlluminanceMin;
     maximum $IlluminanceMax;
     icon $IlluminanceIcon;
@@ -136,9 +130,9 @@ creation macro sunny { $sensor entityReference, $delay_on string op, $delay_off 
   end;
 
   entity binary_sensor.social::sunny with:
-    definition as condition $sunnyThreshold $sensor "($1 | int) < ($2 | int)";
+    definition as condition $sunnyThreshold $entity "($1 | int) < ($2 | int)";
     device_class $SunnyDeviceClass;
-    maybe use $delay_on;
-    maybe use $delay_off;
+    delay_on $delayOn;
+    delay_off $delayOff;
   end;
 end;

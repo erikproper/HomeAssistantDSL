@@ -13,9 +13,10 @@ entity sensor.social:power_current;
 # Availability depends on binary_sensor.infrastructural:smarty:node
 
 space social:entrance with:
-  entity sensor._:/ems_esp_boiler_boiler_outside_temperature;
-  entity sensor.physical:garage_door:temperature with
-    definition as value sensor._:/ems_esp_boiler_boiler_outside_temperature;
+  entity sensor.[ems_esp_boiler_boiler_outside_temperature];
+  entity sensor.physical:garage_door:temperature with:
+    definition as value sensor.[ems_esp_boiler_boiler_outside_temperature];
+  end;
   # Available if binary_sensor.infrastructural:/house/laundry_kitchen/ems:node is available.
 
   entity switch.social:sockets with providing node /garage/fuse_box/zwave/028;
@@ -38,8 +39,9 @@ space social:terrace with:
     entity sensor.physical:netatmo:temperature;
     entity sensor.infrastructural:netatmo:radio;
     entity sensor.infrastructural:netatmo:reachability;
-    entity binary_sensor.infrastructural:netatmo:node with
+    entity binary_sensor.infrastructural:netatmo:node with:
       definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
     entity sensor.infrastructural:netatmo:battery_level;
     battery_alert netatmo with alert_level 20;
 
@@ -187,11 +189,8 @@ space social:house with:
   space social:living_room with:
     entity switch.social:tv with providing node tv_switch;
 
-    media_player sonos with:
-      enabler no_play;
-      delay_off "TV";
-    end;
-    media_player tv switch.social:tv;
+    media_player sonos with no_play_input "TV";
+    media_player tv with enabler switch.social:tv;
     media_player apple_tv;
 
     entity binary_sensor.infrastructural:sonos_playbar:node;
@@ -201,10 +200,12 @@ space social:house with:
     entity binary_sensor.infrastructural:orbi:node;
     entity binary_sensor.infrastructural:connexoon:node;
     entity binary_sensor.infrastructural:frame:node;
-    entity sensor.infrastructural:frame:load with
+    entity sensor.infrastructural:frame:load with:
       definition as cli_sensor pi 192.168.178.58 ./cpu/load;
-    entity sensor.infrastructural:frame:temperature no_collect with
+    end;
+    entity sensor.infrastructural:frame:temperature no_collect with:
       definition as cli_sensor pi 192.168.178.58 ./cpu/temperature;
+    end;
 
     entity cover.social:front with:
       open_stop_close;
@@ -235,8 +236,9 @@ space social:house with:
     entity sensor.physical:netatmo:temperature;
     entity sensor.infrastructural:netatmo:radio;
     entity sensor.infrastructural:netatmo:reachability;
-    entity binary_sensor.infrastructural:netatmo:node with
+    entity binary_sensor.infrastructural:netatmo:node with:
       definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
 
     battery_level_device dining/philips_dimmer with alert_level 20;
     battery_level_device living/philips_dimmer with alert_level 20;
@@ -257,8 +259,9 @@ space social:house with:
       light_device social:christmas_tree;
       light_device social:gray_sideboard;
 
-      entity switch.social:picture_frame with
+      entity switch.social:picture_frame with:
         definition as cli_switch pi 192.168.178.58 ./bin/start_slideshow ./bin/stop_slideshow ./bin/check_slideshow;
+      end;
 
       entity binary_sensor.physical:windows/aqara_magnet:window;
       battery_level_device windows/aqara_magnet with alert_level 10;
@@ -302,10 +305,12 @@ space social:house with:
       node zigbee;
       threshold 10;
     end;
-    entity binary_sensor.social:nespresso:brews with
+    entity binary_sensor.social:nespresso:brews with:
       definition as condition sensor.social:nespresso:power "( $ | int(0) > 200 )";
-    entity binary_sensor.social:nespresso:in_use with
+    end;
+    entity binary_sensor.social:nespresso:in_use with:
       definition as has_state binary_sensor.social:nespresso:brews "on" "" "00:10:00";
+    end;
 
     media_player sonos;
     entity sensor.infrastructural:sonos:battery_level;
@@ -316,8 +321,9 @@ space social:house with:
     entity sensor.physical:netatmo:temperature;
     entity sensor.infrastructural:netatmo:radio;
     entity sensor.infrastructural:netatmo:reachability;
-    entity binary_sensor.infrastructural:netatmo:node with
+    entity binary_sensor.infrastructural:netatmo:node with:
       definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
     entity sensor.infrastructural:netatmo:battery_level;
     battery_alert netatmo with alert_level 20;
 
@@ -329,8 +335,9 @@ space social:house with:
 
     space social:workplace with:
       entity sensor.physical:furnace:power;
-      entity binary_sensor.social:furnace:consumes with
+      entity binary_sensor.social:furnace:consumes with:
         definition as condition sensor.physical:furnace:power "( $ | int(0) > 50 )";
+      end;
       entity switch.physical:furnace;
       entity switch.social:furnace with definition as flipped switch.physical:furnace;
 
@@ -380,8 +387,9 @@ space social:house with:
 
   space social:downward_hallway with:
     entity sensor.infrastructural:laserjet/status with providing node laserjet;
-    entity sensor.infrastructural:laserjet/message with
+    entity sensor.infrastructural:laserjet/message with:
       definition as value sensor.infrastructural:laserjet/status!state_message;
+    end;
     entity sensor.infrastructural:laserjet/uptime;
     entity binary_sensor.infrastructural:orbi:node;
 
@@ -408,8 +416,9 @@ space social:house with:
   end;
 
   space social:upward_hallway with:
-    entity light.social:main with
+    entity light.social:main with:
       providing node /house/upward_hallway/second_floor/david_bedroom_door/switch_box/fibaro;
+    end;
 
     space social:first_floor with:
       thermostat radiator/aqara_thermostat;
@@ -420,8 +429,9 @@ space social:house with:
       entity sensor.physical:netatmo:temperature;
       entity sensor.infrastructural:netatmo:radio;
       entity sensor.infrastructural:netatmo:reachability;
-      entity binary_sensor.infrastructural:netatmo:node with
+      entity binary_sensor.infrastructural:netatmo:node with:
         definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+      end;
       entity sensor.infrastructural:netatmo:battery_level;
       battery_alert netatmo with alert_level 20;
 
@@ -481,7 +491,7 @@ space social:house with:
     battery_level radiator/aqara_thermostat 20;
 
     entity switch.social:media:media;
-    media_player apple_tv switch.social:media:media;
+    media_player apple_tv with enabler switch.social:media:media;
 
     entity sensor.physical:netatmo:co2;
     entity sensor.physical:netatmo:humidity;
@@ -491,8 +501,9 @@ space social:house with:
     entity sensor.physical:netatmo:temperature;
     entity sensor.infrastructural:netatmo:radio;
     entity sensor.infrastructural:netatmo:reachability;
-    entity binary_sensor.infrastructural:netatmo:node with
+    entity binary_sensor.infrastructural:netatmo:node with:
       definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
 
     entity light.social:main with providing node door_switch_box/fibaro;
 
@@ -525,8 +536,9 @@ space social:house with:
     entity sensor.social::health;
     entity sensor.infrastructural:netatmo:radio;
     entity sensor.infrastructural:netatmo:reachability;
-    entity binary_sensor.infrastructural:netatmo:node with
+    entity binary_sensor.infrastructural:netatmo:node with:
       definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
 
     entity binary_sensor.physical:windows/aqara_magnet:window;
     battery_level_device windows/aqara_magnet with alert_level 10;
@@ -560,8 +572,9 @@ space social:house with:
     entity sensor.social::health;
     entity sensor.infrastructural:netatmo:radio;
     entity sensor.infrastructural:netatmo:reachability;
-    entity binary_sensor.infrastructural:netatmo:node with
+    entity binary_sensor.infrastructural:netatmo:node with:
       definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
 
     space social:bed with:
       light_device left;
@@ -602,13 +615,15 @@ space social:house with:
     entity sensor.physical:netatmo:temperature;
     entity sensor.infrastructural:netatmo:radio;
     entity sensor.infrastructural:netatmo:reachability;
-    entity binary_sensor.infrastructural:netatmo:node with
+    entity binary_sensor.infrastructural:netatmo:node with:
       definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
     entity sensor.infrastructural:netatmo:battery_level;
     battery_alert netatmo with alert_level 20;
 
-    entity light.social:main with
+    entity light.social:main with:
       providing node /house/upward_hallway/second_floor/shower_room/switch_box/fibaro;
+    end;
 
     entity binary_sensor.physical:windows/aqara_magnet:window;
     battery_level_device windows/aqara_magnet with alert_level 10;
@@ -646,10 +661,12 @@ space social:house with:
     entity binary_sensor.infrastructural:fritzbox:node;
     entity binary_sensor.infrastructural:xanadu:node;
 
-    entity sensor.infrastructural:xanadu:load with
+    entity sensor.infrastructural:xanadu:load with:
       definition as cli_sensor erikp xanadu.fritz.box ./cpu/load;
-    entity sensor.infrastructural:xanadu:temperature no_collect with
+    end;
+    entity sensor.infrastructural:xanadu:temperature no_collect with:
       definition as cli_sensor erikp xanadu.fritz.box ./cpu/temperature;
+    end;
 
     entity light.physical:main_spots no_collect;
     entity light.physical:main no_collect;
@@ -701,8 +718,9 @@ space social:house with:
     entity sensor.physical:netatmo:temperature;
     entity sensor.infrastructural:netatmo:radio;
     entity sensor.infrastructural:netatmo:reachability;
-    entity binary_sensor.infrastructural:netatmo:node with
+    entity binary_sensor.infrastructural:netatmo:node with:
       definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
     entity sensor.infrastructural:netatmo:battery_level;
     battery_alert netatmo with alert_level 20;
 
@@ -742,10 +760,12 @@ space social:house with:
     end;
     entity binary_sensor.infrastructural:backup:node;
 
-    entity sensor.infrastructural:backup:load with
+    entity sensor.infrastructural:backup:load with:
       definition as cli_sensor pi backup.fritz.box ./cpu/load;
-    entity sensor.infrastructural:backup:temperature no_collect with
+    end;
+    entity sensor.infrastructural:backup:temperature no_collect with:
       definition as cli_sensor pi backup.fritz.box ./cpu/temperature;
+    end;
 
     entity binary_sensor.physical:windows/aqara_magnet:window;
     battery_level_device windows/aqara_magnet with alert_level 10;
@@ -755,8 +775,9 @@ space social:house with:
     entity sensor.physical:netatmo:temperature;
     entity sensor.infrastructural:netatmo:radio;
     entity sensor.infrastructural:netatmo:reachability;
-    entity binary_sensor.infrastructural:netatmo:node with
+    entity binary_sensor.infrastructural:netatmo:node with:
       definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
     entity sensor.infrastructural:netatmo:battery_level;
     battery_alert netatmo with alert_level 20;
 
@@ -787,8 +808,9 @@ space social:house with:
     end;
 
     entity switch.social:whirlpool with providing node bathtub/relais_box;
-    entity binary_sensor.physical:whirlpool:motion with
+    entity binary_sensor.physical:whirlpool:motion with:
       definition as has_state switch.social:whirlpool on;
+    end;
 
     battery_level_device philips_dimmer with alert_level 20;
 
@@ -800,8 +822,9 @@ space social:house with:
     entity sensor.physical:netatmo:temperature;
     entity sensor.infrastructural:netatmo:radio;
     entity sensor.infrastructural:netatmo:reachability;
-    entity binary_sensor.infrastructural:netatmo:node with
+    entity binary_sensor.infrastructural:netatmo:node with:
       definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
     entity sensor.infrastructural:netatmo:battery_level;
     battery_alert netatmo with alert_level 20;
 
@@ -842,8 +865,9 @@ space social:house with:
     entity sensor.physical:netatmo:temperature;
     entity sensor.infrastructural:netatmo:radio;
     entity sensor.infrastructural:netatmo:reachability;
-    entity binary_sensor.infrastructural:netatmo:node with
+    entity binary_sensor.infrastructural:netatmo:node with:
       definition as condition sensor.infrastructural:netatmo:reachability "$ == 'True'";
+    end;
 
     entity binary_sensor.infrastructural:orbi:node;
 
@@ -858,12 +882,12 @@ space social:house with:
 
     media_player sonos;
     media_player apple_tv with:
-      enabler no_collect;
-      delay_off switch.social:cycling;
+      no_collect;
+      enabler switch.social:cycling;
     end;
     media_player tv with:
-      enabler no_collect;
-      delay_off switch.social:cycling;
+      no_collect;
+      enabler switch.social:cycling;
     end;
 
     entity light.physical:ceiling no_collect;

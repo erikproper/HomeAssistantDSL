@@ -2,13 +2,13 @@
  *
  * Module:    HomeAssistant
  * Package:   Main
- * Component: MainTest
+ * Component: Main/Test
  *
  * This component provides a smoke test that keeps migration operational while legacy source files evolve.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 18.03.2026
+ * Version of: 21.03.2026
  *
  */
 
@@ -61,7 +61,7 @@ func TestInterpretationOperationalForKnownHouses(t *testing.T) {
 	}
 
 	for _, houseName := range THouseNames {
-		interpretationPath := filepath.Join(root, "New", houseName, "interpretation.txt")
+		interpretationPath := debugReportPath(root, houseName, DebugReportInterpretation)
 		content, readErr := os.ReadFile(interpretationPath)
 		if readErr != nil {
 			t.Fatalf("failed to read %s: %v", interpretationPath, readErr)
@@ -79,6 +79,176 @@ func TestInterpretationOperationalForKnownHouses(t *testing.T) {
 		if strings.Contains(text, "Status: errors") {
 			t.Fatalf("parser reported errors in %s", interpretationPath)
 		}
+	}
+}
+
+func TestExpansionOperationalForKnownHouses(t *testing.T) {
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to determine working directory: %v", err)
+	}
+
+	if err := runMigration(root, THouseNames); err != nil {
+		t.Fatalf("migration failed before expansion: %v", err)
+	}
+
+	if err := runExpansion(root, THouseNames); err != nil {
+		t.Fatalf("expansion failed: %v", err)
+	}
+
+	for _, houseName := range THouseNames {
+		expansionPath := debugReportPath(root, houseName, DebugReportExpansion)
+		content, readErr := os.ReadFile(expansionPath)
+		if readErr != nil {
+			t.Fatalf("failed to read %s: %v", expansionPath, readErr)
+		}
+		text := string(content)
+		if strings.TrimSpace(text) == "" {
+			t.Fatalf("expansion file is empty: %s", expansionPath)
+		}
+		if !strings.Contains(text, "=== MACRO EXPANSION REPORT ===") {
+			t.Fatalf("expansion marker missing in %s", expansionPath)
+		}
+		if strings.Contains(text, "Status: ERROR") {
+			t.Fatalf("unexpected error marker in %s", expansionPath)
+		}
+	}
+}
+
+func TestExpansionListsVirtualSpaces(t *testing.T) {
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to determine working directory: %v", err)
+	}
+
+	if err := runMigration(root, []string{"Junglinster"}); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+	if err := runExpansion(root, []string{"Junglinster"}); err != nil {
+		t.Fatalf("expansion failed: %v", err)
+	}
+
+	expansionPath := debugReportPath(root, "Junglinster", DebugReportExpansion)
+	content, readErr := os.ReadFile(expansionPath)
+	if readErr != nil {
+		t.Fatalf("failed to read %s: %v", expansionPath, readErr)
+	}
+	text := string(content)
+	if !strings.Contains(text, `Virtual space "social/house/extension":`) {
+		t.Fatalf("expected virtual extension space in %s", expansionPath)
+	}
+	if !strings.Contains(text, `Virtual space "social/house/laundry_corridor":`) {
+		t.Fatalf("expected virtual laundry_corridor space in %s", expansionPath)
+	}
+}
+
+func TestHomeAssistantEntityIDMapping(t *testing.T) {
+	testCases := []struct {
+		fullName string
+		expected string
+	}{
+		{fullName: "sun.[sun]", expected: "sun.sun"},
+		{fullName: "binary_sensor.social/entrance/front_door/ding", expected: "binary_sensor.social_entrance_front_door_ding"},
+		{fullName: "sensor.infrastructural/house/server_room/xanadu/temperature", expected: "sensor.infrastructural_house_server_room_xanadu_temperature"},
+	}
+
+	for _, testCase := range testCases {
+		actual := toHomeAssistantEntityID(testCase.fullName)
+		if actual != testCase.expected {
+			t.Fatalf("unexpected entity id mapping for %q: got %q, expected %q", testCase.fullName, actual, testCase.expected)
+		}
+	}
+}
+
+func TestResolveHomeAssistantTargetPrefersDefinitionsOverEnvironment(t *testing.T) {
+	root := t.TempDir()
+	definitionDir := filepath.Join(root, "Definitions")
+	if err := os.MkdirAll(definitionDir, 0o755); err != nil {
+		t.Fatalf("failed to create definition dir: %v", err)
+	}
+
+	serverContent := "$MainInstance = \"https://from-definitions.example\";\nmain vienna $MainInstance;\n"
+	secretsContent := "secrets:\n  $MainAPIToken = \"token-from-definitions\";\n  $MainAPITLSInsecure = true;\nend;\n"
+	if err := os.WriteFile(filepath.Join(definitionDir, "Server.def"), []byte(serverContent), 0o644); err != nil {
+		t.Fatalf("failed to write Server.def: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(definitionDir, "Secrets.def"), []byte(secretsContent), 0o644); err != nil {
+		t.Fatalf("failed to write Secrets.def: %v", err)
+	}
+
+	t.Setenv("HASS_BASE_URL", "https://from-env.example")
+	t.Setenv("HASS_TOKEN", "token-from-env")
+	t.Setenv("HASS_INSECURE_SKIP_TLS_VERIFY", "false")
+
+	target, err := resolveHomeAssistantTarget(definitionDir)
+	if err != nil {
+		t.Fatalf("unexpected target resolution error: %v", err)
+	}
+
+	if target.BaseURL != "https://from-definitions.example" {
+		t.Fatalf("expected definition URL to win, got %q", target.BaseURL)
+	}
+	if target.Token != "token-from-definitions" {
+		t.Fatalf("expected definition token to win, got %q", target.Token)
+	}
+	if !target.InsecureSkipTLS {
+		t.Fatalf("expected definition insecure TLS flag to win")
+	}
+}
+
+func TestParseServerAssignmentsWithAvailabilitySelectsMatchingBranch(t *testing.T) {
+	serverContent := strings.Join([]string{
+		`if is up "vienna.fritz.box" then`,
+		`  $MainInstance = "http://vienna.fritz.box:8123";`,
+		`elif is up "junglinster.fritz.box" then`,
+		`  $MainInstance = "https://junglinster.homelinux.org";`,
+		`else`,
+		`  $MainInstance = "https://fallback.example";`,
+		`end;`,
+		`main vienna $MainInstance;`,
+	}, "\n")
+
+	assignments := parseServerAssignmentsWithAvailability(serverContent, func(host string) bool {
+		return host == "junglinster.fritz.box"
+	})
+	if assignments["MainInstance"] != "https://junglinster.homelinux.org" {
+		t.Fatalf("expected elif branch assignment, got %q", assignments["MainInstance"])
+	}
+}
+
+func TestParseServerAssignmentsWithAvailabilityFallsBackToElse(t *testing.T) {
+	serverContent := strings.Join([]string{
+		`if is up "vienna.fritz.box" then`,
+		`  $MainInstance = "http://vienna.fritz.box:8123";`,
+		`elif is up "junglinster.fritz.box" then`,
+		`  $MainInstance = "https://junglinster.homelinux.org";`,
+		`else`,
+		`  $MainInstance = "https://fallback.example";`,
+		`end;`,
+		`main vienna $MainInstance;`,
+	}, "\n")
+
+	assignments := parseServerAssignmentsWithAvailability(serverContent, func(string) bool { return false })
+	if assignments["MainInstance"] != "https://fallback.example" {
+		t.Fatalf("expected else branch assignment, got %q", assignments["MainInstance"])
+	}
+}
+
+func TestExtractEntityIDsFromStatesPayload(t *testing.T) {
+	payload := []byte(`[
+  {"entity_id":"sun.sun","state":"above_horizon"},
+  {"entity_id":"sensor.outdoor_temperature","state":"17"}
+]`)
+
+	entityIDs, err := extractEntityIDsFromStatesPayload(payload)
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if !entityIDs["sun.sun"] {
+		t.Fatalf("expected sun.sun to be present")
+	}
+	if !entityIDs["sensor.outdoor_temperature"] {
+		t.Fatalf("expected sensor.outdoor_temperature to be present")
 	}
 }
 
@@ -100,13 +270,19 @@ func TestMigrationIncludesLegacyIconSettings(t *testing.T) {
 		}
 		text := string(content)
 		for _, expectedLine := range []string{
-			"  ConsumesIcon \"mdi:flash\";",
-			"  MediaSwitchIcon \"mdi:monitor-speaker\";",
-			"  WaterIcon \"mdi:water-off\";",
+			"$ConsumesIcon = \"mdi:flash\";",
+			"$MediaSwitchIcon = \"mdi:monitor-speaker\";",
+			"$WaterIcon = \"mdi:water-off\";",
 		} {
 			if !strings.Contains(text, expectedLine) {
 				t.Fatalf("expected %q in %s", expectedLine, settingsPath)
 			}
+		}
+		if strings.Contains(text, "settings:") {
+			t.Fatalf("unexpected legacy settings: block in %s", settingsPath)
+		}
+		if strings.Contains(text, "\nend;\n") {
+			t.Fatalf("unexpected settings block terminator in %s", settingsPath)
 		}
 	}
 }
@@ -205,6 +381,9 @@ func TestMigrationServerUsesInlinedIfFormat(t *testing.T) {
 	for _, expected := range []string{
 		"if is up \"vienna.fritz.box\" then",
 		"elif is up \"junglinster.fritz.box\" then",
+		"$MainInstance = \"http://vienna.fritz.box:8123\";",
+		"$MainInstance = \"https://vienna.homelinux.org\";",
+		"$JunglinsterInstance = \"http://junglinster.fritz.box:8123\";",
 		"main vienna $MainInstance;",
 	} {
 		if !strings.Contains(viennaText, expected) {
@@ -223,6 +402,38 @@ func TestMigrationServerUsesInlinedIfFormat(t *testing.T) {
 	viennaBridgesText := string(viennaBridgesContent)
 	if strings.Contains(viennaBridgesText, "main vienna") {
 		t.Fatalf("unexpected 'main vienna' in %s — it belongs in Server.def", viennaBridgesPath)
+	}
+}
+
+func TestMigrationNormalizesListsToWithBlocks(t *testing.T) {
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to determine working directory: %v", err)
+	}
+
+	if err := runMigration(root, THouseNames); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	for _, houseName := range THouseNames {
+		definitionPath := filepath.Join(root, "New", houseName, "Definitions", "Lists.def")
+		content, readErr := os.ReadFile(definitionPath)
+		if readErr != nil {
+			t.Fatalf("failed to read %s: %v", definitionPath, readErr)
+		}
+		text := string(content)
+		if !strings.Contains(text, "list \"Windoors\" all binary_sensor.*:*:door binary_sensor.*:*:window with:") {
+			t.Fatalf("expected normalized list header in %s", definitionPath)
+		}
+		if !strings.Contains(text, "\n  clean_prefix  social;\n") {
+			t.Fatalf("expected two-space list body indentation in %s", definitionPath)
+		}
+		if !strings.Contains(text, "\nend;\n") {
+			t.Fatalf("expected list end; aligned with list header in %s", definitionPath)
+		}
+		if strings.Contains(text, "\n  begin\n") {
+			t.Fatalf("unexpected legacy begin block in %s", definitionPath)
+		}
 	}
 }
 
@@ -253,6 +464,149 @@ func TestMigrationNormalizesPowerSwitchCreateBlocks(t *testing.T) {
 	}
 	if strings.Contains(text, "create power_switch social dishwasher robb 1 with:") {
 		t.Fatalf("unexpected legacy power_switch form still present in %s", definitionPath)
+	}
+}
+
+func TestNormalizeMacroBodyRemovesLegacyBeginBlocks(t *testing.T) {
+	body := []string{
+		`if [ "$1" != "" ] ; then`,
+		`create thing one`,
+		`else`,
+		`create thing two`,
+		`fi`,
+		`begin space social:test`,
+		`create thing three`,
+		`end space`,
+	}
+
+	normalized := strings.Join(normalizeMacroBody(body, []string{"entity"}), "\n")
+
+	for _, unexpected := range []string{"\nbegin\n", "\n  begin\n", "\n    begin\n"} {
+		if strings.Contains(normalized, unexpected) {
+			t.Fatalf("unexpected legacy begin block in normalized macro body:\n%s", normalized)
+		}
+	}
+
+	for _, expected := range []string{
+		"if \"$entity\" != \"\" then",
+		"else",
+		"end;",
+		"space social:test with:",
+	} {
+		if !strings.Contains(normalized, expected) {
+			t.Fatalf("expected %q in normalized macro body:\n%s", expected, normalized)
+		}
+	}
+}
+
+func TestParseSpaceHeaderRecognizesVirtualSpace(t *testing.T) {
+	kind, name, ok := parseSpaceHeader("virtual space social:extension with:")
+	if !ok {
+		t.Fatalf("expected virtual space header to parse")
+	}
+	if kind != SpaceKindVirtual {
+		t.Fatalf("expected kind %q, got %q", SpaceKindVirtual, kind)
+	}
+	if name != "social:extension" {
+		t.Fatalf("expected virtual space name, got %q", name)
+	}
+
+	kind, name, ok = parseSpaceHeader("space social:house with:")
+	if !ok {
+		t.Fatalf("expected regular space header to parse")
+	}
+	if kind != SpaceKindRegular {
+		t.Fatalf("expected kind %q, got %q", SpaceKindRegular, kind)
+	}
+	if name != "social:house" {
+		t.Fatalf("expected space name, got %q", name)
+	}
+}
+
+func TestImpliedAggregatesForVirtualSpaceUseVirtualPolicy(t *testing.T) {
+	spaceOrder := []string{"social/extension"}
+	entityRecordsBySpace := map[string][]TEntityRecord{
+		"social/extension": {
+			{Identity: TEntityIdentity{Domain: "light", Path: "extension/main"}},
+			{Identity: TEntityIdentity{Domain: "sensor", Path: "extension/temperature"}},
+		},
+	}
+
+	virtualAggregates := impliedAggregatesForSpace("social/extension", SpaceKindVirtual, spaceOrder, entityRecordsBySpace)
+	if len(virtualAggregates) != 1 || virtualAggregates[0] != "light.social/extension" {
+		t.Fatalf("unexpected virtual-space aggregates: %v", virtualAggregates)
+	}
+
+	regularAggregates := impliedAggregatesForSpace("social/extension", SpaceKindRegular, spaceOrder, entityRecordsBySpace)
+	if len(regularAggregates) != 2 {
+		t.Fatalf("expected regular space to include sensor aggregate as well, got %v", regularAggregates)
+	}
+	if !strings.Contains(strings.Join(regularAggregates, "\n"), "sensor.social/extension/temperature") {
+		t.Fatalf("expected temperature aggregate for regular space, got %v", regularAggregates)
+	}
+}
+
+func TestValidateInvocationParametersAcceptsSnakeCaseForCamelCaseMacroParameter(t *testing.T) {
+	ctx := &TMacroExpansionContext{Config: TExpanderConfig{CheckTypes: true}}
+	macro := &TParsedCreationMacro{
+		Name: "battery_alert",
+		Parameters: []TMacroParameter{
+			{Name: "$alertLevel", Kind: ParamInt, Optional: true},
+		},
+	}
+	invocation := &TMacroInvocation{
+		Name:       "battery_alert",
+		Target:     "roborock",
+		Parameters: map[string]string{"alert_level": "15"},
+	}
+
+	errors := ctx.ValidateInvocationParameters(invocation, macro)
+	if len(errors) != 0 {
+		t.Fatalf("expected no validation errors, got %v", errors)
+	}
+}
+
+func TestExpandMacroSubstitutesSnakeCaseInvocationIntoCamelCaseMacroBody(t *testing.T) {
+	ctx := &TMacroExpansionContext{
+		Macros: map[string]*TParsedCreationMacro{
+			"battery_alert": {
+				Name: "battery_alert",
+				Parameters: []TMacroParameter{
+					{Name: "$alertLevel", Kind: ParamInt, Optional: true},
+				},
+				Body: []string{`definition as condition sensor.infrastructural:$entity:battery_level "($ | int(0)) < $alertLevel";`},
+			},
+		},
+		Config: TExpanderConfig{CheckTypes: true},
+	}
+	invocation := &TMacroInvocation{
+		Name:       "battery_alert",
+		Target:     "roborock",
+		Parameters: map[string]string{"alert_level": "15"},
+	}
+
+	expanded, _, err := ctx.ExpandMacro(invocation)
+	if err != nil {
+		t.Fatalf("expected macro expansion to succeed, got %v", err)
+	}
+	if len(expanded) != 1 {
+		t.Fatalf("expected one expanded line, got %v", expanded)
+	}
+	if !strings.Contains(expanded[0], `< 15";`) {
+		t.Fatalf("expected expanded body to substitute alert level, got %q", expanded[0])
+	}
+}
+
+func TestParseParameterTreatsOptionAsImplicitlyOptional(t *testing.T) {
+	param, err := parseParameter("$no_collect option")
+	if err != nil {
+		t.Fatalf("expected option parameter to parse, got %v", err)
+	}
+	if param.Kind != ParamOption {
+		t.Fatalf("expected option kind, got %v", param.Kind)
+	}
+	if !param.Optional {
+		t.Fatalf("expected option parameter to be implicitly optional")
 	}
 }
 
@@ -417,6 +771,36 @@ func TestMigrationNormalizesMediaPlayerAsBlock(t *testing.T) {
 	}
 }
 
+func TestMigrationNormalizesMediaPlayerSpecialCases(t *testing.T) {
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to determine working directory: %v", err)
+	}
+
+	if err := runMigration(root, []string{"Junglinster"}); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	definitionPath := filepath.Join(root, "New", "Junglinster", "Definitions", "Entities.def")
+	content, readErr := os.ReadFile(definitionPath)
+	if readErr != nil {
+		t.Fatalf("failed to read %s: %v", definitionPath, readErr)
+	}
+	text := string(content)
+	if !strings.Contains(text, "media_player sonos with no_play_input \"TV\";") {
+		t.Fatalf("expected normalized no_play media_player block in %s", definitionPath)
+	}
+	if !strings.Contains(text, "media_player apple_tv with:\n      no_collect;\n      enabler switch.social:cycling;\n    end;") && !strings.Contains(text, "media_player apple_tv with no_collect enabler switch.social:cycling;") {
+		t.Fatalf("expected normalized no_collect media_player block in %s", definitionPath)
+	}
+	if !strings.Contains(text, "media_player tv with:\n      no_collect;\n      enabler switch.social:cycling;\n    end;") && !strings.Contains(text, "media_player tv with no_collect enabler switch.social:cycling;") {
+		t.Fatalf("expected normalized no_collect tv media_player block in %s", definitionPath)
+	}
+	if strings.Contains(text, "media_player sonos with:\n      enabler no_play;") {
+		t.Fatalf("unexpected legacy no_play normalization in %s", definitionPath)
+	}
+}
+
 func TestMigrationCollapesSingleStatementWithBlocks(t *testing.T) {
 	root, err := os.Getwd()
 	if err != nil {
@@ -537,7 +921,7 @@ func TestInterpretationRespectsMainIncludeOrder(t *testing.T) {
 		t.Fatalf("interpretation failed: %v", err)
 	}
 
-	interpretationPath := filepath.Join(root, "New", "Vienna", "interpretation.txt")
+	interpretationPath := debugReportPath(root, "Vienna", DebugReportInterpretation)
 	content, readErr := os.ReadFile(interpretationPath)
 	if readErr != nil {
 		t.Fatalf("failed to read %s: %v", interpretationPath, readErr)

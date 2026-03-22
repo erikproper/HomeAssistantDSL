@@ -2,7 +2,7 @@
  *
  * Module:    HomeAssistant
  * Package:   Main
- * Component: TaxonomyTest
+ * Component: Taxonomy/Test
  *
  * This component verifies canonical taxonomy mappings for device class and aggregation domain metadata.
  *
@@ -63,6 +63,9 @@ func TestLookupAggregatedDomain(t *testing.T) {
 }
 
 func TestLookupIcon(t *testing.T) {
+	ResetGlobalVariables()
+	t.Cleanup(ResetGlobalVariables)
+
 	testCases := []struct {
 		object          string
 		expectedIcon    string
@@ -81,6 +84,15 @@ func TestLookupIcon(t *testing.T) {
 		if actualIcon != testCase.expectedIcon {
 			t.Fatalf("lookupIcon(%q) value mismatch: got %q, expected %q", testCase.object, actualIcon, testCase.expectedIcon)
 		}
+	}
+
+	GlobalVariables["PressureIcon"] = "mdi:test-tube"
+	actualIcon, iconFound := lookupIcon("pressure")
+	if !iconFound {
+		t.Fatalf("expected override-backed icon lookup for pressure")
+	}
+	if actualIcon != "mdi:test-tube" {
+		t.Fatalf("lookupIcon(%q) override mismatch: got %q, expected %q", "pressure", actualIcon, "mdi:test-tube")
 	}
 }
 

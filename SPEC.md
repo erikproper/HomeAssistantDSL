@@ -1,3 +1,103 @@
+** Overall Strategy
+
+The overall execution strategy for this project is:
+
+1] Re-implement the behaviour of the current bash-based implementation first.
+
+2] Test this for Vienna first.
+
+3] Improve where needed based on the Vienna results.
+
+4] Test this for Junglinster.
+
+5] Improve where needed based on the Junglinster results.
+
+6] Clean up the migration-specific code once both homes are operational in the Go-based version.
+
+7] Freeze a fork of that version as the operational baseline.
+
+8] Continue with the next items on the roadmap, such as availability handling and better warnings for low battery power.
+
+** Current Todo
+
+1] Reach behavioural parity with the current bash-based implementation for Vienna.
+
+- Keep migration, interpretation, macro expansion, and later generation work focused on reproducing current behaviour first.
+- Use Vienna as the first end-to-end validation target.
+- Treat mismatches against the bash-based implementation as defects, not as redesign opportunities.
+
+2] Tighten validation and tests around the Vienna path.
+
+- Keep using interpretation and expansion output as verification tools while the DSL and generator settle.
+- Add regression tests whenever Vienna behaviour is clarified or fixed.
+- Keep the normalized DSL stable enough that the Go parser, expander, and generator all work from the same conventions.
+
+3] Repeat the same parity-and-fix cycle for Junglinster.
+
+- Run the same migration and validation flow for Junglinster once Vienna is operational.
+- Capture house-specific deltas explicitly instead of letting them drift into implicit behaviour.
+
+4] Remove migration-specific scaffolding only after both homes are operational.
+
+- Clean up temporary migration code once it no longer carries operational value.
+- Preserve the operational behaviour while simplifying the implementation.
+
+5] Freeze the resulting operational version.
+
+- Fork the first fully operational Go-based implementation as the stable baseline.
+- Use that frozen version as the reference point for subsequent redesign work.
+
+6] Continue with the next roadmap items.
+
+- Availability handling.
+- Better warnings for low battery power.
+- Further cleanup and improvements once the operational baseline is secured.
+
+** Implementation Backlog
+
+1] Cross-check the "=== ENTITIES BY SPACE (FULL NAMES) ===" output against source intent.
+
+- Verify representative spaces in Vienna and Junglinster (root, top-level spaces, and a few deep nested spaces).
+- Confirm raw entities are reported in bracket form (`type.[raw_name]`) and not internal normalized form.
+- Confirm contextual path expansion for relative entity specs is correct.
+- Confirm `no_collect` markers are present where expected.
+- Confirm external-entity classification is only a "needs-check" list, not yet a hard generation decision.
+
+2] Harden macro call checking to fully match DSL intent.
+
+- Keep required/optional checks for declared parameters.
+- Add explicit unknown-parameter detection for `with:` blocks.
+- Complete runtime checks for all declared parameter kinds (`boolean`, `path`, `option`, `set<...>`, etc.), not only `int` and `entityReference`.
+- Ensure `option` style flags are interpreted consistently (presence=true, absence=false unless defaulted).
+
+3] Define and implement the generation data model.
+
+- Introduce one canonical in-memory model after parse+expand containing:
+   - entity identity (type/sphere/path/raw),
+   - space context (full path, nesting level),
+   - definition/import status,
+   - options (`providing`, `icon`, `open_stop_close`, `no_collect`, etc.),
+   - dependencies/references used by generated templates.
+- Record provenance (source file + line + originating macro) for diagnostics.
+- Use this model as the sole input for YAML generation and list generation.
+
+4] Implement generation policy split for external entities.
+
+- External without local options: do not generate core entity YAML.
+- External with local options: generate customization/configuration YAML only.
+- Defined/imported entities: generate full entity YAML as today.
+
+5] Add optional online availability checks.
+
+- Keep current offline mode as default.
+- Add a mode that validates external entities against Home Assistant and reports `available/missing/unreachable`.
+
+6] Keep the normalized DSL internally consistent.
+
+- Prefer one structural form for blocks and conditionals across migration output, parser rules, and macro expansion.
+- Keep top-level settings as global assignments in Settings.def.
+- Keep defaults, runtime administrative state, and taxonomy separated in the Go implementation.
+
 ** Context
 A YAML generator, written in Go, to generate:
 - YAML-based templates for switches, lights, sensors, etc. that are complementary to the existing entities in Home Assistant installations.
@@ -39,7 +139,7 @@ See the earlier mailfilter project regarding the Pascal-ish formatting style.
 
 Current parser milestone:
 - parse the normalized files in New/<<house>>/Definitions/*.def into a structural tree (block / statement / comment)
-- support begin/end block structure and semicolon statements as produced by the migration tool
+- support the current normalized syntax: colon-style block headers, `end;` block termination, semicolon-terminated statements, and `if` / `elif` / `else` blocks
 - write an interpretation file per house to New/<<house>>/interpretation.txt, similar in spirit to the mailfilters interpretation output
 
 This interpretation output is intended for verification while grammar and migration are still evolving.
@@ -72,45 +172,6 @@ Output example (Expansion.txt):
 
 Note: it makes sense to have parse / check / generate Go files, with smaller generate_<<xx>> files per entity type, such as sensor, light, switch, etc.
 
-** Next Steps (implementation backlog)
-
-1] Cross-check the "=== ENTITIES BY SPACE (FULL NAMES) ===" output against source intent.
-
-- Verify representative spaces in Vienna and Junglinster (root, top-level spaces, and a few deep nested spaces).
-- Confirm raw entities are reported in bracket form (`type.[raw_name]`) and not internal normalized form.
-- Confirm contextual path expansion for relative entity specs is correct.
-- Confirm `no_collect` markers are present where expected.
-- Confirm external-entity classification is only a "needs-check" list, not yet a hard generation decision.
-
-2] Harden macro call checking to fully match DSL intent.
-
-- Keep required/optional checks for declared parameters.
-- Add explicit unknown-parameter detection for `with:` blocks.
-- Complete runtime checks for all declared parameter kinds (`boolean`, `path`, `option`, `set<...>`, etc.), not only `int` and `entityReference`.
-- Ensure `option` style flags are interpreted consistently (presence=true, absence=false unless defaulted).
-
-3] Define and implement the generation data model.
-
-- Introduce one canonical in-memory model after parse+expand containing:
-   - entity identity (type/sphere/path/raw),
-   - space context (full path, nesting level),
-   - definition/import status,
-   - options (`providing`, `icon`, `open_stop_close`, `no_collect`, etc.),
-   - dependencies/references used by generated templates.
-- Record provenance (source file + line + originating macro) for diagnostics.
-- Use this model as the sole input for YAML generation and list generation.
-
-4] Implement generation policy split for external entities.
-
-- External without local options: do not generate core entity YAML.
-- External with local options: generate customization/configuration YAML only.
-- Defined/imported entities: generate full entity YAML as today.
-
-5] Add optional online availability checks.
-
-- Keep current offline mode as default.
-- Add a mode that validates external entities against Home Assistant and reports `available/missing/unreachable`.
-
 Operational commands used during development:
 - go run . migrate [Vienna|Junglinster]
 - go run . interpret [Vienna|Junglinster]
@@ -135,6 +196,10 @@ Overall, there are three namespaces for entities:
 - physical = entities in the house that do not have an immediate social role
 - social = entities that have a clear direct role from a social / usage perspective
 - infrastructural = entities that pertain to the IoT / smart-home infrastructure itself
+
+Virtual spaces are semantically distinct from regular spaces.
+- They still define a space context and can contain members and space-level actions.
+- During generation they follow the legacy `begin_virtual_space` / `end_virtual_space` behaviour, which uses the virtual-local aggregate policy rather than the full regular-space aggregate set.
 
 The current execution order of the bash version is:
 - read modules
@@ -590,35 +655,3 @@ The entity grammar families that are already visible from the legacy files are:
 - built-in DSL statements such as lights_motion_guarded with delay ...
 - list ... with clean_prefix / clean_postfix filters
 
-** Priority Update
-Before continuing macro work, we first clean up entity definitions.
-
-The first cleanup step is to revisit the begin/end representation in entity-oriented files, especially New/<<house>>/Definitions/Entities.def, so that block boundaries and statement-level intent remain clear and consistent.
-
-This revisit should explicitly cover:
-- where begin/end is required versus optional
-- whether single-line declarations should remain compact or be lifted into explicit begin/end blocks
-- consistency between begin space / end space and other begin/end block forms
-- readability of nested spaces and nested entity blocks in large files
-
-Target shape for entity-oriented blocks:
-- declare entity <name> with:
-- space <name> with:
-- end;
-
-** Work Items
-
-Current active work items are:
-- [ ] Clean up entity definitions before further macro changes.
-- [ ] Revisit begin/end representation for Entities.def and define a consistent block-style guideline.
-- [ ] Freeze macro target syntax.
-- [ ] Define macro argument grammar and parameter types.
-- [ ] Implement macro parameter type validation (string, int, boolean, set<T>, path).
-- [ ] Specify macro expansion semantics.
-- [ ] Implement entity target resolution (intensional -> extensional) before macro execution.
-- [ ] Implement macro target constraints such as [no raw].
-- [ ] Inventory icon and unit sources (Vienna and Junglinster), including values currently embedded in legacy module files such as Modules/Settings.1.hass.
-- [ ] Design a normalized settings-import model for icon/unit/etc. metadata.
-- [ ] Map Vienna and Junglinster deltas for settings and defaults.
-- [ ] Add parser and migration changes that implement the agreed macro and settings model.
-- [ ] Validate the result with interpretation output and regression tests.
