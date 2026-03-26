@@ -160,7 +160,7 @@ func TestResolveHomeAssistantTargetPrefersDefinitionsOverEnvironment(t *testing.
 	}
 }
 
-func TestParseServerAssignmentsWithAvailabilitySelectsMatchingBranch(t *testing.T) {
+func TestParseServerAssignmentsWithDefinedSelectsMatchingBranch(t *testing.T) {
 	serverContent := strings.Join([]string{
 		`if is up "vienna.fritz.box" then`,
 		`  ${main_instance} = "http://vienna.fritz.box:8123";`,
@@ -172,7 +172,7 @@ func TestParseServerAssignmentsWithAvailabilitySelectsMatchingBranch(t *testing.
 		`main vienna ${main_instance};`,
 	}, "\n")
 
-	assignments := parseServerAssignmentsWithAvailability(serverContent, func(host string) bool {
+	assignments := parseServerAssignmentsWithDefined(serverContent, func(host string) bool {
 		return host == "junglinster.fritz.box"
 	})
 	if assignments["main_instance"] != "https://junglinster.homelinux.org" {
@@ -180,7 +180,7 @@ func TestParseServerAssignmentsWithAvailabilitySelectsMatchingBranch(t *testing.
 	}
 }
 
-func TestParseServerAssignmentsWithAvailabilityFallsBackToElse(t *testing.T) {
+func TestParseServerAssignmentsWithDefinedFallsBackToElse(t *testing.T) {
 	serverContent := strings.Join([]string{
 		`if is up "vienna.fritz.box" then`,
 		`  ${main_instance} = "http://vienna.fritz.box:8123";`,
@@ -192,7 +192,7 @@ func TestParseServerAssignmentsWithAvailabilityFallsBackToElse(t *testing.T) {
 		`main vienna ${main_instance};`,
 	}, "\n")
 
-	assignments := parseServerAssignmentsWithAvailability(serverContent, func(string) bool { return false })
+	assignments := parseServerAssignmentsWithDefined(serverContent, func(string) bool { return false })
 	if assignments["main_instance"] != "https://fallback.example" {
 		t.Fatalf("expected else branch assignment, got %q", assignments["main_instance"])
 	}

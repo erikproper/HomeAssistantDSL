@@ -66,7 +66,7 @@ func runCLI(root string, args []string) error {
 		if err != nil {
 			return err
 		}
-		return runAvailabilityCheck(root, houses)
+		return runDefinedCheck(root, houses)
 	case "generate", "gen":
 		houses, err := resolveRequestedHouses(args[1:])
 		if err != nil {

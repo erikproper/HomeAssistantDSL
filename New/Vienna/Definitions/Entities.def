@@ -7,7 +7,8 @@
 
 space social:apartment with:
   space social:hallway with:
-    entity binary_sensor.physical:door;
+    entity binary_sensor.social:door;
+    #entity binary_sensor.physical:door;
     call battery_level_device :aqara_windoor with alert_level 10;
 
     entity sensor.physical:door/aqara_multi/temperature;
@@ -69,11 +70,6 @@ space social:apartment with:
 
     call thermostat :bitron/thermostat;
     call battery_level :bitron/thermostat;
-
-    heating leak: binary_sensor.social:living/door;
-    heating leak: binary_sensor.social:kitchen/door;
-    heating leak: binary_sensor.social/apartment/bedroom/door;
-    heating leak: binary_sensor.social/apartment/hallway/door;
 
     entity sensor.infrastructural:fritz_box_7590_ax_gb_received with call providing :fritz_box;
     entity sensor.infrastructural:fritz_box_7590_ax_gb_sent;
@@ -165,6 +161,11 @@ space social:apartment with:
     call battery_level_device :living/door/moes/1 with alert_level 20;
     call battery_level_device :living/door/moes/2 with alert_level 20;
 
+    heating leak: binary_sensor.social:living/door;
+    heating leak: binary_sensor.social:kitchen/terrace/door;
+    heating leak: binary_sensor.social/apartment/bedroom/door;
+    heating leak: binary_sensor.social/apartment/hallway/door;
+
     light on: social:main;
     space off: switch.social:picture_frame;
     space off: switch.social:tv;
@@ -204,7 +205,7 @@ space social:apartment with:
     call battery_level_device :hallway/door/moes/1 with alert_level 20;
     call battery_level_device :hallway/door/moes/2 with alert_level 20;
 
-    entity binary_sensor.physical:door;
+    entity binary_sensor.social:door;
     call battery_level_device :aqara_windoor with alert_level 10;
 
     space social:bed with:
@@ -324,7 +325,7 @@ space social:terrace with:
   call device light.physical:left;
   call device light.physical:right;
 
-  entity sensor.physical:signify_motion/illuminance with call providing :signify_motion/fuck;
+  entity sensor.physical:signify_motion/illuminance with call providing :signify_motion;
   entity sensor.physical:signify_motion/temperature;
   entity binary_sensor.physical:signify_motion/motion;
   entity sensor.infrastructural:signify_motion/battery_level;

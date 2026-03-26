@@ -700,9 +700,9 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 		}
 		var entityName string
 		if contextPath == "" {
-			entityName = "binary_sensor.physical/heating/leakage_evidence"
+			entityName = "binary_sensor.physical/heating/leakage/evidence"
 		} else {
-			entityName = fmt.Sprintf("binary_sensor.physical/%s/heating/leakage_evidence", contextPath)
+			entityName = fmt.Sprintf("binary_sensor.physical/%s/heating/leakage/evidence", contextPath)
 		}
 		administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
 		administration.RegisterEntityClosure(TPendingEntityCollection{
@@ -719,6 +719,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 		})
 	}
 
+	administration.DeriveBinarySensorSubdomainAggregates()
 	RunPostParseChecks(administration)
 
 	return TExpansionParseResult{

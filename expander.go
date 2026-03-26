@@ -1355,7 +1355,7 @@ func expandHouse(root string, house string) error {
 	output.WriteString("\n=== EXTERNAL ENTITIES (NO DEFINITION/IMPORTED) ===\n")
 	output.WriteString("Assumption: these entities are already defined in Home Assistant; no core entity YAML generation needed here.\n")
 	output.WriteString("Note: entities with local options (e.g., icon/providing) may still require configuration/customization YAML.\n")
-	output.WriteString("Availability check status: not checked (offline mode).\n\n")
+	output.WriteString("Defined check status: not checked (offline mode).\n\n")
 	externalCount := 0
 	externalWithConfigCount := 0
 	for _, spaceName := range admin.SpaceOrder {
