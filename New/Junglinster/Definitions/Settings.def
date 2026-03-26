@@ -1,32 +1,3 @@
-# Migrated preview; generated on 18.03.2026.
-# House: Junglinster
-# Target: Settings.def
-# Source: Old/Junglinster/Settings
+# Local settings for Junglinster — overrides and additions on top of Shared/Definitions/Settings.def.
 
-# Global settings are emitted as top-level variables; secrets remain external.
-
-$Workdays = "LU";
-$AroundIcon = "mdi:city";
-$AwayIcon = "mdi:airplane";
-$ConsumesIcon = "mdi:flash";
-$CoverCloseIcon = "mdi:triangle-down";
-$CoversAutoControlIcon = "mdi:dots-vertical";
-$CoversAutoControlOnIcon = "mdi:dots-vertical-circle";
-$DayTimeIcon = "mdi:sun-clock";
-$CoverageTimeIcon = "mdi:clock-start";
-$CPUIcon = "mdi:cpu-64-bit";
-$HeatingIcon = "mdi:radiator";
-$IgnoreNoMotionIcon = "mdi:motion-sensor-off";
-$HomeIcon = "mdi:home";
-$MediaSwitchIcon = "mdi:monitor-speaker";
-$NightTimeIcon = "mdi:bed-clock";
-$NodeIcon = "mdi:server-network";
-$VacuumIcon = "mdi:robot-vacuum";
-$WorkdayIcon = "mdi:office-building-cog";
-$WaterIcon = "mdi:water-off";
-$SunnyIcon = "mdi:sunglasses";
-$LightGroupIcon = "mdi:lightbulb-group";
-$LightIcon = "mdi:lightbulb";
-$TemperatureIcon = "mdi:thermometer";
-$WindSpeedIcon = "mdi:weather-windy";
-$IlluminanceIcon = "mdi:brightness-5";
+${workdays} = "LU";

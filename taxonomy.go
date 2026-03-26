@@ -80,3 +80,8 @@ func lookupDefaultSphere(object string) (string, bool) {
 	sphere, exists := SphereOf[object]
 	return sphere, exists
 }
+
+// isKnownSphere reports whether s is one of the three recognised entity spheres.
+func isKnownSphere(s string) bool {
+	return s == "social" || s == "physical" || s == "infrastructural"
+}

@@ -4,14 +4,14 @@
 # Source: Old/Vienna/Definitions/00_server.def
 
 if is up "vienna.fritz.box" then
-  $MainInstance = "http://vienna.fritz.box:8123";
-  $JunglinsterInstance = "https://junglinster.homelinux.org";
+  ${main_instance} = "http://vienna.fritz.box:8123";
+  ${junglinster_instance} = "https://junglinster.homelinux.org";
 elif is up "junglinster.fritz.box" then
-  $MainInstance = "https://vienna.homelinux.org";
-  $JunglinsterInstance = "http://junglinster.fritz.box:8123";
+  ${main_instance} = "https://vienna.homelinux.org";
+  ${junglinster_instance} = "http://junglinster.fritz.box:8123";
 else
-  $MainInstance = "https://vienna.homelinux.org";
-  $JunglinsterInstance = "https://junglinster.homelinux.org";
+  ${main_instance} = "https://vienna.homelinux.org";
+  ${junglinster_instance} = "https://junglinster.homelinux.org";
 end;
 
-main vienna $MainInstance;
+main vienna ${main_instance};

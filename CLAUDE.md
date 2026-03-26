@@ -1,3 +1,5 @@
+If ~/.claude/checkpoints/ has a checkpoint for this project, read it first to recover context.
+
 # Claude Code Instructions — Home Assistant DSL
 
 This project is a Pascal/fil-style DSL that generates Home Assistant YAML (scripts, automations, template sensors/switches). The direct template is the mailfilters codebase at `../mailfilters`.

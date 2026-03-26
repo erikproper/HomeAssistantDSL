@@ -86,7 +86,7 @@ func TestLookupIcon(t *testing.T) {
 		}
 	}
 
-	GlobalVariables["PressureIcon"] = "mdi:test-tube"
+	GlobalVariables["pressure_icon"] = "mdi:test-tube"
 	actualIcon, iconFound := lookupIcon("pressure")
 	if !iconFound {
 		t.Fatalf("expected override-backed icon lookup for pressure")

@@ -4,7 +4,7 @@
  * Package:   Main
  * Component: Expander
  *
- * This component parses creation macro definitions, entity declarations, and spaces,
+ * This component parses macro definitions, entity declarations, and spaces,
  * then expands macros with parameter type checking to generate a semantic report.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
@@ -17,7 +17,10 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -33,13 +36,18 @@ const (
 	ParamSetOfEntityReference
 	ParamPath
 	ParamOption
+	ParamEntityName      // domain.sphere/path — full qualified entity name
+	ParamEntityPath      // sphere/path — entity path including sphere, no domain
+	ParamEntitySpacePath // path — entity path without domain or sphere
+	ParamTime            // HH:MM:SS
 )
 
 type TMacroParameter struct {
-	Name     string
-	Kind     TParameterKind
-	Optional bool
-	Default  string
+	Name       string
+	Kind       TParameterKind
+	Optional   bool
+	Positional bool // true = filled from positional call arg (invocation target), not from named with: params
+	Default    string
 }
 
 type TParsedCreationMacro struct {
@@ -59,12 +67,155 @@ type TExpanderConfig struct {
 	CheckTypes bool
 }
 
-var variableReferencePattern = regexp.MustCompile(`\$[A-Za-z_][A-Za-z0-9_]*`)
+var variableReferencePattern = regexp.MustCompile(`\$\{[A-Za-z_][A-Za-z0-9_]*(?:\.[a-z_]+)?\}`)
+var timePattern = regexp.MustCompile(`^\d{2}:\d{2}:\d{2}$`)
+var ifProvidedPattern = regexp.MustCompile(`^if\s+(.*?)\s+is\s+(not\s+)?provided\s+then$`)
+var forInDoPattern = regexp.MustCompile(`^for\s+(\$\{[^}]+\})\s+in\s+(.+?)\s+do$`)
 
-// --- Parsing Creation Macro Definitions ---
+// --- conditional and loop evaluation ---
+
+// parseForValues splits a comma-separated list, optionally wrapped in { }, into trimmed values.
+func parseForValues(listStr string) []string {
+	listStr = strings.TrimSpace(listStr)
+	listStr = strings.TrimPrefix(listStr, "{")
+	listStr = strings.TrimSuffix(listStr, "}")
+	listStr = strings.TrimSpace(listStr)
+	parts := strings.Split(listStr, ",")
+	values := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if v := strings.TrimSpace(p); v != "" {
+			values = append(values, v)
+		}
+	}
+	return values
+}
+
+// collectOneStmt collects exactly one statement starting at lines[start] and returns
+// the collected lines together with the index of the first line after the statement.
+// Recognised statement forms:
+//   - if … is [not] provided then <stmt> [else <stmt>]
+//   - for … in … do <stmt>
+//   - compound:  <header ending with "with:"> … end;
+//   - simple:    any single line
+func collectOneStmt(lines []string, start int) ([]string, int) {
+	if start >= len(lines) {
+		return nil, start
+	}
+	trimmed := strings.TrimSpace(lines[start])
+
+	// if-block: collect the if-line, the then-stmt, and an optional else-stmt.
+	if ifProvidedPattern.MatchString(trimmed) {
+		collected := []string{lines[start]}
+		thenLines, next := collectOneStmt(lines, start+1)
+		collected = append(collected, thenLines...)
+		if next < len(lines) && strings.TrimSpace(lines[next]) == "else" {
+			collected = append(collected, lines[next])
+			elseLines, afterElse := collectOneStmt(lines, next+1)
+			collected = append(collected, elseLines...)
+			next = afterElse
+		}
+		return collected, next
+	}
+
+	// for-block: collect the for-line and its single body statement.
+	if forInDoPattern.MatchString(trimmed) {
+		collected := []string{lines[start]}
+		bodyLines, next := collectOneStmt(lines, start+1)
+		return append(collected, bodyLines...), next
+	}
+
+	// compound statement: header ends with "with:", body ends at matching "end;".
+	if strings.HasSuffix(trimmed, "with:") {
+		collected := []string{lines[start]}
+		i := start + 1
+		depth := 1
+		for i < len(lines) && depth > 0 {
+			inner := strings.TrimSpace(lines[i])
+			collected = append(collected, lines[i])
+			i++
+			if strings.HasSuffix(inner, "with:") {
+				depth++
+			} else if inner == "end;" {
+				depth--
+			}
+		}
+		return collected, i
+	}
+
+	// Simple statement: a single line.
+	return []string{lines[start]}, start + 1
+}
+
+// processConditionals evaluates all "if … is [not] provided then" and "for … in … do"
+// constructs in lines, returning only the lines that should be emitted.
+// It operates recursively so that nested constructs are handled correctly.
+func processConditionals(lines []string) []string {
+	output := []string{}
+	i := 0
+	for i < len(lines) {
+		trimmed := strings.TrimSpace(lines[i])
+
+		if matches := ifProvidedPattern.FindStringSubmatch(trimmed); matches != nil {
+			// A value still starting with ${ was not substituted (not provided).
+			value := matches[1]
+			negated := matches[2] != ""
+			isProvided := !strings.HasPrefix(value, "${")
+			emitting := isProvided != negated
+
+			thenLines, next := collectOneStmt(lines, i+1)
+			i = next
+
+			var elseLines []string
+			if i < len(lines) && strings.TrimSpace(lines[i]) == "else" {
+				i++ // consume the "else" line
+				elseLines, i = collectOneStmt(lines, i)
+			}
+
+			if emitting {
+				output = append(output, processConditionals(thenLines)...)
+			} else {
+				output = append(output, processConditionals(elseLines)...)
+			}
+
+		} else if matches := forInDoPattern.FindStringSubmatch(trimmed); matches != nil {
+			// Unroll the loop: substitute the loop variable for each value and recurse.
+			loopVar := matches[1]
+			values := parseForValues(matches[2])
+			bodyLines, next := collectOneStmt(lines, i+1)
+			i = next
+
+			for _, val := range values {
+				substituted := make([]string, len(bodyLines))
+				for j, bl := range bodyLines {
+					substituted[j] = strings.ReplaceAll(bl, loopVar, val)
+				}
+				output = append(output, processConditionals(substituted)...)
+			}
+
+		} else {
+			output = append(output, lines[i])
+			i++
+		}
+	}
+	return output
+}
+
+// extractVariableName strips ${...} or $ prefix and any .accessor suffix, returning the bare name.
+func extractVariableName(ref string) string {
+	if strings.HasPrefix(ref, "${") && strings.HasSuffix(ref, "}") {
+		inner := ref[2 : len(ref)-1]
+		if dotIdx := strings.Index(inner, "."); dotIdx > 0 {
+			return strings.ToLower(inner[:dotIdx])
+		}
+		return strings.ToLower(inner)
+	}
+	return strings.ToLower(strings.TrimPrefix(ref, "$"))
+}
+
+// --- Parsing Macro Definitions ---
 
 func (ctx *TMacroExpansionContext) ParseCreationMacro(lines []string, startIdx int) (*TParsedCreationMacro, int, error) {
-	// creation macro <name> { params }:
+	// macro <name> { params }:
 	//   <body>
 	// end;
 
@@ -73,11 +224,16 @@ func (ctx *TMacroExpansionContext) ParseCreationMacro(lines []string, startIdx i
 	}
 
 	line := strings.TrimSpace(lines[startIdx])
-	if !strings.HasPrefix(line, "creation macro ") {
+
+	// Recognise "macro" header.
+	prefix := ""
+	if strings.HasPrefix(line, "macro ") {
+		prefix = "macro "
+	} else {
 		return nil, startIdx, nil
 	}
 
-	// Parse header: "creation macro <name> { $p1 t1 op, ... }:"
+	// Parse header: "macro <name> ( $p1 t1, ... ) { $opt1 t1, ... }:"
 	macro := &TParsedCreationMacro{
 		SourceLine: startIdx + 1,
 		Parameters: []TMacroParameter{},
@@ -85,7 +241,7 @@ func (ctx *TMacroExpansionContext) ParseCreationMacro(lines []string, startIdx i
 	}
 
 	// Extract macro name and parameters
-	headerLine := strings.TrimPrefix(line, "creation macro ")
+	headerLine := strings.TrimPrefix(line, prefix)
 	if idx := strings.Index(headerLine, " "); idx > 0 {
 		macro.Name = headerLine[:idx]
 		paramsStr := headerLine[idx:]
@@ -100,7 +256,7 @@ func (ctx *TMacroExpansionContext) ParseCreationMacro(lines []string, startIdx i
 
 	// Collect body lines until macro-terminating end;.
 	// A line "end;" terminates the macro only when the next non-empty, non-comment line
-	// starts a new "creation macro ..." header (or there is no next line).
+	// starts a new "macro ..." header (or there is no next line).
 	idx := startIdx + 1
 	for idx < len(lines) {
 		bodyLine := strings.TrimSpace(lines[idx])
@@ -116,7 +272,12 @@ func (ctx *TMacroExpansionContext) ParseCreationMacro(lines []string, startIdx i
 				break
 			}
 
-			if nextIdx >= len(lines) || strings.HasPrefix(strings.TrimSpace(lines[nextIdx]), "creation macro ") {
+			if nextIdx >= len(lines) {
+				idx++
+				break
+			}
+			nextLine := strings.TrimSpace(lines[nextIdx])
+			if strings.HasPrefix(nextLine, "macro ") {
 				idx++
 				break
 			}
@@ -130,18 +291,18 @@ func (ctx *TMacroExpansionContext) ParseCreationMacro(lines []string, startIdx i
 	}
 
 	// `power_switch` supports `icon ...;` in invocation blocks even when not explicitly
-	// declared in the macro header, so treat `$icon` as an implied optional string.
+	// declared in the macro header, so treat `${icon}` as an implied optional string.
 	if macro.Name == "power_switch" {
 		hasIconParam := false
 		for _, param := range macro.Parameters {
-			if strings.TrimPrefix(strings.ToLower(param.Name), "$") == "icon" {
+			if extractVariableName(param.Name) == "icon" {
 				hasIconParam = true
 				break
 			}
 		}
 		if !hasIconParam {
 			macro.Parameters = append(macro.Parameters, TMacroParameter{
-				Name:     "$icon",
+				Name:     "${icon}",
 				Kind:     ParamString,
 				Optional: true,
 			})
@@ -151,34 +312,91 @@ func (ctx *TMacroExpansionContext) ParseCreationMacro(lines []string, startIdx i
 	return macro, idx, nil
 }
 
+// findBlockBrace finds the first '{' in s starting at offset that is NOT preceded by '$'
+// (i.e. a block delimiter, not a variable reference like ${name}).
+func findBlockBrace(s string, offset int) int {
+	for i := offset; i < len(s); i++ {
+		if s[i] == '{' && (i == 0 || s[i-1] != '$') {
+			return i
+		}
+	}
+	return -1
+}
+
+// findClosingBlockBrace finds the matching '}' that closes a block opened at offset,
+// skipping over nested ${...} variable references.
+func findClosingBlockBrace(s string, offset int) int {
+	depth := 1
+	for i := offset; i < len(s); i++ {
+		if s[i] == '$' && i+1 < len(s) && s[i+1] == '{' {
+			// Skip variable reference ${...}
+			end := strings.Index(s[i+2:], "}")
+			if end >= 0 {
+				i = i + 2 + end
+				continue
+			}
+		}
+		if s[i] == '{' {
+			depth++
+		} else if s[i] == '}' {
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
 func parseMacroParameters(paramsStr string, macro *TParsedCreationMacro) error {
-	// Format: " { $p1 t1 op, $p2 t2, ... }:"
-	// Extract content between { and }
-	startIdx := strings.Index(paramsStr, "{")
-	endIdx := strings.Index(paramsStr, "}")
+	// New format: "( $pos1 type, $pos2 type ) { $opt1 type, $opt2 type }:"
+	//   Positional params from ( ) are mandatory and filled from call-site positional args.
+	//   Optional params from { } are always optional and filled from the with: named block.
+	// Old format: "{ $p1 type op, $p2 type }:"
+	//   All params in { }; optional only when marked with "op".
 
-	if startIdx < 0 || endIdx < 0 || startIdx >= endIdx {
-		return nil // No parameters
+	// Parse positional params from ( ).
+	openParen := strings.Index(paramsStr, "(")
+	closeParen := strings.Index(paramsStr, ")")
+	if openParen >= 0 && closeParen > openParen {
+		posContent := paramsStr[openParen+1 : closeParen]
+		for _, part := range strings.Split(posContent, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			param, err := parseParameter(part)
+			if err != nil {
+				return err
+			}
+			param.Positional = true
+			param.Optional = false
+			macro.Parameters = append(macro.Parameters, param)
+		}
 	}
 
-	paramContent := paramsStr[startIdx+1 : endIdx]
-	if strings.TrimSpace(paramContent) == "" {
-		return nil // Empty parameter list
+	// Parse optional named params from { }.
+	// Must skip ${...} variable references — look for '{' not preceded by '$'.
+	openBrace := findBlockBrace(paramsStr, closeParen+1)
+	closeBrace := -1
+	if openBrace >= 0 {
+		closeBrace = findClosingBlockBrace(paramsStr, openBrace+1)
 	}
-
-	// Split by comma and parse each parameter
-	paramParts := strings.Split(paramContent, ",")
-	for _, part := range paramParts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
+	if openBrace >= 0 && closeBrace > openBrace {
+		optContent := paramsStr[openBrace+1 : closeBrace]
+		for _, part := range strings.Split(optContent, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			param, err := parseParameter(part)
+			if err != nil {
+				return err
+			}
+			param.Positional = false
+			param.Optional = true // { } params are always optional in both old and new format
+			macro.Parameters = append(macro.Parameters, param)
 		}
-
-		param, err := parseParameter(part)
-		if err != nil {
-			return err
-		}
-		macro.Parameters = append(macro.Parameters, param)
 	}
 
 	return nil
@@ -219,6 +437,8 @@ func parseParameter(paramStr string) (TMacroParameter, error) {
 
 func parseParameterKind(typeStr string) TParameterKind {
 	normalized := strings.ToLower(strings.Join(strings.Fields(typeStr), " "))
+	// Strip qualifiers like "context" that appear after the base type name.
+	normalized = strings.TrimSuffix(strings.TrimSpace(normalized), " context")
 	switch normalized {
 	case "string":
 		return ParamString
@@ -236,6 +456,14 @@ func parseParameterKind(typeStr string) TParameterKind {
 		return ParamSetOfEntityReference
 	case "set of string":
 		return ParamSetOfString
+	case "entity_name", "entityname":
+		return ParamEntityName
+	case "entity_path", "entitypath":
+		return ParamEntityPath
+	case "entity_space_path", "entityspacepath":
+		return ParamEntitySpacePath
+	case "time":
+		return ParamTime
 	default:
 		if strings.HasPrefix(normalized, "set") {
 			if strings.Contains(normalized, "entityreference") {
@@ -250,15 +478,16 @@ func parseParameterKind(typeStr string) TParameterKind {
 // --- Macro Expansion ---
 
 type TMacroInvocation struct {
-	Name       string
-	Target     string
-	Parameters map[string]string
+	Name             string
+	Target           string
+	ExtraPositionals []string // additional positional args beyond the first (Target)
+	Parameters       map[string]string
 }
 
 func (ctx *TMacroExpansionContext) ParseMacroInvocation(line string) (*TMacroInvocation, error) {
 	// Parse:
-	// - "create macro_name target with param value;"
-	// - "create macro_name target with:\n    key value;\n  end;"
+	// - "call macro_name target with param value;"
+	// - "call macro_name target with:\n    key value;\n  end;"
 	invocationLines := strings.Split(line, "\n")
 	header := strings.TrimSpace(invocationLines[0])
 	parts := strings.Fields(header)
@@ -266,9 +495,9 @@ func (ctx *TMacroExpansionContext) ParseMacroInvocation(line string) (*TMacroInv
 		return nil, fmt.Errorf("invalid macro invocation")
 	}
 
-	// Handle optional "create" keyword
+	// Handle optional "call" keyword prefix
 	idx := 0
-	if parts[0] == "create" {
+	if parts[0] == "call" {
 		idx = 1
 	}
 
@@ -280,6 +509,15 @@ func (ctx *TMacroExpansionContext) ParseMacroInvocation(line string) (*TMacroInv
 		Name:       parts[idx],
 		Target:     strings.TrimSuffix(parts[idx+1], ";"),
 		Parameters: make(map[string]string),
+	}
+
+	// Collect extra positional args: tokens after the target, before "with" or "with:".
+	for i := idx + 2; i < len(parts); i++ {
+		token := strings.TrimSuffix(parts[i], ";")
+		if strings.ToLower(token) == "with" || strings.ToLower(token) == "with:" {
+			break
+		}
+		invocation.ExtraPositionals = append(invocation.ExtraPositionals, token)
 	}
 
 	// Parse inline "with ..." options in the header line.
@@ -328,7 +566,7 @@ func parseInvocationStatement(statement string, parameters map[string]string) {
 }
 
 func normalizeParameterKey(name string) string {
-	normalized := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(name, "$")))
+	normalized := strings.ToLower(strings.TrimSpace(extractVariableName(name)))
 	normalized = strings.ReplaceAll(normalized, "_", "")
 	normalized = strings.ReplaceAll(normalized, "-", "")
 	return normalized
@@ -342,67 +580,296 @@ func canonicalInvocationParameters(parameters map[string]string) map[string]stri
 	return canonical
 }
 
-func (ctx *TMacroExpansionContext) ExpandMacro(invocation *TMacroInvocation) ([]string, []string, error) {
-	if strictErr := ctx.ValidateInvocationStrict(invocation); strictErr != nil {
-		return nil, nil, strictErr
+func (ctx *TMacroExpansionContext) ExpandMacro(invocation *TMacroInvocation, spacePath []string) ([]string, []string, error) {
+	// Callers validate at the top level; ExpandMacro does not self-validate so that
+	// nested macro calls from macro bodies are not held to the same strict rules.
+	macro, exists := ctx.Macros[invocation.Name]
+	if !exists {
+		return nil, nil, fmt.Errorf("unknown macro: %s", invocation.Name)
 	}
 
-	       macro := ctx.Macros[invocation.Name]
-	       canonicalParameters := canonicalInvocationParameters(invocation.Parameters)
+	canonicalParameters := canonicalInvocationParameters(invocation.Parameters)
 
-	       // --- Implied parameters: always inject $domain, $sphere, $entity ---
-	       // $domain: Home Assistant domain (e.g., "switch", "sensor")
-	       // $sphere: sphere (e.g., "social", "physical")
-	       // $entity: full entity path (space path + subdomain)
-	       // These are always available in macro bodies, even if not declared in the header.
-	       expanded := []string{}
-	       substitutions := make(map[string]string)
-		// Parse domain, sphere, and entity from the invocation target
-		domain, sphere, entityPath := parseDomainSphereEntity(invocation.Target)
-		substitutions["$domain"] = domain
-		substitutions["$sphere"] = sphere
-		substitutions["$entity"] = entityPath
+	// --- Implied parameters: always inject ${domain}, ${sphere}, ${entity} ---
+	// ${domain}: Home Assistant domain (e.g., "switch", "sensor")
+	// ${sphere}: sphere (e.g., "social", "physical")
+	// ${entity}: full entity path (space path + subdomain)
+	// These are always available in macro bodies, even if not declared in the header.
+	substitutions := make(map[string]string)
+	// Parse domain, sphere, and entity from the invocation target using the provided spacePath
+	domain, sphere, entityPath := parseDomainSphereEntity(invocation.Target, spacePath)
+	substitutions["${domain}"] = domain
+	substitutions["${sphere}"] = sphere
+	substitutions["${entity}"] = entityPath
 
-	       // Add explicit parameter substitutions
-	       for _, param := range macro.Parameters {
-		       if value, provided := canonicalParameters[normalizeParameterKey(param.Name)]; provided {
-			       substitutions[param.Name] = value
-		       }
-	       }
+	// Map positional params from the invocation target (first positional arg), applying
+	// implicit type casting where allowed: entity_name → entity_path/entity_space_path,
+	// entity_path → entity_space_path.
+	// A ':'-prefixed entity_space_path argument is space-relative: castParamValue strips the ':'
+	// prefix, leaving a bare relative path. normalizeEntityFullName later prepends the context
+	// (spacePath) when the path appears in entity declarations in the expanded body.
+	positionalArgs := append([]string{invocation.Target}, invocation.ExtraPositionals...)
+	posArgIdx := 0
+	for _, param := range macro.Parameters {
+		if param.Positional && posArgIdx < len(positionalArgs) {
+			rawArg := positionalArgs[posArgIdx]
+			castedArg := castParamValue(rawArg, param.Kind)
+			substitutions[param.Name] = castedArg
+			posArgIdx++
+		}
+	}
 
-	       for _, bodyLine := range macro.Body {
-		       expandedLine := bodyLine
-		       for placeholder, value := range substitutions {
-			       expandedLine = strings.ReplaceAll(expandedLine, placeholder, value)
-		       }
-		       expanded = append(expanded, expandedLine)
-	       }
+	// Add explicit named parameter substitutions, allowing snake_case to match camelCase.
+	// Apply implicit type casting (e.g. entity_name → entity_space_path) when assigning.
+	for _, param := range macro.Parameters {
+		if param.Positional {
+			continue
+		}
+		paramKey := normalizeParameterKey(param.Name)
+		if value, provided := canonicalParameters[paramKey]; provided {
+			substitutions[param.Name] = castParamValue(value, param.Kind)
+			continue
+		}
+		snakeKey := toSnakeCase(paramKey)
+		if value, provided := invocation.Parameters[snakeKey]; provided {
+			substitutions[param.Name] = castParamValue(value, param.Kind)
+		}
+	}
 
-	       return expanded, nil, nil
+	// Pre-populate ${name.accessor} variants for all base substitution entries.
+	// With ${...} delimiters, ${entity} and ${entity.domain} are unambiguous — no length-sort needed.
+	baseKeys := make([]string, 0, len(substitutions))
+	for k := range substitutions {
+		baseKeys = append(baseKeys, k)
+	}
+	for _, key := range baseKeys {
+		if !strings.HasPrefix(key, "${") || !strings.HasSuffix(key, "}") {
+			continue
+		}
+		bareName := key[2 : len(key)-1]
+		if strings.Contains(bareName, ".") {
+			continue // already an accessor key
+		}
+		value := substitutions[key]
+		// Normalise colon-form entity specs (e.g. "light.social:main") to their fully
+		// qualified slash form before computing path-based accessors, so that accessors
+		// like ${entity.path} and ${entity.space_path} reflect the full context path
+		// rather than just the bare local name after the colon.
+		normalizedForAccessors := normalizeEntityFullName(value, spacePath)
+		for _, accessor := range []string{"domain", "sphere", "path", "space_path", "sub_domain"} {
+			accessorKey := "${" + bareName + "." + accessor + "}"
+			if _, exists := substitutions[accessorKey]; !exists {
+				substitutions[accessorKey] = extractEntityAccessor(normalizedForAccessors, accessor)
+			}
+		}
+	}
+
+	// Substitute all placeholders in the body first, then evaluate conditionals.
+	substituted := make([]string, 0, len(macro.Body))
+	for _, bodyLine := range macro.Body {
+		expandedLine := bodyLine
+		for placeholder, value := range substitutions {
+			expandedLine = strings.ReplaceAll(expandedLine, placeholder, value)
+		}
+		substituted = append(substituted, expandedLine)
+	}
+
+	return processConditionals(substituted), nil, nil
+}
+
+// parseEntityComponents splits an entity spec into domain, sphere, and path.
+// Handles both slash form "domain.sphere/path" and colon form "domain.sphere:path".
+// For "light.:main" the sphere is empty and path is "main".
+func parseEntityComponents(entityValue string) (domain, sphere, path string) {
+	path = entityValue
+	dotIdx := strings.Index(entityValue, ".")
+	if dotIdx <= 0 {
+		return
+	}
+	domain = entityValue[:dotIdx]
+	rest := entityValue[dotIdx+1:]
+	sepIdx := strings.IndexAny(rest, ":/")
+	if sepIdx < 0 {
+		sphere = rest
+		path = ""
+		return
+	}
+	sphere = rest[:sepIdx]
+	path = rest[sepIdx+1:]
+	return
+}
+
+// extractEntityAccessor returns the requested component of an entity spec.
+// Supported accessors: domain, sphere, path, space_path, sub_domain.
+//
+// For an entity_name value like "light.social/apartment/living_room/vidja/left":
+//   domain      = "light"
+//   sphere      = "social"
+//   path        = "social/apartment/living_room/vidja/left"  (entire path behind the dot)
+//   space_path  = "apartment/living_room/vidja/left"         (path behind sphere/)
+//   sub_domain  = "left" only if "left" is a known sub-domain keyword, else ""
+//
+// When sphere is empty (e.g. "light.:main"), path is returned with a leading ":"
+// so that callers using it as an entity_space_path argument preserve the
+// space-relative semantics (":main" → expanded to "<currentSpace>/main" by ExpandMacro).
+func extractEntityAccessor(entityValue, accessor string) string {
+	domain, sphere, path := parseEntityComponents(entityValue)
+	switch accessor {
+	case "domain":
+		return domain
+	case "sphere":
+		return sphere
+	case "path":
+		// Entire path behind the dot: sphere + "/" + path_after_sphere.
+		if sphere == "" && path != "" {
+			return ":" + path // preserve space-relative marker
+		}
+		if sphere != "" {
+			return sphere + "/" + path
+		}
+		return path
+	case "space_path":
+		// Entire path behind the sphere prefix (i.e. path_after_sphere, without dropping the last component).
+		// This is what ${x.path} used to return; ${x.path} now includes the sphere.
+		if sphere == "" && path != "" {
+			return ":" + path // preserve space-relative marker for sphere-less specs
+		}
+		return path
+	case "sub_domain":
+		// Last slash-separated component, but only when it is a recognised sub-domain keyword.
+		// Location/device names (e.g. "main", "left", "kitchen") are not sub-domains.
+		var last string
+		if idx := strings.LastIndex(path, "/"); idx >= 0 {
+			last = path[idx+1:]
+		} else {
+			last = path
+		}
+		if isKnownSubDomain(last) {
+			return last
+		}
+		return ""
+	}
+	return entityValue
+}
+
+// isKnownSubDomain reports whether name is a recognised terminal attribute keyword
+// that identifies WHAT is measured or controlled, as opposed to a location/device name.
+func isKnownSubDomain(name string) bool {
+	switch name {
+	case "battery_level", "battery_alert", "node", "status", "radio", "load",
+		"temperature", "humidity", "co2", "pressure", "illuminance", "noise",
+		"wind_speed", "wind_direction", "motion", "water", "door", "power",
+		"consumes", "media", "space":
+		return true
+	}
+	return false
+}
+
+// castParamValue applies implicit type casting so wider types can satisfy narrower param types:
+//   entity_name  → entity_path:       strip "domain." prefix
+//   entity_name  → entity_space_path: strip "domain.sphere/" prefix
+//   entity_path  → entity_space_path: strip "sphere/" prefix
+// A leading ':' on entity_space_path marks a space-relative path; the ':' is stripped here and
+// the actual spacePath prefix is injected by the caller (ExpandMacro).
+// Values that already match the target kind are returned unchanged.
+func castParamValue(value string, targetKind TParameterKind) string {
+	switch targetKind {
+	case ParamEntityPath:
+		// entity_name (has '.') → entity_path: drop "domain." prefix
+		if dotIdx := strings.Index(value, "."); dotIdx > 0 {
+			return value[dotIdx+1:]
+		}
+	case ParamEntitySpacePath:
+		// ':'-prefixed value means "relative to calling space"; strip the marker here.
+		// The resulting bare path is combined with the context spacePath by normalizeEntityFullName
+		// when it appears in entity declarations within the expanded macro body.
+		if strings.HasPrefix(value, ":") {
+			return strings.TrimPrefix(value, ":")
+		}
+		// entity_name (has '.') → entity_space_path: drop "domain.sphere/" prefix
+		if dotIdx := strings.Index(value, "."); dotIdx > 0 {
+			afterDot := value[dotIdx+1:]
+			if slashIdx := strings.Index(afterDot, "/"); slashIdx > 0 {
+				return afterDot[slashIdx+1:]
+			}
+			return afterDot
+		}
+		// entity_path (has '/') → entity_space_path: drop "sphere/" prefix, but only when
+		// the first segment is a known sphere name. An already-resolved entity_space_path
+		// (e.g. "apartment/living_room/device") must not have its first segment stripped.
+		if slashIdx := strings.Index(value, "/"); slashIdx > 0 {
+			if isKnownSphereName(value[:slashIdx]) {
+				return value[slashIdx+1:]
+			}
+		}
+	}
+	return value
+}
+
+// isKnownSphereName reports whether name is one of the recognised sphere identifiers.
+func isKnownSphereName(name string) bool {
+	switch name {
+	case "social", "physical", "infrastructural":
+		return true
+	}
+	return false
+}
+
+// isAbsoluteSpaceName reports whether spaceName is an absolute-path space declaration
+// that should replace the current space context rather than nest inside it.
+// An absolute-path space has no ':' separator but starts with a known sphere name
+// followed by '/', e.g. "physical/apartment/living_room".
+func isAbsoluteSpaceName(spaceName string) bool {
+	if strings.Contains(spaceName, ":") {
+		return false
+	}
+	slashIdx := strings.Index(spaceName, "/")
+	if slashIdx <= 0 {
+		return false
+	}
+	return isKnownSphereName(spaceName[:slashIdx])
+}
+
+// Helper: convert normalized key to snake_case
+func toSnakeCase(s string) string {
+	var out []rune
+	for i, r := range s {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			out = append(out, '_', r+('a'-'A'))
+		} else {
+			out = append(out, r)
+		}
+	}
+	return string(out)
+}
 
 // --- Utility: parseDomainSphereEntity ---
 // Splits an entity spec like "switch.social:nespresso" into domain, sphere, entityPath
-func parseDomainSphereEntity(entitySpec string) (domain, sphere, entityPath string) {
-       // entitySpec: "domain.sphere:path" or "domain.sphere:space/subdomain"
-       domain, sphere, entityPath = "", "", entitySpec
-       dotIdx := strings.Index(entitySpec, ".")
-       colonIdx := strings.Index(entitySpec, ":")
-       if dotIdx > 0 && colonIdx > dotIdx {
-	       domain = entitySpec[:dotIdx]
-	       sphere = entitySpec[dotIdx+1 : colonIdx]
-	       entityPath = entitySpec[colonIdx+1:]
-       } else if dotIdx > 0 {
-	       domain = entitySpec[:dotIdx]
-	       rest := entitySpec[dotIdx+1:]
-	       if colonIdx := strings.Index(rest, ":"); colonIdx > 0 {
-		       sphere = rest[:colonIdx]
-		       entityPath = rest[colonIdx+1:]
-	       } else {
-		       sphere = rest
-		       entityPath = ""
-	       }
-       }
-       return
+func parseDomainSphereEntity(entitySpec string, spacePath []string) (domain, sphere, entityPath string) {
+	// entitySpec: "domain.sphere:path" or "domain.sphere:space/subdomain"
+	domain, sphere, entityPath = "", "", entitySpec
+	dotIdx := strings.Index(entitySpec, ".")
+	colonIdx := strings.Index(entitySpec, ":")
+	if dotIdx > 0 && colonIdx > dotIdx {
+		domain = entitySpec[:dotIdx]
+		sphere = entitySpec[dotIdx+1 : colonIdx]
+		entityPath = entitySpec[colonIdx+1:]
+	} else if dotIdx > 0 {
+		domain = entitySpec[:dotIdx]
+		rest := entitySpec[dotIdx+1:]
+		if colonIdx := strings.Index(rest, ":"); colonIdx > 0 {
+			sphere = rest[:colonIdx]
+			entityPath = rest[colonIdx+1:]
+		} else {
+			sphere = rest
+			entityPath = ""
+		}
+	}
+	// Generic normalization: if entityPath is non-empty and does not contain a slash, and context is available, expand to <space>/<entityPath>
+	if entityPath != "" && !strings.Contains(entityPath, "/") && len(spacePath) > 0 {
+		entityPath = strings.Join(spacePath, "/") + "/" + entityPath
+	}
+	return
 }
 
 func extractSphere(entitySpec string) string {
@@ -432,8 +899,22 @@ func (ctx *TMacroExpansionContext) ValidateInvocationParameters(invocation *TMac
 		}
 	}
 
-	// Check required parameters
+	// Check required parameters; positional params are matched in order from the call-site args.
+	allPositionals := append([]string{invocation.Target}, invocation.ExtraPositionals...)
+	posArgIdx := 0
 	for _, param := range macro.Parameters {
+		if param.Positional {
+			if ctx.Config.CheckTypes && posArgIdx < len(allPositionals) {
+				rawArg := allPositionals[posArgIdx]
+				castedValue := castParamValue(rawArg, param.Kind)
+				if typeErr := validateParameterType(castedValue, param.Kind); typeErr != "" {
+					errors = append(errors, fmt.Sprintf("positional parameter %s: %s", param.Name, typeErr))
+				}
+			}
+			posArgIdx++
+			continue
+		}
+
 		paramKey := normalizeParameterKey(param.Name)
 		value, provided := canonicalParameters[paramKey]
 
@@ -514,6 +995,25 @@ func validateParameterType(value string, expectedKind TParameterKind) string {
 				return fmt.Sprintf("set member %q is not a valid entity reference", setValue)
 			}
 		}
+	case ParamEntityName:
+		// Must have domain.sphere/path or domain.sphere:path — contains '.' and '/' or ':'.
+		if !strings.Contains(value, ".") || (!strings.Contains(value, "/") && !strings.Contains(value, ":")) {
+			return fmt.Sprintf("value %q does not look like an entity_name (expected domain.sphere/path or domain.sphere:path)", value)
+		}
+	case ParamEntityPath:
+		// Must have sphere/path or sphere:path — contains '/' or ':' but no leading domain '.'.
+		if !strings.Contains(value, "/") && !strings.Contains(value, ":") {
+			return fmt.Sprintf("value %q does not look like an entity_path (expected sphere/path or sphere:path)", value)
+		}
+	case ParamEntitySpacePath:
+		// A path without domain or sphere; any non-empty identifier or slash-separated path is valid.
+		if strings.TrimSpace(value) == "" {
+			return "empty entity_space_path"
+		}
+	case ParamTime:
+		if !timePattern.MatchString(strings.TrimSpace(value)) {
+			return fmt.Sprintf("value %q does not look like a time (expected HH:MM:SS)", value)
+		}
 	}
 	return ""
 }
@@ -554,9 +1054,9 @@ func isValidEntityReference(ref string) bool {
 func (ctx *TMacroExpansionContext) GenerateExpansionReport() string {
 	var report strings.Builder
 
-	report.WriteString("=== CREATION MACRO DEFINITIONS ===\n\n")
+	report.WriteString("=== MACRO DEFINITIONS ===\n\n")
 	for name, macro := range ctx.Macros {
-		report.WriteString(fmt.Sprintf("creation macro %s { ", name))
+		report.WriteString(fmt.Sprintf("macro %s { ", name))
 		for i, param := range macro.Parameters {
 			if i > 0 {
 				report.WriteString(", ")
@@ -592,6 +1092,14 @@ func paramKindString(kind TParameterKind) string {
 		return "set of string"
 	case ParamSetOfEntityReference:
 		return "set of entityReference"
+	case ParamEntityName:
+		return "entity_name"
+	case ParamEntityPath:
+		return "entity_path"
+	case ParamEntitySpacePath:
+		return "entity_space_path"
+	case ParamTime:
+		return "time"
 	default:
 		return "entity"
 	}
@@ -602,7 +1110,7 @@ func (ctx *TMacroExpansionContext) MacroDefinitionWarnings(macro *TParsedCreatio
 	parameterKindByName := map[string]TParameterKind{}
 	loopVariableNames := map[string]bool{}
 	for _, parameter := range macro.Parameters {
-		parameterName := strings.ToLower(strings.TrimPrefix(parameter.Name, "$"))
+		parameterName := extractVariableName(parameter.Name)
 		parameterKindByName[parameterName] = parameter.Kind
 	}
 
@@ -610,20 +1118,75 @@ func (ctx *TMacroExpansionContext) MacroDefinitionWarnings(macro *TParsedCreatio
 		trimmedLine := strings.TrimSpace(bodyLine)
 		if strings.HasPrefix(trimmedLine, "for ") {
 			parts := strings.Fields(trimmedLine)
-			if len(parts) >= 2 && strings.HasPrefix(parts[1], "$") {
-				loopVariableNames[strings.ToLower(strings.TrimPrefix(parts[1], "$"))] = true
+			if len(parts) >= 2 && strings.HasPrefix(parts[1], "${") {
+				loopVariableNames[extractVariableName(parts[1])] = true
 			}
 		}
 	}
 
 	for bodyLineIndex, bodyLine := range macro.Body {
+		// Relative-path arguments (tokens starting with ":") must not appear in macro bodies.
+		// The ":" prefix is a call-site convention meaning "relative to the current space";
+		// inside a macro definition all paths must be absolute or parameter-based.
+		trimmedBodyLine := strings.TrimSpace(bodyLine)
+		bodyParts := strings.Fields(trimmedBodyLine)
+		switch {
+		case len(bodyParts) >= 2 && bodyParts[0] == "entity":
+			// entity <name-or-path> ...
+			tok := strings.TrimSuffix(bodyParts[1], ";")
+			if strings.HasPrefix(tok, ":") {
+				warnings = append(warnings,
+					fmt.Sprintf("line %d: relative entity path %q (starting with ':') is not allowed in a macro body; resolve the space path at the call site instead",
+						bodyLineIndex+1, tok),
+				)
+			}
+
+			// entity X with <macro_name> — macro names are not built-in keywords; use "call".
+			// Find the "with" token (not "with:") and check the token that follows it.
+			for i, part := range bodyParts {
+				if strings.ToLower(strings.TrimSuffix(part, ";")) == "with" && i+1 < len(bodyParts) {
+					candidate := strings.ToLower(strings.TrimSuffix(bodyParts[i+1], ";"))
+					if _, isMacro := ctx.Macros[candidate]; isMacro {
+						warnings = append(warnings,
+							fmt.Sprintf("line %d: %q after 'with' is a macro, not a built-in keyword; use 'with call %s ...' instead",
+								bodyLineIndex+1, bodyParts[i+1], bodyParts[i+1]),
+						)
+					}
+					break
+				}
+			}
+
+		case len(bodyParts) >= 3 && bodyParts[0] == "call":
+			// call <macro> <arg1> <arg2> ...  — check each positional argument
+			for _, arg := range bodyParts[2:] {
+				tok := strings.TrimSuffix(arg, ";")
+				if tok == "with" || tok == "with:" {
+					break
+				}
+				if strings.HasPrefix(tok, ":") {
+					warnings = append(warnings,
+						fmt.Sprintf("line %d: relative path argument %q (starting with ':') is not allowed in a macro body; resolve the space path at the call site instead",
+							bodyLineIndex+1, tok),
+					)
+				}
+			}
+		}
+
 		specificationToken, hasSpecification := entitySpecificationToken(bodyLine)
 		if !hasSpecification || specificationToken == "" {
 			continue
 		}
 
+		// A second ':' in an entity spec is legacy sub-domain notation; '/' must be used instead.
+		if hasSecondColonSeparator(specificationToken) {
+			warnings = append(warnings,
+				fmt.Sprintf("line %d: entity specification %q uses a second ':' sub-domain separator (legacy); use '/' instead",
+					bodyLineIndex+1, specificationToken),
+			)
+		}
+
 		for _, variableReference := range variableReferencePattern.FindAllString(specificationToken, -1) {
-			variableName := strings.ToLower(strings.TrimPrefix(variableReference, "$"))
+			variableName := extractVariableName(variableReference)
 			if variableName == "entity" || variableName == "sphere" {
 				continue
 			}
@@ -670,9 +1233,1146 @@ func entitySpecificationToken(bodyLine string) (string, bool) {
 		return parts[1], true
 	}
 
-	if parts[0] == "create" && len(parts) >= 3 {
-		return parts[2], true
+	return "", false
+}
+
+// --- expansion runner and entity/space collection helpers (moved from main.go) ---
+
+func runExpansion(root string, houses []string) error {
+	for _, house := range houses {
+		if err := expandHouse(root, house); err != nil {
+			return fmt.Errorf("error expanding %s: %w", house, err)
+		}
+		fmt.Printf("expanded %s\n", house)
+	}
+	return nil
+}
+
+// loadMacroContext reads and parses the shared Macros.def, returning a ready-to-use expansion context.
+func loadMacroContext(sharedDefinitionDir string) (*TMacroExpansionContext, error) {
+	macrosPath := filepath.Join(sharedDefinitionDir, "Macros.def")
+	macrosContent, err := os.ReadFile(macrosPath)
+	if err != nil {
+		return nil, fmt.Errorf("error reading macros: %w", err)
 	}
 
+	macroLines := strings.Split(string(macrosContent), "\n")
+	ctx := &TMacroExpansionContext{
+		Macros: make(map[string]*TParsedCreationMacro),
+		Config: TExpanderConfig{Verbose: false, CheckTypes: true},
+	}
+
+	idx := 0
+	for idx < len(macroLines) {
+		macro, nextIdx, err := ctx.ParseCreationMacro(macroLines, idx)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing macro at line %d: %w", idx+1, err)
+		}
+		if macro != nil {
+			ctx.Macros[macro.Name] = macro
+		}
+		if nextIdx == idx {
+			idx++
+		} else {
+			idx = nextIdx
+		}
+	}
+
+	if err := validateMacroDefinitionOrdering(ctx); err != nil {
+		return nil, fmt.Errorf("strict macro validation failed in %s: %w", macrosPath, err)
+	}
+	return ctx, nil
+}
+
+func expandHouse(root string, house string) error {
+	definitionDir := filepath.Join(root, "New", house, "Definitions")
+	sharedDefinitionDir := filepath.Join(root, "New", "Shared", "Definitions")
+
+	ctx, err := loadMacroContext(sharedDefinitionDir)
+	if err != nil {
+		return err
+	}
+
+	entitiesPath := filepath.Join(definitionDir, "Entities.def")
+	entitiesContent, err := os.ReadFile(entitiesPath)
+	if err != nil {
+		return fmt.Errorf("error reading entities: %w", err)
+	}
+
+	output := strings.Builder{}
+
+	output.WriteString("=== MACRO EXPANSION REPORT ===\n")
+	output.WriteString(fmt.Sprintf("House: %s\n", house))
+	output.WriteString("Generated: 20.03.2026\n\n")
+
+	output.WriteString("=== MACRO DEFINITIONS ===\n\n")
+	for name := range ctx.Macros {
+		macro := ctx.Macros[name]
+		output.WriteString(fmt.Sprintf("macro %s { ", name))
+		for i, param := range macro.Parameters {
+			if i > 0 {
+				output.WriteString(", ")
+			}
+			output.WriteString(fmt.Sprintf("%s %s", param.Name, paramKindString(param.Kind)))
+			if param.Optional {
+				output.WriteString(" op")
+			}
+		}
+		output.WriteString(fmt.Sprintf(" }:\n  SourceLine: %d, Body lines: %d\n", macro.SourceLine, len(macro.Body)))
+
+		definitionWarnings := ctx.MacroDefinitionWarnings(macro)
+		if len(definitionWarnings) > 0 {
+			output.WriteString("  Definition Warnings:\n")
+			for _, warning := range definitionWarnings {
+				output.WriteString(fmt.Sprintf("    - %s\n", warning))
+			}
+		}
+		output.WriteString("\n")
+	}
+
+	output.WriteString("\n=== MACRO INVOCATIONS IN ENTITIES.DEF ===\n\n")
+	parseResult, err := ParseEntitiesAndFillAdministration(strings.Split(string(entitiesContent), "\n"), entitiesPath, ctx, &output)
+	if err != nil {
+		return err
+	}
+	admin := parseResult.Administration
+	invocationCount := parseResult.InvocationCount
+	validInvocations := parseResult.ValidInvocations
+	typeErrors := parseResult.TypeErrors
+
+	output.WriteString("\n=== ENTITIES BY SPACE (FULL NAMES) ===\n\n")
+	entityCount := 0
+	for _, spaceName := range admin.SpaceOrder {
+		indent := strings.Repeat("  ", admin.SpaceDepthByName[spaceName])
+		output.WriteString(fmt.Sprintf("%s%s %q:\n", indent, formatSpaceLabel(admin.SpaceKindByName[spaceName]), spaceName))
+		for _, entityLine := range admin.EntitiesBySpace[spaceName] {
+			entityCount++
+			output.WriteString(fmt.Sprintf("%s  - %s\n", indent, entityLine))
+		}
+		output.WriteString("\n")
+	}
+
+	output.WriteString("\n=== EXTERNAL ENTITIES (NO DEFINITION/IMPORTED) ===\n")
+	output.WriteString("Assumption: these entities are already defined in Home Assistant; no core entity YAML generation needed here.\n")
+	output.WriteString("Note: entities with local options (e.g., icon/providing) may still require configuration/customization YAML.\n")
+	output.WriteString("Availability check status: not checked (offline mode).\n\n")
+	externalCount := 0
+	externalWithConfigCount := 0
+	for _, spaceName := range admin.SpaceOrder {
+		externalEntities := admin.ExternalEntitiesBySpace[spaceName]
+		if len(externalEntities) == 0 {
+			continue
+		}
+
+		indent := strings.Repeat("  ", admin.SpaceDepthByName[spaceName])
+		output.WriteString(fmt.Sprintf("%s%s %q:\n", indent, formatSpaceLabel(admin.SpaceKindByName[spaceName]), spaceName))
+		for _, item := range externalEntities {
+			externalCount++
+			if strings.Contains(item, "[config options:") {
+				externalWithConfigCount++
+			}
+			output.WriteString(fmt.Sprintf("%s  - %s\n", indent, item))
+		}
+		output.WriteString("\n")
+	}
+	if externalCount == 0 {
+		output.WriteString("(none)\n\n")
+	}
+
+	output.WriteString("\n=== IMPLIED SPACE AGGREGATE ENTITIES (EXCLUDING no_collect) ===\n\n")
+	aggregateCount := 0
+	for _, spaceName := range admin.SpaceOrder {
+		if spaceName == "root" {
+			continue
+		}
+
+		aggregates := impliedAggregatesForSpace(spaceName, admin.SpaceKindByName[spaceName], admin.SpaceOrder, admin.EntityRecordsBySpace)
+		if len(aggregates) == 0 {
+			continue
+		}
+
+		indent := strings.Repeat("  ", admin.SpaceDepthByName[spaceName])
+		for _, aggregate := range aggregates {
+			aggregateCount++
+			output.WriteString(fmt.Sprintf("%s- %s\n", indent, aggregate))
+		}
+	}
+	if aggregateCount == 0 {
+		output.WriteString("(none)\n")
+	}
+	output.WriteString("\n")
+
+	output.WriteString("\n=== SUMMARY ===\n")
+	output.WriteString(fmt.Sprintf("Total macro invocations: %d\n", invocationCount))
+	output.WriteString(fmt.Sprintf("Valid invocations: %d\n", validInvocations))
+	output.WriteString(fmt.Sprintf("Type/validation errors: %d\n", typeErrors))
+	output.WriteString(fmt.Sprintf("Creation macros defined: %d\n", len(ctx.Macros)))
+	output.WriteString(fmt.Sprintf("Entities listed by space: %d\n", entityCount))
+	output.WriteString(fmt.Sprintf("External entities (no definition/imported): %d\n", externalCount))
+	output.WriteString(fmt.Sprintf("External entities with config options: %d\n", externalWithConfigCount))
+	output.WriteString(fmt.Sprintf("Implied aggregates: %d\n", aggregateCount))
+
+	expansionReportPath, outputErr := writeDebugReport(root, house, DebugReportExpansion, output.String())
+	if outputErr != nil {
+		return fmt.Errorf("error writing expansion report: %w", outputErr)
+	}
+	if expansionReportPath != "" {
+		fmt.Printf("  expansion report: %s\n", expansionReportPath)
+	}
+
+	collections := strings.Builder{}
+
+	collections.WriteString("=== ENTITY COLLECTIONS REPORT ===\n")
+	collections.WriteString(fmt.Sprintf("House: %s\n", house))
+	collections.WriteString("Shows explicit aggregations: which constituent entities are collected into aggregated entities.\n")
+	collections.WriteString("Entities marked [no_collect] are excluded from aggregation.\n\n")
+
+	collections.WriteString("=== AGGREGATIONS BY SPACE ===\n\n")
+	allAggregations := []struct {
+		spaceName     string
+		depth         int
+		aggregateName string
+		constituents  []string
+	}{}
+
+	for _, spaceName := range admin.SpaceOrder {
+		aggregates := impliedAggregatesForSpace(spaceName, admin.SpaceKindByName[spaceName], admin.SpaceOrder, admin.EntityRecordsBySpace)
+		if len(aggregates) == 0 {
+			continue
+		}
+
+		for _, aggregateName := range aggregates {
+			constituents := findAggregateConstituents(aggregateName, spaceName, admin.SpaceOrder, admin.EntityRecordsBySpace)
+			if len(constituents) > 0 {
+				allAggregations = append(allAggregations, struct {
+					spaceName     string
+					depth         int
+					aggregateName string
+					constituents  []string
+				}{
+					spaceName:     spaceName,
+					depth:         admin.SpaceDepthByName[spaceName],
+					aggregateName: aggregateName,
+					constituents:  constituents,
+				})
+			}
+		}
+	}
+
+	sort.Slice(allAggregations, func(i, j int) bool {
+		if allAggregations[i].spaceName != allAggregations[j].spaceName {
+			return allAggregations[i].spaceName < allAggregations[j].spaceName
+		}
+		return allAggregations[i].aggregateName < allAggregations[j].aggregateName
+	})
+
+	currentSpace := ""
+	for _, agg := range allAggregations {
+		if currentSpace != agg.spaceName {
+			if currentSpace != "" {
+				collections.WriteString("\n")
+			}
+			currentSpace = agg.spaceName
+			indent := strings.Repeat("  ", agg.depth)
+			collections.WriteString(fmt.Sprintf("%s%s %q:\n", indent, formatSpaceLabel(admin.SpaceKindByName[agg.spaceName]), agg.spaceName))
+		}
+
+		indent := strings.Repeat("  ", agg.depth+1)
+		collections.WriteString(fmt.Sprintf("%s%s as aggregation of:\n", indent, agg.aggregateName))
+		sort.Strings(agg.constituents)
+		for _, constituent := range agg.constituents {
+			collections.WriteString(fmt.Sprintf("%s  - %s\n", indent, constituent))
+		}
+	}
+
+	collections.WriteString("\n=== SPACE LEVEL CONTROLS ===\n\n")
+	for _, spaceName := range admin.SpaceOrder {
+		hasSpaceOn := len(admin.SpaceOnByName[spaceName]) > 0
+		hasSpaceOff := len(admin.SpaceOffByName[spaceName]) > 0
+
+		if hasSpaceOn || hasSpaceOff {
+			indent := strings.Repeat("  ", admin.SpaceDepthByName[spaceName])
+			collections.WriteString(fmt.Sprintf("%s%s %q:\n", indent, formatSpaceLabel(admin.SpaceKindByName[spaceName]), spaceName))
+
+			if hasSpaceOn {
+				collections.WriteString(fmt.Sprintf("%s  Lights to turn ON:\n", indent))
+				for _, light := range admin.SpaceOnByName[spaceName] {
+					collections.WriteString(fmt.Sprintf("%s    - %s\n", indent, light))
+				}
+			}
+
+			if hasSpaceOff {
+				collections.WriteString(fmt.Sprintf("%s  Controls to turn OFF:\n", indent))
+				for _, control := range admin.SpaceOffByName[spaceName] {
+					collections.WriteString(fmt.Sprintf("%s    - %s\n", indent, control))
+				}
+			}
+
+			collections.WriteString("\n")
+		}
+	}
+
+	collections.WriteString("\n=== COLLECTION STATISTICS ===\n")
+	collections.WriteString(fmt.Sprintf("Total aggregations: %d\n", len(allAggregations)))
+
+	collectionsReportPath, collectionsErr := writeDebugReport(root, house, DebugReportCollections, collections.String())
+	if collectionsErr != nil {
+		return fmt.Errorf("error writing collections report: %w", collectionsErr)
+	}
+	if collectionsReportPath != "" {
+		fmt.Printf("  collections report: %s\n", collectionsReportPath)
+	}
+	return nil
+}
+
+func parseSpaceHeader(line string) (string, string, bool) {
+	if !strings.HasSuffix(line, "with:") {
+		return "", "", false
+	}
+
+	spaceKind := SpaceKindRegular
+	header := line
+	if strings.HasPrefix(header, "virtual space ") {
+		spaceKind = SpaceKindVirtual
+		header = strings.TrimPrefix(header, "virtual space ")
+	} else if strings.HasPrefix(header, "space ") {
+		header = strings.TrimPrefix(header, "space ")
+	} else {
+		return "", "", false
+	}
+
+	if idx := strings.Index(header, " with"); idx > 0 {
+		return spaceKind, header[:idx], true
+	}
+
+	return spaceKind, "", true
+}
+
+func formatSpaceLabel(spaceKind string) string {
+	if spaceKind == SpaceKindVirtual {
+		return "Virtual space"
+	}
+	return "Space"
+}
+
+func formatSpacePath(spacePath []string) string {
+	if len(spacePath) == 0 {
+		return "root"
+	}
+	return strings.Join(spacePath, " / ")
+}
+
+func parseSpaceCollectionItems(itemsStr string) []string {
+	if itemsStr == "" {
+		return []string{}
+	}
+	parts := strings.Fields(itemsStr)
+	return parts
+}
+
+type TEntityDeclaration struct {
+	Specification string
+	NoCollect     bool
+}
+
+func extractEntityDeclaration(line string) (*TEntityDeclaration, bool) {
+	if !strings.HasPrefix(line, "entity ") {
+		return nil, false
+	}
+
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "entity "))
+	if rest == "" {
+		return nil, false
+	}
+
+	fields := strings.Fields(rest)
+	if len(fields) == 0 {
+		return nil, false
+	}
+
+	decl := &TEntityDeclaration{
+		Specification: strings.TrimSuffix(fields[0], ";"),
+		NoCollect:     false,
+	}
+
+	for _, field := range fields[1:] {
+		if strings.TrimSuffix(field, ";") == "no_collect" {
+			decl.NoCollect = true
+			break
+		}
+	}
+
+	return decl, true
+}
+
+func analyzeEntityDefinitionContext(lines []string, entityLineIdx int) (bool, []string) {
+	if entityLineIdx < 0 || entityLineIdx >= len(lines) {
+		return false, nil
+	}
+
+	line := strings.TrimSpace(lines[entityLineIdx])
+	if !strings.HasPrefix(line, "entity ") {
+		return false, nil
+	}
+
+	hasDefinitionOrImported := false
+	optionKeys := map[string]bool{}
+
+	consume := func(statement string) {
+		clean := strings.TrimSpace(strings.TrimSuffix(statement, ";"))
+		if clean == "" {
+			return
+		}
+
+		lower := strings.ToLower(clean)
+		// "definition as ..." (legacy prefix), "imported ...", and bare definitional
+		// keywords all mark the entity as defined by this system (not assumed from HA).
+		for _, kw := range []string{
+			"definition as ", "imported ",
+			"adjustment ", "cli_switch ", "cli_sensor ", "condition ", "value ", "available ",
+		} {
+			if strings.HasPrefix(lower, kw) {
+				hasDefinitionOrImported = true
+				return
+			}
+		}
+
+		fields := strings.Fields(lower)
+		if len(fields) == 0 {
+			return
+		}
+
+		optionKeys[fields[0]] = true
+	}
+
+	if withIdx := strings.Index(line, " with "); withIdx >= 0 && !strings.HasSuffix(line, " with:") {
+		consume(line[withIdx+len(" with "):])
+	}
+
+	if strings.HasSuffix(line, " with") {
+		for i := entityLineIdx + 1; i < len(lines); i++ {
+			next := strings.TrimSpace(lines[i])
+			if next == "" || strings.HasPrefix(next, "#") {
+				continue
+			}
+			consume(next)
+			break
+		}
+	}
+
+	if strings.HasSuffix(line, " with:") {
+		depth := 1
+		for i := entityLineIdx + 1; i < len(lines); i++ {
+			next := strings.TrimSpace(lines[i])
+			if next == "" || strings.HasPrefix(next, "#") {
+				continue
+			}
+
+			if strings.HasSuffix(next, " with:") {
+				depth++
+				continue
+			}
+
+			if next == "end;" {
+				depth--
+				if depth == 0 {
+					break
+				}
+				continue
+			}
+
+			if depth == 1 {
+				consume(next)
+			}
+		}
+	}
+
+	keys := []string{}
+	for key := range optionKeys {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	return hasDefinitionOrImported, keys
+}
+
+func normalizeEntityFullName(spec string, spacePath []string) string {
+	spec = strings.TrimSpace(strings.TrimSuffix(spec, ";"))
+	if spec == "" {
+		return spec
+	}
+
+	if strings.Contains(spec, ".[") {
+		return spec
+	}
+
+	if isExtensionalEntityReference(spec) {
+		return spec
+	}
+
+	dotIdx := strings.Index(spec, ".")
+	if dotIdx <= 0 || dotIdx >= len(spec)-1 {
+		return strings.ReplaceAll(spec, ":", "/")
+	}
+
+	typePart := spec[:dotIdx]
+	remainder := spec[dotIdx+1:]
+	colonIdx := strings.Index(remainder, ":")
+	var spherePart, rawPathPart string
+	if colonIdx < 0 {
+		// If remainder is itself a sphere name (e.g. "cover.social" with no colon or slash),
+		// treat it as type.sphere with an empty path — the path comes entirely from the space context.
+		if isKnownSphere(remainder) {
+			spherePart = remainder
+			rawPathPart = ""
+		} else {
+			spherePart, _ = lookupDefaultSphere(typePart)
+			if spherePart == "" {
+				spherePart = "social"
+			}
+			rawPathPart = remainder
+		}
+	} else {
+		spherePart = remainder[:colonIdx]
+		rawPathPart = remainder[colonIdx+1:]
+	}
+
+	if spherePart == "_" {
+		rawName := strings.TrimPrefix(rawPathPart, "/")
+		if rawName != "" {
+			return fmt.Sprintf("%s.[%s]", typePart, rawName)
+		}
+	}
+	pathPart := rawPathPart
+	pathPart = strings.ReplaceAll(pathPart, ":", "/")
+	_, contextPath := normalizeSpaceContext(spacePath)
+
+	if contextPath != "" {
+		contextParts := strings.Split(contextPath, "/")
+		if len(contextParts) > 0 && contextParts[0] == spherePart {
+			contextPath = strings.Join(contextParts[1:], "/")
+		}
+	}
+
+	if strings.HasPrefix(rawPathPart, "/") {
+		pathPart = strings.TrimPrefix(pathPart, "/")
+	} else {
+		pathPart = strings.TrimPrefix(pathPart, "/")
+		pathPart = strings.Trim(pathPart, "/")
+		if contextPath != "" {
+			if pathPart == "" {
+				pathPart = contextPath
+			} else {
+				pathPart = contextPath + "/" + pathPart
+			}
+		}
+	}
+	pathPart = strings.Trim(pathPart, "/")
+
+	if pathPart == "" {
+		return fmt.Sprintf("%s.%s", typePart, spherePart)
+	}
+
+	return fmt.Sprintf("%s.%s/%s", typePart, spherePart, pathPart)
+}
+
+func isExtensionalEntityReference(spec string) bool {
+	dotIdx := strings.Index(spec, ".")
+	slashIdx := strings.Index(spec, "/")
+	if dotIdx > 0 && slashIdx > dotIdx {
+		afterDot := spec[dotIdx+1:]
+		// A spec is only extensional if it has at least one '/' after the dot AND
+		// contains no ':' — a remaining ':' means the space path still needs inserting.
+		if strings.Count(afterDot, "/") >= 1 && !strings.Contains(afterDot, ":") {
+			return true
+		}
+	}
+	return false
+}
+
+// hasSecondColonSeparator reports whether an entity specification contains a legacy
+// sub-domain separator: a second ':' that is not part of a '::' relative-path prefix.
+// Example: "sensor.physical:dishwasher/robb:temperature" is invalid — use '/' instead.
+func hasSecondColonSeparator(spec string) bool {
+	dotIdx := strings.Index(spec, ".")
+	if dotIdx < 0 {
+		return false
+	}
+	remainder := spec[dotIdx+1:]
+	colonIdx := strings.Index(remainder, ":")
+	if colonIdx < 0 {
+		return false
+	}
+	pathPart := remainder[colonIdx+1:]
+	// '::' relative-path prefix: skip the second colon and check the rest.
+	if strings.HasPrefix(pathPart, ":") {
+		pathPart = pathPart[1:]
+	}
+	return strings.Contains(pathPart, ":")
+}
+
+func extractEntityIdentity(fullName string) TEntityIdentity {
+	identity := TEntityIdentity{}
+
+	dotIdx := strings.Index(fullName, ".")
+	if dotIdx <= 0 || dotIdx >= len(fullName)-1 {
+		return identity
+	}
+
+	identity.Domain = fullName[:dotIdx]
+	remainder := fullName[dotIdx+1:]
+
+	if strings.HasPrefix(remainder, "[") && strings.HasSuffix(remainder, "]") {
+		identity.IsRaw = true
+		identity.RawName = strings.TrimSuffix(strings.TrimPrefix(remainder, "["), "]")
+		return identity
+	}
+
+	slashIdx := strings.Index(remainder, "/")
+	if slashIdx < 0 {
+		identity.Sphere = remainder
+		return identity
+	}
+
+	identity.Sphere = remainder[:slashIdx]
+	if slashIdx+1 < len(remainder) {
+		identity.Path = remainder[slashIdx+1:]
+	}
+
+	return identity
+}
+
+func formatNestedSpaceName(spacePath []string) string {
+	if len(spacePath) == 0 {
+		return "root"
+	}
+
+	spaceType, contextPath := normalizeSpaceContext(spacePath)
+	if spaceType == "" {
+		if contextPath == "" {
+			return "root"
+		}
+		return contextPath
+	}
+	if contextPath == "" {
+		return spaceType
+	}
+	return fmt.Sprintf("%s/%s", spaceType, contextPath)
+}
+
+func nestedSpaceDepth(spacePath []string) int {
+	if len(spacePath) == 0 {
+		return 0
+	}
+
+	_, contextPath := normalizeSpaceContext(spacePath)
+	if contextPath == "" {
+		return 0
+	}
+
+	parts := strings.Split(contextPath, "/")
+	if len(parts) <= 1 {
+		return 0
+	}
+	return len(parts) - 1
+}
+
+func normalizeSpaceContext(spacePath []string) (string, string) {
+	spaceType := ""
+	contextParts := []string{}
+	first := true
+	for _, segment := range spacePath {
+		segmentType, segmentName := splitSpaceSegment(segment)
+		if first {
+			if segmentType != "" {
+				spaceType = segmentType
+			}
+			segmentName = strings.ReplaceAll(segmentName, ":", "/")
+			segmentName = strings.Trim(segmentName, "/")
+			if segmentName != "" {
+				contextParts = append(contextParts, strings.Split(segmentName, "/")...)
+			}
+			first = false
+		} else {
+			segmentName = strings.ReplaceAll(segmentName, ":", "/")
+			segmentName = strings.Trim(segmentName, "/")
+			if segmentName != "" {
+				contextParts = append(contextParts, strings.Split(segmentName, "/")...)
+			}
+		}
+	}
+	return spaceType, strings.Join(contextParts, "/")
+}
+
+func splitSpaceSegment(segment string) (string, string) {
+	if idx := strings.Index(segment, ":"); idx >= 0 {
+		return segment[:idx], segment[idx+1:]
+	}
+	return "", segment
+}
+
+func impliedAggregatesForSpace(spaceName, spaceKind string, spaceOrder []string, entityRecordsBySpace map[string][]TEntityRecord) []string {
+	aggregates := []string{}
+
+	sensorMetricAggregates := map[string]bool{}
+	includeSensorAggregates := spaceKind != SpaceKindVirtual
+
+	hasLightEntities := false
+	hasMediaSwitch := false
+	hasSpaceSwitch := false
+	for _, record := range entityRecordsBySpace[spaceName] {
+		if record.NoCollect {
+			continue
+		}
+		if record.Identity.Domain == "light" {
+			hasLightEntities = true
+		}
+		if record.Identity.Domain == "switch" && record.Identity.Sphere == "social" {
+			if lastPathSegment(record.Identity.Path) == "media" {
+				hasMediaSwitch = true
+			}
+			if lastPathSegment(record.Identity.Path) == "space" {
+				hasSpaceSwitch = true
+			}
+		}
+		if record.Identity.Domain == "sensor" && includeSensorAggregates {
+			metric := lastPathSegment(record.Identity.Path)
+			if isAggregateSensorMetric(metric) {
+				sensorMetricAggregates[metric] = true
+			}
+		}
+	}
+	spacePath := spaceName
+	if strings.HasPrefix(spacePath, "social/") {
+		spacePath = strings.TrimPrefix(spacePath, "social/")
+	}
+	if hasLightEntities {
+		aggregates = append(aggregates, fmt.Sprintf("light.social/%s", spacePath))
+	}
+	if hasMediaSwitch {
+		aggregates = append(aggregates, fmt.Sprintf("switch.social/%s/media", spacePath))
+	}
+	if hasSpaceSwitch {
+		aggregates = append(aggregates, fmt.Sprintf("switch.social/%s/space", spacePath))
+	}
+
+	metrics := []string{}
+	for metric := range sensorMetricAggregates {
+		metrics = append(metrics, metric)
+	}
+	sort.Strings(metrics)
+	for _, metric := range metrics {
+		aggregates = append(aggregates, fmt.Sprintf("sensor.%s/%s", spaceName, metric))
+	}
+
+	return aggregates
+}
+
+func lastPathSegment(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	parts := strings.Split(path, "/")
+	return parts[len(parts)-1]
+}
+
+func extractSubdomain(identity TEntityIdentity) string {
+	if identity.IsRaw {
+		return "raw"
+	}
+
+	if identity.Domain != "" {
+		if identity.Sphere != "" {
+			return fmt.Sprintf("%s:%s", identity.Domain, identity.Sphere)
+		}
+		return identity.Domain
+	}
+
+	return ""
+}
+
+func extractDomainFromAggregate(aggregate string) string {
+	parts := strings.Split(aggregate, ".")
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return "unknown"
+}
+
+func findAggregateConstituents(aggregateName, spaceName string, spaceOrder []string, entityRecordsBySpace map[string][]TEntityRecord) []string {
+	constituents := []string{}
+
+	if strings.HasPrefix(aggregateName, "switch.social/") {
+		for _, rec := range entityRecordsBySpace[spaceName] {
+			if rec.NoCollect {
+				continue
+			}
+			if rec.Identity.Domain == "switch" && rec.Identity.Sphere == "social" {
+				if rec.Name == aggregateName {
+					continue
+				}
+				if aggregateName == fmt.Sprintf("switch.social/%s/media", spaceName) && lastPathSegment(rec.Identity.Path) == "media" {
+					constituents = append(constituents, rec.Name)
+				}
+				if aggregateName == fmt.Sprintf("switch.social/%s/space", spaceName) && lastPathSegment(rec.Identity.Path) == "space" {
+					constituents = append(constituents, rec.Name)
+				}
+			}
+		}
+		return normalizeFullNames(constituents, spaceName)
+	}
+
+	if strings.HasPrefix(aggregateName, "sensor.") {
+		idx := strings.LastIndex(aggregateName, "/")
+		if idx < 0 {
+			return constituents
+		}
+		metric := aggregateName[idx+1:]
+		for _, rec := range entityRecordsBySpace[spaceName] {
+			if rec.NoCollect {
+				continue
+			}
+			if rec.Identity.Domain == "sensor" && lastPathSegment(rec.Identity.Path) == metric {
+				constituents = append(constituents, rec.Name)
+			}
+		}
+		return normalizeFullNames(constituents, spaceName)
+	}
+
+	return normalizeFullNames(constituents, spaceName)
+}
+
+func normalizeFullNames(names []string, spaceName string) []string {
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		out = append(out, normalizeEntityFullName(n, strings.Split(spaceName, "/")))
+	}
+	return out
+}
+
+type TCollectedExpandedEntityRecord struct {
+	SpacePath []string
+	Record    TEntityRecord
+}
+
+func collectExpandedEntityRecords(ctx *TMacroExpansionContext, invocation *TMacroInvocation, spacePath []string, inheritedNoCollect bool, callChain string) ([]TCollectedExpandedEntityRecord, error) {
+	if _, exists := ctx.Macros[invocation.Name]; !exists {
+		return nil, fmt.Errorf("unknown macro: %s", invocation.Name)
+	}
+
+	expandedLines, _, err := ctx.ExpandMacro(invocation, spacePath)
+	if err != nil {
+		return nil, err
+	}
+
+	records := []TCollectedExpandedEntityRecord{}
+	currentSpacePath := append([]string{}, spacePath...)
+	openBlocks := []string{}
+	// savedSpacePaths[i] is non-nil when openBlocks[i] is an absolute-path space: it holds
+	// the currentSpacePath to restore when that block is closed.
+	savedSpacePaths := [][]string{}
+	// savedNoCollect[i] holds the currentNoCollect value active before block i was opened,
+	// so it can be restored when that block closes.
+	savedNoCollect := []bool{}
+	currentNoCollect := inheritedNoCollect || invocationHasNoCollect(invocation)
+
+	for idx := 0; idx < len(expandedLines); idx++ {
+		rawLine := expandedLines[idx]
+		trimmed := strings.TrimSpace(rawLine)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		if entityDecl, ok := extractExpandedEntityDeclaration(trimmed); ok {
+			fullName := normalizeEntityFullName(entityDecl.Specification, currentSpacePath)
+			// Use the same logic as ParseEntitiesAndFillAdministration: inspect the entity
+			// line and its inline/block body to determine whether it is self-defined or assumed.
+			hasDefOrImport, _ := analyzeEntityDefinitionContext(expandedLines, idx)
+			records = append(records, TCollectedExpandedEntityRecord{
+				SpacePath: append([]string{}, currentSpacePath...),
+				Record: TEntityRecord{
+					Name:                  fullName,
+					Identity:              extractEntityIdentity(fullName),
+					NoCollect:             entityDecl.NoCollect || currentNoCollect,
+					HasDefinitionOrImport: hasDefOrImport,
+					Provenance:            callChain,
+				},
+			})
+			continue
+		}
+
+		if nestedInvocation, ok := extractNestedMacroInvocation(trimmed); ok {
+			parsedInvocation, parseErr := ctx.ParseMacroInvocation(nestedInvocation)
+			if parseErr != nil {
+				return nil, fmt.Errorf("cannot parse nested macro invocation %q: %w", nestedInvocation, parseErr)
+			}
+			if isTemplatedMacroName(parsedInvocation.Name) {
+				continue
+			}
+			if _, exists := ctx.Macros[parsedInvocation.Name]; !exists {
+				return nil, fmt.Errorf("unknown macro: %s", parsedInvocation.Name)
+			}
+
+			nestedChain := callChain + " → " + parsedInvocation.Name + " " + parsedInvocation.Target
+			nestedRecords, nestedErr := collectExpandedEntityRecords(ctx, parsedInvocation, currentSpacePath, currentNoCollect, nestedChain)
+			if nestedErr != nil {
+				return nil, nestedErr
+			}
+			records = append(records, nestedRecords...)
+			continue
+		}
+
+		// Multi-line "call <macro> <concrete-target> with: ... end;" forms in expanded bodies.
+		// Collect the full block, parse it as a single invocation, and recurse.
+		// Relative-path targets (starting with ':') and variable targets ('$') are skipped.
+		if strings.HasPrefix(trimmed, "call ") && strings.HasSuffix(trimmed, "with:") {
+			parts := strings.Fields(trimmed)
+			if len(parts) >= 3 {
+				macroName := parts[1]
+				target := parts[2]
+				if _, exists := ctx.Macros[macroName]; exists &&
+					!strings.HasPrefix(target, ":") && !strings.Contains(target, "${") &&
+					!isTemplatedMacroName(macroName) {
+					multiLineText := trimmed
+					j := idx + 1
+					for ; j < len(expandedLines); j++ {
+						nextTrimmed := strings.TrimSpace(expandedLines[j])
+						multiLineText += "\n" + nextTrimmed
+						if nextTrimmed == "end;" {
+							break
+						}
+					}
+					idx = j
+					parsedNestedInvocation, parseErr := ctx.ParseMacroInvocation(multiLineText)
+					if parseErr == nil {
+						nestedChain := callChain + " → " + macroName + " " + target
+						nestedRecords, nestedErr := collectExpandedEntityRecords(ctx, parsedNestedInvocation, currentSpacePath, currentNoCollect, nestedChain)
+						if nestedErr == nil {
+							records = append(records, nestedRecords...)
+						}
+					}
+				}
+			}
+			continue
+		}
+
+		// Follow single-line "call <macro> <concrete-target> ...;" invocations.
+		// Relative-path targets (starting with ':') and variable targets ('$') cannot be
+		// re-expanded correctly here — they depend on the original call-site context and
+		// are handled at the top level by ParseEntitiesAndFillAdministration.
+		if strings.HasPrefix(trimmed, "call ") && strings.HasSuffix(trimmed, ";") {
+			parts := strings.Fields(trimmed)
+			if len(parts) >= 3 {
+				macroName := parts[1]
+				target := strings.TrimSuffix(parts[2], ";")
+				if _, exists := ctx.Macros[macroName]; exists &&
+					!strings.HasPrefix(target, ":") && !strings.Contains(target, "${") &&
+					!isTemplatedMacroName(macroName) {
+					parsedInvocation, parseErr := ctx.ParseMacroInvocation(trimmed)
+					if parseErr == nil {
+						nestedChain := callChain + " → " + macroName + " " + target
+						nestedRecords, nestedErr := collectExpandedEntityRecords(ctx, parsedInvocation, currentSpacePath, currentNoCollect, nestedChain)
+						if nestedErr == nil {
+							records = append(records, nestedRecords...)
+						}
+					}
+				}
+			}
+			continue
+		}
+
+		if spaceKind, spaceName, ok := parseSpaceHeader(trimmed); ok {
+			openBlocks = append(openBlocks, spaceKind)
+			savedNoCollect = append(savedNoCollect, currentNoCollect)
+			// An absolute-path space (e.g. "physical/apartment/living_room") has no ':'
+			// separator but starts with a known sphere name followed by '/'.
+			// It replaces the current space context rather than nesting inside it.
+			if isAbsoluteSpaceName(spaceName) {
+				savedSpacePaths = append(savedSpacePaths, append([]string{}, currentSpacePath...))
+				// Convert "sphere/rest" → "sphere:rest" so normalizeSpaceContext parses it correctly.
+				slashIdx := strings.Index(spaceName, "/")
+				currentSpacePath = []string{spaceName[:slashIdx] + ":" + spaceName[slashIdx+1:]}
+			} else {
+				savedSpacePaths = append(savedSpacePaths, nil)
+				if spaceName == "" {
+					currentSpacePath = append(currentSpacePath, "?")
+				} else {
+					currentSpacePath = append(currentSpacePath, spaceName)
+				}
+			}
+			continue
+		}
+
+		if strings.HasSuffix(trimmed, "with:") {
+			openBlocks = append(openBlocks, "other")
+			savedSpacePaths = append(savedSpacePaths, nil)
+			savedNoCollect = append(savedNoCollect, currentNoCollect)
+			continue
+		}
+
+		// A bare "no_collect;" statement inside a space body marks all entities
+		// in the current block (and nested blocks) as no_collect.
+		if trimmed == "no_collect;" {
+			currentNoCollect = true
+			continue
+		}
+
+		if trimmed == "end;" {
+			if len(openBlocks) == 0 {
+				continue
+			}
+
+			last := openBlocks[len(openBlocks)-1]
+			openBlocks = openBlocks[:len(openBlocks)-1]
+			var savedPath []string
+			if len(savedSpacePaths) > 0 {
+				savedPath = savedSpacePaths[len(savedSpacePaths)-1]
+				savedSpacePaths = savedSpacePaths[:len(savedSpacePaths)-1]
+			}
+			// Restore no_collect state for the enclosing block.
+			if len(savedNoCollect) > 0 {
+				currentNoCollect = savedNoCollect[len(savedNoCollect)-1]
+				savedNoCollect = savedNoCollect[:len(savedNoCollect)-1]
+			}
+			if last == SpaceKindRegular || last == SpaceKindVirtual {
+				if savedPath != nil {
+					// Restore the space path saved when the absolute-path space was opened.
+					currentSpacePath = savedPath
+				} else if len(currentSpacePath) > 0 {
+					currentSpacePath = currentSpacePath[:len(currentSpacePath)-1]
+				}
+			}
+		}
+	}
+
+	return records, nil
+}
+
+func extractExpandedEntityDeclaration(line string) (*TEntityDeclaration, bool) {
+	trimmed := strings.TrimSpace(line)
+	if strings.Contains(trimmed, "= entity ") {
+		parts := strings.SplitN(trimmed, "= entity ", 2)
+		if len(parts) == 2 {
+			trimmed = "entity " + strings.TrimSpace(parts[1])
+		}
+	}
+
+	decl, ok := extractEntityDeclaration(trimmed)
+	if !ok {
+		return nil, false
+	}
+	if !isConcreteEntitySpecification(decl.Specification) {
+		return nil, false
+	}
+	return decl, true
+}
+
+func extractNestedMacroInvocation(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if strings.HasPrefix(trimmed, "entity ") {
+		rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "entity "))
+		fields := strings.Fields(rest)
+		if len(fields) == 0 {
+			return "", false
+		}
+		// A variable reference (${foo}) is a parameterised entity name, not a macro call.
+		if strings.HasPrefix(fields[0], "${") {
+			return "", false
+		}
+		if !isConcreteEntitySpecification(fields[0]) {
+			return rest, true
+		}
+	}
+	return "", false
+}
+
+func validateMacroDefinitionOrdering(ctx *TMacroExpansionContext) error {
+	for _, macro := range ctx.Macros {
+		for _, rawLine := range macro.Body {
+			trimmed := strings.TrimSpace(rawLine)
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+				continue
+			}
+
+			nestedInvocation, ok := extractNestedMacroInvocation(trimmed)
+			if !ok {
+				continue
+			}
+
+			invocation, err := ctx.ParseMacroInvocation(nestedInvocation)
+			if err != nil {
+				return fmt.Errorf("macro %q contains invalid nested invocation %q: %w", macro.Name, nestedInvocation, err)
+			}
+
+			if isTemplatedMacroName(invocation.Name) {
+				continue
+			}
+
+			calledMacro, exists := ctx.Macros[invocation.Name]
+			if !exists {
+				return fmt.Errorf("macro %q invokes unknown macro %q", macro.Name, invocation.Name)
+			}
+
+			if calledMacro.SourceLine >= macro.SourceLine {
+				return fmt.Errorf("macro %q invokes %q before textual definition (caller line %d, callee line %d)", macro.Name, invocation.Name, macro.SourceLine, calledMacro.SourceLine)
+			}
+		}
+	}
+
+	return nil
+}
+
+func isTemplatedMacroName(name string) bool {
+	return strings.Contains(name, "$") || strings.Contains(name, "<") || strings.Contains(name, ">")
+}
+
+func isConcreteEntitySpecification(spec string) bool {
+	trimmed := strings.TrimSpace(strings.TrimSuffix(spec, ";"))
+	return strings.Contains(trimmed, ".[") || strings.Contains(trimmed, ".")
+}
+
+func invocationHasNoCollect(invocation *TMacroInvocation) bool {
+	for key, value := range canonicalInvocationParameters(invocation.Parameters) {
+		if key == "nocollect" {
+			return strings.EqualFold(strings.TrimSpace(value), "true")
+		}
+	}
+	return false
+}
+
+func isAggregateSensorMetric(metric string) bool {
+	switch metric {
+	case "temperature", "humidity", "co2", "pressure", "illuminance", "noise", "wind_speed", "wind_direction":
+		return true
+	default:
+		return false
+	}
+}
+
+func isMacroInvocation(line string, macros map[string]*TParsedCreationMacro) bool {
+	parts := strings.Fields(line)
+	if len(parts) < 1 {
+		return false
+	}
+
+	startIdx := 0
+	if parts[0] == "call" && len(parts) > 1 {
+		startIdx = 1
+	}
+
+	macroName := parts[startIdx]
+	_, exists := macros[macroName]
+	return exists
+}
+
+func extractCallInvocationMacroName(line string) (string, bool) {
+	parts := strings.Fields(line)
+	if len(parts) < 2 {
+		return "", false
+	}
+	if parts[0] == "call" {
+		return parts[1], true
+	}
 	return "", false
 }

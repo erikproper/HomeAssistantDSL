@@ -4,9 +4,9 @@
 # Source: Old/Junglinster/Definitions/00_server.def
 
 if is up "junglinster.fritz.box" then
-  $MainInstance = "http://junglinster.fritz.box:8123";
+  ${main_instance} = "http://junglinster.fritz.box:8123";
 else
-  $MainInstance = "https://junglinster.homelinux.org";
+  ${main_instance} = "https://junglinster.homelinux.org";
 end;
 
-main junglinster $MainInstance;
+main junglinster ${main_instance};

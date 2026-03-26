@@ -5,4 +5,4 @@
 
 # Secret-bearing bridge parameters are externalized and referenced as variables.
 
-bridge rest junglinster $JunglinsterInstance/api/states authorization $JunglinsterAPIToken;
+bridge rest junglinster ${junglinster_instance}/api/states authorization ${junglinster_api_token};
