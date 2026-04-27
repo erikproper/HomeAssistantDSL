@@ -1,8 +1,1 @@
-# Migrated preview; generated on 18.03.2026.
-# House: Vienna
-# Target: Bridges.def
-# Source: Old/Vienna/Definitions/01_bridges.def
-
-# Secret-bearing bridge parameters are externalized and referenced as variables.
-
 bridge rest junglinster ${junglinster_instance}/api/states authorization ${junglinster_api_token};

@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -58,8 +59,9 @@ type TParsedCreationMacro struct {
 }
 
 type TMacroExpansionContext struct {
-	Macros map[string]*TParsedCreationMacro
-	Config TExpanderConfig
+	Macros   map[string]*TParsedCreationMacro
+	Config   TExpanderConfig
+	Settings map[string]string // bare variable names → values (from Settings.def), e.g. "wind_speed_min" → "0"
 }
 
 type TExpanderConfig struct {
@@ -198,6 +200,18 @@ func processConditionals(lines []string) []string {
 		}
 	}
 	return output
+}
+
+// resolveSettingsVar replaces a single ${varname} reference with its value from the settings map.
+// Returns the original string unchanged if it contains no variable reference or the name is not found.
+func resolveSettingsVar(s string, settings map[string]string) string {
+	if strings.HasPrefix(s, "${") && strings.HasSuffix(s, "}") {
+		name := strings.ToLower(s[2 : len(s)-1])
+		if val, ok := settings[name]; ok {
+			return strings.Trim(val, "\"")
+		}
+	}
+	return s
 }
 
 // extractVariableName strips ${...} or $ prefix and any .accessor suffix, returning the bare name.
@@ -613,7 +627,7 @@ func (ctx *TMacroExpansionContext) ExpandMacro(invocation *TMacroInvocation, spa
 	for _, param := range macro.Parameters {
 		if param.Positional && posArgIdx < len(positionalArgs) {
 			rawArg := positionalArgs[posArgIdx]
-			castedArg := castParamValue(rawArg, param.Kind)
+			castedArg := resolveParamValue(rawArg, param.Kind, spacePath)
 			substitutions[param.Name] = castedArg
 			posArgIdx++
 		}
@@ -627,12 +641,20 @@ func (ctx *TMacroExpansionContext) ExpandMacro(invocation *TMacroInvocation, spa
 		}
 		paramKey := normalizeParameterKey(param.Name)
 		if value, provided := canonicalParameters[paramKey]; provided {
-			substitutions[param.Name] = castParamValue(value, param.Kind)
+			substitutions[param.Name] = resolveParamValue(value, param.Kind, spacePath)
 			continue
 		}
 		snakeKey := toSnakeCase(paramKey)
 		if value, provided := invocation.Parameters[snakeKey]; provided {
-			substitutions[param.Name] = castParamValue(value, param.Kind)
+			substitutions[param.Name] = resolveParamValue(value, param.Kind, spacePath)
+		}
+	}
+
+	// Inject settings variables so macro bodies can reference e.g. ${wind_speed_min}.
+	for name, value := range ctx.Settings {
+		key := "${" + name + "}"
+		if _, already := substitutions[key]; !already {
+			substitutions[key] = value
 		}
 	}
 
@@ -671,10 +693,59 @@ func (ctx *TMacroExpansionContext) ExpandMacro(invocation *TMacroInvocation, spa
 		for placeholder, value := range substitutions {
 			expandedLine = strings.ReplaceAll(expandedLine, placeholder, value)
 		}
+		// Handle "maybe <param>;" — emit the directive only if the named parameter was provided.
+		// "maybe X;" with ${X}="val" → "X val;"; with ${X}=true → "X;"; with ${X}="" → dropped.
+		trimmedLine := strings.TrimSpace(expandedLine)
+		if strings.HasPrefix(trimmedLine, "maybe ") && strings.HasSuffix(trimmedLine, ";") {
+			paramName := strings.TrimSuffix(strings.TrimPrefix(trimmedLine, "maybe "), ";")
+			paramName = strings.TrimSpace(paramName)
+			value := substitutions["${"+paramName+"}"]
+			switch {
+			case value == "" || strings.EqualFold(value, "false"):
+				expandedLine = "" // drop
+			case strings.EqualFold(value, "true"):
+				expandedLine = paramName + ";"
+			default:
+				expandedLine = paramName + " " + value + ";"
+			}
+		}
 		substituted = append(substituted, expandedLine)
 	}
 
-	return processConditionals(substituted), nil, nil
+	return resolveLocalVarAssignments(processConditionals(substituted), spacePath), nil, nil
+}
+
+// resolveLocalVarAssignments does a sequential second pass over expanded macro body lines to
+// substitute macro-local variable assignments of the form "${var} = entity <spec> ...".
+// Parameters and settings are already resolved at this point; local vars are needed so that
+// subsequent references like "media_switch ${media_player}" see the fully-qualified entity name.
+func resolveLocalVarAssignments(lines []string, spacePath []string) []string {
+	localVars := map[string]string{}
+	result := make([]string, len(lines))
+	for i, line := range lines {
+		for k, v := range localVars {
+			line = strings.ReplaceAll(line, k, v)
+		}
+		result[i] = line
+		trimmed := strings.TrimSpace(line)
+		if eqIdx := strings.Index(trimmed, " = entity "); eqIdx > 0 {
+			varName := strings.TrimSpace(trimmed[:eqIdx])
+			if strings.HasPrefix(varName, "${") && strings.HasSuffix(varName, "}") {
+				rest := strings.TrimSpace(trimmed[eqIdx+len(" = entity "):])
+				entitySpec := rest
+				if idx := strings.Index(rest, " with:"); idx >= 0 {
+					entitySpec = rest[:idx]
+				} else if idx := strings.Index(rest, " with "); idx >= 0 {
+					entitySpec = rest[:idx]
+				}
+				entitySpec = strings.TrimSuffix(strings.TrimSpace(entitySpec), ";")
+				if entitySpec != "" && !strings.Contains(entitySpec, "${") {
+					localVars[varName] = normalizeEntityFullName(entitySpec, spacePath)
+				}
+			}
+		}
+	}
+	return result
 }
 
 // parseEntityComponents splits an entity spec into domain, sphere, and path.
@@ -684,6 +755,13 @@ func parseEntityComponents(entityValue string) (domain, sphere, path string) {
 	path = entityValue
 	dotIdx := strings.Index(entityValue, ".")
 	if dotIdx <= 0 {
+		// No domain. Detect sphere/path or sphere:path form (e.g. "social/apartment/kitchen").
+		if sepIdx := strings.IndexAny(entityValue, ":/"); sepIdx > 0 {
+			if isKnownSphereName(entityValue[:sepIdx]) {
+				sphere = entityValue[:sepIdx]
+				path = entityValue[sepIdx+1:]
+			}
+		}
 		return
 	}
 	domain = entityValue[:dotIdx]
@@ -765,13 +843,32 @@ func isKnownSubDomain(name string) bool {
 	return false
 }
 
+// resolveParamValue extends castParamValue with space-context resolution for entity_space_path.
+// A ':'-prefixed value is space-relative: the ':' is replaced by the normalised space context
+// path (sphere excluded), so that ${entity_space_path} always holds the fully-qualified path.
+func resolveParamValue(value string, targetKind TParameterKind, spacePath []string) string {
+	if targetKind == ParamEntitySpacePath && strings.HasPrefix(value, ":") {
+		rel := strings.TrimPrefix(value, ":")
+		_, contextPath := normalizeSpaceContext(spacePath)
+		if contextPath == "" {
+			return rel
+		}
+		if rel == "" {
+			return contextPath
+		}
+		return contextPath + "/" + rel
+	}
+	return castParamValue(value, targetKind)
+}
+
 // castParamValue applies implicit type casting so wider types can satisfy narrower param types:
-//   entity_name  → entity_path:       strip "domain." prefix
-//   entity_name  → entity_space_path: strip "domain.sphere/" prefix
-//   entity_path  → entity_space_path: strip "sphere/" prefix
-// A leading ':' on entity_space_path marks a space-relative path; the ':' is stripped here and
-// the actual spacePath prefix is injected by the caller (ExpandMacro).
+//
+//	entity_name  → entity_path:       strip "domain." prefix
+//	entity_name  → entity_space_path: strip "domain.sphere/" prefix
+//	entity_path  → entity_space_path: strip "sphere/" prefix
+//
 // Values that already match the target kind are returned unchanged.
+// Space-relative ':'-prefixed entity_space_path values are handled by resolveParamValue.
 func castParamValue(value string, targetKind TParameterKind) string {
 	switch targetKind {
 	case ParamEntityPath:
@@ -780,12 +877,6 @@ func castParamValue(value string, targetKind TParameterKind) string {
 			return value[dotIdx+1:]
 		}
 	case ParamEntitySpacePath:
-		// ':'-prefixed value means "relative to calling space"; strip the marker here.
-		// The resulting bare path is combined with the context spacePath by normalizeEntityFullName
-		// when it appears in entity declarations within the expanded macro body.
-		if strings.HasPrefix(value, ":") {
-			return strings.TrimPrefix(value, ":")
-		}
 		// entity_name (has '.') → entity_space_path: drop "domain.sphere/" prefix
 		if dotIdx := strings.Index(value, "."); dotIdx > 0 {
 			afterDot := value[dotIdx+1:]
@@ -793,6 +884,11 @@ func castParamValue(value string, targetKind TParameterKind) string {
 				return afterDot[slashIdx+1:]
 			}
 			return afterDot
+		}
+		// An absolute entity_space_path written with a leading '/' (e.g. "/house/server_room/zwave/027")
+		// is already fully resolved — just strip the leading slash.
+		if strings.HasPrefix(value, "/") {
+			return strings.TrimPrefix(value, "/")
 		}
 		// entity_path (has '/') → entity_space_path: drop "sphere/" prefix, but only when
 		// the first segment is a known sphere name. An already-resolved entity_space_path
@@ -1712,6 +1808,14 @@ func normalizeEntityFullName(spec string, spacePath []string) string {
 
 	dotIdx := strings.Index(spec, ".")
 	if dotIdx <= 0 || dotIdx >= len(spec)-1 {
+		// Handle sphere:path form (entity_path without domain, e.g. "social:dishwasher").
+		// Delegate by prepending a dummy domain so the sphere/path logic below handles context.
+		if colonIdx := strings.Index(spec, ":"); colonIdx > 0 {
+			if isKnownSphere(spec[:colonIdx]) {
+				full := normalizeEntityFullName("_."+spec, spacePath)
+				return strings.TrimPrefix(full, "_.")
+			}
+		}
 		return strings.ReplaceAll(spec, ":", "/")
 	}
 
@@ -2056,6 +2160,276 @@ type TCollectedExpandedEntityRecord struct {
 	Record    TEntityRecord
 }
 
+// scanNodeBody scans the body lines of a providing-macro node entity for enabler and delay_off.
+// Returns the enabler HA entity ID (empty if none) and the delay_off value (empty if none).
+// startIdx points to the entity declaration line; body scanning starts at startIdx+1.
+func scanNodeBody(lines []string, startIdx int, spacePath []string) (enablerEntityID, delayOff string) {
+	depth := 0
+	for i := startIdx + 1; i < len(lines); i++ {
+		t := strings.TrimSpace(lines[i])
+		if t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		if strings.HasSuffix(t, "with:") {
+			depth++
+			continue
+		}
+		if t == "end;" {
+			if depth == 0 {
+				break
+			}
+			depth--
+			continue
+		}
+		if strings.HasPrefix(t, "condition ") {
+			// Condition format: condition entity [enabler] "template";
+			// Find the opening quote to separate entity refs from the template string.
+			quoteIdx := strings.Index(t, "\"")
+			if quoteIdx > len("condition ") {
+				beforeQuote := strings.TrimSpace(t[len("condition "):quoteIdx])
+				fields := strings.Fields(beforeQuote)
+				// fields[0] is the representative (may be unresolved ${representative_entity}).
+				// fields[1], if present, is the enabler entity spec.
+				if len(fields) >= 2 {
+					enablerSpec := fields[len(fields)-1]
+					enablerSpec = strings.TrimSuffix(enablerSpec, ";")
+					normalized := normalizeEntityFullName(enablerSpec, spacePath)
+					enablerEntityID = toHomeAssistantEntityID(normalized)
+				}
+			}
+		}
+		if strings.HasPrefix(t, "delay_off ") {
+			delayOff = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(t, "delay_off "), ";"))
+		}
+	}
+	return
+}
+
+// scanBatteryAlertBody extracts the integer alert threshold from a battery_alert entity body.
+// Returns 0 if the threshold cannot be parsed.
+func scanBatteryAlertBody(lines []string, startIdx int) int {
+	depth := 0
+	for i := startIdx + 1; i < len(lines); i++ {
+		t := strings.TrimSpace(lines[i])
+		if strings.HasSuffix(t, "with:") {
+			depth++
+			continue
+		}
+		if t == "end;" {
+			if depth == 0 {
+				break
+			}
+			depth--
+			continue
+		}
+		if strings.HasPrefix(t, "condition ") {
+			if ltIdx := strings.Index(t, "< "); ltIdx >= 0 {
+				rest := t[ltIdx+2:]
+				end := 0
+				for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
+					end++
+				}
+				if end > 0 {
+					if n, err := strconv.Atoi(rest[:end]); err == nil {
+						return n
+					}
+				}
+			}
+		}
+	}
+	return 0
+}
+
+// resolveConditionEntityID resolves an entity reference in a condition spec to a HA
+// entity ID.  If the reference is already a complete HA entity ID (no colon, maps to
+// itself under toHomeAssistantEntityID), it is used directly — bypassing space-context
+// normalisation.  This is required for raw-form references such as "sun.sun", which
+// must not be normalised to "sun.social_sun" by the space context.
+func resolveConditionEntityID(entityPart string, spacePath []string) string {
+	if !strings.Contains(entityPart, ":") {
+		if id := toHomeAssistantEntityID(entityPart); id == entityPart {
+			return id
+		}
+	}
+	return toHomeAssistantEntityID(normalizeEntityFullName(entityPart, spacePath))
+}
+
+// parseConditionSpec parses a single condition source spec which may be either
+// a plain entity reference or an entity with an attribute suffix ("entity!attr").
+// Returns a source token: "entity_id" for plain state access, or "entity_id!attr"
+// for attribute access via state_attr().
+func parseConditionSpec(spec string, spacePath []string) string {
+	spec = strings.TrimSuffix(spec, ";")
+	if strings.Contains(spec, "${") {
+		return "" // unresolved variable — skip
+	}
+	if bangIdx := strings.Index(spec, "!"); bangIdx > 0 {
+		entityPart := spec[:bangIdx]
+		attr := spec[bangIdx+1:]
+		entityID := resolveConditionEntityID(entityPart, spacePath)
+		if entityID == "" {
+			return ""
+		}
+		return entityID + "!" + attr
+	}
+	return resolveConditionEntityID(spec, spacePath)
+}
+
+// parseConditionDirective extracts sources and expression from a "condition ..." directive string.
+func parseConditionDirective(t string, spacePath []string) (sources []string, expr string) {
+	quoteIdx := strings.Index(t, "\"")
+	if quoteIdx <= len("condition ") {
+		return
+	}
+	beforeQuote := strings.TrimSpace(t[len("condition "):quoteIdx])
+	for _, spec := range strings.Fields(beforeQuote) {
+		if tok := parseConditionSpec(spec, spacePath); tok != "" {
+			sources = append(sources, tok)
+		}
+	}
+	afterQuote := t[quoteIdx+1:]
+	if closeIdx := strings.LastIndex(afterQuote, "\""); closeIdx >= 0 {
+		expr = afterQuote[:closeIdx]
+	}
+	return
+}
+
+// scanConditionBody extracts generic condition directive fields from an entity body.
+// Also checks the entity declaration line itself for an inline "with condition ..." clause.
+// Returns sources (normalised HA entity IDs, optionally with "!attr" suffix), expression,
+// device_class, delay_on, delay_off.
+func scanConditionBody(lines []string, startIdx int, spacePath []string) (sources []string, expr, deviceClass, delayOn, delayOff string) {
+	// Check for inline condition on the entity declaration line itself.
+	decl := strings.TrimSpace(lines[startIdx])
+	if withIdx := strings.Index(decl, " with condition "); withIdx >= 0 {
+		condPart := strings.TrimSpace(decl[withIdx+len(" with condition "):])
+		sources, expr = parseConditionDirective("condition "+condPart, spacePath)
+		return // inline form has no block body
+	}
+
+	depth := 0
+	for i := startIdx + 1; i < len(lines); i++ {
+		t := strings.TrimSpace(lines[i])
+		if t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		if strings.HasSuffix(t, "with:") {
+			depth++
+			continue
+		}
+		if t == "end;" {
+			if depth == 0 {
+				break
+			}
+			depth--
+			continue
+		}
+		if strings.HasPrefix(t, "condition ") && depth == 0 {
+			sources, expr = parseConditionDirective(t, spacePath)
+		}
+		if strings.HasPrefix(t, "device_class ") && depth == 0 {
+			deviceClass = strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(t, "device_class ")), ";")
+			deviceClass = strings.Trim(deviceClass, "\"")
+		}
+		if strings.HasPrefix(t, "delay_on ") && depth == 0 {
+			delayOn = strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(t, "delay_on ")), ";")
+		}
+		if strings.HasPrefix(t, "delay_off ") && depth == 0 {
+			delayOff = strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(t, "delay_off ")), ";")
+		}
+	}
+	return
+}
+
+// scanInputNumberBody extracts minimum, maximum, step, units, icon from an input_number entity body.
+func scanInputNumberBody(lines []string, startIdx int) (min, max, step, unit, icon string) {
+	depth := 0
+	for i := startIdx + 1; i < len(lines); i++ {
+		t := strings.TrimSpace(lines[i])
+		if strings.HasSuffix(t, "with:") {
+			depth++
+			continue
+		}
+		if t == "end;" {
+			if depth == 0 {
+				break
+			}
+			depth--
+			continue
+		}
+		val := func(prefix string) string {
+			return strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(t, prefix), ";"))
+		}
+		if strings.HasPrefix(t, "minimum ") {
+			min = val("minimum ")
+		} else if strings.HasPrefix(t, "maximum ") {
+			max = val("maximum ")
+		} else if strings.HasPrefix(t, "step ") {
+			step = val("step ")
+		} else if strings.HasPrefix(t, "units ") {
+			unit = strings.Trim(val("units "), "\"")
+		} else if strings.HasPrefix(t, "icon ") {
+			icon = strings.Trim(val("icon "), "\"")
+		}
+	}
+	return
+}
+
+// scanValueDirective returns the "value <expr>" body content with the entity spec
+// normalised to the fully qualified path form using spacePath.
+func scanValueDirective(lines []string, startIdx int, spacePath []string) string {
+	depth := 0
+	for i := startIdx + 1; i < len(lines); i++ {
+		t := strings.TrimSpace(lines[i])
+		if strings.HasSuffix(t, "with:") {
+			depth++
+			continue
+		}
+		if t == "end;" {
+			if depth == 0 {
+				break
+			}
+			depth--
+			continue
+		}
+		if strings.HasPrefix(t, "value ") {
+			raw := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(t, "value "), ";"))
+			exclamIdx := strings.Index(raw, "!")
+			if exclamIdx > 0 {
+				entitySpec := raw[:exclamIdx]
+				attribute := raw[exclamIdx+1:]
+				normalised := normalizeEntityFullName(entitySpec, spacePath)
+				return normalised + "!" + attribute
+			}
+			return normalizeEntityFullName(raw, spacePath)
+		}
+	}
+	return ""
+}
+
+// scanMediaSwitchBody extracts the controlled media_player name and optional no-play-input
+// source name from a media_switch directive inside a switch entity body.
+// A no_play_input value that still contains "${" (unfilled optional parameter) is ignored.
+func scanMediaSwitchBody(lines []string, startIdx int, spacePath []string) (playerName, noPlayInput string) {
+	for i := startIdx + 1; i < len(lines); i++ {
+		t := strings.TrimSpace(lines[i])
+		if t == "end;" {
+			break
+		}
+		if strings.HasPrefix(t, "media_switch ") {
+			fields := strings.Fields(strings.TrimSuffix(t, ";"))
+			if len(fields) >= 2 {
+				playerName = normalizeEntityFullName(fields[1], spacePath)
+			}
+			if len(fields) >= 3 && !strings.Contains(fields[2], "${") {
+				noPlayInput = strings.Trim(fields[2], `"`)
+			}
+			return
+		}
+	}
+	return
+}
+
 func collectExpandedEntityRecords(ctx *TMacroExpansionContext, invocation *TMacroInvocation, spacePath []string, inheritedNoCollect bool, callChain string) ([]TCollectedExpandedEntityRecord, error) {
 	if _, exists := ctx.Macros[invocation.Name]; !exists {
 		return nil, fmt.Errorf("unknown macro: %s", invocation.Name)
@@ -2089,16 +2463,77 @@ func collectExpandedEntityRecords(ctx *TMacroExpansionContext, invocation *TMacr
 			// Use the same logic as ParseEntitiesAndFillAdministration: inspect the entity
 			// line and its inline/block body to determine whether it is self-defined or assumed.
 			hasDefOrImport, _ := analyzeEntityDefinitionContext(expandedLines, idx)
+			rec := TEntityRecord{
+				Name:                  fullName,
+				Identity:              extractEntityIdentity(fullName),
+				NoCollect:             entityDecl.NoCollect || currentNoCollect,
+				HasDefinitionOrImport: hasDefOrImport,
+				Provenance:            callChain,
+			}
+			// Scan body for providing-macro node fields (enabler, delay_off).
+			if strings.HasSuffix(fullName, "/node") {
+				rec.NodeEnablerEntityID, rec.NodeDelayOff = scanNodeBody(expandedLines, idx, currentSpacePath)
+			}
+			// Scan body for battery_alert threshold.
+			if strings.HasSuffix(fullName, "/battery_alert") {
+				rec.BatteryAlertLevel = scanBatteryAlertBody(expandedLines, idx)
+			}
+			// Scan body for input_number properties.
+			if rec.Identity.Domain == "input_number" {
+				rec.InputNumberMin, rec.InputNumberMax, rec.InputNumberStep, rec.InputNumberUnit, rec.InputNumberIcon = scanInputNumberBody(expandedLines, idx)
+			}
+			// Scan body for value directive (template sensor with attribute access).
+			if rec.Identity.Domain == "sensor" {
+				rec.ValueExpr = scanValueDirective(expandedLines, idx, currentSpacePath)
+			}
+			// Scan body for media_switch directive (media switch entity).
+			if rec.Identity.Domain == "switch" && strings.HasSuffix(rec.Identity.Path, "/media") {
+				rec.MediaSwitchPlayerName, rec.MediaSwitchNoPlayInput = scanMediaSwitchBody(expandedLines, idx, currentSpacePath)
+			}
+			// Scan body for generic condition directive (not node or battery_alert — those are handled above).
+			if !strings.HasSuffix(fullName, "/node") && !strings.HasSuffix(fullName, "/battery_alert") {
+				rec.ConditionSources, rec.ConditionExpr, rec.ConditionDevClass, rec.ConditionDelayOn, rec.ConditionDelayOff = scanConditionBody(expandedLines, idx, currentSpacePath)
+			}
+			// Extract inline "with adjustment <offset> <scale>;" on the entity declaration line.
+			if rec.Identity.Domain == "sensor" {
+				if adjIdx := strings.Index(trimmed, " with adjustment "); adjIdx >= 0 {
+					adjPart := strings.TrimSuffix(strings.TrimSpace(trimmed[adjIdx+len(" with adjustment "):]), ";")
+					adjFields := strings.Fields(adjPart)
+					if len(adjFields) >= 2 {
+						rec.AdjustmentOffset = adjFields[0]
+						rec.AdjustmentScale = adjFields[1]
+					}
+				}
+			}
 			records = append(records, TCollectedExpandedEntityRecord{
 				SpacePath: append([]string{}, currentSpacePath...),
-				Record: TEntityRecord{
-					Name:                  fullName,
-					Identity:              extractEntityIdentity(fullName),
-					NoCollect:             entityDecl.NoCollect || currentNoCollect,
-					HasDefinitionOrImport: hasDefOrImport,
-					Provenance:            callChain,
-				},
+				Record:    rec,
 			})
+			// Process an inline "with call providing <target>;" on the same entity line.
+			// This pattern arises from the `device` macro: "entity ${entity} with call providing ${entity.path};"
+			// The inline providing creates the node sub-entity with this entity as its representative.
+			if withIdx := strings.Index(trimmed, " with "); withIdx > 0 {
+				inlineStmt := strings.TrimSpace(trimmed[withIdx+len(" with "):])
+				if strings.HasPrefix(inlineStmt, "call providing ") {
+					parsedProviding, parseErr := ctx.ParseMacroInvocation(inlineStmt)
+					if parseErr == nil {
+						if _, exists := ctx.Macros[parsedProviding.Name]; exists {
+							hostIdx := len(records) - 1
+							nestedChain := callChain + " → " + parsedProviding.Name + " " + parsedProviding.Target
+							nestedRecords, nestedErr := collectExpandedEntityRecords(ctx, parsedProviding, currentSpacePath, currentNoCollect, nestedChain)
+							if nestedErr == nil {
+								hostID := toHomeAssistantEntityID(records[hostIdx].Record.Name)
+								for i := range nestedRecords {
+									if strings.HasSuffix(nestedRecords[i].Record.Name, "/node") {
+										nestedRecords[i].Record.NodeRepresentativeEntityID = hostID
+									}
+								}
+								records = append(records, nestedRecords...)
+							}
+						}
+					}
+				}
+			}
 			continue
 		}
 
@@ -2147,8 +2582,17 @@ func collectExpandedEntityRecords(ctx *TMacroExpansionContext, invocation *TMacr
 					parsedNestedInvocation, parseErr := ctx.ParseMacroInvocation(multiLineText)
 					if parseErr == nil {
 						nestedChain := callChain + " → " + macroName + " " + target
+						hostIdx := len(records) - 1
 						nestedRecords, nestedErr := collectExpandedEntityRecords(ctx, parsedNestedInvocation, currentSpacePath, currentNoCollect, nestedChain)
 						if nestedErr == nil {
+							if macroName == "providing" && hostIdx >= 0 {
+								hostID := toHomeAssistantEntityID(records[hostIdx].Record.Name)
+								for i := range nestedRecords {
+									if strings.HasSuffix(nestedRecords[i].Record.Name, "/node") {
+										nestedRecords[i].Record.NodeRepresentativeEntityID = hostID
+									}
+								}
+							}
 							records = append(records, nestedRecords...)
 						}
 					}
@@ -2172,8 +2616,17 @@ func collectExpandedEntityRecords(ctx *TMacroExpansionContext, invocation *TMacr
 					parsedInvocation, parseErr := ctx.ParseMacroInvocation(trimmed)
 					if parseErr == nil {
 						nestedChain := callChain + " → " + macroName + " " + target
+						hostIdx := len(records) - 1
 						nestedRecords, nestedErr := collectExpandedEntityRecords(ctx, parsedInvocation, currentSpacePath, currentNoCollect, nestedChain)
 						if nestedErr == nil {
+							if macroName == "providing" && hostIdx >= 0 {
+								hostID := toHomeAssistantEntityID(records[hostIdx].Record.Name)
+								for i := range nestedRecords {
+									if strings.HasSuffix(nestedRecords[i].Record.Name, "/node") {
+										nestedRecords[i].Record.NodeRepresentativeEntityID = hostID
+									}
+								}
+							}
 							records = append(records, nestedRecords...)
 						}
 					}

@@ -4,7 +4,7 @@
  * Package:   Main
  * Component: Parser
  *
- * This component provides a CDL2-inspired structural parser for definition files, built on TDefTokenizer.
+ * This component provides a CDL1-inspired structural parser for definition files, built on TDefTokeniser.
  * It produces a TParsedFile tree of TNode records used by the interpretation debug report.
  * Separately, ParseEntitiesAndFillAdministration processes entity lines for semantic analysis.
  *
@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -63,16 +64,16 @@ type TParsedFile struct {
 	Errors         []string
 }
 
-// --- TDefinitionParser: structural parser built on TDefTokenizer ---
+// --- TDefinitionParser: structural parser built on TDefTokeniser ---
 //
-// CDL2 conventions (same as bibtex_check):
+// CDL1 conventions (same as bibtex_check):
 //   A() && B()  — A then B (sequence)
 //   A() || B()  — A or else B (alternative)
 //   ForcedX()   — X is required; reports an error on failure
 //   Xety()      — X or empty (optional)
 
 type TDefinitionParser struct {
-	TDefTokenizer
+	TDefTokeniser
 	parsed *TParsedFile
 }
 
@@ -395,6 +396,25 @@ func stripTrailingInlineComment(line string) string {
 	return trimmedLine
 }
 
+// extractRelativeProvidingTarget extracts the bare relative path from a "call providing :Y;" or
+// "call providing :Y with: ..." invocation string. Returns empty string if not a relative providing call.
+func extractRelativeProvidingTarget(invText string) string {
+	invText = strings.TrimSpace(invText)
+	if !strings.HasPrefix(invText, "call providing ") {
+		return ""
+	}
+	rest := strings.TrimPrefix(invText, "call providing ")
+	if idx := strings.Index(rest, " with"); idx > 0 {
+		rest = rest[:idx]
+	}
+	rest = strings.TrimSuffix(rest, ";")
+	rest = strings.TrimSpace(rest)
+	if !strings.HasPrefix(rest, ":") {
+		return ""
+	}
+	return strings.TrimPrefix(rest, ":")
+}
+
 // --- semantic types and processing (unchanged) ---
 
 type TExpansionParseResult struct {
@@ -407,7 +427,7 @@ type TExpansionParseResult struct {
 // ParseEntitiesAndFillAdministration parses entity lines, applies strict macro validation,
 // performs aggressive macro expansion, and records open/close entity/space events into administration.
 func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath string, ctx *TMacroExpansionContext, report *strings.Builder) (TExpansionParseResult, error) {
-	administration := NewAdministrationState()
+	administration := newAdministrationState()
 	onSpaceClosed := func(_ string) {
 		// Space-close hooks are centralized in administration; aggregate derivation stays a separate pass.
 	}
@@ -505,9 +525,41 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 				Identity:              extractEntityIdentity(fullName),
 				NoCollect:             entityDecl.NoCollect,
 				HasDefinitionOrImport: hasDefOrImport,
+				OpenStopClose:         func() bool {
+					for _, k := range optionKeys {
+						if k == "open_stop_close" {
+							return true
+						}
+					}
+					return false
+				}(),
 				Provenance:            fmt.Sprintf("%s:%d", filepath.Base(entitiesPath), i+1),
 			}
 
+			// Extract inline "with adjustment <offset> <scale>;" properties.
+			if withIdx := strings.Index(trimmed, " with adjustment "); withIdx >= 0 {
+				adjPart := strings.TrimSuffix(strings.TrimSpace(trimmed[withIdx+len(" with adjustment "):]), ";")
+				adjFields := strings.Fields(adjPart)
+				if len(adjFields) >= 2 {
+					record.AdjustmentOffset = adjFields[0]
+					record.AdjustmentScale = adjFields[1]
+				}
+			}
+			// Extract inline "with condition <sources> <expr>;" properties.
+			if withIdx := strings.Index(trimmed, " with condition "); withIdx >= 0 {
+				condPart := strings.TrimSpace(trimmed[withIdx+len(" with condition "):])
+				record.ConditionSources, record.ConditionExpr = parseConditionDirective("condition "+condPart, administration.SpacePath)
+			}
+			// Extract inline "with icon <value>;" for any entity type.
+			if withIdx := strings.Index(trimmed, " with icon "); withIdx >= 0 {
+				iconPart := strings.TrimSuffix(strings.TrimSpace(trimmed[withIdx+len(" with icon "):]), ";")
+				iconPart = strings.Trim(iconPart, "\"")
+				resolved := resolveSettingsVar(iconPart, ctx.Settings)
+				record.EntityIcon = resolved
+				if record.Identity.Domain == "input_boolean" {
+					record.InputBooleanIcon = resolved
+				}
+			}
 			if strings.HasSuffix(trimmed, " with:") {
 				administration.PendingEntityCollections = append(administration.PendingEntityCollections, TPendingEntityCollection{
 					SpaceName:      spaceName,
@@ -529,12 +581,186 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 				if withIdx := strings.Index(trimmed, " with "); withIdx >= 0 {
 					inlineStmt := strings.TrimSpace(trimmed[withIdx+len(" with "):])
 					if isMacroInvocation(inlineStmt, ctx.Macros) {
+						if target := extractRelativeProvidingTarget(inlineStmt); target != "" {
+							nodeEntityName := normalizeEntityFullName("binary_sensor.infrastructural:"+target+"/node", administration.SpacePath)
+							administration.NodeRepresentativeByEntityID[nodeEntityName] = toHomeAssistantEntityID(fullName)
+						}
 						if err := processInvocation(inlineStmt, i+1); err != nil {
 							return TExpansionParseResult{}, err
 						}
 					}
 				}
 			}
+		}
+
+		// Record "imported rest <bridge> <remote_id> <interval> [<value_expr>];" directives.
+		// These appear inside entity "with:" bodies; the enclosing entity is the last pending collection.
+		if strings.HasPrefix(trimmed, "imported rest ") && len(administration.PendingEntityCollections) > 0 {
+			fields := strings.Fields(strings.TrimSuffix(trimmed, ";"))
+			if len(fields) >= 5 {
+				bridgeName := fields[2]
+				remoteID := fields[3]
+				scanEvery, scanErr := strconv.Atoi(fields[4])
+				if scanErr == nil && scanEvery > 0 {
+					valueExpr := ""
+					if len(fields) >= 6 {
+						raw := strings.Join(fields[5:], " ")
+						raw = strings.Trim(raw, "\"")
+						valueExpr = raw
+					}
+					localName := administration.PendingEntityCollections[len(administration.PendingEntityCollections)-1].Record.Name
+					administration.RestImports = append(administration.RestImports, TRestImportRecord{
+						LocalEntityName: localName,
+						BridgeName:      bridgeName,
+						RemoteEntityID:  remoteID,
+						ScanInterval:    scanEvery,
+						ValueExpr:       valueExpr,
+					})
+				}
+			}
+			continue
+		}
+
+		// Record "cli_sensor <alias> <fqdn> <script>;" directives inside entity bodies.
+		if strings.HasPrefix(trimmed, "cli_sensor ") && len(administration.PendingEntityCollections) > 0 {
+			fields := strings.Fields(strings.TrimSuffix(trimmed, ";"))
+			if len(fields) >= 4 {
+				localName := administration.PendingEntityCollections[len(administration.PendingEntityCollections)-1].Record.Name
+				administration.CliSensors = append(administration.CliSensors, TCliSensorRecord{
+					LocalEntityName: localName,
+					UserAlias:       fields[1],
+					HostFQDN:        fields[2],
+					ScriptPath:      fields[3],
+				})
+			}
+			continue
+		}
+
+		// Record "cli_switch <alias> <fqdn> <on> <off> <state>;" directives inside entity bodies.
+		if strings.HasPrefix(trimmed, "cli_switch ") && len(administration.PendingEntityCollections) > 0 {
+			fields := strings.Fields(strings.TrimSuffix(trimmed, ";"))
+			if len(fields) >= 6 {
+				localName := administration.PendingEntityCollections[len(administration.PendingEntityCollections)-1].Record.Name
+				administration.CliSwitches = append(administration.CliSwitches, TCliSwitchRecord{
+					LocalEntityName: localName,
+					UserAlias:       fields[1],
+					HostFQDN:        fields[2],
+					OnScript:        fields[3],
+					OffScript:       fields[4],
+					StateScript:     fields[5],
+				})
+			}
+			continue
+		}
+
+		// Record "value <entity_spec>!<attribute>;" directives inside entity bodies.
+		if strings.HasPrefix(trimmed, "value ") && len(administration.PendingEntityCollections) > 0 {
+			raw := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "value "), ";"))
+			exclamIdx := strings.Index(raw, "!")
+			var normalised string
+			if exclamIdx > 0 {
+				entitySpec := raw[:exclamIdx]
+				attribute := raw[exclamIdx+1:]
+				normalised = normalizeEntityFullName(entitySpec, administration.SpacePath) + "!" + attribute
+			} else {
+				normalised = normalizeEntityFullName(raw, administration.SpacePath)
+			}
+			lastIdx := len(administration.PendingEntityCollections) - 1
+			pending := &administration.PendingEntityCollections[lastIdx]
+			pending.Record.ValueExpr = normalised
+			continue
+		}
+
+		// Record "minimum/maximum/step/unit/icon" directives inside input_number entity bodies.
+		if len(administration.PendingEntityCollections) > 0 {
+			lastIdx := len(administration.PendingEntityCollections) - 1
+			pending := &administration.PendingEntityCollections[lastIdx]
+			if pending.Record.Identity.Domain == "input_number" {
+				for _, prefix := range []struct{ pfx, field string }{
+					{"minimum ", "min"}, {"maximum ", "max"}, {"step ", "step"},
+					{"unit ", "unit"}, {"unit_of_measurement ", "unit"},
+				} {
+					if strings.HasPrefix(trimmed, prefix.pfx) {
+						val := strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(trimmed, prefix.pfx)), ";")
+						val = strings.Trim(val, "\"")
+						val = resolveSettingsVar(val, ctx.Settings)
+						switch prefix.field {
+						case "min":
+							pending.Record.InputNumberMin = val
+						case "max":
+							pending.Record.InputNumberMax = val
+						case "step":
+							pending.Record.InputNumberStep = val
+						case "unit":
+							pending.Record.InputNumberUnit = val
+						}
+						continue
+					}
+				}
+				if strings.HasPrefix(trimmed, "icon ") {
+					val := strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(trimmed, "icon ")), ";")
+					val = strings.Trim(val, "\"")
+					pending.Record.InputNumberIcon = resolveSettingsVar(val, ctx.Settings)
+					continue
+				}
+			}
+		}
+
+		// Record "icon <value>;" directives inside entity bodies.
+		if strings.HasPrefix(trimmed, "icon ") && len(administration.PendingEntityCollections) > 0 {
+			lastIdx := len(administration.PendingEntityCollections) - 1
+			pending := &administration.PendingEntityCollections[lastIdx]
+			iconVal := strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(trimmed, "icon ")), ";")
+			iconVal = strings.Trim(iconVal, "\"")
+			resolved := resolveSettingsVar(iconVal, ctx.Settings)
+			pending.Record.EntityIcon = resolved
+			if pending.Record.Identity.Domain == "input_boolean" {
+				pending.Record.InputBooleanIcon = resolved
+			}
+			continue
+		}
+
+		// Record "has_time;" / "has_date;" directives inside input_datetime entity bodies.
+		if (trimmed == "has_time;" || trimmed == "has_date;") && len(administration.PendingEntityCollections) > 0 {
+			lastIdx := len(administration.PendingEntityCollections) - 1
+			pending := &administration.PendingEntityCollections[lastIdx]
+			if pending.Record.Identity.Domain == "input_datetime" {
+				if trimmed == "has_time;" {
+					pending.Record.InputDatetimeHasTime = true
+				} else {
+					pending.Record.InputDatetimeHasDate = true
+				}
+				continue
+			}
+		}
+
+		// Record "condition <sources> <expr>;" directives inside entity bodies.
+		// Record "definition as switched_device <device> <main>;" — used to generate on/off follower automations.
+		if strings.HasPrefix(trimmed, "definition as switched_device ") && len(administration.PendingEntityCollections) > 0 {
+			spaceName := administration.CurrentSpaceName()
+			parts := strings.Fields(strings.TrimSuffix(trimmed, ";"))
+			// parts: [definition, as, switched_device, <device>, <main>]
+			if len(parts) == 5 {
+				device := normalizeEntityFullName(parts[3], administration.SpacePath)
+				mainEnt := normalizeEntityFullName(parts[4], administration.SpacePath)
+				if !strings.ContainsAny(device+mainEnt, "$:{}[]*") {
+					administration.SwitchedDeviceRelations = append(administration.SwitchedDeviceRelations, TSwitchedDeviceRelation{
+						SpaceName:  spaceName,
+						Device:     device,
+						MainEntity: mainEnt,
+					})
+				}
+			}
+			// fall through: still mark entity as having a definition
+		}
+
+		if strings.HasPrefix(trimmed, "condition ") && len(administration.PendingEntityCollections) > 0 {
+			lastIdx := len(administration.PendingEntityCollections) - 1
+			pending := &administration.PendingEntityCollections[lastIdx]
+			if !strings.HasSuffix(pending.Record.Name, "/node") && !strings.HasSuffix(pending.Record.Name, "/battery_alert") {
+				pending.Record.ConditionSources, pending.Record.ConditionExpr = parseConditionDirective(trimmed, administration.SpacePath)
+			}
+			continue
 		}
 
 		if isMacroInvocation(trimmed, ctx.Macros) {
@@ -551,6 +777,13 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 				}
 				if j < len(entityLines) {
 					i = j
+				}
+			}
+			if target := extractRelativeProvidingTarget(invocationText); target != "" {
+				nodeEntityName := normalizeEntityFullName("binary_sensor.infrastructural:"+target+"/node", administration.SpacePath)
+				if len(administration.PendingEntityCollections) > 0 {
+					hostName := administration.PendingEntityCollections[len(administration.PendingEntityCollections)-1].Record.Name
+					administration.NodeRepresentativeByEntityID[nodeEntityName] = toHomeAssistantEntityID(hostName)
 				}
 			}
 			if err := processInvocation(invocationText, i+1); err != nil {
@@ -677,6 +910,115 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 				normalizedRefs = append(normalizedRefs, normalized)
 			}
 			administration.RecordHeatingLeak(spaceName, normalizedRefs)
+			continue
+		}
+
+		// Handle "lights_motion_guarded [with delay N];" — auto-registers a no_motion/ignore input_boolean
+		// for the current space, which is then picked up by generateNoMotionAutomations.
+		if strings.HasPrefix(trimmed, "lights_motion_guarded") {
+			spaceName := administration.CurrentSpaceName()
+			entityName := "input_boolean." + spaceName + "/no_motion/ignore"
+			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
+			administration.RegisterEntityClosure(TPendingEntityCollection{
+				SpaceName: spaceName,
+				Entry:     entityName + " (lights_motion_guarded)",
+				Record: TEntityRecord{
+					Name:                  entityName,
+					Identity:              extractEntityIdentity(entityName),
+					NoCollect:             true,
+					HasDefinitionOrImport: true,
+					InputBooleanIcon:      "mdi:walk",
+					Provenance:            "lights_motion_guarded:" + spaceName,
+				},
+				HasExternalRef: false,
+			})
+			// Parse optional "with delay N" suffix.
+			bare := strings.TrimSuffix(trimmed, ";")
+			if idx := strings.Index(bare, "with delay "); idx >= 0 {
+				if n, err := strconv.Atoi(strings.TrimSpace(bare[idx+len("with delay "):])); err == nil && n > 0 {
+					administration.SpaceNoMotionDelayByName[spaceName] = n
+				}
+			}
+			continue
+		}
+
+		// Handle "follows <follower> <leader>;" — records a follower-light relation.
+		if strings.HasPrefix(trimmed, "follows ") {
+			spaceName := administration.CurrentSpaceName()
+			parts := strings.Fields(strings.TrimSuffix(trimmed, ";"))
+			if len(parts) == 3 {
+				follower := normalizeEntityFullName(parts[1], administration.SpacePath)
+				leader := normalizeEntityFullName(parts[2], administration.SpacePath)
+				if !strings.ContainsAny(follower+leader, "$:{}[]*") {
+					administration.FollowsRelations = append(administration.FollowsRelations, TFollowsRelation{
+						SpaceName: spaceName,
+						Follower:  follower,
+						Leader:    leader,
+					})
+				}
+			}
+			continue
+		}
+
+		// Handle "limits <timer> <entity>: off on;" — records a timer-limits relation for removing-smell automations.
+		// Use LastIndex to find the colon separating entity refs from the direction tokens,
+		// since the timer ref itself may contain a colon (intensional form).
+		if strings.HasPrefix(trimmed, "limits ") {
+			spaceName := administration.CurrentSpaceName()
+			content := strings.TrimSuffix(strings.TrimPrefix(trimmed, "limits "), ";")
+			colonIdx := strings.LastIndex(content, ":")
+			if colonIdx > 0 {
+				refs := strings.Fields(content[:colonIdx])
+				if len(refs) == 2 {
+					timerEntity := normalizeEntityFullName(refs[0], administration.SpacePath)
+					boundEntity := normalizeEntityFullName(refs[1], administration.SpacePath)
+					if !strings.ContainsAny(timerEntity+boundEntity, "$:{}[]*") {
+						administration.TimerLimitsRelations = append(administration.TimerLimitsRelations, TTimerLimitsRelation{
+							SpaceName:   spaceName,
+							TimerEntity: timerEntity,
+							BoundEntity: boundEntity,
+						})
+					}
+				}
+			}
+			continue
+		}
+
+		// Handle "space on: <items>;" — records the explicit turn-on items for the space switch.
+		// Distinct from "light on:" which drives the template light entity.
+		if strings.HasPrefix(trimmed, "space on:") {
+			spaceName := administration.CurrentSpaceName()
+			itemsStr := strings.TrimSpace(strings.TrimPrefix(trimmed, "space on:"))
+			itemsStr = strings.TrimSuffix(itemsStr, ";")
+			extensionalItems := []string{}
+			for _, item := range parseSpaceCollectionItems(itemsStr) {
+				item = strings.TrimSpace(item)
+				if item == "" {
+					continue
+				}
+				if !strings.Contains(item, ".") {
+					item = "light." + item
+				}
+				normalized := normalizeEntityFullName(item, administration.SpacePath)
+				if strings.ContainsAny(normalized, "$:{}[]*") || normalized == "" {
+					continue
+				}
+				extensionalItems = append(extensionalItems, normalized)
+			}
+			if len(administration.SpacePath) > 0 {
+				administration.RecordSpaceSwitchOn(spaceName, extensionalItems)
+			}
+			continue
+		}
+
+		// Handle "member <spaceName>;" — records a member space for virtual-space @all expansion.
+		if strings.HasPrefix(trimmed, "member ") {
+			memberRef := strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(trimmed, "member ")), ";")
+			if memberRef != "" {
+				spaceName := administration.CurrentSpaceName()
+				administration.SpaceMembersByName[spaceName] = append(
+					administration.SpaceMembersByName[spaceName], memberRef)
+			}
 			continue
 		}
 

@@ -20,7 +20,7 @@ import (
 	"strings"
 )
 
-var THouseNames = []string{"Vienna", "Junglinster"}
+var HouseNames = []string{"Vienna", "Junglinster"}
 
 func main() {
 	root, err := os.Getwd()
@@ -38,13 +38,13 @@ func main() {
 func runCLI(root string, args []string) error {
 	args = applyDebugOptionArgs(args)
 	if DebugEnabled {
-		if err := consolidateLegacyDebugReports(root, THouseNames); err != nil {
+		if err := consolidateLegacyDebugReports(root, HouseNames); err != nil {
 			return err
 		}
 	}
 
 	if len(args) == 0 {
-		return runInterpretation(root, THouseNames)
+		return runInterpretation(root, HouseNames)
 	}
 
 	command := strings.ToLower(strings.TrimSpace(args[0]))
@@ -68,6 +68,11 @@ func runCLI(root string, args []string) error {
 		}
 		return runDefinedCheck(root, houses)
 	case "generate", "gen":
+		// Local mode: homeassistant generate Definitions/Main.def
+		if len(args) > 1 && strings.HasSuffix(args[1], ".def") {
+			return runGenerationFromDefFile(root, args[1])
+		}
+		// Legacy mode: homeassistant generate [Vienna|Junglinster]
 		houses, err := resolveRequestedHouses(args[1:])
 		if err != nil {
 			return err
@@ -80,11 +85,11 @@ func runCLI(root string, args []string) error {
 
 func resolveRequestedHouses(args []string) ([]string, error) {
 	if len(args) == 0 {
-		return append([]string{}, THouseNames...), nil
+		return append([]string{}, HouseNames...), nil
 	}
 
 	knownByLower := map[string]string{}
-	for _, houseName := range THouseNames {
+	for _, houseName := range HouseNames {
 		knownByLower[strings.ToLower(houseName)] = houseName
 	}
 
@@ -94,7 +99,7 @@ func resolveRequestedHouses(args []string) ([]string, error) {
 		normalizedArg := strings.ToLower(strings.TrimSpace(rawArg))
 		houseName, ok := knownByLower[normalizedArg]
 		if !ok {
-			return nil, fmt.Errorf("unknown house %q (allowed: %s)", rawArg, strings.Join(THouseNames, ", "))
+			return nil, fmt.Errorf("unknown house %q (allowed: %s)", rawArg, strings.Join(HouseNames, ", "))
 		}
 		if !seen[houseName] {
 			seen[houseName] = true

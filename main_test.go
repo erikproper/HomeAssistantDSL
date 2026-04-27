@@ -27,11 +27,15 @@ func TestInterpretationOperationalForKnownHouses(t *testing.T) {
 		t.Fatalf("failed to determine working directory: %v", err)
 	}
 
-	if err := runInterpretation(root, THouseNames); err != nil {
+	prev := DebugEnabled
+	DebugEnabled = true
+	defer func() { DebugEnabled = prev }()
+
+	if err := runInterpretation(root, HouseNames); err != nil {
 		t.Fatalf("interpretation failed: %v", err)
 	}
 
-	for _, houseName := range THouseNames {
+	for _, houseName := range HouseNames {
 		interpretationPath := debugReportPath(root, houseName, DebugReportInterpretation)
 		content, readErr := os.ReadFile(interpretationPath)
 		if readErr != nil {
@@ -59,11 +63,15 @@ func TestExpansionOperationalForKnownHouses(t *testing.T) {
 		t.Fatalf("failed to determine working directory: %v", err)
 	}
 
-	if err := runExpansion(root, THouseNames); err != nil {
+	prev := DebugEnabled
+	DebugEnabled = true
+	defer func() { DebugEnabled = prev }()
+
+	if err := runExpansion(root, HouseNames); err != nil {
 		t.Fatalf("expansion failed: %v", err)
 	}
 
-	for _, houseName := range THouseNames {
+	for _, houseName := range HouseNames {
 		expansionPath := debugReportPath(root, houseName, DebugReportExpansion)
 		content, readErr := os.ReadFile(expansionPath)
 		if readErr != nil {
@@ -87,6 +95,10 @@ func TestExpansionListsVirtualSpaces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to determine working directory: %v", err)
 	}
+
+	prev := DebugEnabled
+	DebugEnabled = true
+	defer func() { DebugEnabled = prev }()
 
 	if err := runExpansion(root, []string{"Junglinster"}); err != nil {
 		t.Fatalf("expansion failed: %v", err)
@@ -244,7 +256,7 @@ func TestSettingsSharedFileContainsIconVariables(t *testing.T) {
 		"Vienna":      `"AT"`,
 		"Junglinster": `"LU"`,
 	}
-	for _, houseName := range THouseNames {
+	for _, houseName := range HouseNames {
 		localSettingsPath := filepath.Join(root, "New", houseName, "Definitions", "Settings.def")
 		localContent, localReadErr := os.ReadFile(localSettingsPath)
 		if localReadErr != nil {
@@ -389,6 +401,10 @@ func TestInterpretationRespectsMainIncludeOrder(t *testing.T) {
 		t.Fatalf("failed to determine working directory: %v", err)
 	}
 
+	prev := DebugEnabled
+	DebugEnabled = true
+	defer func() { DebugEnabled = prev }()
+
 	if err := runInterpretation(root, []string{"Vienna"}); err != nil {
 		t.Fatalf("interpretation failed: %v", err)
 	}
@@ -408,5 +424,44 @@ func TestInterpretationRespectsMainIncludeOrder(t *testing.T) {
 	}
 	if !(mainIndex < macrosIndex && macrosIndex < entitiesIndex) {
 		t.Fatalf("expected Main.def -> Macros.def -> Entities.def ordering in %s", interpretationPath)
+	}
+}
+
+func TestNormalizeEntityFullNameLightSocialInVirtualExtensionContext(t *testing.T) {
+	spacePath := []string{"social:house", "social:extension"}
+	got := normalizeEntityFullName("light.social", spacePath)
+	want := "light.social/house/extension"
+	if got != want {
+		t.Fatalf("normalizeEntityFullName(%q, %v) = %q, want %q", "light.social", spacePath, got, want)
+	}
+}
+
+func TestSpaceOnInVirtualSpacePopulatesSwitchOnByName(t *testing.T) {
+	const miniDSL = `space social:house with:
+  space social:corridor with:
+    entity light.social:main;
+    light on: @all;
+    space off: @all;
+  end;
+  virtual space social:extension with:
+    member social/house/corridor;
+    space off: @all;
+    space on: light.social;
+  end;
+end;`
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), "test.def", &TMacroExpansionContext{}, &report)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	admin := result.Administration
+
+	switchOn := admin.SpaceSwitchOnByName["social/house/extension"]
+	if len(switchOn) == 0 {
+		t.Fatalf("SpaceSwitchOnByName[social/house/extension] is empty, expected light.social/house/extension")
+	}
+	if switchOn[0] != "light.social/house/extension" {
+		t.Fatalf("SpaceSwitchOnByName[social/house/extension] = %v, want [light.social/house/extension]", switchOn)
 	}
 }

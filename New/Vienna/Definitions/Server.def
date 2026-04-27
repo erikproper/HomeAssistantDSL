@@ -1,8 +1,3 @@
-# Migrated preview; generated on 18.03.2026.
-# House: Vienna
-# Target: Server.def
-# Source: Old/Vienna/Definitions/00_server.def
-
 if is up "vienna.fritz.box" then
   ${main_instance} = "http://vienna.fritz.box:8123";
   ${junglinster_instance} = "https://junglinster.homelinux.org";

@@ -1,9 +1,3 @@
-# House: Vienna
-# Target: Main.def
-
-# File load order entrypoint for parser and generator phases.
-# Shared macros and settings are loaded first; local Settings.def adds per-house overrides.
-
 include ../../Shared/Definitions/Macros.def;
 include ../../Shared/Definitions/Settings.def;
 include Settings.def;
