@@ -34,6 +34,7 @@ const (
 	ParamEntityReference
 	ParamBoolean
 	ParamSetOfString
+	ParamSetOfInt
 	ParamSetOfEntityReference
 	ParamPath
 	ParamOption
@@ -470,6 +471,8 @@ func parseParameterKind(typeStr string) TParameterKind {
 		return ParamSetOfEntityReference
 	case "set of string":
 		return ParamSetOfString
+	case "set of int":
+		return ParamSetOfInt
 	case "entity_name", "entityname":
 		return ParamEntityName
 	case "entity_path", "entitypath":
@@ -482,6 +485,9 @@ func parseParameterKind(typeStr string) TParameterKind {
 		if strings.HasPrefix(normalized, "set") {
 			if strings.Contains(normalized, "entityreference") {
 				return ParamSetOfEntityReference
+			}
+			if strings.Contains(normalized, "int") {
+				return ParamSetOfInt
 			}
 			return ParamSetOfString
 		}
@@ -968,19 +974,6 @@ func parseDomainSphereEntity(entitySpec string, spacePath []string) (domain, sph
 	return
 }
 
-func extractSphere(entitySpec string) string {
-	// From "type.sphere:path" extract "sphere"
-	// Handle the case where entity spec might not have all components
-	if idx := strings.Index(entitySpec, "."); idx > 0 {
-		afterDot := entitySpec[idx+1:]
-		if idx2 := strings.Index(afterDot, ":"); idx2 > 0 {
-			return afterDot[:idx2]
-		}
-		return afterDot
-	}
-	return ""
-}
-
 func (ctx *TMacroExpansionContext) ValidateInvocationParameters(invocation *TMacroInvocation, macro *TParsedCreationMacro) []string {
 	errors := []string{}
 	knownParameters := map[string]bool{}
@@ -1047,6 +1040,12 @@ func (ctx *TMacroExpansionContext) ValidateInvocationStrict(invocation *TMacroIn
 
 func validateParameterType(value string, expectedKind TParameterKind) string {
 	switch expectedKind {
+	case ParamEntity:
+		// Entity specification: type.sphere:path or type.sphere/path — must contain '.'
+		// and at least one path separator ('/' or ':').
+		if !strings.Contains(value, ".") || (!strings.Contains(value, "/") && !strings.Contains(value, ":")) {
+			return fmt.Sprintf("value %q does not look like an entity specification (expected type.sphere:path or type.sphere/path)", value)
+		}
 	case ParamBoolean:
 		normalized := strings.ToLower(strings.TrimSpace(value))
 		if normalized != "true" && normalized != "false" {
@@ -1080,6 +1079,16 @@ func validateParameterType(value string, expectedKind TParameterKind) string {
 		values := parseSetValues(value)
 		if len(values) == 0 {
 			return fmt.Sprintf("value %q is not a valid non-empty set", value)
+		}
+	case ParamSetOfInt:
+		values := parseSetValues(value)
+		if len(values) == 0 {
+			return fmt.Sprintf("value %q is not a valid non-empty set", value)
+		}
+		for _, setValue := range values {
+			if _, err := parseIntLenient(setValue); err != nil {
+				return fmt.Sprintf("set member %q is not a valid integer", setValue)
+			}
 		}
 	case ParamSetOfEntityReference:
 		values := parseSetValues(value)
@@ -1145,31 +1154,6 @@ func isValidEntityReference(ref string) bool {
 	return strings.ContainsAny(ref, ".:/") || strings.Contains(ref, "$")
 }
 
-// --- Expanded Output Generation ---
-
-func (ctx *TMacroExpansionContext) GenerateExpansionReport() string {
-	var report strings.Builder
-
-	report.WriteString("=== MACRO DEFINITIONS ===\n\n")
-	for name, macro := range ctx.Macros {
-		report.WriteString(fmt.Sprintf("macro %s { ", name))
-		for i, param := range macro.Parameters {
-			if i > 0 {
-				report.WriteString(", ")
-			}
-			report.WriteString(fmt.Sprintf("%s %s", param.Name, paramKindString(param.Kind)))
-			if param.Optional {
-				report.WriteString(" op")
-			}
-		}
-		report.WriteString(" }:\n")
-		report.WriteString(fmt.Sprintf("  SourceLine: %d\n", macro.SourceLine))
-		report.WriteString(fmt.Sprintf("  Body lines: %d\n\n", len(macro.Body)))
-	}
-
-	return report.String()
-}
-
 func paramKindString(kind TParameterKind) string {
 	switch kind {
 	case ParamString:
@@ -1186,6 +1170,8 @@ func paramKindString(kind TParameterKind) string {
 		return "option"
 	case ParamSetOfString:
 		return "set of string"
+	case ParamSetOfInt:
+		return "set of int"
 	case ParamSetOfEntityReference:
 		return "set of entityReference"
 	case ParamEntityName:
@@ -2081,28 +2067,6 @@ func lastPathSegment(path string) string {
 	return parts[len(parts)-1]
 }
 
-func extractSubdomain(identity TEntityIdentity) string {
-	if identity.IsRaw {
-		return "raw"
-	}
-
-	if identity.Domain != "" {
-		if identity.Sphere != "" {
-			return fmt.Sprintf("%s:%s", identity.Domain, identity.Sphere)
-		}
-		return identity.Domain
-	}
-
-	return ""
-}
-
-func extractDomainFromAggregate(aggregate string) string {
-	parts := strings.Split(aggregate, ".")
-	if len(parts) > 0 {
-		return parts[0]
-	}
-	return "unknown"
-}
 
 func findAggregateConstituents(aggregateName, spaceName string, spaceOrder []string, entityRecordsBySpace map[string][]TEntityRecord) []string {
 	constituents := []string{}

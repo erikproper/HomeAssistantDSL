@@ -385,6 +385,94 @@ func TestParseParameterTreatsOptionAsImplicitlyOptional(t *testing.T) {
 	}
 }
 
+func TestValidateInvocationParametersRejectsUnknownParameter(t *testing.T) {
+	ctx := &TMacroExpansionContext{Config: TExpanderConfig{CheckTypes: true}}
+	macro := &TParsedCreationMacro{
+		Name: "battery_alert",
+		Parameters: []TMacroParameter{
+			{Name: "${alert_level}", Kind: ParamInt, Optional: true},
+		},
+	}
+	invocation := &TMacroInvocation{
+		Name:       "battery_alert",
+		Target:     "social/living_room",
+		Parameters: map[string]string{"alertlevel": "15", "typo_param": "bad"},
+	}
+
+	errors := ctx.ValidateInvocationParameters(invocation, macro)
+	if len(errors) == 0 {
+		t.Fatalf("expected validation errors for unknown parameters, got none")
+	}
+	found := false
+	for _, e := range errors {
+		if strings.Contains(e, "unknown parameter") && strings.Contains(e, "typo_param") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected 'unknown parameter typo_param' error, got %v", errors)
+	}
+}
+
+func TestValidateInvocationParametersRejectsMissingRequiredParameter(t *testing.T) {
+	ctx := &TMacroExpansionContext{Config: TExpanderConfig{CheckTypes: true}}
+	macro := &TParsedCreationMacro{
+		Name: "battery_alert",
+		Parameters: []TMacroParameter{
+			{Name: "${alert_level}", Kind: ParamInt, Optional: false},
+		},
+	}
+	invocation := &TMacroInvocation{
+		Name:       "battery_alert",
+		Target:     "social/living_room",
+		Parameters: map[string]string{},
+	}
+
+	errors := ctx.ValidateInvocationParameters(invocation, macro)
+	if len(errors) == 0 {
+		t.Fatalf("expected validation error for missing required parameter, got none")
+	}
+	found := false
+	for _, e := range errors {
+		if strings.Contains(e, "missing required parameter") && strings.Contains(e, "alert_level") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected 'missing required parameter alert_level' error, got %v", errors)
+	}
+}
+
+func TestValidateParameterTypeEntityRejectsNonEntitySpec(t *testing.T) {
+	if err := validateParameterType("roborock", ParamEntity); err == "" {
+		t.Fatalf("expected validation error for bare name without domain, got none")
+	}
+	if err := validateParameterType("sensor.physical:living_room", ParamEntity); err != "" {
+		t.Fatalf("expected no error for valid entity spec, got %q", err)
+	}
+	if err := validateParameterType("sensor.physical/apartment/living_room", ParamEntity); err != "" {
+		t.Fatalf("expected no error for extensional entity spec, got %q", err)
+	}
+}
+
+func TestParseParameterKindRecognisesSetOfInt(t *testing.T) {
+	if kind := parseParameterKind("set of int"); kind != ParamSetOfInt {
+		t.Fatalf("expected ParamSetOfInt for 'set of int', got %v", kind)
+	}
+}
+
+func TestValidateParameterTypeSetOfIntRejectsNonIntegers(t *testing.T) {
+	if err := validateParameterType("{1, 2, 3}", ParamSetOfInt); err != "" {
+		t.Fatalf("expected no error for valid set of int, got %q", err)
+	}
+	if err := validateParameterType("{1, two, 3}", ParamSetOfInt); err == "" {
+		t.Fatalf("expected validation error for non-integer set member, got none")
+	}
+	if err := validateParameterType("{}", ParamSetOfInt); err == "" {
+		t.Fatalf("expected validation error for empty set, got none")
+	}
+}
+
 
 
 

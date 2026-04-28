@@ -116,12 +116,6 @@ func (p *TDefinitionParser) AppendNode(nodes *[]TNode, node TNode) bool {
 	return true
 }
 
-// SetNodeText assigns the text field of a node.
-func (p *TDefinitionParser) SetNodeText(node *TNode, text string) bool {
-	node.Text = text
-	return true
-}
-
 // --- grammar rules ---
 
 // Sequence: (Comment | Conditional | BlockOrStatement | 'end' ';')*
