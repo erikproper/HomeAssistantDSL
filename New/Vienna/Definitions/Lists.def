@@ -4,8 +4,9 @@ list "Nodes" all binary_sensor.*/node with:
   clean_prefix  apartment;
 end;
 
-list "Windoors" all binary_sensor.social/*/door binary_sensor.social/*/window with:
+list "Windoors" all binary_sensor.*/door binary_sensor.*/window with:
   clean_prefix  social;
+  clean_prefix  physical;
   clean_prefix  apartment;
 end;
 

@@ -1,6 +1,3 @@
-# House: Junglinster
-# Target: Entities.def
-
 entity sensor.social:power_total;
 # Availability depends on binary_sensor.infrastructural:smarty/node
 entity sensor.social:power_current;
@@ -742,9 +739,8 @@ space social:house with:
 
     entity switch.physical:backup with:
       icon mdi:server;
-      call providing backup_innr;
+      call providing backup;
     end;
-    entity binary_sensor.infrastructural:backup/node;
 
     entity sensor.infrastructural:backup/load with:
       cli_sensor pi backup.fritz.box ./cpu/load;
@@ -953,7 +949,6 @@ space social:cars with:
     entity binary_sensor.social:front/left/door;
     entity binary_sensor.social:rear/right/door;
     entity binary_sensor.social:rear/left/door;
-    entity binary_sensor.social:hood/door;
     entity binary_sensor.social:tailgate/door;
     entity binary_sensor.social:front/right/window;
     entity binary_sensor.social:front/left/window;
@@ -965,7 +960,7 @@ space social:cars with:
     entity device_tracker.social:position;
     entity lock.social;
     entity binary_sensor.social:engine;
-    entity sensor.social:odometer;
+    entity sensor.social:service/message;
     entity sensor.social:fuel/level;
     entity sensor.social:fuel/consumption;
     entity sensor.social:fuel/range;
