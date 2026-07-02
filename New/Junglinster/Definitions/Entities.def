@@ -645,9 +645,7 @@ space social:house with:
     entity sensor.infrastructural:fritzbox/download_throughput;
 
     call device switch.social:xanadu;
-
     entity binary_sensor.infrastructural:fritzbox/node;
-    entity binary_sensor.infrastructural:xanadu/node;
 
     entity sensor.infrastructural:xanadu/load with:
       cli_sensor erikp xanadu.fritz.box ./cpu/load;

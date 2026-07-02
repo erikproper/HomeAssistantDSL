@@ -1,12 +1,12 @@
 if is up "vienna.fritz.box" then
   ${main_instance} = "http://vienna.fritz.box:8123";
-  ${junglinster_instance} = "https://junglinster.homelinux.org";
+  ${junglinster_instance} = "https://home-junglinster.erikproper.eu";
 elif is up "junglinster.fritz.box" then
-  ${main_instance} = "https://vienna.homelinux.org";
+  ${main_instance} = "https://home-vienna.erikproper.eu";
   ${junglinster_instance} = "http://junglinster.fritz.box:8123";
 else
-  ${main_instance} = "https://vienna.homelinux.org";
-  ${junglinster_instance} = "https://junglinster.homelinux.org";
+  ${main_instance} = "https://home-vienna.erikproper.eu";
+  ${junglinster_instance} = "https://home-junglinster.erikproper.eu";
 end;
 
 main vienna ${main_instance};

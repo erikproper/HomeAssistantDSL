@@ -483,6 +483,87 @@ func TestValidateParameterTypeSetOfIntRejectsNonIntegers(t *testing.T) {
 
 
 
+func TestListPatternMatchesSegmentBoundary(t *testing.T) {
+	patterns := parseListPatterns("all binary_sensor.*/node")
+
+	match := func(domain, sphere, path string) bool {
+		return matchesAnyListPattern(TEntityRecord{
+			Identity: TEntityIdentity{Domain: domain, Sphere: sphere, Path: path},
+		}, patterns)
+	}
+
+	// "binary_sensor.x/y/node" must match.
+	if !match("binary_sensor", "x", "y/node") {
+		t.Fatalf("expected match for path y/node")
+	}
+	// "binary_sensor.x/y_node" must NOT match (underscore, not slash).
+	if match("binary_sensor", "x", "y_node") {
+		t.Fatalf("expected no match for path y_node")
+	}
+	// "binary_sensor.x/y/node/sub" must NOT match (node is not the tail).
+	if match("binary_sensor", "x", "y/node/sub") {
+		t.Fatalf("expected no match for path y/node/sub")
+	}
+	// Different domain must not match.
+	if match("sensor", "x", "y/node") {
+		t.Fatalf("expected no match for domain sensor")
+	}
+	// "all" keyword in the pattern source must be silently ignored (no extra pattern).
+	if len(patterns) != 1 {
+		t.Fatalf("expected exactly 1 pattern, got %d", len(patterns))
+	}
+}
+
+func TestListPatternMatchesAllForWildcardDomain(t *testing.T) {
+	patterns := parseListPatterns("climate.*")
+
+	if !matchesAnyListPattern(TEntityRecord{
+		Identity: TEntityIdentity{Domain: "climate", Sphere: "physical", Path: "house/kitchen/radiator"},
+	}, patterns) {
+		t.Fatalf("expected climate.* to match any climate entity")
+	}
+	if matchesAnyListPattern(TEntityRecord{
+		Identity: TEntityIdentity{Domain: "sensor", Sphere: "physical", Path: "house/kitchen/temperature"},
+	}, patterns) {
+		t.Fatalf("expected climate.* to not match a sensor entity")
+	}
+}
+
+func TestListPatternSphereFilter(t *testing.T) {
+	patterns := parseListPatterns("all binary_sensor.social/*/door binary_sensor.social/*/window")
+	if len(patterns) != 2 {
+		t.Fatalf("expected 2 patterns, got %d", len(patterns))
+	}
+	for _, p := range patterns {
+		if p.sphere != "social" {
+			t.Fatalf("expected sphere=social, got %q", p.sphere)
+		}
+	}
+
+	match := func(domain, sphere, path string) bool {
+		return matchesAnyListPattern(TEntityRecord{
+			Identity: TEntityIdentity{Domain: domain, Sphere: sphere, Path: path},
+		}, patterns)
+	}
+
+	// Social door must match.
+	if !match("binary_sensor", "social", "apartment/hallway/door") {
+		t.Fatal("expected social door entity to match")
+	}
+	// Physical door must NOT match a social sphere filter.
+	if match("binary_sensor", "physical", "apartment/bedroom/door") {
+		t.Fatal("expected physical door entity to not match social sphere filter")
+	}
+	// Social window must match.
+	if !match("binary_sensor", "social", "house/bathroom/window") {
+		t.Fatal("expected social window entity to match")
+	}
+	// Wrong domain must not match.
+	if match("sensor", "social", "apartment/hallway/door") {
+		t.Fatal("expected wrong domain to not match")
+	}
+}
+
 func TestInterpretationRespectsMainIncludeOrder(t *testing.T) {
 	root, err := os.Getwd()
 	if err != nil {

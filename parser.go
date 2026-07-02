@@ -921,7 +921,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 					Identity:              extractEntityIdentity(entityName),
 					NoCollect:             true,
 					HasDefinitionOrImport: true,
-					InputBooleanIcon:      "mdi:walk",
+					InputBooleanIcon:      "mdi:motion-sensor-off",
 					Provenance:            "lights_motion_guarded:" + spaceName,
 				},
 				HasExternalRef: false,
@@ -1021,12 +1021,12 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 		}
 	}
 
-	// For every space that has heating leak entries, auto-register a leakage_evidence sensor.
-	// The entity lives in the physical domain at the same path as the social space.
-	for spaceName, leaks := range administration.HeatingLeaksByName {
-		if len(leaks) == 0 {
-			continue
-		}
+	// For every space with a climate entity or a physical heating switch, auto-register a
+	// leakage_evidence sensor — unconditionally, matching the legacy generator, since a space
+	// without an explicit "heating leak:" still gets the sensor (aggregating to always-off via
+	// binary_sensor.infrastructural_off, see generateBinarySensorGroups). The entity lives in the
+	// physical domain at the same path as the social space.
+	for _, spaceName := range heatingCapableSocialSpaceNames(administration) {
 		// Derive the path component (strip the leading sphere name, e.g. "social/kitchen" → "kitchen").
 		contextPath := spaceName
 		if idx := strings.Index(spaceName, "/"); idx >= 0 {
@@ -1055,6 +1055,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 		})
 	}
 
+	administration.DeriveImpliedHeatingEntities()
 	administration.DeriveBinarySensorSubdomainAggregates()
 	RunPostParseChecks(administration)
 

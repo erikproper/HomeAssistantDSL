@@ -1,7 +1,6 @@
 space social:apartment with:
   space social:hallway with:
     entity binary_sensor.social:door;
-    #entity binary_sensor.physical:door;
     call battery_level_device :aqara_windoor with alert_level 10;
 
     entity sensor.physical:door/aqara_multi/temperature;
@@ -126,11 +125,6 @@ space social:apartment with:
     end;
 
     space social:rack with:
-      entity sensor.physical:aqara_multi/temperature;
-      entity sensor.physical:aqara_multi/pressure with adjustment 20 1;
-      entity sensor.physical:aqara_multi/humidity;
-      call battery_level_device :aqara_multi with alert_level 15;
-
       entity binary_sensor.infrastructural:frame/node;
       entity sensor.infrastructural:frame/load with:
         cli_sensor pi frame.fritz.box ./cpu/load;
@@ -153,49 +147,6 @@ space social:apartment with:
 
     call battery_level_device :living/door/moes/1 with alert_level 20;
     call battery_level_device :living/door/moes/2 with alert_level 20;
-
-    entity input_number.social:temperature_desired with:
-      minimum 10;
-      maximum 30;
-      step 1;
-      icon "${temperature_icon}";
-      unit "°C";
-    end;
-    entity input_number.social:heating_target_preset_for_around with:
-      minimum 10;
-      maximum 30;
-      step 1;
-      icon "${temperature_icon}";
-      unit "°C";
-    end;
-    entity input_number.social:heating_target_preset_for_away with:
-      minimum 10;
-      maximum 30;
-      step 1;
-      icon "${temperature_icon}";
-      unit "°C";
-    end;
-    entity input_number.social:heating_target_preset_for_day with:
-      minimum 10;
-      maximum 30;
-      step 1;
-      icon "${temperature_icon}";
-      unit "°C";
-    end;
-    entity input_number.social:heating_target_preset_for_night with:
-      minimum 10;
-      maximum 30;
-      step 1;
-      icon "${temperature_icon}";
-      unit "°C";
-    end;
-    entity input_number.social:heating_target_preset_for_leakage with:
-      minimum 10;
-      maximum 30;
-      step 1;
-      icon "${temperature_icon}";
-      unit "°C";
-    end;
 
     heating leak: binary_sensor.social:living/door;
     heating leak: binary_sensor.social:kitchen/terrace/door;
@@ -372,50 +323,3 @@ end;
 light on: social;
 
 entity sun.[sun];
-
-entity input_boolean.social/occupation/home with icon "${home_icon}";
-entity input_boolean.social/occupation/around with icon "${around_icon}";
-entity input_boolean.social/occupation/away with icon "${away_icon}";
-entity input_boolean.social/covers/auto_control with icon "${covers_auto_control_icon}";
-entity input_boolean.social/vacuum_should_be_active with icon "${vacuum_icon}";
-entity input_boolean.social/vacuuming_requested with icon "${vacuum_icon}";
-entity input_boolean.social/apartment/living_room/heating/enable with icon "${heating_icon}";
-entity input_boolean.social/apartment/living_room/heating/leakage/ignore with icon "${heating_icon}";
-entity input_boolean.social/apartment/shower_room/no_motion/ignore with icon "${ignore_no_motion_icon}";
-
-entity input_datetime.social/coverage_workday/start_day with:
-  has_time;
-end;
-entity input_datetime.social/coverage_workday/start_night with:
-  has_time;
-end;
-entity input_datetime.social/coverage_holiday/start_day with:
-  has_time;
-end;
-entity input_datetime.social/coverage_holiday/start_night with:
-  has_time;
-end;
-entity input_datetime.social/heating_workday/start_day with:
-  has_time;
-end;
-entity input_datetime.social/heating_workday/start_night with:
-  has_time;
-end;
-entity input_datetime.social/heating_holiday/start_day with:
-  has_time;
-end;
-entity input_datetime.social/heating_holiday/start_night with:
-  has_time;
-end;
-entity input_datetime.social/vacuuming_workday/start_day with:
-  has_time;
-end;
-entity input_datetime.social/vacuuming_workday/start_night with:
-  has_time;
-end;
-entity input_datetime.social/vacuuming_holiday/start_day with:
-  has_time;
-end;
-entity input_datetime.social/vacuuming_holiday/start_night with:
-  has_time;
-end;

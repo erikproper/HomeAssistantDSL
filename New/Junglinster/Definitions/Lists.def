@@ -1,49 +1,41 @@
-# Migrated preview; generated on 18.03.2026.
-# House: Junglinster
-# Target: Lists.def
-# Source: Old/Junglinster/Definitions/03_lists.def
-
-# This file keeps the legacy list selections, but normalizes them into with:/end; blocks.
-
-list "Nodes" all binary_sensor.*:*:node with:
+list "Nodes" all binary_sensor.*/node with:
   clean_prefix  infrastructural;
   clean_postfix node;
 end;
 
-list "Windoors" all binary_sensor.*:*:door binary_sensor.*:*:window with:
+list "Windoors" all binary_sensor.social/*/door binary_sensor.social/*/window with:
   clean_prefix  social;
-  clean_prefix  physical;
-  clean_prefix  apartment;
+  clean_prefix  house;
 end;
 
-list "Water" all binary_sensor.*:*:water with:
+list "Water" all binary_sensor.*/water with:
   clean_prefix  social;
   clean_prefix  physical;
-  clean_prefix  apartment;
+  clean_prefix  house;
 end;
 
-list "Battery levels" all sensor.*:*:battery_level with:
+list "Battery levels" all sensor.*/battery_level with:
   clean_prefix  infrastructural;
   clean_postfix battery_level;
 end;
 
-list "Battery alerts" all binary_sensor.*:*:battery_alert with:
+list "Battery alerts" all binary_sensor.*/battery_alert with:
   clean_prefix  infrastructural;
   clean_postfix battery_alert;
 end;
 
-list "Radios" all sensor.*:*:radio with:
+list "Radios" all sensor.*/radio with:
   clean_prefix  infrastructural;
   clean_postfix radio;
 end;
 
-list "Temperatures" all sensor.*:*:temperature with:
+list "Temperatures" all sensor.*/temperature with:
   clean_prefix  social;
   clean_prefix  physical;
   clean_prefix  infrastructural;
 end;
 
-list "Pressures" all sensor.*:*:pressure with:
+list "Pressures" all sensor.*/pressure with:
   clean_prefix  social;
   clean_prefix  physical;
   clean_prefix  infrastructural;
@@ -58,15 +50,15 @@ end;
 list "Covers" all cover.* with:
   clean_prefix  social;
   clean_prefix  physical;
-  clean_prefix  apartment;
+  clean_prefix  house;
 end;
 
-list "Ignore no motion" all input_boolean.*:*:no_motion/ignore with:
+list "Ignore no motion" all input_boolean.*/no_motion/ignore with:
   clean_prefix  social;
   clean_postfix no_motion.ignore;
 end;
 
-list "Ignore leakage" all input_boolean.*:*:heating/leakage/ignore with:
+list "Ignore leakage" all input_boolean.*/heating/leakage/ignore with:
   clean_prefix  social;
   clean_postfix heating.leakage.ignore;
 end;
