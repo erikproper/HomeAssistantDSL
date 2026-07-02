@@ -1,0 +1,145 @@
+#
+# Generic, location independent, definition of macros.
+#
+# Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
+#
+# Version of: 23.03.2026
+#
+
+macro providing ( ${entity_space_path} entity_space_path ) { ${enabler} entity_name, ${delay_off} string }:
+  ${representative_entity} = ${this_entity};
+
+  entity binary_sensor.infrastructural/${entity_space_path}/node with:
+    if ${enabler} is provided then
+      condition ${representative_entity} ${enabler} "(states('$1') not in ['unavailable', 'unknown']) or is_state('$2', 'off')";
+    else
+      condition ${representative_entity} "states('$1') not in ['unavailable', 'unknown']";
+
+    maybe delay_off;
+    icon "${node_icon}";
+  end;
+end;
+
+macro battery_alert ( ${entity_space_path} entity_space_path ) { ${alert_level} int }:
+  if ${alert_level} is provided then
+    entity binary_sensor.infrastructural/${entity_space_path}/battery_alert with:
+      condition sensor.infrastructural/${entity_space_path}/battery_level "($1 | int(0)) < ${alert_level}";
+      available always;
+    end;
+  else
+    entity binary_sensor.infrastructural/${entity_space_path}/battery_alert;
+end;
+
+macro battery_level ( ${entity_space_path} entity_space_path ) { ${node} entity_space_path, ${alert_level} int }:
+  entity sensor.infrastructural/${entity_space_path}/battery_level with:
+    if ${node} is provided then
+      call providing ${node};
+  end;
+
+  call battery_alert ${entity_space_path} with:
+    maybe alert_level;
+  end;
+end;
+
+macro battery_level_device ( ${entity_space_path} entity_space_path ) { ${alert_level} int }:
+  call battery_level ${entity_space_path} with:
+    node ${entity_space_path};
+    alert_level ${alert_level};
+  end;
+end;
+
+macro media_player_device ( ${entity_space_path} entity_space_path ) { ${enabler} string, ${delay_off} string, ${no_play_input} string, ${no_collect} boolean }:
+  ${media_player} = entity media_player.social/${entity_space_path} with:
+    if ${enabler} is provided then
+      call providing ${entity_space_path} with:
+        enabler ${enabler};
+        delay_off ${delay_off};
+      end;
+
+    maybe no_collect;
+  end;
+
+  entity switch.social/${entity_space_path}/media with:
+    media_switch ${media_player} ${no_play_input};
+
+    maybe no_collect;
+
+    icon ${media_switch_icon};
+  end;
+end;
+
+macro power_switch ( ${entity_path} entity_path ) { ${node} string, ${threshold} int }:
+  ${power_sensor} = entity sensor.${entity_path}/power;
+
+  entity binary_sensor.${entity_path}/consumes with:
+    condition ${power_sensor} "($ | int(0)) > ${threshold}";
+
+    icon as provided or ${consumes_icon};
+  end;
+
+  entity switch.${entity_path} with call providing ${entity_path.space_path}/${node};
+end;
+
+macro device ( ${entity} entity_name ):
+  entity ${entity} with call providing ${entity.path};
+end;
+
+macro thermostat ( ${entity_space_path} entity_space_path ):
+  call device climate.physical/${entity_space_path};
+
+  entity sensor.physical/${entity_space_path}/temperature with:
+    value climate.physical/${entity_space_path}!current_temperature;
+  end;
+end;
+
+macro zigbee_group ( ${entity} entity_name ) { ${group} set of string }:
+  call device ${entity};
+
+  space physical/${entity.space_path} with:
+    no_collect;
+
+    for ${element} in ${group} do
+      call device ${entity.domain}.physical/${entity.space_path}/${element};
+  end;
+end;
+
+macro zwave_node ( ${entity_space_path} entity_space_path ):
+  entity sensor.infrastructural/${entity_space_path}/status;
+
+  entity binary_sensor.infrastructural/${entity_space_path}/node with
+    condition sensor.infrastructural/${entity_space_path}/status "($ == 'alive')";
+end;
+
+macro windy ( ${entity} entity_name, ${delay_on} time, ${delay_off} time ):
+  ${windy_threshold} = entity input_number.social/windy_threshold with:
+    minimum ${wind_speed_min};
+    maximum ${wind_speed_max};
+    step ${wind_speed_step};
+    icon ${wind_speed_icon};
+    units ${wind_speed_unit};
+  end;
+
+  entity binary_sensor.social:windy with:
+    condition ${entity} ${windy_threshold} "($1 in ['unknown', 'unavailable']) or (($1 | int) > ($2 | int))";
+    device_class ${windy_device_class};
+    delay_on ${delay_on};
+    delay_off ${delay_off};
+  end;
+end;
+
+macro sunny ( ${entity} entity_name, ${delay_on} time, ${delay_off} time ):
+  ${sunny_threshold} = entity input_number.social/sunny_threshold with:
+    minimum ${illuminance_min};
+    maximum ${illuminance_max};
+    step ${illuminance_step};
+    icon ${illuminance_icon};
+    units ${illuminance_unit};
+  end;
+
+  entity binary_sensor.social:sunny with:
+    condition ${entity} ${sunny_threshold} "($1 | int) > ($2 | int)";
+    device_class ${sunny_device_class};
+    delay_on ${delay_on};
+    delay_off ${delay_off};
+  end;
+end;

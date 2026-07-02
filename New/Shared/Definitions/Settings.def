@@ -1,0 +1,44 @@
+#
+# Shared settings, applicable to all houses.
+#
+# Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
+#
+# Version of: 24.03.2026
+#
+
+${around_icon} = "mdi:city";
+${away_icon} = "mdi:airplane";
+${consumes_icon} = "mdi:flash";
+${cover_close_icon} = "mdi:triangle-down";
+${covers_auto_control_icon} = "mdi:dots-vertical";
+${covers_auto_control_on_icon} = "mdi:dots-vertical-circle";
+${day_time_icon} = "mdi:sun-clock";
+${coverage_time_icon} = "mdi:clock-start";
+${cpu_icon} = "mdi:cpu-64-bit";
+${heating_icon} = "mdi:radiator";
+${ignore_no_motion_icon} = "mdi:motion-sensor-off";
+${home_icon} = "mdi:home";
+${media_switch_icon} = "mdi:monitor-speaker";
+${night_time_icon} = "mdi:bed-clock";
+${node_icon} = "mdi:server-network";
+${vacuum_icon} = "mdi:robot-vacuum";
+${workday_icon} = "mdi:office-building-cog";
+${water_icon} = "mdi:water-off";
+${sunny_icon} = "mdi:sunglasses";
+${light_group_icon} = "mdi:lightbulb-group";
+${light_icon} = "mdi:lightbulb";
+${temperature_icon} = "mdi:thermometer";
+${wind_speed_icon} = "mdi:weather-windy";
+${wind_speed_min} = 0;
+${wind_speed_max} = 60;
+${wind_speed_step} = 1;
+${wind_speed_unit} = "km/h";
+${windy_device_class} = "safety";
+${illuminance_icon} = "mdi:brightness-5";
+${illuminance_min} = 0;
+${illuminance_max} = 8000;
+${illuminance_step} = 100;
+${illuminance_unit} = "lux";
+${sunny_device_class} = "light";
+
+http proxies 192.168.178.0/24, 172.30.0.0/16, 127.0.0.1;

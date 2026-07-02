@@ -1,0 +1,43 @@
+entities:
+  - entity: sensor.physical_garage_front_aqara_multi_pressure
+    name: 'garage/front/aqara_multi/pressure'
+  - entity: sensor.physical_garage_rear_aqara_multi_pressure
+    name: 'garage/rear/aqara_multi/pressure'
+  - entity: sensor.physical_house_bathroom_aqara_multi_pressure
+    name: 'house/bathroom/aqara_multi/pressure'
+  - entity: sensor.physical_house_corridor_aqara_multi_pressure
+    name: 'house/corridor/aqara_multi/pressure'
+  - entity: sensor.physical_house_david_bedroom_netatmo_pressure
+    name: 'house/david_bedroom/netatmo/pressure'
+  - entity: sensor.physical_house_downward_hallway_aqara_multi_pressure
+    name: 'house/downward_hallway/aqara_multi/pressure'
+  - entity: sensor.physical_house_laundry_kitchen_front_aqara_multi_pressure
+    name: 'house/laundry_kitchen/front/aqara_multi/pressure'
+  - entity: sensor.physical_house_laundry_kitchen_rear_aqara_multi_pressure
+    name: 'house/laundry_kitchen/rear/aqara_multi/pressure'
+  - entity: sensor.physical_house_living_room_netatmo_pressure
+    name: 'house/living_room/netatmo/pressure'
+  - entity: sensor.physical_house_master_bedroom_netatmo_pressure
+    name: 'house/master_bedroom/netatmo/pressure'
+  - entity: sensor.physical_house_office_door_aqara_multi_pressure
+    name: 'house/office/door/aqara_multi/pressure'
+  - entity: sensor.physical_house_office_netatmo_pressure
+    name: 'house/office/netatmo/pressure'
+  - entity: sensor.physical_house_sarah_bedroom_netatmo_pressure
+    name: 'house/sarah_bedroom/netatmo/pressure'
+  - entity: sensor.physical_house_server_room_aqara_multi_pressure
+    name: 'house/server_room/aqara_multi/pressure'
+  - entity: sensor.physical_house_server_room_rack_aqara_multi_pressure
+    name: 'house/server_room/rack/aqara_multi/pressure'
+  - entity: sensor.physical_house_storage_room_door_aqara_multi_pressure
+    name: 'house/storage_room/door/aqara_multi/pressure'
+  - entity: sensor.physical_house_upward_hallway_second_floor_aqara_multi_pressure
+    name: 'house/upward_hallway/second_floor/aqara_multi/pressure'
+  - entity: sensor.physical_loft_aqara_multi_pressure
+    name: 'loft/aqara_multi/pressure'
+  - entity: sensor.physical_terrace_garden_aqara_multi_pressure
+    name: 'terrace/garden/aqara_multi/pressure'
+title: Pressures
+state_color: true
+type: entities
+show_header_toggle: false

@@ -1,0 +1,2 @@
+rm *.txt 2> /dev/null
+homeassistant Definitions/Main.def
