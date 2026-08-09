@@ -2,11 +2,11 @@ entities:
   - entity: binary_sensor.infrastructural_apartment_bedroom_aqara_windoor_node
     name: 'bedroom/aqara_windoor'
   - entity: binary_sensor.infrastructural_apartment_bedroom_bed_left_light_node
-    name: 'bedroom/bed/left'
+    name: 'bedroom/bed/left/light'
   - entity: binary_sensor.infrastructural_apartment_bedroom_bed_moes_node
     name: 'bedroom/bed/moes'
   - entity: binary_sensor.infrastructural_apartment_bedroom_bed_right_light_node
-    name: 'bedroom/bed/right'
+    name: 'bedroom/bed/right/light'
   - entity: binary_sensor.infrastructural_apartment_bedroom_bed_shortcut_left_node
     name: 'bedroom/bed/shortcut/left'
   - entity: binary_sensor.infrastructural_apartment_bedroom_bed_shortcut_right_node
@@ -24,7 +24,7 @@ entities:
   - entity: binary_sensor.infrastructural_apartment_bedroom_hallway_door_moes_2_node
     name: 'bedroom/hallway/door/moes/2'
   - entity: binary_sensor.infrastructural_apartment_bedroom_main_light_node
-    name: 'bedroom/main'
+    name: 'bedroom/main/light'
   - entity: binary_sensor.infrastructural_apartment_bedroom_netatmo_node
     name: 'bedroom/netatmo'
   - entity: binary_sensor.infrastructural_apartment_hallway_aqara_windoor_node
@@ -38,7 +38,7 @@ entities:
   - entity: binary_sensor.infrastructural_apartment_hallway_frient_node
     name: 'hallway/frient'
   - entity: binary_sensor.infrastructural_apartment_hallway_main_light_node
-    name: 'hallway/main'
+    name: 'hallway/main/light'
   - entity: binary_sensor.infrastructural_apartment_living_room_bitron_thermostat_node
     name: 'living_room/bitron_thermostat'
   - entity: binary_sensor.infrastructural_apartment_living_room_blinds_node
@@ -70,21 +70,21 @@ entities:
   - entity: binary_sensor.infrastructural_apartment_living_room_kitchen_fridge_aqara_windoor_node
     name: 'living_room/kitchen/fridge/aqara_windoor'
   - entity: binary_sensor.infrastructural_apartment_living_room_kitchen_workplace_light_node
-    name: 'living_room/kitchen/workplace'
+    name: 'living_room/kitchen/workplace/light'
   - entity: binary_sensor.infrastructural_apartment_living_room_living_aqara_windoor_node
     name: 'living_room/living/aqara_windoor'
   - entity: binary_sensor.infrastructural_apartment_living_room_living_door_moes_1_node
     name: 'living_room/living/door/moes/1'
   - entity: binary_sensor.infrastructural_apartment_living_room_living_door_moes_2_node
     name: 'living_room/living/door/moes/2'
-  - entity: binary_sensor.infrastructural_apartment_living_room_main_light_node
-    name: 'living_room/main'
   - entity: binary_sensor.infrastructural_apartment_living_room_main_kitchen_light_node
-    name: 'living_room/main/kitchen'
+    name: 'living_room/main/kitchen/light'
+  - entity: binary_sensor.infrastructural_apartment_living_room_main_light_node
+    name: 'living_room/main/light'
   - entity: binary_sensor.infrastructural_apartment_living_room_main_living_light_node
-    name: 'living_room/main/living'
+    name: 'living_room/main/living/light'
   - entity: binary_sensor.infrastructural_apartment_living_room_main_middle_light_node
-    name: 'living_room/main/middle'
+    name: 'living_room/main/middle/light'
   - entity: binary_sensor.infrastructural_apartment_living_room_netatmo_node
     name: 'living_room/netatmo'
   - entity: binary_sensor.infrastructural_apartment_living_room_philips_motion_node
@@ -99,34 +99,34 @@ entities:
     name: 'living_room/tv'
   - entity: binary_sensor.infrastructural_apartment_living_room_tv_switch_node
     name: 'living_room/tv_switch'
-  - entity: binary_sensor.infrastructural_apartment_living_room_vidja_left_light_node
-    name: 'living_room/vidja/left'
   - entity: binary_sensor.infrastructural_apartment_living_room_vidja_left_1_light_node
-    name: 'living_room/vidja/left/1'
+    name: 'living_room/vidja/left/1/light'
   - entity: binary_sensor.infrastructural_apartment_living_room_vidja_left_2_light_node
-    name: 'living_room/vidja/left/2'
+    name: 'living_room/vidja/left/2/light'
   - entity: binary_sensor.infrastructural_apartment_living_room_vidja_left_3_light_node
-    name: 'living_room/vidja/left/3'
+    name: 'living_room/vidja/left/3/light'
   - entity: binary_sensor.infrastructural_apartment_living_room_vidja_left_4_light_node
-    name: 'living_room/vidja/left/4'
+    name: 'living_room/vidja/left/4/light'
   - entity: binary_sensor.infrastructural_apartment_living_room_vidja_left_5_light_node
-    name: 'living_room/vidja/left/5'
+    name: 'living_room/vidja/left/5/light'
   - entity: binary_sensor.infrastructural_apartment_living_room_vidja_left_6_light_node
-    name: 'living_room/vidja/left/6'
-  - entity: binary_sensor.infrastructural_apartment_living_room_vidja_right_light_node
-    name: 'living_room/vidja/right'
+    name: 'living_room/vidja/left/6/light'
+  - entity: binary_sensor.infrastructural_apartment_living_room_vidja_left_light_node
+    name: 'living_room/vidja/left/light'
   - entity: binary_sensor.infrastructural_apartment_living_room_vidja_right_1_light_node
-    name: 'living_room/vidja/right/1'
+    name: 'living_room/vidja/right/1/light'
   - entity: binary_sensor.infrastructural_apartment_living_room_vidja_right_2_light_node
-    name: 'living_room/vidja/right/2'
+    name: 'living_room/vidja/right/2/light'
   - entity: binary_sensor.infrastructural_apartment_living_room_vidja_right_3_light_node
-    name: 'living_room/vidja/right/3'
+    name: 'living_room/vidja/right/3/light'
   - entity: binary_sensor.infrastructural_apartment_living_room_vidja_right_4_light_node
-    name: 'living_room/vidja/right/4'
+    name: 'living_room/vidja/right/4/light'
   - entity: binary_sensor.infrastructural_apartment_living_room_vidja_right_5_light_node
-    name: 'living_room/vidja/right/5'
+    name: 'living_room/vidja/right/5/light'
   - entity: binary_sensor.infrastructural_apartment_living_room_vidja_right_6_light_node
-    name: 'living_room/vidja/right/6'
+    name: 'living_room/vidja/right/6/light'
+  - entity: binary_sensor.infrastructural_apartment_living_room_vidja_right_light_node
+    name: 'living_room/vidja/right/light'
   - entity: binary_sensor.infrastructural_apartment_shower_room_aqara_water_node
     name: 'shower_room/aqara_water'
   - entity: binary_sensor.infrastructural_apartment_shower_room_door_moes_1_node
@@ -134,9 +134,9 @@ entities:
   - entity: binary_sensor.infrastructural_apartment_shower_room_door_moes_2_node
     name: 'shower_room/door/moes/2'
   - entity: binary_sensor.infrastructural_apartment_shower_room_main_light_node
-    name: 'shower_room/main'
+    name: 'shower_room/main/light'
   - entity: binary_sensor.infrastructural_apartment_shower_room_mirror_light_node
-    name: 'shower_room/mirror'
+    name: 'shower_room/mirror/light'
   - entity: binary_sensor.infrastructural_apartment_shower_room_mirror_moes_node
     name: 'shower_room/mirror/moes'
   - entity: binary_sensor.infrastructural_apartment_shower_room_netatmo_node
@@ -148,13 +148,13 @@ entities:
   - entity: binary_sensor.infrastructural_apartment_shower_room_washing_machine_robb_node
     name: 'shower_room/washing_machine/robb'
   - entity: binary_sensor.infrastructural_terrace_left_light_node
-    name: 'terrace/left'
+    name: 'terrace/left/light'
   - entity: binary_sensor.infrastructural_terrace_netatmo_outdoor_node
     name: 'terrace/netatmo_outdoor'
   - entity: binary_sensor.infrastructural_terrace_netatmo_windmeter_node
     name: 'terrace/netatmo_windmeter'
   - entity: binary_sensor.infrastructural_terrace_right_light_node
-    name: 'terrace/right'
+    name: 'terrace/right/light'
   - entity: binary_sensor.infrastructural_terrace_signify_motion_node
     name: 'terrace/signify_motion'
 title: Nodes

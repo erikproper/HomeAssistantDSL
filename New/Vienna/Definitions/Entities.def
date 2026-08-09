@@ -13,7 +13,7 @@ space social:apartment with:
     entity binary_sensor.physical:frient/motion;
     call battery_level_device :frient;
 
-    call device light.social:main;
+    call light_device light.social:main;
 
     call battery_level_device :bedroom/door/moes with alert_level 20;
     call battery_level_device :door/moes with alert_level 20;
@@ -109,7 +109,7 @@ space social:apartment with:
         icon ${dishwasher_icon};
       end;
 
-      call device light.social:workplace;
+      call light_device light.social:workplace;
 
       entity cover.social with:
         open_stop_close;
@@ -196,10 +196,10 @@ space social:apartment with:
     call battery_level_device :aqara_windoor with alert_level 10;
 
     space social:bed with:
-      call device light.social:left;
-      call device light.social:right;
+      call light_device light.social:left;
+      call light_device light.social:right;
     end;
-    call device light.social:main;
+    call light_device light.social:main;
 
     call media_player_device :sonos;
     entity sensor.infrastructural:sonos/battery_level;
@@ -256,8 +256,8 @@ space social:apartment with:
       icon ${washing_machine_icon};
     end;
 
-    call device light.social:main;
-    call device light.social:mirror;
+    call light_device light.social:main;
+    call light_device light.social:mirror;
 
     call battery_level_device :door/moes/1 with alert_level 20;
     call battery_level_device :door/moes/2 with alert_level 20;
@@ -309,8 +309,8 @@ space social:terrace with:
 
   entity binary_sensor.social:daylight with condition sun.[sun]!elevation "$ > 4";
 
-  call device light.physical:left;
-  call device light.physical:right;
+  call light_device light.physical:left;
+  call light_device light.physical:right;
 
   entity sensor.physical:signify_motion/illuminance with call providing :signify_motion;
   entity sensor.physical:signify_motion/temperature;

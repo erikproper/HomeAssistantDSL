@@ -59,7 +59,11 @@ type TAdministrationState struct {
 	SwitchedDeviceRelations []TSwitchedDeviceRelation
 	TimerLimitsRelations    []TTimerLimitsRelation
 
-	TrustedProxies []string // from "http proxies ...;" in Settings.def
+	// "definition as <type> ...;" relations for entity bodies that generate their own content
+	// (as opposed to switched_device/timer-limits above, which describe cross-entity behaviour).
+	FlippedRelations  []TFlippedRelation
+	HasStateRelations []THasStateRelation
+	TimerDefRelations []TTimerDefRelation
 
 	// Maps DSL node entity name → representative HA entity ID for top-level providing calls.
 	// Populated by ParseEntitiesAndFillAdministration; used by the template binary sensor generator.
@@ -104,8 +108,33 @@ type TFollowsRelation struct {
 // TSwitchedDeviceRelation records a "definition as switched_device <device> <main>" entity directive.
 type TSwitchedDeviceRelation struct {
 	SpaceName  string
+	SelfEntity string // fully qualified DSL entity name of the declaring entity, e.g. "light.social/house/bathroom/main"
 	Device     string // fully qualified DSL entity name (first arg), e.g. "light.physical/house/bathroom/main_disc"
 	MainEntity string // fully qualified DSL entity name (second arg), e.g. "light.physical/house/bathroom/main"
+}
+
+// TFlippedRelation records a "definition as flipped <source>" entity directive — the declaring
+// entity's state and turn_on/turn_off mirror the source entity, inverted.
+type TFlippedRelation struct {
+	SelfEntity string // fully qualified DSL entity name of the declaring entity, e.g. "switch.physical/house/bathroom/heating"
+	Source     string // fully qualified DSL entity name being flipped, e.g. "switch.physical/house/bathroom/heating_raw"
+}
+
+// THasStateRelation records a "definition as has_state <source> <state> [delay_on] [delay_off]"
+// entity directive — the declaring binary_sensor mirrors whether the source entity is in <state>.
+type THasStateRelation struct {
+	SelfEntity string // fully qualified DSL entity name of the declaring binary_sensor
+	Source     string // fully qualified DSL entity name (or "entity!attribute") being observed
+	State      string
+	DelayOn    string
+	DelayOff   string
+}
+
+// TTimerDefRelation records a "definition as timer \"<duration>\"" entity directive — the
+// declaring timer entity gets that fixed duration.
+type TTimerDefRelation struct {
+	SelfEntity string // fully qualified DSL entity name of the declaring timer
+	Duration   string
 }
 
 // TTimerLimitsRelation records a "limits <timer> <entity>: off on;" space-level directive.

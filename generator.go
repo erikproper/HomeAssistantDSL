@@ -67,7 +67,6 @@ func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutput
 	sharedSettingsBytes, _ := os.ReadFile(filepath.Join(sharedDefinitionDir, "Settings.def"))
 	localSettingsBytes, _ := os.ReadFile(filepath.Join(definitionDir, "Settings.def"))
 	combinedSettings := string(sharedSettingsBytes) + "\n" + string(localSettingsBytes)
-	trustedProxies := parseHTTPProxies(combinedSettings)
 	ctx.Settings = parseDefinitionAssignments(combinedSettings)
 
 	fmt.Printf("%s: interpreting entities...\n", label)
@@ -85,7 +84,6 @@ func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutput
 		return err
 	}
 	admin := parseResult.Administration
-	admin.TrustedProxies = trustedProxies
 	if bridgeTargets, bridgeErr := resolveBridgeTargets(definitionDir); bridgeErr == nil {
 		admin.BridgeTargets = bridgeTargets
 	}
@@ -113,6 +111,10 @@ func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutput
 		{"binary sensor subdomain groups", generateBinarySensorSubdomainGroups},
 		{"sensor subdomain groups", generateSensorSubdomainGroups},
 		{"light groups", generateLightGroups},
+		{"flipped switches", generateFlippedSwitches},
+		{"switched device entities", generateSwitchedDeviceEntities},
+		{"has_state entities", generateHasStateEntities},
+		{"timer definitions", generateTimerDefinitions},
 		{"customization", generateCustomizationFiles},
 		{"rest imported sensors", generateRestImportedSensors},
 		{"cli sensors", generateCliSensors},
@@ -128,7 +130,6 @@ func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutput
 		{"cover scripts", generateCoverScripts},
 		{"derived binary sensors", generateDerivedBinarySensors},
 		{"automations", generateAutomations},
-		{"http integration", generateHTTPIntegration},
 	}
 	for _, step := range steps {
 		if err := step.fn(outputDir, admin); err != nil {
@@ -571,22 +572,11 @@ func generateTemplateBinarySensors(outputDir string, admin *TAdministrationState
 		sphere := ir.rec.Identity.Sphere
 
 		if strings.HasSuffix(path, "/node") {
-			repID := resolveNodeRepresentative(ir.name, ir.rec, admin)
+			nodeEntityID, repID := resolvedNodeEntityID(ir.name, ir.rec, admin)
 			if repID == "" {
 				continue
 			}
-			// Extract domain from representative entity ID (e.g. "light" from "light.social_...").
-			repDomain := ""
-			if dotIdx := strings.Index(repID, "."); dotIdx > 0 {
-				repDomain = repID[:dotIdx]
-			}
-			// Old system inserts the representative's domain before "node" for light entities.
-			nodeEntityID := entityID
 			nodePath := path
-			if repDomain == "light" {
-				nodeEntityID = strings.TrimSuffix(entityID, "_node") + "_light_node"
-				nodePath = strings.TrimSuffix(path, "/node") + "/light/node"
-			}
 			generatedNodeEntityIDs[nodeEntityID] = true
 			dir := filepath.Join(outputDir, "entities", "template", "binary_sensor", "infrastructural")
 			customDir := filepath.Join(outputDir, "customization", "binary_sensor", "infrastructural")
@@ -742,6 +732,19 @@ func resolveNodeRepresentative(entityName string, rec TEntityRecord, admin *TAdm
 	return ""
 }
 
+// resolvedNodeEntityID returns the actual generated entity ID and representative for a "/node"
+// record. The "_light"/"_switch" infix (where applicable) is baked directly into the entity's
+// path by the light_device/switch_device macros (via "call providing ${entity.path}/light" etc.
+// in Macros.def), so entityID here is simply the record's own name — no renaming needed. This is
+// the single source of truth for representative resolution — generateTemplateBinarySensors,
+// generateInfrastructuralGroups, and resolveListEntries all call it, rather than each re-deriving
+// the rule independently.
+func resolvedNodeEntityID(entityName string, rec TEntityRecord, admin *TAdministrationState) (entityID, repID string) {
+	entityID = toHomeAssistantEntityID(entityName)
+	repID = resolveNodeRepresentative(entityName, rec, admin)
+	return entityID, repID
+}
+
 func buildTemplateNodeYAML(entityID, displayPath, representativeID string) string {
 	var sb strings.Builder
 	sb.WriteString(generatorHeader)
@@ -749,7 +752,7 @@ func buildTemplateNodeYAML(entityID, displayPath, representativeID string) strin
 	sb.WriteString("- name: " + displayPath + "\n")
 	sb.WriteString("  unique_id: " + entityID + "\n")
 	sb.WriteString("  device_class: connectivity\n")
-	sb.WriteString("  state: \"{{ states('" + representativeID + "') != 'unavailable' }}\"\n")
+	sb.WriteString("  state: \"{{ states('" + representativeID + "') not in ['unavailable', 'unknown'] }}\"\n")
 	return sb.String()
 }
 
@@ -761,7 +764,7 @@ func buildTemplateNodeRawYAML(entityID, displayPath, representativeID string) st
 	sb.WriteString("binary_sensor:\n")
 	sb.WriteString("- name: " + displayPath + "\n")
 	sb.WriteString("  unique_id: " + entityID + "\n")
-	sb.WriteString("  state: \"{{ states('" + representativeID + "') != 'unavailable' }}\"\n")
+	sb.WriteString("  state: \"{{ states('" + representativeID + "') not in ['unavailable', 'unknown'] }}\"\n")
 	return sb.String()
 }
 
@@ -1153,7 +1156,11 @@ func generateConditionEntities(outputDir string, admin *TAdministrationState) er
 			var content string
 			switch identity.Domain {
 			case "binary_sensor":
-				content = buildConditionBinarySensorYAML(id, displayName, stateExpr, rec.ConditionDevClass, rec.ConditionDelayOn, rec.ConditionDelayOff)
+				deviceClass := rec.ConditionDevClass
+				if deviceClass == "" {
+					deviceClass = binarySensorDeviceClassBySubdomain[lastPathSegment(identity.Path)]
+				}
+				content = buildConditionBinarySensorYAML(id, displayName, stateExpr, deviceClass, rec.ConditionDelayOn, rec.ConditionDelayOff)
 			case "sensor":
 				sub := lastPathSegment(identity.Path)
 				props := restSensorSubdomainProps[sub]
@@ -1323,18 +1330,8 @@ func generateInfrastructuralGroups(outputDir string, admin *TAdministrationState
 				batteryAlerts = append(batteryAlerts, id)
 			} else if strings.HasSuffix(rec.Identity.Path, "/node") {
 				// node_alert is auto-derived for every /node entity (generated by the template step).
-				// For light-domain representatives the entity is renamed _light_node / _light_node_alert.
-				repID := resolveNodeRepresentative(rec.Name, rec, admin)
-				repDomain := ""
-				if dotIdx := strings.Index(repID, "."); dotIdx > 0 {
-					repDomain = repID[:dotIdx]
-				}
-				base := strings.TrimSuffix(id, "_node")
-				if repDomain == "light" {
-					nodeAlerts = append(nodeAlerts, base+"_light_node_alert")
-				} else {
-					nodeAlerts = append(nodeAlerts, base+"_node_alert")
-				}
+				nodeEntityID, _ := resolvedNodeEntityID(rec.Name, rec, admin)
+				nodeAlerts = append(nodeAlerts, strings.TrimSuffix(nodeEntityID, "_node")+"_node_alert")
 			}
 		}
 	}
@@ -1771,6 +1768,7 @@ var subdomainIcons = map[string]string{
 	"co2":             "mdi:cloud",
 	"consumes":        "mdi:flash",
 	"daylight":        "mdi:weather-sunset-up",
+	"health":          "mdi:cloud",
 	"dishwasher":      "mdi:dishwasher",
 	"door":            "mdi:door-open",
 	"humidity":        "mdi:water-percent",
@@ -1787,6 +1785,7 @@ var subdomainIcons = map[string]string{
 	"temperature":     "mdi:thermometer",
 	"washing_machine": "mdi:washing-machine",
 	"water":           "mdi:water-off",
+	"window":          "mdi:window-open",
 	"wind_direction":  "mdi:compass-outline",
 	"wind_speed":      "mdi:weather-windy",
 	"windy":           "mdi:weather-windy",
@@ -1864,46 +1863,6 @@ func buildCustomizationYAML(entityID, displayName, icon string) string {
 	}
 	sb.WriteString("  friendly_name: " + displayName + "\n")
 	return sb.String()
-}
-
-// --- http integration ---
-
-// parseHTTPProxies scans settings content for "http proxies <cidr>, ...;" and returns
-// the list of CIDR/IP entries.  Returns nil when no such directive is found.
-func parseHTTPProxies(content string) []string {
-	for _, line := range strings.Split(content, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(trimmed, "http proxies ") {
-			continue
-		}
-		rest := strings.TrimPrefix(trimmed, "http proxies ")
-		rest = strings.TrimSuffix(rest, ";")
-		var proxies []string
-		for _, part := range strings.Split(rest, ",") {
-			if p := strings.TrimSpace(part); p != "" {
-				proxies = append(proxies, p)
-			}
-		}
-		return proxies
-	}
-	return nil
-}
-
-// generateHTTPIntegration writes integrations/http.yaml when trusted proxies are configured.
-func generateHTTPIntegration(outputDir string, admin *TAdministrationState) error {
-	if len(admin.TrustedProxies) == 0 {
-		return nil
-	}
-	var sb strings.Builder
-	sb.WriteString(generatorHeader)
-	sb.WriteString("http:\n")
-	sb.WriteString("  use_x_forwarded_for: true\n")
-	sb.WriteString("  trusted_proxies:\n")
-	for _, proxy := range admin.TrustedProxies {
-		sb.WriteString("    - " + proxy + "\n")
-	}
-	intDir := filepath.Join(outputDir, "integrations")
-	return writeYAMLFile(filepath.Join(intDir, "http.yaml"), sb.String())
 }
 
 // --- media switch entities ---
@@ -2204,12 +2163,41 @@ func generateHeatingScripts(outputDir string, admin *TAdministrationState) error
 // declared in a parent space (its path extends the space path), a separate leaf script
 // is emitted and the parent space script delegates to it.
 func generateCoverScripts(outputDir string, admin *TAdministrationState) error {
-	// coversBySpace: direct cover entities with OpenStopClose per space.
+	// coversBySpace: direct cover entities with OpenStopClose per space that also participate
+	// in space-level aggregation. A no_collect cover is excluded here — matching @light/@media
+	// collection semantics — so it never makes its containing space a "cover space" and never
+	// appears in a space's combined open/close/stop sequence; it still gets its own standalone
+	// leaf script below, for direct/individual control.
 	coversBySpace := map[string][]TEntityRecord{}
+	var noCollectCovers []TEntityRecord
 	for _, spaceName := range admin.SpaceOrder {
 		for _, rec := range admin.EntityRecordsBySpace[spaceName] {
-			if rec.Identity.Domain == "cover" && rec.OpenStopClose {
-				coversBySpace[spaceName] = append(coversBySpace[spaceName], rec)
+			if rec.Identity.Domain != "cover" || !rec.OpenStopClose {
+				continue
+			}
+			if rec.NoCollect {
+				noCollectCovers = append(noCollectCovers, rec)
+				continue
+			}
+			coversBySpace[spaceName] = append(coversBySpace[spaceName], rec)
+		}
+	}
+	if len(coversBySpace) == 0 && len(noCollectCovers) == 0 {
+		return nil
+	}
+
+	for _, rec := range noCollectCovers {
+		coverID := toHomeAssistantEntityID(rec.Name)
+		leafBase := strings.ReplaceAll(rec.Identity.Sphere+"/"+rec.Identity.Path, "/", "_")
+		leafAlias := rec.Identity.Sphere + "/" + rec.Identity.Path
+		sphere := rec.Identity.Sphere
+		scriptDir := filepath.Join(outputDir, "script", sphere)
+		for _, act := range coverActions {
+			leafID := leafBase + "_cover_" + act.name
+			content := buildCoverScriptYAML(leafID, leafAlias+"/cover_"+act.name,
+				[]struct{ service, entityID string }{{act.service, coverID}})
+			if err := writeYAMLFile(filepath.Join(scriptDir, "script."+leafID+".yaml"), content); err != nil {
+				return err
 			}
 		}
 	}
@@ -2571,7 +2559,11 @@ func generateTimeWindowBinarySensors(outputDir string, admin *TAdministrationSta
 		if err := writeYAMLFile(filepath.Join(dir, dayTimeID+".yaml"), dayContent); err != nil {
 			return err
 		}
-		if err := writeYAMLFile(filepath.Join(customDir, dayTimeID+".yaml"), buildCustomizationYAML(dayTimeID, dayTimeDisplay, "mdi:sun-clock")); err != nil {
+		dayTimeIcon := "mdi:sun-clock"
+		if domain == "coverage" {
+			dayTimeIcon = "mdi:clock-start"
+		}
+		if err := writeYAMLFile(filepath.Join(customDir, dayTimeID+".yaml"), buildCustomizationYAML(dayTimeID, dayTimeDisplay, dayTimeIcon)); err != nil {
 			return err
 		}
 
@@ -2684,7 +2676,7 @@ func generateHeatingShouldBeOffSensors(outputDir string, admin *TAdministrationS
 		if err := writeYAMLFile(filepath.Join(dir, entityID+".yaml"), content); err != nil {
 			return err
 		}
-		custom := buildCustomizationYAML(entityID, displayName, "mdi:radiator-off")
+		custom := buildCustomizationYAML(entityID, displayName, "mdi:radiator")
 		customDir := filepath.Join(outputDir, "customization", "binary_sensor", "physical")
 		if err := writeYAMLFile(filepath.Join(customDir, entityID+".yaml"), custom); err != nil {
 			return err
@@ -3928,6 +3920,179 @@ func generateFollowsAutomations(outputDir string, admin *TAdministrationState) e
 	return nil
 }
 
+// --- flipped switch entities ---
+
+// generateFlippedSwitches writes the template switch entity for every "definition as flipped
+// <source>;" directive: its state mirrors <source> inverted, and turning it on/off turns the
+// source off/on respectively.
+func generateFlippedSwitches(outputDir string, admin *TAdministrationState) error {
+	for _, rel := range admin.FlippedRelations {
+		selfID := toHomeAssistantEntityID(rel.SelfEntity)
+		sourceID := toHomeAssistantEntityID(rel.Source)
+		if selfID == "" || sourceID == "" {
+			continue
+		}
+		identity := extractEntityIdentity(rel.SelfEntity)
+		displayName := identity.Sphere + "/" + identity.Path
+		content := buildFlippedSwitchYAML(selfID, displayName, sourceID)
+		dir := filepath.Join(outputDir, "entities", "template", "switch", identity.Sphere)
+		if err := writeYAMLFile(filepath.Join(dir, selfID+".yaml"), content); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func buildFlippedSwitchYAML(entityID, displayName, sourceID string) string {
+	var sb strings.Builder
+	sb.WriteString(generatorHeader)
+	sb.WriteString("switch:\n")
+	sb.WriteString("- name: " + displayName + "\n")
+	sb.WriteString("  unique_id: " + entityID + "\n")
+	sb.WriteString("  default_entity_id: " + entityID + "\n")
+	sb.WriteString("  state: \"{{ is_state('" + sourceID + "', 'off') }}\"\n")
+	sb.WriteString("  turn_on:\n")
+	sb.WriteString("  - entity_id:\n")
+	sb.WriteString("    - " + sourceID + "\n")
+	sb.WriteString("    action: switch.turn_off\n")
+	sb.WriteString("  turn_off:\n")
+	sb.WriteString("  - entity_id:\n")
+	sb.WriteString("    - " + sourceID + "\n")
+	sb.WriteString("    action: switch.turn_on\n")
+	return sb.String()
+}
+
+// --- switched_device entities ---
+
+// generateSwitchedDeviceEntities writes the group entity/entities for every "definition as
+// switched_device <device> <main>;" directive. When the declaring entity is a light, an
+// intermediate "all: true" helper group combines device+main, and the declaring entity becomes
+// a default (any-on) group of [helper, main]. For any other domain, a single "all: true" group
+// of [device, main] is written directly as the declaring entity.
+func generateSwitchedDeviceEntities(outputDir string, admin *TAdministrationState) error {
+	for _, rel := range admin.SwitchedDeviceRelations {
+		selfID := toHomeAssistantEntityID(rel.SelfEntity)
+		deviceID := toHomeAssistantEntityID(rel.Device)
+		mainID := toHomeAssistantEntityID(rel.MainEntity)
+		if selfID == "" || deviceID == "" || mainID == "" {
+			continue
+		}
+		selfIdentity := extractEntityIdentity(rel.SelfEntity)
+		deviceIdentity := extractEntityIdentity(rel.Device)
+		mainIdentity := extractEntityIdentity(rel.MainEntity)
+
+		if deviceIdentity.Domain == "light" {
+			helperName := "light.physical/" + mainIdentity.Path + "/helper"
+			helperID := toHomeAssistantEntityID(helperName)
+			helperKey := strings.TrimPrefix(helperID, "light.")
+			helperContent := buildPlatformGroupYAML(helperKey, true, []string{deviceID, mainID})
+			helperDir := filepath.Join(outputDir, "entities", "light", "physical")
+			if err := writeYAMLFile(filepath.Join(helperDir, helperID+".yaml"), helperContent); err != nil {
+				return err
+			}
+
+			selfKey := strings.TrimPrefix(selfID, "light.")
+			selfContent := buildPlatformGroupYAML(selfKey, false, []string{helperID, mainID})
+			selfDir := filepath.Join(outputDir, "entities", "light", selfIdentity.Sphere)
+			if err := writeYAMLFile(filepath.Join(selfDir, selfID+".yaml"), selfContent); err != nil {
+				return err
+			}
+		} else {
+			selfKey := strings.TrimPrefix(selfID, selfIdentity.Domain+".")
+			content := buildPlatformGroupYAML(selfKey, true, []string{deviceID, mainID})
+			dir := filepath.Join(outputDir, "entities", selfIdentity.Domain, selfIdentity.Sphere)
+			if err := writeYAMLFile(filepath.Join(dir, selfID+".yaml"), content); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// buildPlatformGroupYAML builds a "platform: group" entity keyed by its short (domain-stripped)
+// id, optionally requiring all members to be on (rather than any).
+func buildPlatformGroupYAML(key string, all bool, memberIDs []string) string {
+	var sb strings.Builder
+	sb.WriteString(generatorHeader)
+	sb.WriteString("platform: group\n")
+	if all {
+		sb.WriteString("all: true\n")
+	}
+	sb.WriteString("name: " + key + "\n")
+	sb.WriteString("entities:\n")
+	for _, id := range memberIDs {
+		sb.WriteString("- " + id + "\n")
+	}
+	return sb.String()
+}
+
+// --- has_state entities ---
+
+// binarySensorDeviceClassBySubdomain maps a binary_sensor's last path segment to its default
+// device_class, mirroring the old bash generator's DeviceClassOf_* table.
+var binarySensorDeviceClassBySubdomain = map[string]string{
+	"motion": "motion",
+	"node":   "connectivity",
+}
+
+// generateHasStateEntities writes the template binary_sensor entity for every "definition as
+// has_state <source> <state> [delay_on] [delay_off];" directive: its state mirrors whether
+// <source> is in <state> (or has that attribute value, for "entity!attribute" sources).
+func generateHasStateEntities(outputDir string, admin *TAdministrationState) error {
+	for _, rel := range admin.HasStateRelations {
+		selfID := toHomeAssistantEntityID(rel.SelfEntity)
+		if selfID == "" {
+			continue
+		}
+		identity := extractEntityIdentity(rel.SelfEntity)
+		displayName := identity.Sphere + "/" + identity.Path
+		stateExpr := hasStateExpr(rel.Source, rel.State)
+		deviceClass := binarySensorDeviceClassBySubdomain[lastPathSegment(identity.Path)]
+		content := buildConditionBinarySensorYAML(selfID, displayName, stateExpr, deviceClass, rel.DelayOn, rel.DelayOff)
+		dir := filepath.Join(outputDir, "entities", "template", "binary_sensor", identity.Sphere)
+		if err := writeYAMLFile(filepath.Join(dir, selfID+".yaml"), content); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func hasStateExpr(source, state string) string {
+	if bangIdx := strings.Index(source, "!"); bangIdx > 0 {
+		entityID := toHomeAssistantEntityID(source[:bangIdx])
+		attr := source[bangIdx+1:]
+		return fmt.Sprintf("is_state_attr('%s', '%s', '%s')", entityID, attr, state)
+	}
+	entityID := toHomeAssistantEntityID(source)
+	return fmt.Sprintf("is_state('%s', '%s')", entityID, state)
+}
+
+// --- timer entities ---
+
+// generateTimerDefinitions writes the timer entity for every "definition as timer
+// \"<duration>\";" directive.
+func generateTimerDefinitions(outputDir string, admin *TAdministrationState) error {
+	for _, rel := range admin.TimerDefRelations {
+		selfID := toHomeAssistantEntityID(rel.SelfEntity)
+		if selfID == "" {
+			continue
+		}
+		identity := extractEntityIdentity(rel.SelfEntity)
+		displayName := identity.Sphere + "/" + identity.Path
+		key := strings.TrimPrefix(selfID, "timer.")
+		var sb strings.Builder
+		sb.WriteString(generatorHeader)
+		sb.WriteString(key + ":\n")
+		sb.WriteString("  name: " + displayName + "\n")
+		sb.WriteString("  duration: '" + rel.Duration + "'\n")
+		dir := filepath.Join(outputDir, "entities", "timer", identity.Sphere)
+		if err := writeYAMLFile(filepath.Join(dir, selfID+".yaml"), sb.String()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // --- switched_device automations ---
 
 func generateSwitchedDeviceAutomations(outputDir string, admin *TAdministrationState) error {
@@ -4487,11 +4652,8 @@ func resolveListEntries(decl TListDeclaration, admin *TAdministrationState) []TL
 			if entityID == "" {
 				continue
 			}
-			// Node entities with a light-domain representative are renamed _light_node by the generator.
 			if strings.HasSuffix(entityID, "_node") {
-				if repID := resolveNodeRepresentative(rec.Name, rec, admin); strings.HasPrefix(repID, "light.") {
-					entityID = strings.TrimSuffix(entityID, "_node") + "_light_node"
-				}
+				entityID, _ = resolvedNodeEntityID(rec.Name, rec, admin)
 			}
 			if seen[entityID] {
 				continue

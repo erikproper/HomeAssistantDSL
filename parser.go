@@ -390,8 +390,15 @@ func stripTrailingInlineComment(line string) string {
 	return trimmedLine
 }
 
-// extractRelativeProvidingTarget extracts the bare relative path from a "call providing :Y;" or
-// "call providing :Y with: ..." invocation string. Returns empty string if not a relative providing call.
+// extractRelativeProvidingTarget extracts the target path from a "call providing :Y;" or
+// "call providing /Y;" invocation (plain statement or "with: ..." block header). A ':'-prefixed
+// target has its marker stripped — the caller re-attaches its own ':' when building the node
+// entity's reference, so the space-relative resolution in normalizeEntityFullName still applies.
+// A '/'-prefixed (absolute) target is returned with its leading '/' intact: appended after the
+// caller's "sphere:" prefix, "sphere:/path" is exactly the marker normalizeEntityFullName needs
+// to treat the path as absolute rather than relative to the calling space. Returns "" for
+// unmarked (bare) targets — see warnOnUnqualifiedEntitySpacePathTarget for that case — or for
+// invocations that aren't "providing" calls at all.
 func extractRelativeProvidingTarget(invText string) string {
 	invText = strings.TrimSpace(invText)
 	if !strings.HasPrefix(invText, "call providing ") {
@@ -403,10 +410,47 @@ func extractRelativeProvidingTarget(invText string) string {
 	}
 	rest = strings.TrimSuffix(rest, ";")
 	rest = strings.TrimSpace(rest)
-	if !strings.HasPrefix(rest, ":") {
-		return ""
+	if strings.HasPrefix(rest, ":") {
+		return strings.TrimPrefix(rest, ":")
 	}
-	return strings.TrimPrefix(rest, ":")
+	if strings.HasPrefix(rest, "/") {
+		return rest
+	}
+	return ""
+}
+
+// warnOnUnqualifiedEntitySpacePathTarget warns when a top-level (Entities.def-authored) macro
+// invocation passes its positional entity_space_path argument without a ':' (relative) or '/'
+// (absolute) marker — e.g. "call providing ring;" instead of "call providing :ring;". Such a
+// value is used verbatim by the macro body with no space-context resolution, which usually isn't
+// what the author intended and can silently collapse several distinct spaces' entities into one
+// shared, wrongly-named entity. Only top-level invocations are checked (this function is called
+// from processInvocation, never from macro-internal expansion), so every value seen here is
+// literal author-typed text, not an already-resolved value passed between nested macro calls —
+// the ambiguity that makes blanket auto-resolution unsafe deeper in the expansion engine doesn't
+// apply here.
+func warnOnUnqualifiedEntitySpacePathTarget(ctx *TMacroExpansionContext, invocation *TMacroInvocation, entitiesPath string, lineNum int) {
+	macroDef, ok := ctx.Macros[invocation.Name]
+	if !ok {
+		return
+	}
+	for _, p := range macroDef.Parameters {
+		if !p.Positional {
+			continue
+		}
+		if p.Kind == ParamEntitySpacePath && isUnqualifiedEntitySpacePath(invocation.Target) {
+			fmt.Fprintf(os.Stderr, "[WARNING] %s line %d: %q passed to %s's entity_space_path parameter without a ':' or '/' marker — did you mean %q (relative) or %q (absolute)?\n",
+				entitiesPath, lineNum, invocation.Target, invocation.Name, ":"+invocation.Target, "/"+invocation.Target)
+		}
+		return
+	}
+}
+
+// isUnqualifiedEntitySpacePath reports whether value is neither ':'-relative, '/'-absolute, nor a
+// dotted entity_name (which castParamValue can cast to entity_space_path) — i.e. a bare fragment
+// with no resolution marker at all.
+func isUnqualifiedEntitySpacePath(value string) bool {
+	return value != "" && !strings.HasPrefix(value, ":") && !strings.HasPrefix(value, "/") && !strings.Contains(value, ".")
 }
 
 // --- semantic types and processing (unchanged) ---
@@ -442,6 +486,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 		if strictErr := ctx.ValidateInvocationStrict(invocation); strictErr != nil {
 			return fmt.Errorf("strict macro validation failed in %s at line %d for invocation %q: %w", entitiesPath, lineNum, invText, strictErr)
 		}
+		warnOnUnqualifiedEntitySpacePathTarget(ctx, invocation, entitiesPath, lineNum)
 		validInvocations++
 		report.WriteString("  Status: OK (all parameters valid)\n")
 		callChain := fmt.Sprintf("%s:%d → %s %s", filepath.Base(entitiesPath), lineNum, invocation.Name, invocation.Target)
@@ -500,8 +545,18 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 			fullName := normalizeEntityFullName(entityDecl.Specification, administration.SpacePath)
 			hasDefOrImport, optionKeys := analyzeEntityDefinitionContext(entityLines, i)
 			hasConfigOptions := len(optionKeys) > 0
+			// "no_collect" may be given as an inline suffix on the "entity ..." line, or as its
+			// own bare statement in the entity's body (e.g. alongside "open_stop_close;") — both
+			// forms exclude the entity from space-level aggregation.
+			noCollect := entityDecl.NoCollect
+			for _, k := range optionKeys {
+				if k == "no_collect" {
+					noCollect = true
+					break
+				}
+			}
 			entry := fmt.Sprintf("%s (line %d)", fullName, i+1)
-			if entityDecl.NoCollect {
+			if noCollect {
 				entry += " [no_collect]"
 			}
 			externalEntry := ""
@@ -517,7 +572,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 			record := TEntityRecord{
 				Name:                  fullName,
 				Identity:              extractEntityIdentity(fullName),
-				NoCollect:             entityDecl.NoCollect,
+				NoCollect:             noCollect,
 				HasDefinitionOrImport: hasDefOrImport,
 				OpenStopClose:         func() bool {
 					for _, k := range optionKeys {
@@ -553,6 +608,28 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 				if record.Identity.Domain == "input_boolean" {
 					record.InputBooleanIcon = resolved
 				}
+			}
+			// Extract inline "with definition as flipped <source>;" — the declaring switch
+			// mirrors <source>, inverted.
+			if withIdx := strings.Index(trimmed, " with definition as flipped "); withIdx >= 0 {
+				sourcePart := strings.TrimSuffix(strings.TrimSpace(trimmed[withIdx+len(" with definition as flipped "):]), ";")
+				source := normalizeEntityFullName(sourcePart, administration.SpacePath)
+				if !strings.ContainsAny(source, "$:{}[]*") {
+					administration.FlippedRelations = append(administration.FlippedRelations, TFlippedRelation{
+						SelfEntity: fullName,
+						Source:     source,
+					})
+				}
+			}
+			// Extract inline "with definition as timer \"<duration>\";" — the declaring timer
+			// gets that fixed duration.
+			if withIdx := strings.Index(trimmed, " with definition as timer "); withIdx >= 0 {
+				durationPart := strings.TrimSuffix(strings.TrimSpace(trimmed[withIdx+len(" with definition as timer "):]), ";")
+				durationPart = strings.Trim(durationPart, "\"")
+				administration.TimerDefRelations = append(administration.TimerDefRelations, TTimerDefRelation{
+					SelfEntity: fullName,
+					Duration:   durationPart,
+				})
 			}
 			if strings.HasSuffix(trimmed, " with:") {
 				administration.PendingEntityCollections = append(administration.PendingEntityCollections, TPendingEntityCollection{
@@ -732,6 +809,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 		// Record "definition as switched_device <device> <main>;" — used to generate on/off follower automations.
 		if strings.HasPrefix(trimmed, "definition as switched_device ") && len(administration.PendingEntityCollections) > 0 {
 			spaceName := administration.CurrentSpaceName()
+			selfEntity := administration.PendingEntityCollections[len(administration.PendingEntityCollections)-1].Record.Name
 			parts := strings.Fields(strings.TrimSuffix(trimmed, ";"))
 			// parts: [definition, as, switched_device, <device>, <main>]
 			if len(parts) == 5 {
@@ -740,8 +818,41 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 				if !strings.ContainsAny(device+mainEnt, "$:{}[]*") {
 					administration.SwitchedDeviceRelations = append(administration.SwitchedDeviceRelations, TSwitchedDeviceRelation{
 						SpaceName:  spaceName,
+						SelfEntity: selfEntity,
 						Device:     device,
 						MainEntity: mainEnt,
+					})
+				}
+			}
+			// fall through: still mark entity as having a definition
+		}
+
+		// Record "definition as has_state <source> <state> [delay_on] [delay_off];" — the
+		// declaring binary_sensor mirrors whether <source> is in <state>.
+		if strings.HasPrefix(trimmed, "definition as has_state ") && len(administration.PendingEntityCollections) > 0 {
+			selfEntity := administration.PendingEntityCollections[len(administration.PendingEntityCollections)-1].Record.Name
+			fields := strings.Fields(strings.TrimSuffix(trimmed, ";"))
+			// fields: [definition, as, has_state, <source>, <state>, [delay_on], [delay_off]]
+			for i, f := range fields {
+				fields[i] = strings.Trim(f, "\"")
+			}
+			if len(fields) >= 5 {
+				source := normalizeEntityFullName(fields[3], administration.SpacePath)
+				state := fields[4]
+				delayOn, delayOff := "", ""
+				if len(fields) >= 6 {
+					delayOn = fields[5]
+				}
+				if len(fields) >= 7 {
+					delayOff = fields[6]
+				}
+				if !strings.ContainsAny(source, "$:{}[]*") {
+					administration.HasStateRelations = append(administration.HasStateRelations, THasStateRelation{
+						SelfEntity: selfEntity,
+						Source:     source,
+						State:      state,
+						DelayOn:    delayOn,
+						DelayOff:   delayOff,
 					})
 				}
 			}
@@ -751,9 +862,12 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 		if strings.HasPrefix(trimmed, "condition ") && len(administration.PendingEntityCollections) > 0 {
 			lastIdx := len(administration.PendingEntityCollections) - 1
 			pending := &administration.PendingEntityCollections[lastIdx]
-			if !strings.HasSuffix(pending.Record.Name, "/node") && !strings.HasSuffix(pending.Record.Name, "/battery_alert") {
-				pending.Record.ConditionSources, pending.Record.ConditionExpr = parseConditionDirective(trimmed, administration.SpacePath)
-			}
+			// A directly-declared "/node" or "/battery_alert" entity (its own explicit
+			// "condition ...;" clause, not produced by the "providing"/battery_alert macros)
+			// gets its ConditionExpr captured like any other entity, so generateConditionEntities
+			// renders it — the hardcoded default in generateTemplateBinarySensors only applies
+			// when there is no explicit definition at all (see resolveNodeRepresentative).
+			pending.Record.ConditionSources, pending.Record.ConditionExpr = parseConditionDirective(trimmed, administration.SpacePath)
 			continue
 		}
 

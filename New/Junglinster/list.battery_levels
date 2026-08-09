@@ -1,8 +1,6 @@
 entities:
   - entity: sensor.infrastructural_entrance_front_door_ring_battery_level
     name: 'entrance/front_door/ring'
-  - entity: sensor.infrastructural_garage_front_aqara_multi_battery_level
-    name: 'garage/front/aqara_multi'
   - entity: sensor.infrastructural_garage_front_ikea_motion_battery_level
     name: 'garage/front/ikea_motion'
   - entity: sensor.infrastructural_garage_garage_door_aqara_magnet_battery_level
@@ -25,8 +23,6 @@ entities:
     name: 'house/bathroom/right/philips_motion'
   - entity: sensor.infrastructural_house_bathroom_windows_aqara_magnet_battery_level
     name: 'house/bathroom/windows/aqara_magnet'
-  - entity: sensor.infrastructural_house_corridor_aqara_multi_battery_level
-    name: 'house/corridor/aqara_multi'
   - entity: sensor.infrastructural_house_corridor_entrance_aqara_magnet_battery_level
     name: 'house/corridor/entrance/aqara_magnet'
   - entity: sensor.infrastructural_house_corridor_netatmo_battery_level
@@ -61,8 +57,6 @@ entities:
     name: 'house/laundry_kitchen/front/frient'
   - entity: sensor.infrastructural_house_laundry_kitchen_laundry_aqara_water_battery_level
     name: 'house/laundry_kitchen/laundry/aqara_water'
-  - entity: sensor.infrastructural_house_laundry_kitchen_rear_aqara_multi_battery_level
-    name: 'house/laundry_kitchen/rear/aqara_multi'
   - entity: sensor.infrastructural_house_laundry_kitchen_rear_frient_battery_level
     name: 'house/laundry_kitchen/rear/frient'
   - entity: sensor.infrastructural_house_laundry_kitchen_water_pump_aqara_water_battery_level

@@ -12,9 +12,10 @@ space social:entrance with:
 
   entity switch.social:sockets with call providing /garage/fuse_box/zwave/028;
   entity light.social:front_door;
+  # NOTE: light-domain "providing" node -- the base "_node" entity is silently never generated (only "_node_alert" and customization are), while old bash generates it fine -- needs a generator fix, see chat 2026-08-09.
   entity light.social:carport with call providing /house/server_room/zwave/027;
 
-  entity binary_sensor.social:front_door/ding with call providing ring;
+  entity binary_sensor.social:front_door/ding with call providing :ring;
   entity binary_sensor.social:front_door/motion;
   entity sensor.social:front_door/ring/volume;
   entity sensor.infrastructural:front_door/ring/battery_level;
@@ -36,6 +37,7 @@ space social:terrace with:
     entity sensor.infrastructural:netatmo/battery_level;
     call battery_alert :netatmo with alert_level 20;
 
+    # NOTE: light-domain "providing" node -- the base "_node" entity is silently never generated (only "_node_alert" and customization are), while old bash generates it fine -- needs a generator fix, see chat 2026-08-09.
     entity light.social:main with call providing /house/server_room/fuse_box/zwave/024;
 
     space off: @light;
@@ -47,6 +49,7 @@ space social:terrace with:
     entity sensor.physical:aqara_multi/temperature;
     call battery_level_device :aqara_multi with alert_level 15;
 
+    # NOTE: light-domain "providing" node -- the base "_node" entity is silently never generated (only "_node_alert" and customization are), while old bash generates it fine -- needs a generator fix, see chat 2026-08-09.
     entity light.social:main with call providing /house/server_room/fuse_box/zwave/027;
 
     space off: @light;
@@ -76,29 +79,25 @@ space social:garage with:
     cli_sensor pi smarty.fritz.box ./cpu/temperature;
     # Availability depends on binary_sensor.infrastructural:smarty/node
   end;
-  entity switch.infrastructural:smarty with call providing smarty/innr;
+  entity switch.infrastructural:smarty with call providing :smarty/innr;
 
   entity sensor.physical:rear/aqara_multi/humidity;
   entity sensor.physical:rear/aqara_multi/pressure with adjustment 38 1;
   entity sensor.physical:rear/aqara_multi/temperature;
   call battery_level_device :rear/aqara_multi with alert_level 15;
 
-  entity binary_sensor.physical:rear/ikea_motion/motion with call providing rear/ikea_motion;
+  entity binary_sensor.physical:rear/ikea_motion/motion with call providing :rear/ikea_motion;
   entity sensor.infrastructural:rear/ikea_motion/battery_level;
   call battery_alert :rear/ikea_motion with alert_level 10;
 
-  entity sensor.physical:front/aqara_multi/humidity;
-  entity sensor.physical:front/aqara_multi/pressure with adjustment 38 1;
-  entity sensor.physical:front/aqara_multi/temperature;
-  call battery_level_device :front/aqara_multi with alert_level 15;
-
-  entity binary_sensor.physical:front/ikea_motion/motion with call providing front/ikea_motion;
+  entity binary_sensor.physical:front/ikea_motion/motion with call providing :front/ikea_motion;
   entity sensor.infrastructural:front/ikea_motion/battery_level;
   call battery_alert :front/ikea_motion with alert_level 10;
 
   entity binary_sensor.physical:garage_door/aqara_magnet/door;
   call battery_level_device :garage_door/aqara_magnet with alert_level 10;
 
+  # NOTE: light-domain "providing" node -- the base "_node" entity is silently never generated (only "_node_alert" and customization are), while old bash generates it fine -- needs a generator fix, see chat 2026-08-09.
   entity light.social:main with call providing /garage/fuse_box/zwave/019;
 
   call media_player_device :sonos;
@@ -138,11 +137,6 @@ space social:house with:
     entity sensor.physical:front/aqara_multi/temperature;
     call battery_level_device :front/aqara_multi with alert_level 15;
 
-    entity sensor.physical:rear/aqara_multi/humidity;
-    entity sensor.physical:rear/aqara_multi/pressure with adjustment 38 1;
-    entity sensor.physical:rear/aqara_multi/temperature;
-    call battery_level_device :rear/aqara_multi with alert_level 15;
-
     entity binary_sensor.physical:rear/frient/motion;
     entity sensor.physical:rear/frient/illuminance;
     entity binary_sensor.physical:rear/frient/vibration;
@@ -178,7 +172,7 @@ space social:house with:
   end;
 
   space social:living_room with:
-    entity switch.social:tv with call providing tv_switch;
+    entity switch.social:tv with call providing :tv_switch;
 
     call media_player_device :sonos with no_play_input "TV";
     call media_player_device :tv with enabler switch.social:tv;
@@ -200,7 +194,7 @@ space social:house with:
 
     entity cover.social:front with:
       open_stop_close;
-      call providing front/somfy;
+      call providing :front/somfy;
     end;
     entity number.social:front/my_position;
     entity button.social:front/to_my_position;
@@ -208,7 +202,7 @@ space social:house with:
 
     entity cover.social:rear with:
       open_stop_close;
-      call providing rear/somfy;
+      call providing :rear/somfy;
     end;
     entity number.social:rear/my_position;
     entity button.social:rear/to_my_position;
@@ -234,21 +228,22 @@ space social:house with:
     call battery_level_device :dining/philips_dimmer with alert_level 20;
     call battery_level_device :living/philips_dimmer with alert_level 20;
 
-    call device light.social:indirect;
+    call light_device light.social:indirect;
 
     space social:living with:
-      entity light.physical:main no_collect with call providing hallway_door_switch_box/fibaro;
+      # NOTE: light-domain "providing" node entity is wrongly renamed to "_light_node" -- old bash keeps the plain "_node" name here -- needs a generator fix, see chat 2026-08-09.
+      entity light.physical:main no_collect with call providing :hallway_door_switch_box/fibaro;
       entity light.physical:main_dimmer no_collect;
       entity light.social:main with:
         icon mdi:lightbulb;
         definition as switched_device light.physical:main_dimmer light.physical:main;
       end;
 
-      call device light.social:hanging_sideboard;
-      call device light.social:bloom_left;
-      call device light.social:bloom_right;
-      call device light.social:christmas_tree;
-      call device light.social:gray_sideboard;
+      call light_device light.social:hanging_sideboard;
+      call light_device light.social:bloom_left;
+      call light_device light.social:bloom_right;
+      call light_device light.social:christmas_tree;
+      call light_device light.social:gray_sideboard;
 
       entity switch.social:picture_frame with:
         cli_switch pi 192.168.178.58 ./bin/start_slideshow ./bin/stop_slideshow ./bin/check_slideshow;
@@ -286,7 +281,7 @@ space social:house with:
   space social:kitchen with:
     entity cover.social with:
       open_stop_close;
-      call providing somfy;
+      call providing :somfy;
     end;
     entity number.social:my_position;
     entity button.social:to_my_position;
@@ -321,8 +316,8 @@ space social:house with:
     call thermostat :radiator/aqara_thermostat;
     call battery_level :radiator/aqara_thermostat with alert_level 20;
 
-    call device light.social:go;
-    call device light.social:main;
+    call light_device light.social:go;
+    call light_device light.social:main;
 
     space social:workplace with:
       entity sensor.physical:furnace/power;
@@ -366,6 +361,7 @@ space social:house with:
     entity timer.social:removing_smell with definition as timer "00:03:00";
     limits timer.social:removing_smell fan.social: off on;
 
+    # NOTE: light-domain "providing" node -- the base "_node" entity is silently never generated (only "_node_alert" and customization are), while old bash generates it fine -- needs a generator fix, see chat 2026-08-09.
     entity light.social:main with call providing /house/kitchen/hallway_door/power_socket/fibaro;
 
     entity binary_sensor.physical:window/aqara_magnet/window;
@@ -377,7 +373,7 @@ space social:house with:
   end;
 
   space social:downward_hallway with:
-    entity sensor.infrastructural:laserjet/status with call providing laserjet;
+    entity sensor.infrastructural:laserjet/status with call providing :laserjet;
     entity sensor.infrastructural:laserjet/message with:
       value sensor.infrastructural:laserjet/status!state_message;
     end;
@@ -394,6 +390,7 @@ space social:house with:
     entity binary_sensor.physical:philips_motion/motion;
     call battery_level_device :philips_motion with alert_level 10;
 
+    # NOTE: light-domain "providing" node -- the base "_node" entity is silently never generated (only "_node_alert" and customization are), while old bash generates it fine -- needs a generator fix, see chat 2026-08-09.
     entity light.social:main with call providing /garage/fuse_box/zwave/030;
 
     space social:garage_door with:
@@ -407,10 +404,6 @@ space social:house with:
   end;
 
   space social:upward_hallway with:
-    entity light.social:main with:
-      call providing house/upward_hallway/second_floor/david_bedroom_door/switch_box/fibaro;
-    end;
-
     space social:first_floor with:
       entity light.social:main;
 
@@ -431,7 +424,7 @@ space social:house with:
       entity binary_sensor.physical:entrance/aqara_magnet/door;
       call battery_level_device :entrance/aqara_magnet with alert_level 10;
 
-      entity sensor.social:ring/volume with call providing ring;
+      entity sensor.social:ring/volume with call providing :ring;
 
       light on: social:main;
       heating leak: binary_sensor.social:door;
@@ -442,7 +435,7 @@ space social:house with:
 
       entity cover.social with:
         open_stop_close;
-        call providing somfy;
+        call providing :somfy;
       end;
       entity number.social:my_position;
       entity button.social:to_my_position;
@@ -459,14 +452,14 @@ space social:house with:
       light on: social:main;
     end;
 
-    light on: social:main;
+    light on: @light;
     space off: @light;
   end;
 
   space social:sarah_bedroom with:
     entity cover.social with:
       open_stop_close;
-      call providing somfy;
+      call providing :somfy;
     end;
     entity number.social:my_position;
     entity button.social:to_my_position;
@@ -490,7 +483,8 @@ space social:house with:
       condition sensor.infrastructural:netatmo/reachability "$ == 'True'";
     end;
 
-    entity light.social:main with call providing door_switch_box/fibaro;
+    # NOTE: light-domain "providing" node entity is wrongly renamed to "_light_node" -- old bash keeps the plain "_node" name here -- needs a generator fix, see chat 2026-08-09.
+    entity light.social:main with call providing :door_switch_box/fibaro;
 
     entity binary_sensor.physical:windows/aqara_magnet/window;
     call battery_level_device :windows/aqara_magnet with alert_level 10;
@@ -502,7 +496,7 @@ space social:house with:
   space social:david_bedroom with:
     entity cover.social with:
       open_stop_close;
-      call providing somfy;
+      call providing :somfy;
     end;
     entity number.social:my_position;
     entity button.social:to_my_position;
@@ -511,7 +505,9 @@ space social:house with:
     call thermostat :radiator/aqara_thermostat;
     call battery_level :radiator/aqara_thermostat with alert_level 20;
 
-    entity light.social:main;
+    entity light.social:main with:
+      call providing /house/upward_hallway/second_floor/david_bedroom_door/switch_box/fibaro;
+    end;
 
     entity sensor.physical:netatmo/co2;
     entity sensor.physical:netatmo/humidity;
@@ -535,7 +531,7 @@ space social:house with:
   space social:master_bedroom with:
     entity cover.social with:
       open_stop_close;
-      call providing somfy;
+      call providing :somfy;
     end;
     entity number.social:my_position;
     entity button.social:to_my_position;
@@ -562,11 +558,12 @@ space social:house with:
     end;
 
     space social:bed with:
-      call device light.social:left;
-      call device light.social:right;
+      call light_device light.social:left;
+      call light_device light.social:right;
     end;
 
-    entity light.social:main with call providing door_switch_box/fibaro;
+    # NOTE: light-domain "providing" node entity is wrongly renamed to "_light_node" -- old bash keeps the plain "_node" name here -- needs a generator fix, see chat 2026-08-09.
+    entity light.social:main with call providing :door_switch_box/fibaro;
 
     entity binary_sensor.physical:windows/aqara_magnet/window;
     call battery_level_device :windows/aqara_magnet with alert_level 10;
@@ -579,7 +576,7 @@ space social:house with:
   space social:shower_room with:
     entity cover.social with:
       open_stop_close;
-      call providing somfy;
+      call providing :somfy;
     end;
     entity number.social:my_position;
     entity button.social:to_my_position;
@@ -607,6 +604,7 @@ space social:house with:
     call battery_alert :netatmo with alert_level 20;
 
     entity light.social:main with:
+      # NOTE: light-domain "providing" node -- the base "_node" entity is silently never generated (only "_node_alert" and customization are), while old bash generates it fine -- needs a generator fix, see chat 2026-08-09.
       call providing /house/upward_hallway/second_floor/shower_room/switch_box/fibaro;
     end;
 
@@ -641,7 +639,7 @@ space social:house with:
     entity sensor.infrastructural:fritzbox/upload_throughput;
     entity sensor.infrastructural:fritzbox/download_throughput;
 
-    call device switch.social:xanadu;
+    call switch_device switch.social:xanadu;
     entity binary_sensor.infrastructural:fritzbox/node;
 
     entity sensor.infrastructural:xanadu/load with:
@@ -685,13 +683,14 @@ space social:house with:
     entity switch.physical:heating with definition as flipped switch.physical:heating_raw;
 
     entity light.physical:main_spots no_collect;
+    # NOTE: light-domain "providing" node -- the base "_node" entity is silently never generated (only "_node_alert" and customization are), while old bash generates it fine -- needs a generator fix, see chat 2026-08-09.
     entity light.physical:main no_collect with call providing /house/server_room/fuse_box/zwave/021;
     entity light.social:main with:
       icon mdi:lightbulb;
       definition as switched_device light.physical:main_spots light.physical:main;
     end;
 
-    call device light.social:corb;
+    call light_device light.social:corb;
 
     follows light.social:corb light.social:main;
     follows light.social:corb light.physical:main;
@@ -707,12 +706,7 @@ space social:house with:
     entity sensor.infrastructural:netatmo/battery_level;
     call battery_alert :netatmo with alert_level 20;
 
-    entity sensor.social:ring/volume with call providing ring;
-
-    entity sensor.physical:aqara_multi/humidity;
-    entity sensor.physical:aqara_multi/pressure with adjustment 38 1;
-    entity sensor.physical:aqara_multi/temperature;
-    call battery_level_device :aqara_multi with alert_level 15;
+    entity sensor.social:ring/volume with call providing :ring;
 
     entity sensor.physical:philips_motion/temperature;
     entity sensor.physical:philips_motion/illuminance;
@@ -739,7 +733,7 @@ space social:house with:
 
     entity switch.physical:backup with:
       icon mdi:server;
-      call providing backup;
+      call providing :backup;
     end;
 
     entity sensor.infrastructural:backup/load with:
@@ -783,13 +777,14 @@ space social:house with:
     entity switch.physical:heating with definition as flipped switch.physical:heating_raw;
 
     entity light.physical:main_disc no_collect;
+    # NOTE: light-domain "providing" node -- the base "_node" entity is silently never generated (only "_node_alert" and customization are), while old bash generates it fine -- needs a generator fix, see chat 2026-08-09.
     entity light.physical:main no_collect with call providing /house/server_room/fuse_box/zwave/029;
     entity light.social:main with:
       icon mdi:lightbulb;
       definition as switched_device light.physical:main_disc light.physical:main;
     end;
 
-    entity switch.social:whirlpool with call providing bathtub/relais_box;
+    entity switch.social:whirlpool with call providing :bathtub/relais_box;
     entity binary_sensor.physical:whirlpool/motion with:
       definition as has_state switch.social:whirlpool on;
     end;
@@ -853,15 +848,15 @@ space social:house with:
 
     entity binary_sensor.infrastructural:orbi/node;
 
-    call device switch.social:display1;
-    call device switch.social:display2;
-    call device switch.social:media_drive;
-    call device switch.social:photography_drive;
-    call device switch.social:imac;
-    call device switch.social:shredder;
-    call device switch.social:mini_fans;
-    call device switch.social:cycling;
-    call device switch.social:cycling_fans;
+    call switch_device switch.social:display1;
+    call switch_device switch.social:display2;
+    call switch_device switch.social:media_drive;
+    call switch_device switch.social:photography_drive;
+    call switch_device switch.social:imac;
+    call switch_device switch.social:shredder;
+    call switch_device switch.social:mini_fans;
+    call switch_device switch.social:cycling;
+    call switch_device switch.social:cycling_fans;
 
     call media_player_device :sonos;
     call media_player_device :apple_tv with:
@@ -874,16 +869,20 @@ space social:house with:
     end;
 
     entity light.physical:ceiling no_collect;
+    # NOTE: light-domain "providing" node -- the base "_node" entity is silently never generated (only "_node_alert" and customization are), while old bash generates it fine -- needs a generator fix, see chat 2026-08-09.
     entity light.physical:main no_collect with call providing /house/server_room/fuse_box/zwave/023;
     entity light.social:main with:
       icon mdi:lightbulb;
       definition as switched_device light.physical:ceiling light.physical:main;
     end;
 
-    entity light.social:lower_strip with call providing lower_strip;
-    entity light.social:upper_strip with call providing upper_strip;
+    # NOTE: light-domain "providing" node entity is wrongly renamed to "_light_node" -- old bash keeps the plain "_node" name here -- needs a generator fix, see chat 2026-08-09.
+    entity light.social:lower_strip with call providing :lower_strip;
+    # NOTE: light-domain "providing" node entity is wrongly renamed to "_light_node" -- old bash keeps the plain "_node" name here -- needs a generator fix, see chat 2026-08-09.
+    entity light.social:upper_strip with call providing :upper_strip;
 
-    entity light.social:low_board with call providing low_board;
+    # NOTE: light-domain "providing" node entity is wrongly renamed to "_light_node" -- old bash keeps the plain "_node" name here -- needs a generator fix, see chat 2026-08-09.
+    entity light.social:low_board with call providing :low_board;
 
     follows light.social:low_board light.social:main;
 
@@ -935,7 +934,8 @@ space social:house with:
 end;
 
 space social:loft with:
-  entity light.social:main with call providing switch_box/nodon;
+  # NOTE: light-domain "providing" node entity is wrongly renamed to "_light_node" -- old bash keeps the plain "_node" name here -- needs a generator fix, see chat 2026-08-09.
+  entity light.social:main with call providing :switch_box/nodon;
 
   entity sensor.physical:aqara_multi/humidity;
   entity sensor.physical:aqara_multi/pressure with adjustment 38 1;
@@ -954,7 +954,6 @@ space social:cars with:
     entity binary_sensor.social:front/left/window;
     entity binary_sensor.social:rear/right/window;
     entity binary_sensor.social:rear/left/window;
-    entity binary_sensor.social:service/warning;
     entity binary_sensor.social:brake_fluid/warning;
     entity binary_sensor.social:washer_fluid/warning;
     entity device_tracker.social:position;

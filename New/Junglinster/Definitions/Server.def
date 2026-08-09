@@ -1,5 +1,5 @@
 if is up "junglinster.fritz.box" then
-  ${main_instance} = "http://home-junglinster.fritz.box:8123";
+  ${main_instance} = "http://junglinster.fritz.box:8123";
 else
   ${main_instance} = "https://home-junglinster.erikproper.eu";
 end;

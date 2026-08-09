@@ -84,6 +84,14 @@ macro device ( ${entity} entity_name ):
   entity ${entity} with call providing ${entity.path};
 end;
 
+macro light_device ( ${entity} entity_name ):
+  entity ${entity} with call providing ${entity.path}/light;
+end;
+
+macro switch_device ( ${entity} entity_name ):
+  entity ${entity} with call providing ${entity.path}/switch;
+end;
+
 macro thermostat ( ${entity_space_path} entity_space_path ):
   call device climate.physical/${entity_space_path};
 
@@ -93,13 +101,13 @@ macro thermostat ( ${entity_space_path} entity_space_path ):
 end;
 
 macro zigbee_group ( ${entity} entity_name ) { ${group} set of string }:
-  call device ${entity};
+  call light_device ${entity};
 
   space physical/${entity.space_path} with:
     no_collect;
 
     for ${element} in ${group} do
-      call device ${entity.domain}.physical/${entity.space_path}/${element};
+      call light_device ${entity.domain}.physical/${entity.space_path}/${element};
   end;
 end;
 

@@ -40,5 +40,3 @@ ${illuminance_max} = 8000;
 ${illuminance_step} = 100;
 ${illuminance_unit} = "lux";
 ${sunny_device_class} = "light";
-
-http proxies 192.168.178.0/24, 172.30.0.0/16, 127.0.0.1;

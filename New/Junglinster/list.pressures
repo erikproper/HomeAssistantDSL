@@ -1,20 +1,14 @@
 entities:
-  - entity: sensor.physical_garage_front_aqara_multi_pressure
-    name: 'garage/front/aqara_multi/pressure'
   - entity: sensor.physical_garage_rear_aqara_multi_pressure
     name: 'garage/rear/aqara_multi/pressure'
   - entity: sensor.physical_house_bathroom_aqara_multi_pressure
     name: 'house/bathroom/aqara_multi/pressure'
-  - entity: sensor.physical_house_corridor_aqara_multi_pressure
-    name: 'house/corridor/aqara_multi/pressure'
   - entity: sensor.physical_house_david_bedroom_netatmo_pressure
     name: 'house/david_bedroom/netatmo/pressure'
   - entity: sensor.physical_house_downward_hallway_aqara_multi_pressure
     name: 'house/downward_hallway/aqara_multi/pressure'
   - entity: sensor.physical_house_laundry_kitchen_front_aqara_multi_pressure
     name: 'house/laundry_kitchen/front/aqara_multi/pressure'
-  - entity: sensor.physical_house_laundry_kitchen_rear_aqara_multi_pressure
-    name: 'house/laundry_kitchen/rear/aqara_multi/pressure'
   - entity: sensor.physical_house_living_room_netatmo_pressure
     name: 'house/living_room/netatmo/pressure'
   - entity: sensor.physical_house_master_bedroom_netatmo_pressure
