@@ -1,8 +1,0 @@
-include ../../Shared/Definitions/Macros.def;
-include ../../Shared/Definitions/Settings.def;
-include Settings.def;
-include Secrets.def;
-include Server.def;
-include Bridges.def;
-include Entities.def;
-include Lists.def;

@@ -546,8 +546,8 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 			hasDefOrImport, optionKeys := analyzeEntityDefinitionContext(entityLines, i)
 			hasConfigOptions := len(optionKeys) > 0
 			// "no_collect" may be given as an inline suffix on the "entity ..." line, or as its
-			// own bare statement in the entity's body (e.g. alongside "open_stop_close;") — both
-			// forms exclude the entity from space-level aggregation.
+			// own bare statement in the entity's body — both forms exclude the entity from
+			// space-level aggregation.
 			noCollect := entityDecl.NoCollect
 			for _, k := range optionKeys {
 				if k == "no_collect" {
@@ -574,14 +574,6 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 				Identity:              extractEntityIdentity(fullName),
 				NoCollect:             noCollect,
 				HasDefinitionOrImport: hasDefOrImport,
-				OpenStopClose:         func() bool {
-					for _, k := range optionKeys {
-						if k == "open_stop_close" {
-							return true
-						}
-					}
-					return false
-				}(),
 				Provenance:            fmt.Sprintf("%s:%d", filepath.Base(entitiesPath), i+1),
 			}
 

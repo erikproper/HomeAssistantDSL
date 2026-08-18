@@ -1,3 +1,0 @@
-# Local settings for Junglinster — overrides and additions on top of Shared/Definitions/Settings.def.
-
-${workdays} = "LU";

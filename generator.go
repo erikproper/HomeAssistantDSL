@@ -127,7 +127,8 @@ func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutput
 		{"infrastructural binary sensor groups", generateInfrastructuralGroups},
 		{"media switches", generateMediaSwitches},
 		{"heating scripts", generateHeatingScripts},
-		{"cover scripts", generateCoverScripts},
+		{"cover away entities", generateCoverAwayEntities},
+		{"cover away scripts", generateCoverAwayScripts},
 		{"derived binary sensors", generateDerivedBinarySensors},
 		{"automations", generateAutomations},
 	}
@@ -168,6 +169,7 @@ var integrationDefs = []struct{ file, content string }{
 	{"input_boolean.yaml", "input_boolean: !include_dir_merge_named ../entities/input_boolean"},
 	{"input_datetime.yaml", "input_datetime: !include_dir_merge_named ../entities/input_datetime"},
 	{"input_number.yaml", "input_number: !include_dir_merge_named ../entities/input_number"},
+	{"input_select.yaml", "input_select: !include_dir_merge_named ../entities/input_select"},
 	{"light.yaml", "light: !include_dir_list ../entities/light"},
 	{"scene.yaml", "scene: !include_dir_merge_list ../scene"},
 	{"script.yaml", "script: !include_dir_merge_named ../script"},
@@ -2031,16 +2033,6 @@ func buildAggregateMediaSwitchYAML(entityID, displayName string, offItems []stri
 	return sb.String()
 }
 
-// --- cover open/stop/close scripts ---
-
-var coverActions = []struct{ name, service string }{
-	{"open", "cover.open_cover"},
-	{"close", "cover.close_cover"},
-	{"stop", "cover.stop_cover"},
-}
-
-// generateCoverScripts writes script/<sphere>/script.<id>.yaml for every cover entity
-// that carries the open_stop_close option.
 var heatingPresets = []string{"around", "away", "day", "night"}
 
 // generateHeatingScripts emits set_heating_to_<preset> scripts that cascade from the
@@ -2155,188 +2147,177 @@ func generateHeatingScripts(outputDir string, admin *TAdministrationState) error
 	return nil
 }
 
-//
-// Each space that contains covers (directly or via descendants) gets a space script
-// named <spacePath>_cover_<action>.  A cover entity "owns" a space when its full path
-// (sphere/path) matches the space name; in that case the space script calls the HA
-// cover service directly, avoiding redundant double-path naming.  When a cover is
-// declared in a parent space (its path extends the space path), a separate leaf script
-// is emitted and the parent space script delegates to it.
-func generateCoverScripts(outputDir string, admin *TAdministrationState) error {
-	// coversBySpace: direct cover entities with OpenStopClose per space that also participate
-	// in space-level aggregation. A no_collect cover is excluded here — matching @light/@media
-	// collection semantics — so it never makes its containing space a "cover space" and never
-	// appears in a space's combined open/close/stop sequence; it still gets its own standalone
-	// leaf script below, for direct/individual control.
-	coversBySpace := map[string][]TEntityRecord{}
-	var noCollectCovers []TEntityRecord
-	for _, spaceName := range admin.SpaceOrder {
-		for _, rec := range admin.EntityRecordsBySpace[spaceName] {
-			if rec.Identity.Domain != "cover" || !rec.OpenStopClose {
-				continue
-			}
-			if rec.NoCollect {
-				noCollectCovers = append(noCollectCovers, rec)
-				continue
-			}
-			coversBySpace[spaceName] = append(coversBySpace[spaceName], rec)
-		}
-	}
-	if len(coversBySpace) == 0 && len(noCollectCovers) == 0 {
-		return nil
-	}
+// --- cover away-behaviour entities and scripts ---
 
-	for _, rec := range noCollectCovers {
-		coverID := toHomeAssistantEntityID(rec.Name)
-		leafBase := strings.ReplaceAll(rec.Identity.Sphere+"/"+rec.Identity.Path, "/", "_")
-		leafAlias := rec.Identity.Sphere + "/" + rec.Identity.Path
+// coverAwayPathSuffix returns the "cover/<path>" segment shared by every away-behaviour
+// entity/script id and display name for a given cover record.
+func coverAwayPathSuffix(rec TEntityRecord) string {
+	return "cover/" + rec.Identity.Path
+}
+
+// generateCoverAwayEntities writes, for every cover entity, an input_number holding the
+// position to close to while away, and an input_select letting the cover opt out of the
+// default away behaviour (Follow/Open/Closed).
+func generateCoverAwayEntities(outputDir string, admin *TAdministrationState) error {
+	for _, rec := range allEntityRecordsByDomain(admin, "cover") {
 		sphere := rec.Identity.Sphere
-		scriptDir := filepath.Join(outputDir, "script", sphere)
-		for _, act := range coverActions {
-			leafID := leafBase + "_cover_" + act.name
-			content := buildCoverScriptYAML(leafID, leafAlias+"/cover_"+act.name,
-				[]struct{ service, entityID string }{{act.service, coverID}})
-			if err := writeYAMLFile(filepath.Join(scriptDir, "script."+leafID+".yaml"), content); err != nil {
-				return err
-			}
+		pathSuffix := coverAwayPathSuffix(rec)
+
+		positionID := toHomeAssistantEntityID("input_number." + sphere + "/" + pathSuffix + "/closed_position_when_away")
+		positionKey := strings.TrimPrefix(positionID, "input_number.")
+		positionDisplay := sphere + "/" + pathSuffix + "/closed_position_when_away"
+		positionContent := buildInputNumberYAML(positionKey, positionDisplay, "0", "100", "1", "\"%\"", "mdi:blinds-horizontal")
+		numberDir := filepath.Join(outputDir, "entities", "input_number", sphere)
+		if err := writeYAMLFile(filepath.Join(numberDir, positionID+".yaml"), positionContent); err != nil {
+			return err
+		}
+
+		selectID := toHomeAssistantEntityID("input_select." + sphere + "/" + pathSuffix + "/does_when_away")
+		selectKey := strings.TrimPrefix(selectID, "input_select.")
+		selectDisplay := pathSuffix
+		selectContent := buildInputSelectYAML(selectKey, selectDisplay, []string{"Follow", "Open", "Closed"}, "mdi:airplane")
+		selectDir := filepath.Join(outputDir, "entities", "input_select", sphere)
+		if err := writeYAMLFile(filepath.Join(selectDir, selectID+".yaml"), selectContent); err != nil {
+			return err
 		}
 	}
-	if len(coversBySpace) == 0 {
-		return nil
-	}
-
-	// Determine which spaces are "cover spaces" (have covers directly or via descendants),
-	// processing children before parents so propagation works bottom-up.
-	coverSpaces := map[string]bool{}
-	for i := len(admin.SpaceOrder) - 1; i >= 0; i-- {
-		spaceName := admin.SpaceOrder[i]
-		if len(coversBySpace[spaceName]) > 0 {
-			coverSpaces[spaceName] = true
-			continue
-		}
-		for _, child := range directChildSpaces(spaceName, admin.SpaceOrder) {
-			if coverSpaces[child] {
-				coverSpaces[spaceName] = true
-				break
-			}
-		}
-	}
-
-	coverActionIcon := map[string]string{
-		"open":  "mdi:triangle",
-		"close": "mdi:triangle-down",
-		"stop":  "mdi:rectangle",
-	}
-
-	for _, spaceName := range admin.SpaceOrder {
-		if !coverSpaces[spaceName] {
-			continue
-		}
-
-		sphere := spaceName
-		if idx := strings.Index(spaceName, "/"); idx >= 0 {
-			sphere = spaceName[:idx]
-		}
-		spaceUnder := strings.ReplaceAll(spaceName, "/", "_")
-		scriptDir := filepath.Join(outputDir, "script", sphere)
-
-		for _, act := range coverActions {
-			var seq []struct{ service, entityID string }
-
-			// Child cover spaces come first (in SpaceOrder).
-			for _, child := range directChildSpaces(spaceName, admin.SpaceOrder) {
-				if coverSpaces[child] {
-					childUnder := strings.ReplaceAll(child, "/", "_")
-					seq = append(seq, struct{ service, entityID string }{
-						"script.turn_on",
-						"script." + childUnder + "_cover_" + act.name,
-					})
-				}
-			}
-
-			// Direct covers: owning covers inline the service call; non-owning covers
-			// get a separate leaf script delegated to via script.turn_on.
-			for _, rec := range coversBySpace[spaceName] {
-				coverID := toHomeAssistantEntityID(rec.Name)
-				ownsSpace := rec.Identity.Sphere+"/"+rec.Identity.Path == spaceName
-				if ownsSpace {
-					seq = append(seq, struct{ service, entityID string }{act.service, coverID})
-				} else {
-					spacePathAfterSphere := strings.TrimPrefix(spaceName, rec.Identity.Sphere+"/")
-					relPath := strings.TrimPrefix(rec.Identity.Path, spacePathAfterSphere+"/")
-					leafID := spaceUnder + "_" + strings.ReplaceAll(relPath, "/", "_") + "_cover_" + act.name
-					leafAlias := spaceName + "/" + relPath + "/cover_" + act.name
-					leafContent := buildCoverScriptYAML(leafID, leafAlias,
-						[]struct{ service, entityID string }{{act.service, coverID}})
-					if err := writeYAMLFile(filepath.Join(scriptDir, "script."+leafID+".yaml"), leafContent); err != nil {
-						return err
-					}
-					seq = append(seq, struct{ service, entityID string }{
-						"script.turn_on", "script." + leafID,
-					})
-				}
-			}
-
-			spaceScriptID := spaceUnder + "_cover_" + act.name
-			spaceAlias := spaceName + "/cover_" + act.name
-			content := buildCoverScriptYAML(spaceScriptID, spaceAlias, seq)
-			if err := writeYAMLFile(filepath.Join(scriptDir, "script."+spaceScriptID+".yaml"), content); err != nil {
-				return err
-			}
-			customDir := filepath.Join(outputDir, "customization", "script", sphere)
-			custom := buildCustomizationYAML("script."+spaceScriptID, spaceAlias, coverActionIcon[act.name])
-			if err := writeYAMLFile(filepath.Join(customDir, "script."+spaceScriptID+".yaml"), custom); err != nil {
-				return err
-			}
-		}
-	}
-
-	// Sphere-level scripts: for each sphere that has at least one direct-child cover
-	// space, emit a <sphere>_cover_<action> script.  The sphere name itself is never an
-	// entry in SpaceOrder, so it must be handled separately here.
-	sphereChildren := map[string][]string{} // sphere → direct child space names with covers
-	for _, spaceName := range admin.SpaceOrder {
-		if !coverSpaces[spaceName] {
-			continue
-		}
-		if strings.Count(spaceName, "/") != 1 {
-			continue
-		}
-		sphere := spaceName[:strings.Index(spaceName, "/")]
-		sphereChildren[sphere] = append(sphereChildren[sphere], spaceName)
-	}
-	spheres := sortedKeys(sphereChildren)
-	for _, sphere := range spheres {
-		scriptDir := filepath.Join(outputDir, "script", sphere)
-		for _, act := range coverActions {
-			var seq []struct{ service, entityID string }
-			for _, child := range sphereChildren[sphere] {
-				childUnder := strings.ReplaceAll(child, "/", "_")
-				seq = append(seq, struct{ service, entityID string }{
-					"script.turn_on", "script." + childUnder + "_cover_" + act.name,
-				})
-			}
-			rollupID := sphere + "_cover_" + act.name
-			rollupAlias := sphere + "/cover_" + act.name
-			content := buildCoverScriptYAML(rollupID, rollupAlias, seq)
-			if err := writeYAMLFile(filepath.Join(scriptDir, "script."+rollupID+".yaml"), content); err != nil {
-				return err
-			}
-			customDir := filepath.Join(outputDir, "customization", "script", sphere)
-			custom := buildCustomizationYAML("script."+rollupID, rollupAlias, coverActionIcon[act.name])
-			if err := writeYAMLFile(filepath.Join(customDir, "script."+rollupID+".yaml"), custom); err != nil {
-				return err
-			}
-		}
-	}
-
 	return nil
 }
 
-func buildCoverScriptYAML(scriptID, alias string, seq []struct{ service, entityID string }) string {
+func buildInputSelectYAML(key, displayName string, options []string, icon string) string {
 	var sb strings.Builder
 	sb.WriteString(generatorHeader)
-	sb.WriteString(scriptID + ":\n")
+	sb.WriteString(key + ":\n")
+	sb.WriteString("  name: " + displayName + "\n")
+	sb.WriteString("  options:\n")
+	for _, option := range options {
+		sb.WriteString("  - " + option + "\n")
+	}
+	if icon != "" {
+		sb.WriteString("  icon: " + icon + "\n")
+	}
+	return sb.String()
+}
+
+// generateCoverAwayScripts writes a close_while_away/open_while_away script pair for every
+// cover entity, plus one close_while_away/open_while_away rollup script per sphere that
+// sequences every cover in that sphere. There is no per-space breakdown: a cover's
+// does_when_away select lets it opt out (Open: always stay open; Closed: always close to its
+// position) of the default Follow behaviour, so per-space granularity is no longer needed.
+func generateCoverAwayScripts(outputDir string, admin *TAdministrationState) error {
+	covers := allEntityRecordsByDomain(admin, "cover")
+
+	coverScriptKeys := map[string]struct{ closeKey, openKey string }{}
+	sphereCovers := map[string][]TEntityRecord{}
+	spheres := map[string]bool{}
+
+	for _, rec := range covers {
+		sphere := rec.Identity.Sphere
+		sphereCovers[sphere] = append(sphereCovers[sphere], rec)
+		spheres[sphere] = true
+
+		coverID := toHomeAssistantEntityID(rec.Name)
+		selectID := toHomeAssistantEntityID("input_select." + sphere + "/" + coverAwayPathSuffix(rec) + "/does_when_away")
+		positionID := toHomeAssistantEntityID("input_number." + sphere + "/" + coverAwayPathSuffix(rec) + "/closed_position_when_away")
+
+		under := sphere + "_cover_" + strings.ReplaceAll(rec.Identity.Path, "/", "_")
+		alias := sphere + "/" + coverAwayPathSuffix(rec)
+		scriptDir := filepath.Join(outputDir, "script", sphere)
+
+		closeKey := under + "_close_while_away"
+		closeContent := buildCoverAwayScriptYAML(closeKey, alias+"/close_while_away", coverID, selectID, positionID, "Open")
+		if err := writeYAMLFile(filepath.Join(scriptDir, "script."+closeKey+".yaml"), closeContent); err != nil {
+			return err
+		}
+
+		openKey := under + "_open_while_away"
+		openContent := buildCoverAwayScriptYAML(openKey, alias+"/open_while_away", coverID, selectID, positionID, "Closed")
+		if err := writeYAMLFile(filepath.Join(scriptDir, "script."+openKey+".yaml"), openContent); err != nil {
+			return err
+		}
+
+		coverScriptKeys[rec.Name] = struct{ closeKey, openKey string }{closeKey, openKey}
+	}
+
+	for _, sphere := range sortedStringSlice(spheres) {
+		scriptDir := filepath.Join(outputDir, "script", sphere)
+		customDir := filepath.Join(outputDir, "customization", "script", sphere)
+
+		rollupClose := sphere + "_cover_close_while_away"
+		rollupOpen := sphere + "_cover_open_while_away"
+		var closeSeq, openSeq []struct{ service, entityID string }
+		for _, rec := range sphereCovers[sphere] {
+			keys := coverScriptKeys[rec.Name]
+			closeSeq = append(closeSeq, struct{ service, entityID string }{"script.turn_on", "script." + keys.closeKey})
+			openSeq = append(openSeq, struct{ service, entityID string }{"script.turn_on", "script." + keys.openKey})
+		}
+
+		if err := writeYAMLFile(filepath.Join(scriptDir, "script."+rollupClose+".yaml"),
+			buildCoverAwayRollupYAML(rollupClose, sphere+"/cover/close_while_away", closeSeq)); err != nil {
+			return err
+		}
+		if err := writeYAMLFile(filepath.Join(customDir, "script."+rollupClose+".yaml"),
+			buildCustomizationYAML("script."+rollupClose, sphere+"/cover/close_while_away", "mdi:triangle-down")); err != nil {
+			return err
+		}
+
+		if err := writeYAMLFile(filepath.Join(scriptDir, "script."+rollupOpen+".yaml"),
+			buildCoverAwayRollupYAML(rollupOpen, sphere+"/cover/open_while_away", openSeq)); err != nil {
+			return err
+		}
+		if err := writeYAMLFile(filepath.Join(customDir, "script."+rollupOpen+".yaml"),
+			buildCustomizationYAML("script."+rollupOpen, sphere+"/cover/open_while_away", "mdi:triangle")); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// buildCoverAwayScriptYAML builds a per-cover close/open_while_away script. overrideState is
+// the does_when_away option that flips the default action: "Open" makes close_while_away open
+// the cover instead of closing it; "Closed" makes open_while_away close it instead of opening.
+func buildCoverAwayScriptYAML(key, alias, coverID, selectID, positionID, overrideState string) string {
+	openAction := "  - service: cover.open_cover\n    entity_id: " + coverID + "\n"
+	closeAction := "  - service: cover.set_cover_position\n    entity_id: " + coverID +
+		"\n    data:\n      position: \"{{ states('" + positionID + "') | int }}\"\n"
+
+	thenAction, elseAction := closeAction, openAction
+	if overrideState == "Open" {
+		thenAction, elseAction = openAction, closeAction
+	}
+
+	var sb strings.Builder
+	sb.WriteString(generatorHeader)
+	sb.WriteString(key + ":\n")
+	sb.WriteString("  alias: " + alias + "\n")
+	sb.WriteString("  mode: queued\n")
+	sb.WriteString("  sequence:\n")
+	sb.WriteString("  - if:\n")
+	sb.WriteString("    - condition: state\n")
+	sb.WriteString("      entity_id: " + selectID + "\n")
+	sb.WriteString("      state: " + overrideState + "\n")
+	sb.WriteString("    then:\n")
+	sb.WriteString(indentYAMLLines(thenAction, "    "))
+	sb.WriteString("    else:\n")
+	sb.WriteString(indentYAMLLines(elseAction, "    "))
+	return sb.String()
+}
+
+// indentYAMLLines prefixes every line of block with the given indent, preserving existing
+// relative indentation between lines.
+func indentYAMLLines(block, indent string) string {
+	lines := strings.Split(strings.TrimSuffix(block, "\n"), "\n")
+	var sb strings.Builder
+	for _, line := range lines {
+		sb.WriteString(indent + line + "\n")
+	}
+	return sb.String()
+}
+
+func buildCoverAwayRollupYAML(key, alias string, seq []struct{ service, entityID string }) string {
+	var sb strings.Builder
+	sb.WriteString(generatorHeader)
+	sb.WriteString(key + ":\n")
 	sb.WriteString("  alias: " + alias + "\n")
 	sb.WriteString("  mode: queued\n")
 	sb.WriteString("  sequence:\n")
@@ -2363,6 +2344,73 @@ func generateDerivedBinarySensors(outputDir string, admin *TAdministrationState)
 		return err
 	}
 	return generateCoverBinarySensors(outputDir, admin)
+}
+
+// generateCoverBinarySensors writes the sphere-level auto_control and should_be_closed binary
+// sensors that drive the automatic (windy/daylight/sunny-aware) cover control automations.  This
+// is independent of the per-cover away-behaviour scripts: should_be_closed decides *whether* an
+// automatic sweep should run right now, the away scripts decide *what* each individual cover does
+// when it runs.
+func generateCoverBinarySensors(outputDir string, admin *TAdministrationState) error {
+	spheres := map[string]bool{}
+	for _, spaceName := range admin.SpaceOrder {
+		for _, rec := range admin.EntityRecordsBySpace[spaceName] {
+			if rec.Identity.Domain == "input_boolean" &&
+				strings.HasSuffix(rec.Identity.Path, "covers/auto_control") {
+				spheres[rec.Identity.Sphere] = true
+			}
+		}
+	}
+
+	for _, sphere := range sortedStringSlice(spheres) {
+		dir := filepath.Join(outputDir, "entities", "template", "binary_sensor", sphere)
+		customDir := filepath.Join(outputDir, "customization", "binary_sensor", sphere)
+
+		autoCtrlInputID := toHomeAssistantEntityID("input_boolean." + sphere + "/covers/auto_control")
+		occupationHomeID := toHomeAssistantEntityID("input_boolean." + sphere + "/occupation/home")
+
+		acID := toHomeAssistantEntityID("binary_sensor." + sphere + "/covers/auto_control")
+		acDisplay := sphere + "/covers/auto_control"
+		acState := "is_state('" + autoCtrlInputID + "', 'on') and is_state('" + occupationHomeID + "', 'off')"
+		if err := writeYAMLFile(filepath.Join(dir, acID+".yaml"), buildConditionBinarySensorYAML(acID, acDisplay, acState, "", "", "")); err != nil {
+			return err
+		}
+		if err := writeYAMLFile(filepath.Join(customDir, acID+".yaml"), buildCustomizationYAML(acID, acDisplay, "mdi:dots-vertical-circle")); err != nil {
+			return err
+		}
+
+		windyID := findBinarySensorBySuffix(admin, sphere, "windy")
+		sunnyID := findBinarySensorBySuffix(admin, sphere, "sunny")
+		daylightID := findBinarySensorBySuffix(admin, sphere, "daylight")
+		coverageTimeID := toHomeAssistantEntityID("binary_sensor." + sphere + "/is_coverage_time")
+
+		// windy/sunny/daylight are each optional: coverage-time is the only unconditional term,
+		// daylight and sunny extend it with "or", and windy narrows the whole thing with "and".
+		orTerms := []string{"is_state('" + coverageTimeID + "', 'on')"}
+		if daylightID != "" {
+			orTerms = append(orTerms, "is_state('"+daylightID+"', 'off')")
+		}
+		if sunnyID != "" {
+			orTerms = append(orTerms, "is_state('"+sunnyID+"', 'on')")
+		}
+		scState := strings.Join(orTerms, " or ")
+		if len(orTerms) > 1 {
+			scState = "(" + scState + ")"
+		}
+		if windyID != "" {
+			scState += " and is_state('" + windyID + "', 'off')"
+		}
+
+		scID := toHomeAssistantEntityID("binary_sensor." + sphere + "/covers/should_be_closed")
+		scDisplay := sphere + "/covers/should_be_closed"
+		if err := writeYAMLFile(filepath.Join(dir, scID+".yaml"), buildConditionBinarySensorYAML(scID, scDisplay, scState, "", "", "")); err != nil {
+			return err
+		}
+		if err := writeYAMLFile(filepath.Join(customDir, scID+".yaml"), buildCustomizationYAML(scID, scDisplay, "mdi:triangle-down")); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func generateHeatingSetToSensors(outputDir string, admin *TAdministrationState) error {
@@ -2579,68 +2627,6 @@ func generateTimeWindowBinarySensors(outputDir string, admin *TAdministrationSta
 			if err := writeYAMLFile(filepath.Join(customDir, nightID+".yaml"), buildCustomizationYAML(nightID, nightDisplay, "mdi:bed-clock")); err != nil {
 				return err
 			}
-		}
-	}
-	return nil
-}
-
-func generateCoverBinarySensors(outputDir string, admin *TAdministrationState) error {
-	spheres := map[string]bool{}
-	for _, spaceName := range admin.SpaceOrder {
-		for _, rec := range admin.EntityRecordsBySpace[spaceName] {
-			if rec.Identity.Domain == "input_boolean" &&
-				strings.HasSuffix(rec.Identity.Path, "covers/auto_control") {
-				spheres[rec.Identity.Sphere] = true
-			}
-		}
-	}
-
-	for _, sphere := range sortedStringSlice(spheres) {
-		dir := filepath.Join(outputDir, "entities", "template", "binary_sensor", sphere)
-		customDir := filepath.Join(outputDir, "customization", "binary_sensor", sphere)
-
-		autoCtrlInputID := toHomeAssistantEntityID("input_boolean." + sphere + "/covers/auto_control")
-		occupationHomeID := toHomeAssistantEntityID("input_boolean." + sphere + "/occupation/home")
-
-		acID := toHomeAssistantEntityID("binary_sensor." + sphere + "/covers/auto_control")
-		acDisplay := sphere + "/covers/auto_control"
-		acState := "is_state('" + autoCtrlInputID + "', 'on') and is_state('" + occupationHomeID + "', 'off')"
-		if err := writeYAMLFile(filepath.Join(dir, acID+".yaml"), buildConditionBinarySensorYAML(acID, acDisplay, acState, "", "", "")); err != nil {
-			return err
-		}
-		if err := writeYAMLFile(filepath.Join(customDir, acID+".yaml"), buildCustomizationYAML(acID, acDisplay, "mdi:dots-vertical-circle")); err != nil {
-			return err
-		}
-
-		windyID := findBinarySensorBySuffix(admin, sphere, "windy")
-		sunnyID := findBinarySensorBySuffix(admin, sphere, "sunny")
-		daylightID := findBinarySensorBySuffix(admin, sphere, "daylight")
-		coverageTimeID := toHomeAssistantEntityID("binary_sensor." + sphere + "/is_coverage_time")
-
-		// windy/sunny/daylight are each optional: coverage-time is the only unconditional term,
-		// daylight and sunny extend it with "or", and windy narrows the whole thing with "and".
-		orTerms := []string{"is_state('" + coverageTimeID + "', 'on')"}
-		if daylightID != "" {
-			orTerms = append(orTerms, "is_state('"+daylightID+"', 'off')")
-		}
-		if sunnyID != "" {
-			orTerms = append(orTerms, "is_state('"+sunnyID+"', 'on')")
-		}
-		scState := strings.Join(orTerms, " or ")
-		if len(orTerms) > 1 {
-			scState = "(" + scState + ")"
-		}
-		if windyID != "" {
-			scState += " and is_state('" + windyID + "', 'off')"
-		}
-
-		scID := toHomeAssistantEntityID("binary_sensor." + sphere + "/covers/should_be_closed")
-		scDisplay := sphere + "/covers/should_be_closed"
-		if err := writeYAMLFile(filepath.Join(dir, scID+".yaml"), buildConditionBinarySensorYAML(scID, scDisplay, scState, "", "", "")); err != nil {
-			return err
-		}
-		if err := writeYAMLFile(filepath.Join(customDir, scID+".yaml"), buildCustomizationYAML(scID, scDisplay, "mdi:triangle-down")); err != nil {
-			return err
 		}
 	}
 	return nil
@@ -3433,6 +3419,10 @@ func buildVacuumingTimeAutomation(state, dayTimeID, vacuumingRequestedID string)
 
 // --- cover auto-control automations (f) ---
 
+// generateCoverAutomations wires the sphere-level should_be_closed/auto_control condition to the
+// overall away-behaviour rollup scripts: an automatic close/open sweep now runs the same
+// close_while_away/open_while_away sequence that a manual "going away" trigger would, so every
+// cover's does_when_away override (Open/Closed/Follow) applies equally to both.
 func generateCoverAutomations(outputDir string, admin *TAdministrationState) error {
 	spheres := map[string]bool{}
 	for _, spaceName := range append([]string{"root"}, admin.SpaceOrder...) {
@@ -3447,8 +3437,8 @@ func generateCoverAutomations(outputDir string, admin *TAdministrationState) err
 	for _, sphere := range sortedStringSlice(spheres) {
 		autoControlID := "binary_sensor." + sphere + "_covers_auto_control"
 		shouldBeClosedID := "binary_sensor." + sphere + "_covers_should_be_closed"
-		closeScriptID := "script." + sphere + "_cover_close"
-		openScriptID := "script." + sphere + "_cover_open"
+		closeScriptID := "script." + sphere + "_cover_close_while_away"
+		openScriptID := "script." + sphere + "_cover_open_while_away"
 
 		if err := writeAutomationFile(outputDir, "social", "social_covers_close",
 			buildCoverAutomation("close", autoControlID, shouldBeClosedID, closeScriptID)); err != nil {
@@ -4325,6 +4315,28 @@ func generateSwitchControlledHeatingContent(outputDir string, admin *TAdministra
 		heatingModeTargetID := "input_boolean." + physUnder + "_heating_mode_target"
 		heatingModePresetLeakageID := "input_boolean." + physUnder + "_heating_mode_preset_for_leakage"
 		heatingSwitch := "switch." + physUnder + "_heating"
+
+		// --- Binary sensor mirrors ---
+		// Both mirrors live under "social", even though heating_mode_target mirrors the
+		// "physical" heatingModeTargetID input_boolean — matches old bash's
+		// "entity declare binary_sensor.social:/$SpaceLocation:heating_mode_target".
+		mirrors := []struct{ key, displayName, sourceID string }{
+			{socialUnder + "_heating_mode_desired", socialPath + "/heating_mode_desired", heatingModeDesiredID},
+			{socialUnder + "_heating_mode_target", socialPath + "/heating_mode_target", heatingModeTargetID},
+		}
+		for _, m := range mirrors {
+			entityID := "binary_sensor." + m.key
+			content := buildConditionBinarySensorYAML(entityID, m.displayName, "is_state('"+m.sourceID+"', 'on')", "", "", "")
+			dir := filepath.Join(outputDir, "entities", "template", "binary_sensor", "social")
+			if err := writeYAMLFile(filepath.Join(dir, entityID+".yaml"), content); err != nil {
+				return err
+			}
+			customDir := filepath.Join(outputDir, "customization", "binary_sensor", "social")
+			if err := writeYAMLFile(filepath.Join(customDir, entityID+".yaml"),
+				buildCustomizationYAML(entityID, m.displayName, "mdi:radiator")); err != nil {
+				return err
+			}
+		}
 
 		// --- Scripts ---
 		presets := []string{"around", "away", "day", "night"}

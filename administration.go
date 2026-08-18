@@ -184,7 +184,6 @@ type TEntityRecord struct {
 	Identity              TEntityIdentity
 	NoCollect             bool
 	HasDefinitionOrImport bool
-	OpenStopClose         bool
 	Provenance            string // call chain that produced this record, e.g. "Entities.def:65 → battery_alert :roborock"
 
 	// Fields populated during macro expansion for template binary sensor generation.
@@ -410,6 +409,7 @@ func (state *TAdministrationState) HandleEndToken(onSpaceClosed func(string)) {
 		// Expand explicit directives first.
 		if state.SpaceHasExplicitOn[spaceName] {
 			state.SpaceOnByName[spaceName] = state.expandAggregationTokens(spaceName, state.SpaceOnByName[spaceName], true)
+			state.SpaceOnExplicitByName[spaceName] = state.expandAggregationTokens(spaceName, state.SpaceOnExplicitByName[spaceName], true)
 		}
 		if state.SpaceHasExplicitOff[spaceName] {
 			state.SpaceOffByName[spaceName] = state.expandAggregationTokens(spaceName, state.SpaceOffByName[spaceName], false)
@@ -670,18 +670,6 @@ func heatingCapableSocialSpaceNames(state *TAdministrationState) []string {
 	return sortedStringSlice(union)
 }
 
-// hasCoverCloseSpace reports whether any space declares an open/stop/close cover.
-func hasCoverCloseSpace(state *TAdministrationState) bool {
-	for _, spaceName := range state.SpaceOrder {
-		for _, rec := range state.EntityRecordsBySpace[spaceName] {
-			if rec.Identity.Domain == "cover" && rec.OpenStopClose {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // deriveEntityIfAbsent registers a synthetic entity record for an "implied" entity — one the
 // legacy bash generator always created for a qualifying space — unless an entity of the same
 // name already exists in that space (e.g. a lingering manual declaration takes precedence).
@@ -793,7 +781,7 @@ func (state *TAdministrationState) DeriveImpliedHeatingEntities() {
 		state.deriveTimeWindowDatetimePair("heating_workday", "heating_holiday")
 	}
 
-	if hasCoverCloseSpace(state) {
+	if len(allEntityRecordsByDomain(state, "cover")) > 0 {
 		state.deriveTimeWindowDatetimePair("coverage_workday", "coverage_holiday")
 		state.deriveInputBoolean("root", "input_boolean.social/covers/auto_control", "mdi:dots-vertical", "implied: cover control")
 	}

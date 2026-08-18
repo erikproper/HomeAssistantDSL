@@ -1,1 +1,0 @@
-bridge rest junglinster ${junglinster_instance}/api/states authorization ${junglinster_api_token};
