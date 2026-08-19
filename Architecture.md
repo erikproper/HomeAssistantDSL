@@ -237,6 +237,20 @@ sensor
 
 From Vienna HA's point of view, the entity is just a normal MQTT-discovered local entity — the cross-home, cloud-sourced nature is preserved in lineage metadata, not hidden, but also not intrusive to the consuming side.
 
+### 6.6 Device attributes: constant vs. variable
+
+Devices — and sensors — carry attributes of two different kinds, which must not be conflated:
+
+- **Device attributes** describe the device itself: brand, model, firmware version, CPU load, CPU temperature, availability. These exist independently of what (if anything) the device senses or controls in the world.
+- **World attributes** describe what the device observes or manipulates: the temperature as measured in a particular room, a door's open/closed state, a cover's position.
+
+Within device attributes, a further distinction matters for how they're communicated:
+
+- **Constant device attributes** — brand, model, serial number, and the like. Fixed for the device's operational lifetime. These belong in the MQTT discovery message itself (HA discovery's `device` block), published once at discovery time.
+- **Variable device attributes** — CPU load, CPU temperature, availability, and the like. Change over time, so baking them into the discovery payload is wrong; they belong on the device's own attributes topic, updated as they change, the same way a world attribute would be.
+
+This distinction anticipates a DSL capability not yet implemented: a `space` definition may come to refer to a device in a general sense (as it does today), or to one of its specific attributes — constant or variable, device or world — which then materializes as its own entity (a sensor, a binary sensor, ...). Exactly how this materializes — grammar, generator output, coordinator projection — is deliberately left open here; per §9.2, it will be discovered incrementally, integration by integration, rather than designed fully up front.
+
 ---
 
 ## 7. Home Assistant's two roles
@@ -429,6 +443,7 @@ Typical shared categories: weather, energy, security state, occupancy (if desire
 - How should **projections** (to MQTT, to HA YAML, to future backends) and **transformations** be represented in the semantic model — and how should reusable patterns across them work?
 - Cross-check **HA areas vs. DSL spaces** — are they the same concept, and if not, how do they relate?
 - `Integrations.def` grammar is still being worked out by direct experimentation (§9.2) rather than designed up front — expect it to keep changing shape for a while before the physical/logical file split (§9.1) is worth actually implementing in the parser.
+- How a `space` definition refers to a device attribute (constant/variable, device/world — §6.6) rather than only a device, and how that then materializes as a generated entity, is still open.
 
 ### Two-level parser sketch (from early notes, unimplemented)
 

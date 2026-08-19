@@ -47,12 +47,13 @@ func TestResolveHomeAssistantTargetPrefersDefinitionsOverEnvironment(t *testing.
 	}
 
 	serverContent := "${main_instance} = \"https://from-definitions.example\";\nmain vienna ${main_instance};\n"
-	secretsContent := "secrets:\n  ${main_api_token} = \"token-from-definitions\";\n  ${main_api_tls_insecure} = true;\nend;\n"
+	// Settings.def now also holds what used to live in a separate Secrets.def.
+	settingsContent := "${main_api_token} = \"token-from-definitions\";\n${main_api_tls_insecure} = true;\n"
 	if err := os.WriteFile(filepath.Join(definitionDir, "Server.def"), []byte(serverContent), 0o644); err != nil {
 		t.Fatalf("failed to write Server.def: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(definitionDir, "Secrets.def"), []byte(secretsContent), 0o644); err != nil {
-		t.Fatalf("failed to write Secrets.def: %v", err)
+	if err := os.WriteFile(filepath.Join(definitionDir, "Settings.def"), []byte(settingsContent), 0o644); err != nil {
+		t.Fatalf("failed to write Settings.def: %v", err)
 	}
 
 	t.Setenv("HASS_BASE_URL", "https://from-env.example")

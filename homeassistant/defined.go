@@ -5,7 +5,10 @@
  * Component: Defined
  *
  * Shared utilities for resolving Home Assistant connection targets, fetching entity state lists,
- * and parsing Server.def / Bridges.def / Settings.def / Secrets.def configuration files.
+ * parsing Server.def / Bridges.def / Settings.def / Secrets.def configuration files, and the
+ * generic "group clause" grammar (QualifiedElementsGroup/ForcedElementsGroup/
+ * ForceElementsSequence, Background/Arch2.md) shared by every "<header> [with]: ... end;"
+ * construct parsed outside the main Entities.def grammar.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
@@ -74,19 +77,16 @@ func unquoteShellValue(s string) string {
 
 func resolveBridgeTargets(definitionDir string) (map[string]THomeAssistantTarget, error) {
 	serverPath := filepath.Join(definitionDir, "Server.def")
-	secretsPath := filepath.Join(definitionDir, "Secrets.def")
 	bridgesPath := filepath.Join(definitionDir, "Bridges.def")
 
 	serverContent, _ := readOptionalFile(serverPath)
+	// Settings.def (local, per-house) now also holds real secrets -- see .gitignore in
+	// the SmartLiving repo -- so there's no separate Secrets.def to read anymore.
 	settingsContent := readCombinedSettingsContent(definitionDir)
-	secretsContent, _ := readOptionalFile(secretsPath)
 	bridgesContent, _ := readOptionalFile(bridgesPath)
 
 	vars := parseServerAssignmentsWithDefined(serverContent, isServerHostUp)
 	for name, value := range parseDefinitionAssignments(settingsContent) {
-		vars[name] = value
-	}
-	for name, value := range parseDefinitionAssignments(secretsContent) {
 		vars[name] = value
 	}
 
@@ -176,17 +176,14 @@ func resolveHomeAssistantTarget(definitionDir string) (THomeAssistantTarget, err
 	insecureSkipTLS := false
 
 	serverPath := filepath.Join(definitionDir, "Server.def")
-	secretsPath := filepath.Join(definitionDir, "Secrets.def")
 
 	serverContent, _ := readOptionalFile(serverPath)
+	// Settings.def (local, per-house) now also holds real secrets -- see .gitignore in
+	// the SmartLiving repo -- so there's no separate Secrets.def to read anymore.
 	settingsContent := readCombinedSettingsContent(definitionDir)
-	secretsContent, _ := readOptionalFile(secretsPath)
 
 	vars := parseServerAssignmentsWithDefined(serverContent, isServerHostUp)
 	for name, value := range parseDefinitionAssignments(settingsContent) {
-		vars[name] = value
-	}
-	for name, value := range parseDefinitionAssignments(secretsContent) {
 		vars[name] = value
 	}
 
@@ -221,26 +218,23 @@ func resolveHomeAssistantTarget(definitionDir string) (THomeAssistantTarget, err
 	return THomeAssistantTarget{BaseURL: baseURL, Token: token, InsecureSkipTLS: insecureSkipTLS, StatesPath: "/api/states"}, nil
 }
 
-// resolveMainIncarnationName reads Physical.def (plus Secrets.def and combined Settings.def
-// for ${var} resolution) and returns the name declared by "home_assistant main: <name> <url>;",
-// e.g. "junglinster". Returns "" if Physical.def doesn't exist yet or has no such directive —
-// callers should fall back to the pre-instance-aware behaviour in that case, so houses that
-// haven't adopted Physical.def yet keep generating exactly as before.
+// resolveMainIncarnationName reads Physical.def (plus combined Settings.def, which also
+// holds real secrets, for ${var} resolution) and returns the name declared by
+// "home_assistant main: <name> <url>;", e.g. "junglinster". Returns "" if Physical.def
+// doesn't exist yet or has no such directive — callers should fall back to the
+// pre-instance-aware behaviour in that case, so houses that haven't adopted Physical.def
+// yet keep generating exactly as before.
 func resolveMainIncarnationName(definitionDir string) string {
-	physicalPath := filepath.Join(definitionDir, "Physical.def")
-	secretsPath := filepath.Join(definitionDir, "Secrets.def")
-
-	physicalContent, _ := readOptionalFile(physicalPath)
+	// Warnings from this extraction are intentionally dropped here: generatePhysicalIntegrationOutputs
+	// re-collects the same physical layer content later in the pipeline and reports them there,
+	// so surfacing them again from this early, output-path-only read would just be noise.
+	physicalContent, _ := collectLayerContent(definitionDir, []string{"Physical.def"}, LayerPhysical)
 	if strings.TrimSpace(physicalContent) == "" {
 		return ""
 	}
 	settingsContent := readCombinedSettingsContent(definitionDir)
-	secretsContent, _ := readOptionalFile(secretsPath)
 
 	vars := parseDefinitionAssignments(settingsContent)
-	for name, value := range parseDefinitionAssignments(secretsContent) {
-		vars[name] = value
-	}
 
 	nameExpr, _ := parseHomeAssistantMainDirective(physicalContent)
 	if nameExpr == "" {
@@ -588,5 +582,186 @@ func readCombinedSettingsContent(definitionDir string) string {
 	shared, _ := readOptionalFile(sharedPath)
 	local, _ := readOptionalFile(localPath)
 	return shared + "\n" + local
+}
+
+// --- group clause grammar ---
+//
+// Shared primitive implementing the DSL's generic "with clause" / "group clause" grammar
+// (Background/Arch2.md's WithClause(f)/GroupClause(f) sketch, formalised as):
+//
+//   QualifiedElementsGroup(GroupToken, f): MaybeToken(GroupToken) && ForcedElementsGroup(f)
+//   ForcedElementsGroup(f):    (MaybeToken(ColonToken) && ForceElementsSequence(f)) || f()
+//   ForceElementsSequence(f):  MaybeToken(EndToken) || (f() && ForceElementsSequence(f))
+//
+// i.e. an optional qualifying keyword ("with", or "main" for the mqtt/home_assistant
+// declarations), then either a ":"-introduced sequence of elements terminated by "end;", or
+// (no colon) a single bare element. This is the single shared scanner behind every such
+// construct parsed outside the main Entities.def grammar -- integration blocks
+// (physical.go), layer blocks (layers.go), and any future one -- so that nested-group
+// tracking is written and tested once, as genuine recursion, not reinvented per construct
+// with an ad hoc depth counter.
+//
+// QualifiedElementsGroup itself is not implemented here: callers already match a header
+// line (including its trailing "with:"/"<word>:") via their own regex before calling
+// scanGroupClauseBlocks, so by the time these functions run, the qualifying keyword and the
+// colon-or-not decision are already known (see hadColon below).
+
+const endToken = "end;"
+
+// TGroupClauseBlock is one "<header> with: ... end;" match: the header regex's full
+// submatch set (index 0 is the whole matched line; 1.. are capture groups), the group-clause
+// body lines between the header and its matching "end;" (nested groups' own headers and
+// closing "end;" lines are included verbatim, since from the caller's point of view a
+// nested group is just more body text -- interpreting it is up to whatever per-context
+// parser consumes BodyLines next), and the header's source line for diagnostics.
+type TGroupClauseBlock struct {
+	HeaderMatch []string
+	BodyLines   []string
+	SourceFile  string
+	StartLine   int
+}
+
+// TLineCursor is a minimal token cursor over pre-cleaned (trimmed, comment-stripped,
+// blank-line-free) content lines -- one cleaned line is one token at this grammar's
+// granularity. Original 1-indexed source line numbers are preserved alongside each token
+// for diagnostics.
+type TLineCursor struct {
+	lines   []string
+	lineNos []int
+	pos     int
+}
+
+func newLineCursor(rawLines []string) *TLineCursor {
+	cur := &TLineCursor{}
+	for idx, rawLine := range rawLines {
+		line := strings.TrimSpace(rawLine)
+		if commentIdx := strings.Index(line, "#"); commentIdx >= 0 {
+			line = strings.TrimSpace(line[:commentIdx])
+		}
+		if line == "" {
+			continue
+		}
+		cur.lines = append(cur.lines, line)
+		cur.lineNos = append(cur.lineNos, idx+1)
+	}
+	return cur
+}
+
+func (c *TLineCursor) AtEnd() bool { return c.pos >= len(c.lines) }
+
+func (c *TLineCursor) ThisLine() string {
+	if c.AtEnd() {
+		return ""
+	}
+	return c.lines[c.pos]
+}
+
+func (c *TLineCursor) ThisLineNumber() int {
+	if c.AtEnd() {
+		return -1
+	}
+	return c.lineNos[c.pos]
+}
+
+// Advance returns the current line and moves the cursor past it.
+func (c *TLineCursor) Advance() string {
+	line := c.ThisLine()
+	c.pos++
+	return line
+}
+
+// forceElementsSequence: MaybeToken(EndToken) || (f() && ForceElementsSequence(f)).
+// Repeatedly applies element until "end;" is found and consumed. If appendEndTo is
+// non-nil, the consumed "end;" is appended to it -- used when this sequence is itself
+// nested inside another element's body (its "end;" is that outer body's text too); the
+// outermost call in scanGroupClauseBlocks passes nil so the block-terminating "end;" isn't
+// recorded as part of the block's own content.
+func forceElementsSequence(cur *TLineCursor, element func(*TLineCursor) bool, appendEndTo *[]string) bool {
+	if cur.ThisLine() == endToken {
+		line := cur.Advance()
+		if appendEndTo != nil {
+			*appendEndTo = append(*appendEndTo, line)
+		}
+		return true
+	}
+	if !element(cur) {
+		return false
+	}
+	return forceElementsSequence(cur, element, appendEndTo)
+}
+
+// forcedElementsGroup: (MaybeToken(ColonToken) && ForceElementsSequence(f)) || f().
+// hadColon stands in for "MaybeToken(ColonToken)": callers already know whether the header
+// line ended in ":" (a sequence follows) or not (a single bare element follows) from their
+// own header-matching regex, so there's no separate colon token left on the cursor to
+// re-check here.
+func forcedElementsGroup(cur *TLineCursor, hadColon bool, element func(*TLineCursor) bool, appendEndTo *[]string) bool {
+	if hadColon {
+		return forceElementsSequence(cur, element, appendEndTo)
+	}
+	return element(cur)
+}
+
+// genericBodyElement returns a ForcedElement (the "f" of the grammar above) that appends
+// every line it consumes to body, treating a nested "<header>:" line as an opaque element
+// whose own sub-body -- including its own closing "end;" -- is consumed and appended
+// recursively. This is what makes nested "with:"/"end;" pairs (e.g. a per-device
+// capability block inside an "integration hosts with:" block) not close the outer group
+// early, without an explicit depth counter: the recursion IS the depth tracking.
+func genericBodyElement(body *[]string) func(cur *TLineCursor) bool {
+	var element func(cur *TLineCursor) bool
+	element = func(cur *TLineCursor) bool {
+		if cur.AtEnd() {
+			return false
+		}
+		line := cur.ThisLine()
+		*body = append(*body, cur.Advance())
+		if strings.HasSuffix(line, ":") {
+			return forceElementsSequence(cur, element, body)
+		}
+		return true
+	}
+	return element
+}
+
+// scanGroupClauseBlocks finds every line in rawLines matched by headerPattern (which must
+// itself require the line to end in "with:" or another bare ":"-terminated qualifying
+// keyword, e.g. "main:"), and extracts each match's group-clause body via
+// forcedElementsGroup/forceElementsSequence/genericBodyElement above. Lines outside any
+// header match are skipped, so this can scan a whole file for scattered top-level blocks
+// or a single already-extracted body for nested ones -- the same primitive either way.
+func scanGroupClauseBlocks(rawLines []string, sourceFile string, headerPattern *regexp.Regexp) ([]TGroupClauseBlock, []string) {
+	var blocks []TGroupClauseBlock
+	var warnings []string
+
+	cur := newLineCursor(rawLines)
+
+	for !cur.AtEnd() {
+		line := cur.ThisLine()
+		matches := headerPattern.FindStringSubmatch(line)
+		if matches == nil {
+			cur.Advance()
+			continue
+		}
+		startLine := cur.ThisLineNumber()
+		cur.Advance()
+
+		var body []string
+		hadColon := strings.HasSuffix(line, ":")
+		if !forcedElementsGroup(cur, hadColon, genericBodyElement(&body), nil) {
+			warnings = append(warnings, fmt.Sprintf("%s:%d: block starting %q is missing its closing \"end;\"", sourceFile, startLine, matches[0]))
+			break
+		}
+
+		blocks = append(blocks, TGroupClauseBlock{HeaderMatch: matches, BodyLines: body, SourceFile: sourceFile, StartLine: startLine})
+	}
+
+	return blocks, warnings
+}
+
+// splitLines is a small helper for callers that have raw file content rather than an
+// already-split []string.
+func splitLines(content string) []string {
+	return strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
 }
 

@@ -78,14 +78,17 @@ func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutput
 	fmt.Printf("%s: interpreting entities...\n", label)
 
 	entitiesPath := filepath.Join(definitionDir, "Entities.def")
-	entitiesContent, err := os.ReadFile(entitiesPath)
-	if err != nil {
-		return fmt.Errorf("error reading entities: %w", err)
+	entitiesContent, layerWarnings := collectLayerContent(definitionDir, []string{"Entities.def"}, LayerConceptual)
+	for _, w := range layerWarnings {
+		fmt.Printf("[conceptual] %s\n", w)
+	}
+	if strings.TrimSpace(entitiesContent) == "" {
+		return fmt.Errorf("error reading entities: no %q layer content found in %s", LayerConceptual, entitiesPath)
 	}
 
 	var report strings.Builder
 	parseResult, err := ParseEntitiesAndFillAdministration(
-		strings.Split(string(entitiesContent), "\n"), entitiesPath, ctx, &report)
+		strings.Split(entitiesContent, "\n"), entitiesPath, ctx, &report)
 	if err != nil {
 		return err
 	}
@@ -144,9 +147,12 @@ func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutput
 		}
 	}
 
-	listsDefPath := filepath.Join(definitionDir, "Lists.def")
-	if listsContent, readErr := os.ReadFile(listsDefPath); readErr == nil {
-		if err := generateListFiles(listOutputDir, listsContent, admin); err != nil {
+	listsContent, listLayerWarnings := collectLayerContent(definitionDir, []string{"Lists.def"}, LayerConceptual)
+	for _, w := range listLayerWarnings {
+		fmt.Printf("[conceptual] %s\n", w)
+	}
+	if strings.TrimSpace(listsContent) != "" {
+		if err := generateListFiles(listOutputDir, []byte(listsContent), admin); err != nil {
 			return fmt.Errorf("list files: %w", err)
 		}
 	}
@@ -953,7 +959,7 @@ func generateInputNumbers(outputDir string, admin *TAdministrationState) error {
 			identity := rec.Identity
 			displayName := identity.Sphere + "/" + identity.Path
 			key := strings.TrimPrefix(id, "input_number.")
-			content := buildInputNumberYAML(key, displayName, rec.InputNumberMin, rec.InputNumberMax, rec.InputNumberStep, rec.InputNumberUnit, rec.InputNumberIcon)
+			content := buildInputNumberYAML(key, displayName, rec.InputNumberMin, rec.InputNumberMax, rec.InputNumberStep, rec.InputNumberUnit, rec.InputNumberIcon, "")
 			dir := filepath.Join(outputDir, "entities", "input_number", identity.Sphere)
 			if err := writeYAMLFile(filepath.Join(dir, id+".yaml"), content); err != nil {
 				return err
@@ -975,7 +981,7 @@ func generateInputNumbers(outputDir string, admin *TAdministrationState) error {
 			entityID := toHomeAssistantEntityID("input_number.physical/" + physPath + "/temperature_target")
 			key := strings.TrimPrefix(entityID, "input_number.")
 			displayName := "physical/" + physPath + "/temperature_target"
-			content := buildInputNumberYAML(key, displayName, "10", "30", "1", "°C", "mdi:thermometer")
+			content := buildInputNumberYAML(key, displayName, "10", "30", "1", "°C", "mdi:thermometer", "")
 			dir := filepath.Join(outputDir, "entities", "input_number", "physical")
 			if err := writeYAMLFile(filepath.Join(dir, entityID+".yaml"), content); err != nil {
 				return err
@@ -985,7 +991,7 @@ func generateInputNumbers(outputDir string, admin *TAdministrationState) error {
 	return nil
 }
 
-func buildInputNumberYAML(key, displayName, min, max, step, unit, icon string) string {
+func buildInputNumberYAML(key, displayName, min, max, step, unit, icon, initial string) string {
 	var sb strings.Builder
 	sb.WriteString(generatorHeader)
 	sb.WriteString(key + ":\n")
@@ -1000,6 +1006,9 @@ func buildInputNumberYAML(key, displayName, min, max, step, unit, icon string) s
 	}
 	if unit != "" {
 		sb.WriteString("  unit_of_measurement: " + unit + "\n")
+	}
+	if initial != "" {
+		sb.WriteString("  initial: " + initial + "\n")
 	}
 	return sb.String()
 }
@@ -2161,27 +2170,37 @@ func coverAwayPathSuffix(rec TEntityRecord) string {
 	return "cover/" + rec.Identity.Path
 }
 
-// generateCoverAwayEntities writes, for every cover entity, an input_number holding the
-// position to close to while away, and an input_select letting the cover opt out of the
-// default away behaviour (Follow/Open/Closed).
+// generateCoverAwayEntities writes, for every cover entity, two input_numbers holding the
+// positions to move to while away (closed_position_when_away and its mirror,
+// opened_position_when_away), and an input_select letting the cover opt out of the
+// default away behaviour (Follow/Open/Closed/Ignore).
 func generateCoverAwayEntities(outputDir string, admin *TAdministrationState) error {
 	for _, rec := range allEntityRecordsByDomain(admin, "cover") {
 		sphere := rec.Identity.Sphere
 		pathSuffix := coverAwayPathSuffix(rec)
 
-		positionID := toHomeAssistantEntityID("input_number." + sphere + "/" + pathSuffix + "/closed_position_when_away")
-		positionKey := strings.TrimPrefix(positionID, "input_number.")
-		positionDisplay := sphere + "/" + pathSuffix + "/closed_position_when_away"
-		positionContent := buildInputNumberYAML(positionKey, positionDisplay, "0", "100", "1", "\"%\"", "mdi:blinds-horizontal")
-		numberDir := filepath.Join(outputDir, "entities", "input_number", sphere)
-		if err := writeYAMLFile(filepath.Join(numberDir, positionID+".yaml"), positionContent); err != nil {
-			return err
+		// HA cover position convention: 0 = fully closed, 100 = fully open. So
+		// closed_position_when_away defaults to 0%; its mirror, opened_position_when_away,
+		// defaults to 100%.
+		positionInitials := []struct{ name, initial string }{
+			{"closed_position_when_away", "0"},
+			{"opened_position_when_away", "100"},
+		}
+		for _, p := range positionInitials {
+			positionID := toHomeAssistantEntityID("input_number." + sphere + "/" + pathSuffix + "/" + p.name)
+			positionKey := strings.TrimPrefix(positionID, "input_number.")
+			positionDisplay := sphere + "/" + pathSuffix + "/" + p.name
+			positionContent := buildInputNumberYAML(positionKey, positionDisplay, "0", "100", "1", "\"%\"", "mdi:blinds-horizontal", p.initial)
+			numberDir := filepath.Join(outputDir, "entities", "input_number", sphere)
+			if err := writeYAMLFile(filepath.Join(numberDir, positionID+".yaml"), positionContent); err != nil {
+				return err
+			}
 		}
 
 		selectID := toHomeAssistantEntityID("input_select." + sphere + "/" + pathSuffix + "/does_when_away")
 		selectKey := strings.TrimPrefix(selectID, "input_select.")
 		selectDisplay := pathSuffix
-		selectContent := buildInputSelectYAML(selectKey, selectDisplay, []string{"Follow", "Open", "Closed"}, "mdi:airplane")
+		selectContent := buildInputSelectYAML(selectKey, selectDisplay, []string{"Follow", "Open", "Closed", "Ignore"}, "mdi:airplane", "Ignore")
 		selectDir := filepath.Join(outputDir, "entities", "input_select", sphere)
 		if err := writeYAMLFile(filepath.Join(selectDir, selectID+".yaml"), selectContent); err != nil {
 			return err
@@ -2190,7 +2209,7 @@ func generateCoverAwayEntities(outputDir string, admin *TAdministrationState) er
 	return nil
 }
 
-func buildInputSelectYAML(key, displayName string, options []string, icon string) string {
+func buildInputSelectYAML(key, displayName string, options []string, icon, initial string) string {
 	var sb strings.Builder
 	sb.WriteString(generatorHeader)
 	sb.WriteString(key + ":\n")
@@ -2202,14 +2221,18 @@ func buildInputSelectYAML(key, displayName string, options []string, icon string
 	if icon != "" {
 		sb.WriteString("  icon: " + icon + "\n")
 	}
+	if initial != "" {
+		sb.WriteString("  initial: " + initial + "\n")
+	}
 	return sb.String()
 }
 
 // generateCoverAwayScripts writes a close_while_away/open_while_away script pair for every
 // cover entity, plus one close_while_away/open_while_away rollup script per sphere that
 // sequences every cover in that sphere. There is no per-space breakdown: a cover's
-// does_when_away select lets it opt out (Open: always stay open; Closed: always close to its
-// position) of the default Follow behaviour, so per-space granularity is no longer needed.
+// does_when_away select lets it opt out (Open: always move to its opened position; Closed:
+// always move to its closed position; Ignore: skip the cover entirely) of the default
+// Follow behaviour, so per-space granularity is no longer needed.
 func generateCoverAwayScripts(outputDir string, admin *TAdministrationState) error {
 	covers := allEntityRecordsByDomain(admin, "cover")
 
@@ -2224,20 +2247,21 @@ func generateCoverAwayScripts(outputDir string, admin *TAdministrationState) err
 
 		coverID := toHomeAssistantEntityID(rec.Name)
 		selectID := toHomeAssistantEntityID("input_select." + sphere + "/" + coverAwayPathSuffix(rec) + "/does_when_away")
-		positionID := toHomeAssistantEntityID("input_number." + sphere + "/" + coverAwayPathSuffix(rec) + "/closed_position_when_away")
+		closedPositionID := toHomeAssistantEntityID("input_number." + sphere + "/" + coverAwayPathSuffix(rec) + "/closed_position_when_away")
+		openedPositionID := toHomeAssistantEntityID("input_number." + sphere + "/" + coverAwayPathSuffix(rec) + "/opened_position_when_away")
 
 		under := sphere + "_cover_" + strings.ReplaceAll(rec.Identity.Path, "/", "_")
 		alias := sphere + "/" + coverAwayPathSuffix(rec)
 		scriptDir := filepath.Join(outputDir, "script", sphere)
 
 		closeKey := under + "_close_while_away"
-		closeContent := buildCoverAwayScriptYAML(closeKey, alias+"/close_while_away", coverID, selectID, positionID, "Open")
+		closeContent := buildCoverAwayScriptYAML(closeKey, alias+"/close_while_away", coverID, selectID, closedPositionID, openedPositionID, "Open")
 		if err := writeYAMLFile(filepath.Join(scriptDir, "script."+closeKey+".yaml"), closeContent); err != nil {
 			return err
 		}
 
 		openKey := under + "_open_while_away"
-		openContent := buildCoverAwayScriptYAML(openKey, alias+"/open_while_away", coverID, selectID, positionID, "Closed")
+		openContent := buildCoverAwayScriptYAML(openKey, alias+"/open_while_away", coverID, selectID, closedPositionID, openedPositionID, "Closed")
 		if err := writeYAMLFile(filepath.Join(scriptDir, "script."+openKey+".yaml"), openContent); err != nil {
 			return err
 		}
@@ -2280,12 +2304,16 @@ func generateCoverAwayScripts(outputDir string, admin *TAdministrationState) err
 }
 
 // buildCoverAwayScriptYAML builds a per-cover close/open_while_away script. overrideState is
-// the does_when_away option that flips the default action: "Open" makes close_while_away open
-// the cover instead of closing it; "Closed" makes open_while_away close it instead of opening.
-func buildCoverAwayScriptYAML(key, alias, coverID, selectID, positionID, overrideState string) string {
-	openAction := "  - service: cover.open_cover\n    entity_id: " + coverID + "\n"
+// the does_when_away option that flips the default action: "Open" makes close_while_away move
+// to the opened position instead of the closed one; "Closed" makes open_while_away move to the
+// closed position instead of the opened one. Regardless of branch, "Ignore" short-circuits the
+// whole script via a leading condition action, leaving the cover untouched -- this guards both
+// direct calls to this script and the sphere-level rollup that calls it via script.turn_on.
+func buildCoverAwayScriptYAML(key, alias, coverID, selectID, closedPositionID, openedPositionID, overrideState string) string {
+	openAction := "  - service: cover.set_cover_position\n    entity_id: " + coverID +
+		"\n    data:\n      position: \"{{ states('" + openedPositionID + "') | int }}\"\n"
 	closeAction := "  - service: cover.set_cover_position\n    entity_id: " + coverID +
-		"\n    data:\n      position: \"{{ states('" + positionID + "') | int }}\"\n"
+		"\n    data:\n      position: \"{{ states('" + closedPositionID + "') | int }}\"\n"
 
 	thenAction, elseAction := closeAction, openAction
 	if overrideState == "Open" {
@@ -2298,6 +2326,11 @@ func buildCoverAwayScriptYAML(key, alias, coverID, selectID, positionID, overrid
 	sb.WriteString("  alias: " + alias + "\n")
 	sb.WriteString("  mode: queued\n")
 	sb.WriteString("  sequence:\n")
+	sb.WriteString("  - condition: not\n")
+	sb.WriteString("    conditions:\n")
+	sb.WriteString("    - condition: state\n")
+	sb.WriteString("      entity_id: " + selectID + "\n")
+	sb.WriteString("      state: Ignore\n")
 	sb.WriteString("  - if:\n")
 	sb.WriteString("    - condition: state\n")
 	sb.WriteString("      entity_id: " + selectID + "\n")
