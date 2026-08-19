@@ -1,0 +1,7 @@
+entities:
+  - entity: input_boolean.social_apartment_living_room_heating_leakage_ignore
+    name: 'apartment/living_room/heating/leakage/ignore'
+title: Ignore leakage
+state_color: true
+type: entities
+show_header_toggle: false

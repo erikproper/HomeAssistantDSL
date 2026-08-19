@@ -1,0 +1,9 @@
+entities:
+  - entity: sensor.physical_apartment_hallway_door_aqara_multi_pressure
+    name: 'apartment/hallway/door/aqara_multi/pressure'
+  - entity: sensor.physical_apartment_living_room_netatmo_pressure
+    name: 'apartment/living_room/netatmo/pressure'
+title: Pressures
+state_color: true
+type: entities
+show_header_toggle: false

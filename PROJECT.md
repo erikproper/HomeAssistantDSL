@@ -1,3 +1,114 @@
+** New Architecture — Migration Plan (as of 2026-08-18)
+
+See Architecture.md for the target design (canonical event bus, coordinator, three
+modelling layers). This section is the project-specific roadmap and current
+hardware-level status — not general architecture, which is why it lives here rather
+than in Architecture.md.
+
+Phase 1 — Infrastructure: DONE
+  protocols-server-1 exists; Podman/Quadlets working; Z-Wave JS UI running and validated.
+
+  Z-Wave migration specifics (in progress):
+  - New environment: Home Assistant Green; a Raspberry Pi running Podman; Z-Wave JS UI;
+    Aeotec ZWA-2 controller; two Aeotec ZW117 range extenders.
+  - Mesh validation: a Fibaro module was excluded/included/excluded/included successfully
+    while physically remaining on the second floor, through Basement (ZWA-2) -> 1st floor
+    repeater -> 2nd floor repeater -> device -- confirms the temporary mesh is already
+    functional enough to migrate onto.
+  - Node ID behaviour: observed monotonically increasing allocation (first inclusion ->
+    Node ID 4, second -> Node ID 5) rather than immediate reuse of released IDs. Not fully
+    validated; migration plan deliberately avoids depending on Node ID preservation.
+    Possible allocation strategies to watch for: first unused ID, highest known ID + 1,
+    highest ever assigned ID + 1.
+  - Migration order: keep the old Gen5 mesh operational -> build an initial new backbone
+    from the ZW117 repeaters -> migrate remote mains-powered devices first -> let migrated
+    Fibaro modules become new repeaters, strengthening the mesh as migration proceeds ->
+    migrate controller-near devices last. Keeps RF coverage acceptable throughout and
+    doesn't require every device to be physically reachable from the new controller
+    during migration.
+
+Phase 2 — Stabilise the existing DSL/generator
+  Test Vienna, test Junglinster, stabilise the compiler against both houses' live
+  configuration. The initial bulk pass (2026-08-09 -- 08-18) was a genuine prerequisite
+  for starting Phase 3 -- designing the new architecture against infrastructure that
+  was still mid-change would have meant designing against a moving target. Beyond that
+  bulk pass, Phase 2 continues in parallel with Phase 3 rather than as a separate
+  blocking gate: each integration tackled in Phase 3 (ping/cpu, Netatmo, EMS,
+  Zigbee2MQTT, Z-Wave) surfaces and stabilises its own corner of the existing
+  DSL/generator as it's iterated on, so the two phases run together per-integration
+  from here on.
+
+Phase 3 — New architecture, incremental learning steps
+  Each step tests one new architectural capability before the next is attempted, and
+  grows the coordinator's aggregation vocabulary gradually rather than all at once.
+
+  Timeline note (2026-08-18): travelling over the next few weeks, so the bridge role
+  (federation across MQTT brokers, §5/§6.5 in Architecture.md) will not be touched
+  until September. Physical-level DSL preparation therefore focuses first and only on
+  step 0 (ping + cpu) below, since that step needs no cross-broker bridging at all.
+
+  0. Ping + CPU integration (current focus). Treated as one conceptual integration
+     with two data-collection scripts (a pinger; an OS-dependent CPU load/temperature
+     collector). Every cpu device implies a corresponding ping device. First real
+     exercise of the "integration <name> [on <host>] with devices: ..." DSL syntax
+     (see Architecture.md §9.2 and $HOUSE/Definitions/Integrations.def), implied
+     node/entity generation (binary_sensor.$host/reachable from a state topic plus an
+     availability rule), and a first cut at aggregated/complementing nodes -- e.g. a
+     junglinster node built by complementing cpu.junglinster availability with
+     ping.junglinster reachability, then exposed conceptually as
+     infrastructural:rack/junglinster.
+
+     Deployment scripts (already exist, outside this repo):
+     - /Users/erikproper/SmartLiving/Integrations/cpu -- deployed on each individual
+       "metal level" Linux/Mac machine; reports load + temperature as JSON on the
+       MQTT bus for that host.
+     - /Users/erikproper/SmartLiving/Integrations/ping -- deployed on one server only;
+       pings a configured list of hosts to determine "up"/"down".
+     Config/secrets files the generator needs to know about or produce:
+     - /Users/erikproper/SmartLiving/Integrations/cpu/secrets
+     - /Users/erikproper/SmartLiving/Integrations/ping/secrets
+     - /Users/erikproper/SmartLiving/Integrations/ping/hosts
+
+     The generator's output for this integration splits into two kinds:
+     1] YAML for the identified HASS instance(s) that consume the MQTT-reported
+        load/temperature as normal sensors, e.g.
+        sensor.infrastructural_house_laundry_kitchen_rack_junglinster_load and
+        sensor.infrastructural_house_laundry_kitchen_rack_junglinster_temperature.
+     2] Input for the coordinator, so it can build the correct MQTT discovery
+        messages (and know the secrets it needs) for these devices/entities.
+
+    Also ... enable the inclusion of additional meta-data
+    for the (host) devices, and (maybe) enable the logical aggregation of some of the devices. Need to check if this is already needed. Key thing is to be able to add meta-data at the host level. Check, e.g. the netatmo
+    devices. 
+    Though ... this would mean a "complement" operator
+    (of the netatmo with the host device elements) and not 
+    just an aggregation.
+  
+  1. Netatmo and other cloud services, via the secondary HA instance (protocols-server-2,
+     integration-adapter role). First real test case for MQTT bridging/federation
+     end-to-end (see Architecture.md §6.5). Milestone check: Bridges.def should be
+     effectively empty once this step is done -- the only bridge type currently in use
+     is the "rest" bridge (confirmed: 0 uses in Junglinster's Entities.def, 29 in
+     Vienna's, all of them Netatmo `imported rest` declarations), so nothing else
+     currently depends on that mechanism.
+  2. EMS heater device.
+  3. Zigbee2MQTT. Exercises the legacy-to-conceptual passthrough capability described in
+     Architecture.md §6.4, so entities can be switched over to the new architecture
+     gradually rather than in one cutover.
+  4. Z-Wave. Migrated last, since it needs the most native-API-aware handling and the
+     richest device/capability modelling.
+
+Phase 4 — Full platform migration & cleanup
+  Once a platform has fully moved through Phase 3's incremental steps, retire the
+  now-superseded generator logic for it from the existing app rather than carrying both
+  paths indefinitely.
+
+Phase 5 — Publish (not started)
+  Architecture.md should, at some stage, be ready for others to read, alongside an
+  up-to-date README.md, on GitHub. Explicitly deferred until the architecture above has
+  actually been built and proven out, not before.
+
+
 ** Current Todo Items (as of 2026-04-27)
 
 Active work — roughly in priority order:

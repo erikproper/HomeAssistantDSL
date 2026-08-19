@@ -20,8 +20,6 @@ import (
 	"strings"
 )
 
-var HouseNames = []string{"Vienna", "Junglinster"}
-
 func main() {
 	root, err := os.Getwd()
 	if err != nil {
@@ -29,14 +27,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	args := applyDebugOptionArgs(os.Args[1:])
-	if DebugEnabled {
-		if err := consolidateLegacyDebugReports(root, HouseNames); err != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-	}
-
+	args := os.Args[1:]
 	if len(args) != 1 || !strings.HasSuffix(args[0], ".def") {
 		fmt.Fprintf(os.Stderr, "usage: homeassistant <path/to/Main.def>\n")
 		os.Exit(1)

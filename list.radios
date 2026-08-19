@@ -1,0 +1,15 @@
+entities:
+  - entity: sensor.infrastructural_apartment_bedroom_netatmo_radio
+    name: 'apartment/bedroom/netatmo'
+  - entity: sensor.infrastructural_apartment_living_room_netatmo_radio
+    name: 'apartment/living_room/netatmo'
+  - entity: sensor.infrastructural_apartment_shower_room_netatmo_radio
+    name: 'apartment/shower_room/netatmo'
+  - entity: sensor.infrastructural_terrace_netatmo_outdoor_radio
+    name: 'terrace/netatmo_outdoor'
+  - entity: sensor.infrastructural_terrace_netatmo_windmeter_radio
+    name: 'terrace/netatmo_windmeter'
+title: Radios
+state_color: true
+type: entities
+show_header_toggle: false

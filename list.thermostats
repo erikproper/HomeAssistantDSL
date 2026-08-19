@@ -1,0 +1,7 @@
+entities:
+  - entity: climate.physical_apartment_living_room_bitron_thermostat
+    name: 'living_room/bitron_thermostat'
+title: Thermostats
+state_color: true
+type: entities
+show_header_toggle: false

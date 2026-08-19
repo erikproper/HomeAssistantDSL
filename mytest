@@ -1,0 +1,16 @@
+go install
+
+# Run all Go tests
+go test ./...
+
+# Interpret both houses (parse + entity/space report)
+go run . interpret Vienna
+go run . interpret Junglinster
+
+# Expand both houses (macro expansion report)
+go run . expand Vienna
+go run . expand Junglinster
+
+# Availability check (compares against Home Assistant)
+go run . check Vienna
+go run . check Junglinster

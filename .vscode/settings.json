@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^for f in New/Junglinster/Definitions/Entities\\.def New/Vienna/Definitions/Entities\\.def; do echo \"== \\$f single-statement with:\\.\\.\\.end; candidates ==\"; perl -0777 -ne 'while\\(/\\^\\(\\[ \\\\t\\]\\*\\)\\(\\.\\* with:\\)\\\\n\\\\1  \\(\\[\\^\\\\n#\\]\\.\\*;\\)\\\\n\\\\1end;\\\\n/mg\\)\\{ \\$pre=\\$`; \\$ln=\\(\\$pre =~ tr/\\\\n//\\)\\+1; print \"line \\$ln\\\\n\"; \\}' \"\\$f\" \\| wc -l; done$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

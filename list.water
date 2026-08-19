@@ -1,0 +1,9 @@
+entities:
+  - entity: binary_sensor.physical_apartment_living_room_kitchen_aqara_water_water
+    name: 'living_room/kitchen/aqara_water/water'
+  - entity: binary_sensor.physical_apartment_shower_room_aqara_water_water
+    name: 'shower_room/aqara_water/water'
+title: Water
+state_color: true
+type: entities
+show_header_toggle: false

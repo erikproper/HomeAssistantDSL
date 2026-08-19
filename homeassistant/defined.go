@@ -72,11 +72,6 @@ func unquoteShellValue(s string) string {
 	return s
 }
 
-// trimTrailingPunctuation removes a trailing semicolon from s, if present.
-func trimTrailingPunctuation(s string) string {
-	return strings.TrimSuffix(strings.TrimSpace(s), ";")
-}
-
 func resolveBridgeTargets(definitionDir string) (map[string]THomeAssistantTarget, error) {
 	serverPath := filepath.Join(definitionDir, "Server.def")
 	secretsPath := filepath.Join(definitionDir, "Secrets.def")
@@ -224,6 +219,48 @@ func resolveHomeAssistantTarget(definitionDir string) (THomeAssistantTarget, err
 	}
 
 	return THomeAssistantTarget{BaseURL: baseURL, Token: token, InsecureSkipTLS: insecureSkipTLS, StatesPath: "/api/states"}, nil
+}
+
+// resolveMainIncarnationName reads Physical.def (plus Secrets.def and combined Settings.def
+// for ${var} resolution) and returns the name declared by "home_assistant main: <name> <url>;",
+// e.g. "junglinster". Returns "" if Physical.def doesn't exist yet or has no such directive —
+// callers should fall back to the pre-instance-aware behaviour in that case, so houses that
+// haven't adopted Physical.def yet keep generating exactly as before.
+func resolveMainIncarnationName(definitionDir string) string {
+	physicalPath := filepath.Join(definitionDir, "Physical.def")
+	secretsPath := filepath.Join(definitionDir, "Secrets.def")
+
+	physicalContent, _ := readOptionalFile(physicalPath)
+	if strings.TrimSpace(physicalContent) == "" {
+		return ""
+	}
+	settingsContent := readCombinedSettingsContent(definitionDir)
+	secretsContent, _ := readOptionalFile(secretsPath)
+
+	vars := parseDefinitionAssignments(settingsContent)
+	for name, value := range parseDefinitionAssignments(secretsContent) {
+		vars[name] = value
+	}
+
+	nameExpr, _ := parseHomeAssistantMainDirective(physicalContent)
+	if nameExpr == "" {
+		return ""
+	}
+	return resolveDefinitionReference(nameExpr, vars)
+}
+
+// parseHomeAssistantMainDirective extracts the two whitespace-separated tokens (name, url
+// expressions) from a "home_assistant main: <name> <url>;" line in Physical.def.
+func parseHomeAssistantMainDirective(physicalContent string) (nameExpr, urlExpr string) {
+	pattern := regexp.MustCompile(`^home_assistant\s+main:\s*(\S+)\s+(\S+)\s*;\s*$`)
+	for _, rawLine := range strings.Split(strings.ReplaceAll(physicalContent, "\r\n", "\n"), "\n") {
+		line := strings.TrimSpace(rawLine)
+		matches := pattern.FindStringSubmatch(line)
+		if matches != nil {
+			return matches[1], matches[2]
+		}
+	}
+	return "", ""
 }
 
 func resolveDefinitionBoolReference(candidates []string, vars map[string]string) bool {

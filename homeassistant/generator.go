@@ -45,10 +45,16 @@ func runGenerationFromDefFile(cwd, defPath string) error {
 	definitionDir := filepath.Dir(fullDefPath)
 	sharedDefinitionDir := filepath.Clean(filepath.Join(definitionDir, "..", "..", "Shared", "Definitions"))
 	outputDir := filepath.Join(cwd, "hass")
+	if incarnation := resolveMainIncarnationName(definitionDir); incarnation != "" {
+		outputDir = filepath.Join(outputDir, incarnation)
+	}
 	listOutputDir := cwd
 	label := filepath.Base(cwd)
 
 	if err := generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutputDir, label); err != nil {
+		return err
+	}
+	if err := generatePhysicalIntegrationOutputs(definitionDir, cwd); err != nil {
 		return err
 	}
 	fmt.Printf("generated %s\n", label)

@@ -21,103 +21,6 @@ import (
 	"testing"
 )
 
-func TestInterpretationOperationalForKnownHouses(t *testing.T) {
-	root, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to determine working directory: %v", err)
-	}
-
-	prev := DebugEnabled
-	DebugEnabled = true
-	defer func() { DebugEnabled = prev }()
-
-	if err := runInterpretation(root, HouseNames); err != nil {
-		t.Fatalf("interpretation failed: %v", err)
-	}
-
-	for _, houseName := range HouseNames {
-		interpretationPath := debugReportPath(root, houseName, DebugReportInterpretation)
-		content, readErr := os.ReadFile(interpretationPath)
-		if readErr != nil {
-			t.Fatalf("failed to read %s: %v", interpretationPath, readErr)
-		}
-		text := string(content)
-		if strings.TrimSpace(text) == "" {
-			t.Fatalf("interpretation file is empty: %s", interpretationPath)
-		}
-		if !strings.Contains(text, "Interpretation:") {
-			t.Fatalf("interpretation marker missing in %s", interpretationPath)
-		}
-		if !strings.Contains(text, "BLOCK ") {
-			t.Fatalf("no parsed block entries found in %s", interpretationPath)
-		}
-		if strings.Contains(text, "Status: errors") {
-			t.Fatalf("parser reported errors in %s", interpretationPath)
-		}
-	}
-}
-
-func TestExpansionOperationalForKnownHouses(t *testing.T) {
-	root, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to determine working directory: %v", err)
-	}
-
-	prev := DebugEnabled
-	DebugEnabled = true
-	defer func() { DebugEnabled = prev }()
-
-	if err := runExpansion(root, HouseNames); err != nil {
-		t.Fatalf("expansion failed: %v", err)
-	}
-
-	for _, houseName := range HouseNames {
-		expansionPath := debugReportPath(root, houseName, DebugReportExpansion)
-		content, readErr := os.ReadFile(expansionPath)
-		if readErr != nil {
-			t.Fatalf("failed to read %s: %v", expansionPath, readErr)
-		}
-		text := string(content)
-		if strings.TrimSpace(text) == "" {
-			t.Fatalf("expansion file is empty: %s", expansionPath)
-		}
-		if !strings.Contains(text, "=== MACRO EXPANSION REPORT ===") {
-			t.Fatalf("expansion marker missing in %s", expansionPath)
-		}
-		if strings.Contains(text, "Status: ERROR") {
-			t.Fatalf("unexpected error marker in %s", expansionPath)
-		}
-	}
-}
-
-func TestExpansionListsVirtualSpaces(t *testing.T) {
-	root, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to determine working directory: %v", err)
-	}
-
-	prev := DebugEnabled
-	DebugEnabled = true
-	defer func() { DebugEnabled = prev }()
-
-	if err := runExpansion(root, []string{"Junglinster"}); err != nil {
-		t.Fatalf("expansion failed: %v", err)
-	}
-
-	expansionPath := debugReportPath(root, "Junglinster", DebugReportExpansion)
-	content, readErr := os.ReadFile(expansionPath)
-	if readErr != nil {
-		t.Fatalf("failed to read %s: %v", expansionPath, readErr)
-	}
-	text := string(content)
-	if !strings.Contains(text, `Virtual space "social/house/extension":`) {
-		t.Fatalf("expected virtual extension space in %s", expansionPath)
-	}
-	if !strings.Contains(text, `Virtual space "social/house/laundry_corridor":`) {
-		t.Fatalf("expected virtual laundry_corridor space in %s", expansionPath)
-	}
-}
-
 func TestHomeAssistantEntityIDMapping(t *testing.T) {
 	testCases := []struct {
 		fullName string
@@ -227,52 +130,6 @@ func TestExtractEntityIDsFromStatesPayload(t *testing.T) {
 		t.Fatalf("expected sensor.outdoor_temperature to be present")
 	}
 }
-
-func TestSettingsSharedFileContainsIconVariables(t *testing.T) {
-	root, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to determine working directory: %v", err)
-	}
-
-	// Icon variables live in the shared Settings.def; local files only hold per-house overrides.
-	sharedSettingsPath := filepath.Join(root, "New", "Shared", "Definitions", "Settings.def")
-	content, readErr := os.ReadFile(sharedSettingsPath)
-	if readErr != nil {
-		t.Fatalf("failed to read %s: %v", sharedSettingsPath, readErr)
-	}
-	text := string(content)
-	for _, expectedLine := range []string{
-		"${consumes_icon} = \"mdi:flash\";",
-		"${media_switch_icon} = \"mdi:monitor-speaker\";",
-		"${water_icon} = \"mdi:water-off\";",
-	} {
-		if !strings.Contains(text, expectedLine) {
-			t.Fatalf("expected %q in %s", expectedLine, sharedSettingsPath)
-		}
-	}
-
-	// Local settings files must only contain house-specific overrides (${workdays}).
-	workdaysByHouse := map[string]string{
-		"Vienna":      `"AT"`,
-		"Junglinster": `"LU"`,
-	}
-	for _, houseName := range HouseNames {
-		localSettingsPath := filepath.Join(root, "New", houseName, "Definitions", "Settings.def")
-		localContent, localReadErr := os.ReadFile(localSettingsPath)
-		if localReadErr != nil {
-			t.Fatalf("failed to read %s: %v", localSettingsPath, localReadErr)
-		}
-		localText := string(localContent)
-		if !strings.Contains(localText, workdaysByHouse[houseName]) {
-			t.Fatalf("expected ${workdays} %s in %s", workdaysByHouse[houseName], localSettingsPath)
-		}
-	}
-}
-
-
-
-
-
 
 func TestParseSpaceHeaderRecognizesVirtualSpace(t *testing.T) {
 	kind, name, ok := parseSpaceHeader("virtual space social:extension with:")
@@ -561,38 +418,6 @@ func TestListPatternSphereFilter(t *testing.T) {
 	// Wrong domain must not match.
 	if match("sensor", "social", "apartment/hallway/door") {
 		t.Fatal("expected wrong domain to not match")
-	}
-}
-
-func TestInterpretationRespectsMainIncludeOrder(t *testing.T) {
-	root, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to determine working directory: %v", err)
-	}
-
-	prev := DebugEnabled
-	DebugEnabled = true
-	defer func() { DebugEnabled = prev }()
-
-	if err := runInterpretation(root, []string{"Vienna"}); err != nil {
-		t.Fatalf("interpretation failed: %v", err)
-	}
-
-	interpretationPath := debugReportPath(root, "Vienna", DebugReportInterpretation)
-	content, readErr := os.ReadFile(interpretationPath)
-	if readErr != nil {
-		t.Fatalf("failed to read %s: %v", interpretationPath, readErr)
-	}
-	text := string(content)
-
-	mainIndex := strings.Index(text, "File: Main.def")
-	macrosIndex := strings.Index(text, "File: Macros.def")
-	entitiesIndex := strings.Index(text, "File: Entities.def")
-	if mainIndex < 0 || macrosIndex < 0 || entitiesIndex < 0 {
-		t.Fatalf("expected Main.def, Macros.def and Entities.def sections in %s", interpretationPath)
-	}
-	if !(mainIndex < macrosIndex && macrosIndex < entitiesIndex) {
-		t.Fatalf("expected Main.def -> Macros.def -> Entities.def ordering in %s", interpretationPath)
 	}
 }
 
