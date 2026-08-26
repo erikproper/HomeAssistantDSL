@@ -42,10 +42,10 @@ New/
 | File | Purpose |
 |---|---|
 | `Main.def` | Include-order entry point |
-| `Settings.def` | Per-house variable overrides |
-| `Server.def` | Server/bridge conditional definitions |
+| `Settings.def` | Per-house variable overrides (also holds real secrets — gitignored) |
+| `Physical.def` | Physical layer: MQTT/Home Assistant main target, integration device declarations |
 | `Bridges.def` | REST bridge declarations |
-| `Entities.def` | Space and entity declarations |
+| `Spaces.def` | Conceptual layer: space and entity declarations |
 | `Lists.def` | Lovelace list declarations |
 
 ## Entity specification model
@@ -94,6 +94,16 @@ virtual-space social:whole_apartment with:
 end;
 ```
 
+A space may declare itself a Home Assistant Area with `as area`. Devices positioned directly in
+it, or in a sub-space that doesn't declare its own area, get it as their `suggested_area`; a
+nested `as area` space shadows its enclosing one for its own subtree:
+
+```
+space infrastructural:rack as area with:
+  ...
+end;
+```
+
 ### Entities
 
 ```
@@ -103,6 +113,50 @@ entity sensor.physical:temperature with:             # explicitly defined
 end;
 entity sensor.physical:pressure with adjustment 20 1;  # adjustment sensor wrapping a _raw source
 ```
+
+`!attribute` (as used above) reads one of an entity's attributes instead of its bare state.
+
+### Devices (the `hosts` integration)
+
+`Physical.def`'s `integration hosts with: ... end;` block declares each pingable/monitorable host
+and how it materializes into Home Assistant entities. Three integration types:
+
+```
+integration hosts with:
+  device host.smarty smarty cpu;                       # bare: hardwired load/temperature capabilities
+
+  device host.someswitch someswitch ping;               # liveness-only, no capabilities
+
+  device host.junglinster junglinster home_assistant with:
+    cpu/load:        sensor.processor_use;               # grouped -> its own sensor entity, path suffix "cpu"
+    cpu/temperature: sensor.processor_temperature;
+    sw_version: "Home Assistant Operating System " update.home_assistant_operating_system_update!installed_version;
+    model:       "Home Assistant Green";                 # constant device-map field
+    hw_version:  "1928930" forced;                        # "forced": never overridden by live-reported data
+  end;
+end;
+```
+
+A capability name is either `<leaf>` (a device-info string — manufacturer, model, sw_version,
+... — feeds the HA discovery `device:` block only) or `<group>/<leaf>` (a variable attribute —
+gets its own sensor entity at `.../<group>/<leaf>`, posted as numeric JSON on the device's MQTT
+state topic). A capability's entity reference may use the same `entity!attribute` syntax as
+regular entity bodies, and an optional leading `"<literal>"` string prefix concatenated onto it.
+
+`Spaces.def` then positions a declared host in the conceptual tree and pulls in its implied
+entities:
+
+```
+space infrastructural:rack as area with:
+  entity device.infrastructural:junglinster from host.junglinster with: variable_device_attributes;
+end;
+```
+
+This implies a node (availability) entity plus one entity per grouped capability (`cpu/load`,
+`cpu/temperature` above) — none of them generator-authored YAML; they're created by the
+`house_event_bus_coordinator`'s own Home Assistant MQTT Discovery publish instead. See
+`Architecture.md` §6 for the coordinator's role and §6.6 for the constant/variable attribute
+distinction.
 
 ### Macros
 
@@ -160,9 +214,10 @@ end;
 `Lists.def` declares Lovelace entity-card lists. Each declaration produces a `list.<name>` file in the house directory.
 
 ```
-list "Title" all <pattern> [<pattern> ...] [with:
+list "Title" all <pattern> [<pattern> ...] [as cards] [with:
   clean_prefix  <segment>;
   clean_postfix <segment>;
+  detail_level  <n>;    # "as cards" only, default 2
 end;]
 ```
 
@@ -175,6 +230,7 @@ Each pattern selects a subset of declared entities:
 | `domain.*` | All entities in the domain |
 | `domain.*/suffix` | Entities whose path ends with `/suffix` |
 | `domain.sphere/*/suffix` | Entities in a specific sphere whose path ends with `/suffix` |
+| `domain.*/prefix/*` | Entities whose path has `prefix` as the second-to-last segment, with any one trailing leaf segment (e.g. `sensor.*/cpu/*` matches `.../cpu/load`, `.../cpu/temperature`, or any future `cpu`-suffix attribute — but not bare `.../cpu`) |
 
 The `all` keyword is optional and silently ignored.
 
@@ -203,6 +259,19 @@ end;
 
 This selects all social-sphere door and window binary sensors, strips the `social/` and
 `apartment/` prefixes from their display names, and writes the result to `list.windoors`.
+
+### Card types
+
+By default a list renders as a flat Lovelace `entities:` card. Adding `as cards` to the header
+instead renders a `vertical-stack` of one built-in `type: sensor` mini-graph card per entity
+(`detail`, `graph: line`, `name`), useful for numeric time-series attributes:
+
+```
+list "Compute nodes" all sensor.*/cpu/load sensor.*/cpu/temperature as cards with:
+  clean_prefix infrastructural;
+  detail_level 2;
+end;
+```
 
 ## Post-generation checks
 

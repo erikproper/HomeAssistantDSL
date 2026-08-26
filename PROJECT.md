@@ -1,9 +1,119 @@
-** New Architecture — Migration Plan (as of 2026-08-18)
+** TODO (as of 2026-08-26)
 
-See Architecture.md for the target design (canonical event bus, coordinator, three
-modelling layers). This section is the project-specific roadmap and current
-hardware-level status — not general architecture, which is why it lives here rather
-than in Architecture.md.
+Current focus: 1.3 mobile (laptop) devices reporting CPU data to the cloud broker -- the next
+piece of plumbing now that 1.2 (cloud-based MQTT broker) is basically finished. See step 1.3
+below for the staleness-based liveness design already sketched, plus a new note on cross-platform
+TLS CA handling the report script will need. `home_assistant` bridge devices (Envoy etc., 1.1
+below) can continue in parallel, not gated on this.
+
+1. Netatmo + other cloud services, via protocols-server-2 (first real MQTT bridging/federation
+   test end-to-end) -- broken into concrete steps, roughly in this order though not strictly
+   gating each other:
+   1.2. Cloud-based MQTT broker -- DONE (2026-08-26). Mosquitto installed on mqtt.erikproper.eu,
+      TLS via Let's Encrypt (certbot standalone + a renewal deploy-hook copying certs to where
+      Mosquitto can read them, working around the mosquitto user's default lack of access to
+      /etc/letsencrypt/live), two auth classes (`coordinator`: broad `#` access; `client`: scoped
+      to `hosts/<own-client-id>/#` via Mosquitto's `%c` ACL pattern-matching, so every leaf device
+      can share one login without losing per-device topic isolation). Verified end-to-end (TLS
+      handshake, auth, publish/subscribe, and per-client isolation both allowed and rejected
+      cases) from the server itself, from xanadu (Junglinster), and from a MacBook. Design
+      confirmed: coordinator-mediated relay (not native Mosquitto broker-to-broker bridging),
+      since JSON payload reshaping will be needed at the relay point, which a dumb broker bridge
+      can't do -- see [[project_roaming_devices_bridging_broker]] (memory) for the fuller
+      rationale. Not yet done: the actual coordinator-side relay code, and wiring real
+      house/laptop credentials into Settings.def.
+   1.3. Mobile (My laptop) devices to report CPU data (and implied availability). Unlike a fixed
+      host, a laptop has no reliable "going offline" hook (sleep, lid closed, network loss all
+      look the same as just not reporting) -- so its "node" liveness can't be an explicit
+      true/false report the way it is today. Instead it needs to be staleness-based: the
+      coordinator tracks each such device's last-reported time and infers "offline" once nothing
+      has arrived for e.g. 3x the expected update_interval, publishing the node state itself
+      rather than relaying an explicit report -- a new coordinator responsibility (a per-device
+      staleness watchdog), not just a report-script change.
+      EP: The difference is that a device on the "home" network can be pinged. A laptop that is "on the road" cannot be pinged. For such devices, we need a "liveness" strategy. Potentially not only in such cases.
+      Cross-platform TLS CA handling (noted 2026-08-26): `Integrations/cpu/report` runs
+      cross-platform already but has only ever talked to a local, non-TLS house broker, so it has
+      no CA-bundle logic at all today. Reporting to mqtt.erikproper.eu over TLS will need a
+      per-OS CA path -- confirmed working around this manually during broker testing: Debian/
+      Ubuntu has a standard bundle at /etc/ssl/certs/ca-certificates.crt, but macOS has no
+      equivalent file and needs one exported from the system Keychain
+      (`security find-certificate -a -p /System/Library/Keychains/SystemRootCertificates.keychain`)
+      since Homebrew-installed CLI tools don't consult the Keychain automatically. The report
+      script needs this same per-OS handling built in before it can report to the cloud broker.
+   1.4. With this in place, we can also update the architecture with regards to the reporting by the coordinator of the available entities, and then syncing of these lists to the transformer's local cache, and then using this to give warnings of non existance, and possibly suggestions of "addable" entities in a copy-paste friendly format for the physical layer.
+   1.5. Netatmo temperature/weather data, flow to cloud MQTT, and test re-import "faking" Vienna import in Junglinster. Can't do this in vienna yet due to crashed systems in Vienna. homeassistant@protocols-server-2 -> MQTT. 
+   1.6. Volvo stuff back
+   1.7. Overkiz-based SOMFY cover control: homeassistant@protocols-server-2 -> MQTT.
+   1.8. Netatmo flow to Vienna
+   Blocked
+      specifically: a hardware (bridge/router) issue at the Vienna site (noted 2026-08-23) blocks
+      testing this data path to Vienna, independent of the cloud-broker work above.
+2. Control of picture frame via MQTT (commandline integration) --
+   design/syntax not yet worked out.
+3. MQTT (local) broker in container on p-s-1
+4. Zigbee2MQTT (legacy-to-conceptual passthrough, so entities migrate gradually).
+5. Z-Wave (migrated last -- richest device/capability modelling).
+6. Phase 4 (retire superseded generator logic) + Phase 5 (publish) -- after all of the above.
+
+Smaller pending items, not gating the above:
+- Logical-layer device combining ("aggregate" a new device vs "absorb" into an existing master
+  device, e.g. smarty's Zigbee switch into host.smarty) -- gated on steps 3 and 4 both landing.
+- Raw/extensional Spaces.def entity references ("domain.[raw-id]") should become unnecessary
+  once a device has a `device.<spec> from <device-id>` link instead -- audit once the MQTT
+  migration is fully complete. (Step 1.3's sun.sun work is the first concrete case.)
+- Future refinement (2026-08-23, not yet designed): replace the `.def` files with an integrated
+  database representing the coordinator+transformer's actual current understanding of the
+  conceptual and physical layers -- physical-layer content populated/kept live from what the
+  integrations themselves discover (MQTT discovery, device_attr(), live-reported metadata),
+  rather than hand-declared and re-generated from static text each `./configure` run -- while
+  still allowing reconfiguration of key components (e.g. which `home_assistant <qualifier>`
+  instances exist) through it. Large, cross-cutting shift from the current
+  Definitions-directory-as-source-of-truth model; needs its own design pass once the current MQTT
+  migration (steps 1-4 above) has landed and the shape of "what the coordinator already knows
+  live" is clearer. Reinforced by 2026-08-24's protocols-server-2 rollout: compile-time
+  (generator-authored automations, `.def`-driven expected-entity lists) and run-time (coordinator's
+  live MQTT state) are still two separate worlds today, stitched together only by redeploys and
+  manual "reload YAML" steps on each HA instance -- a merged compile-time/run-time coordinator,
+  backed by that same database and possibly its own web UI, would remove that whole class of
+  "did you redeploy/reload yet" friction rather than just papering over it with better tooling.
+- Rename the `homeassistant_instances/...` MQTT topic tree (bootstrap/bridge protocol,
+  discoveryassumed.go/discoveryhassbridge.go) to `homeassistant.instances/...`, matching this
+  project's own dot-separated discovery-prefix convention (`homeassistant.physical`/
+  `homeassistant.conceptual`) -- purely a naming inconsistency introduced 2026-08-23, not yet
+  fixed. Safe/mechanical now that both the coordinator code and every instance's automations are
+  generator-owned; just needs a coordinated regenerate+redeploy across every instance at once.
+- Volvo integration's cloud auth is broken on the "main" (Junglinster) HA incarnation (401
+  Unauthorized, confirmed 2026-08-24 via the assumed-entities warning system flagging 18 missing
+  `sensor.social_cars_xc40_*`/etc. entities) -- needs re-authenticating in HA's own UI; not a code
+  issue.
+- Deploy-script lessons from protocols-server-2's 2026-08-23/24 rollout, worth remembering before
+  Vienna gets its own deploy.d scripts: (1) a symlink created via `ssh ... ln -sf <target> <dir>/`
+  must use a target relative to the link's own location, not the host's absolute path -- the link
+  is later read from *inside* the HA container, where the host's absolute path doesn't exist, and
+  HA's own error reporting mislabels the resulting failure as "File not found:
+  /config/configuration.yaml" regardless of which file actually broke, which cost a long debugging
+  session to trace. (2) current Home Assistant's `mqtt.publish` service no longer accepts
+  `payload_template` (schema-validation error "extra keys not allowed") -- template the `payload:`
+  field directly instead; both are now fixed in `homeassistant/remote_instance_automations.go` and
+  `deploy.d/0{1,2}_deploy.hass.*`.
+- `isCoordinatorOwnedTopic`'s legacy `host_`/`discovery_` topic-shape branch
+  (house_event_bus_coordinator/discoverycleanup.go) exists only to catch pre-migration discovery
+  topics during the one-time cutover to identity-based topic keys (`.../coordinator/<stable-id>/config`).
+  Once each deployed house's coordinator has run once and its retirement log confirms the old
+  topics are gone -- Junglinster first, Vienna once it's actually deployed -- remove that branch;
+  it'll be permanently dead code by then.
+
+---
+
+See below for the full narrative behind each TODO item above; Architecture.md for the target
+design (canonical event bus, coordinator, three modelling layers); README.md for current
+DSL/usage reference. As each TODO item is finished, its write-up below should be trimmed down to
+a one-line DONE note (or removed, if nothing durable needs keeping beyond what's already in
+code/README.md/Architecture.md) -- the goal is for this section to end up essentially empty once
+Phase 3 is done, and for the TODO list above to stay the only thing anyone needs to read at a
+glance.
+
+** Roadmap detail
 
 Phase 1 — Infrastructure: DONE
   protocols-server-1 exists; Podman/Quadlets working; Z-Wave JS UI running and validated.
@@ -33,8 +143,7 @@ Phase 2 — Stabilise the existing DSL/generator
   for starting Phase 3 -- designing the new architecture against infrastructure that
   was still mid-change would have meant designing against a moving target. Beyond that
   bulk pass, Phase 2 continues in parallel with Phase 3 rather than as a separate
-  blocking gate: each integration tackled in Phase 3 (ping/cpu, Netatmo, EMS,
-  Zigbee2MQTT, Z-Wave) surfaces and stabilises its own corner of the existing
+  blocking gate: each integration tackled in Phase 3 (ping/cpu, Netatmo, EMS, Zigbee2MQTT, Z-Wave) surfaces and stabilises its own corner of the existing
   DSL/generator as it's iterated on, so the two phases run together per-integration
   from here on.
 
@@ -46,55 +155,75 @@ Phase 3 — New architecture, incremental learning steps
   (federation across MQTT brokers, §5/§6.5 in Architecture.md) will not be touched
   until September. Physical-level DSL preparation therefore focuses first and only on
   step 0 (ping + cpu) below, since that step needs no cross-broker bridging at all.
+  Update (2026-08-22): step 0 is done, delivered while still travelling -- confirms the
+  no-cross-broker-bridging framing held.
+  Update (2026-08-23): steps 1 and 2 swapped -- protocols-server-2/Netatmo work now takes
+  priority over the EMS heater (see the "** TODO" list at the top of this file for the current,
+  detailed breakdown). Current focus is step 1's first sub-step, weather forecast bridging.
 
-  0. Ping + CPU integration (current focus). Treated as one conceptual integration
+  0. Ping + CPU integration. DONE (2026-08-22). Treated as one conceptual integration
      with two data-collection scripts (a pinger; an OS-dependent CPU load/temperature
-     collector). Every cpu device implies a corresponding ping device. First real
-     exercise of the "integration <name> [on <host>] with devices: ..." DSL syntax
-     (see Architecture.md §9.2 and $HOUSE/Definitions/Integrations.def), implied
-     node/entity generation (binary_sensor.$host/reachable from a state topic plus an
-     availability rule), and a first cut at aggregated/complementing nodes -- e.g. a
-     junglinster node built by complementing cpu.junglinster availability with
-     ping.junglinster reachability, then exposed conceptually as
-     infrastructural:rack/junglinster.
+     collector). Every cpu device implies a corresponding ping device. The actual DSL
+     shape that shipped differs from the original sketch below (an "integration <name>
+     [on <host>] with devices: ..." / Integrations.def syntax was never built) -- what
+     exists instead, and is now documented in README.md's "Devices (the hosts
+     integration)" and "Lists.def syntax" sections:
+     - Physical.def's "integration hosts with: device <id> <host> <type> with: ...;
+       end; end;" declares each host's type (cpu/home_assistant/ping), capability
+       entity mappings (optionally grouped, e.g. "cpu/load: sensor.processor_use;"),
+       and constant device-map overrides ("model: \"...\" [forced];").
+     - Spaces.def's "entity device.<spec> from <device-id> with:
+       variable_device_attributes;" positions a device in the conceptual space tree,
+       implying discovery-implied node/attribute entities -- created by the
+       coordinator's own HA MQTT Discovery publish, not generator-authored YAML.
+     - "space <spec> as area with:" marks a space as an HA Area feeding suggested_area.
+     - house_event_bus_coordinator/ is no longer a stub: connects to the MQTT broker,
+       publishes discovery configs (retained), subscribes to live-reported device
+       metadata, merges it with Physical.def's static/forced constants (forced-DSL >
+       live > default-DSL precedence), and republishes a device's discovery config
+       live when new data arrives -- confirmed working end to end. Deployed as a
+       systemd service on protocols-server-1 (Junglinster), staged through xanadu.
+     - Integrations/cpu/report reports CPU load normalized to a percentage of core
+       count (not raw Unix load average) plus device metadata, cross-platform.
+     - Space-level aggregates (temperature, humidity, ...) and generator-authored
+       customization files both exclude infrastructural-sphere / discovery-implied
+       entities, so a device's cpu/temperature never gets folded into the room it
+       physically sits in, and never gets a redundant customization file duplicating
+       what the coordinator's own discovery payload already sets.
 
-     Deployment scripts (already exist, outside this repo):
-     - /Users/erikproper/SmartLiving/Integrations/cpu -- deployed on each individual
-       "metal level" Linux/Mac machine; reports load + temperature as JSON on the
-       MQTT bus for that host.
-     - /Users/erikproper/SmartLiving/Integrations/ping -- deployed on one server only;
-       pings a configured list of hosts to determine "up"/"down".
-     Config/secrets files the generator needs to know about or produce:
-     - /Users/erikproper/SmartLiving/Integrations/cpu/secrets
-     - /Users/erikproper/SmartLiving/Integrations/ping/secrets
-     - /Users/erikproper/SmartLiving/Integrations/ping/hosts
+     Still open, deferred to step 1 (Netatmo) or later: per-host metadata aggregation
+     with other integrations at the same physical location (e.g. combining a netatmo
+     device's readings with the host device it shares a room with) would need a
+     "complement" operator, not just aggregation -- not designed yet.
 
-     The generator's output for this integration splits into two kinds:
-     1] YAML for the identified HASS instance(s) that consume the MQTT-reported
-        load/temperature as normal sensors, e.g.
-        sensor.infrastructural_house_laundry_kitchen_rack_junglinster_load and
-        sensor.infrastructural_house_laundry_kitchen_rack_junglinster_temperature.
-     2] Input for the coordinator, so it can build the correct MQTT discovery
-        messages (and know the secrets it needs) for these devices/entities.
-
-    Also ... enable the inclusion of additional meta-data
-    for the (host) devices, and (maybe) enable the logical aggregation of some of the devices. Need to check if this is already needed. Key thing is to be able to add meta-data at the host level. Check, e.g. the netatmo
-    devices. 
-    Though ... this would mean a "complement" operator
-    (of the netatmo with the host device elements) and not 
-    just an aggregation.
-  
   1. Netatmo and other cloud services, via the secondary HA instance (protocols-server-2,
      integration-adapter role). First real test case for MQTT bridging/federation
-     end-to-end (see Architecture.md §6.5). Milestone check: Bridges.def should be
-     effectively empty once this step is done -- the only bridge type currently in use
-     is the "rest" bridge (confirmed: 0 uses in Junglinster's Entities.def, 29 in
-     Vienna's, all of them Netatmo `imported rest` declarations), so nothing else
-     currently depends on that mechanism.
-  2. EMS heater device.
+     end-to-end (see Architecture.md §6.5). Current focus (2026-08-23) -- see the "** TODO"
+     list at the top of this file for the detailed, current sub-step breakdown (weather
+     forecast, presence/reload via the coordinator, sun.sun, IPP printer, Enphase Envoy,
+     Netatmo, Overkiz/SOMFY). Milestone check: Bridges.def should be effectively empty once
+     this step is done -- the only bridge type currently in use is the "rest" bridge
+     (confirmed: 0 uses in Junglinster's Entities.def, 29 in Vienna's, all of them Netatmo
+     `imported rest` declarations), so nothing else currently depends on that mechanism.
+     Bridges.def's content, and the ${junglinster_instance} variable it needs
+     (Vienna/Definitions/Settings.def, formerly in the now-removed Server.def), are accepted
+     as-is until this step removes the need for the REST cross-instance bridge entirely --
+     both can then be deleted together.
+     Also: once this step gives Physical.def a way to declare a device against a named,
+     non-main HA instance (protocols-server-2 -- see the commented-out
+     "home_assistant: protocols-server-2 ${protocols_server_2_home_assistant_url};" line
+     already sitting in Junglinster's Physical.def, the anticipated syntax), the presence
+     checker's assumed-entity check needs to become per-instance too -- see the "** TODO"
+     list's item 1.2 for the current (2026-08-23) coordinator-based design superseding the
+     old compile-time REST check idea sketched here previously.
+
+  2. EMS heater device + control of picture frame via MQTT (as a commandline
+     integration). Not started -- design/syntax not yet worked out.
+
   3. Zigbee2MQTT. Exercises the legacy-to-conceptual passthrough capability described in
      Architecture.md §6.4, so entities can be switched over to the new architecture
      gradually rather than in one cutover.
+
   4. Z-Wave. Migrated last, since it needs the most native-API-aware handling and the
      richest device/capability modelling.
 
@@ -107,153 +236,3 @@ Phase 5 — Publish (not started)
   Architecture.md should, at some stage, be ready for others to read, alongside an
   up-to-date README.md, on GitHub. Explicitly deferred until the architecture above has
   actually been built and proven out, not before.
-
-
-** Current Todo Items (as of 2026-04-27)
-
-Active work — roughly in priority order:
-
-[1] Entity presence checker — integrated into "homeassistant generate"
-    After generation, validate completeness:
-    - [1a] Referential integrity (always, offline): scan all generated YAML for
-      entity_id strings; report any not in the declared set (DSL-declared entities
-      + generator-implied entities from output file names).
-    - [1b] Online availability (when HA is reachable): verify assumed entities
-      (those without a definition or import in the DSL) against the live HA instance.
-    Both checks print inline warnings; generation still completes.
-    Status: DONE — presence.go; no external files needed
-
-[2] Harden macro parameter checking.
-    Complete runtime checks for all declared parameter kinds.
-    Add explicit unknown-parameter detection for with: blocks.
-    Status: DONE — validateParameterType covers all kinds including ParamEntity (default)
-      and ParamSetOfInt (new); unknown-parameter and missing-required-parameter detection
-      already present in ValidateInvocationParameters, called from ParseEntitiesAndFillAdministration.
-      Tests added for all three cases.
-
-[3] Online availability checks (optional mode).
-    Keep current offline mode as default.
-    Add mode to validate external entities against Home Assistant.
-    Status: DONE — integrated into generate (presence.go):
-      [3a] main instance: assumed entities verified against live HA (when reachable)
-      [3b] bridge instances: REST bridge source entities verified per bridge (when reachable)
-      Offline mode remains the default; online checks are automatic and silent when unreachable.
-
-[4] Tighten entity model cross-checks.
-    Verify representative spaces in Vienna and Junglinster.
-    Status: DONE — RunPostParseChecks (checks.go) extended with relation cross-checks:
-      follows (follower + leader), switched_device (device + main), timer limits (timer + bound).
-      Both Vienna and Junglinster verified: Vienna clean, Junglinster shows only the
-      pre-existing heating-related gaps documented in Current State below.
-
-[5] Update README.md file
-    Status: DONE — README.md rewritten with: usage, repository layout, entity specification
-      model (extensional/intensional, spheres), DSL syntax (spaces, entities, macros),
-      parameter type table, implied parameters, and post-generation check summary.
-
-** Current State
-
-YAML generation is operational for both Vienna and Junglinster.
-Invocation: homeassistant Definitions/Main.def from New/<house>/,
-outputting to hass/ with list.* alongside it.
-The legacy multi-command CLI (generate/interpret/expand/check) has been removed;
-the sole supported invocation is the .def path form above.
-
-List pattern syntax: domain.sphere/*/suffix filters by sphere; domain.*/suffix matches any sphere.
-Sphere-filtered patterns also include derived leaf-level social groups (e.g. social_apartment_bedroom_door
-wrapping a physical sensor), while excluding parent-level aggregates (e.g. social_apartment_door).
-
-Diff count (Old vs New Vienna, April 2026): 28 Only-in-Old, 67 Only-in-New.
-Vienna remaining differences are all intentional:
-- Superseded hallway door physical-first approach (2 files)
-- Intentional entity renaming (e.g. binary_sensor.social_windy → binary_sensor.social_terrace_windy)
-- Old generator bug (empty rack switch)
-
-Diff count (Old vs New Junglinster, April 2026): 539 Only-in-Old, 398 Only-in-New.
-Junglinster remaining differences:
-- Naming: New uses _radiator_ infix for climate entities (reflects actual entity paths)
-- Missing occupation booleans in Entities.def (heating preset automations not generated)
-- Missing covers/auto_control in Entities.def (cover automations not generated)
-- Various entity name differences from deliberate DSL improvements
-
-
-** Context
-
-A YAML generator, written in Go, that produces:
-- YAML-based templates for switches, lights, sensors, binary sensors, scripts,
-  automations, and entity configuration files for Home Assistant.
-- entity-card list files (list.*) for the Home Assistant Lovelace UI.
-
-The two homes supported are Vienna and Junglinster (Luxembourg),
-under New/Vienna and New/Junglinster respectively.
-The generated hass/ tree is rsynced to the relevant Home Assistant instance
-by the Update script.
-
-Intended processing order:
-1. Read shared macro definitions (Shared/Definitions/Macros.def).
-2. Read per-house settings and server/bridge config.
-3. Read space and entity definitions (Entities.def).
-4. Read list declarations (Lists.def).
-5. Run structural checks; report warnings.
-6. Execute one round of macro expansions.
-7. Run post-expansion checks.
-8. Generate YAML output (hass/).
-9. Generate list files (list.*).
-10. Check referenced entities for completeness.
-
-
-** Definition files layout
-
-Per-house: New/<house>/Definitions/
-  Main.def      — include-order entrypoint (drives all other includes)
-  Settings.def  — per-house variable overrides
-  Server.def    — server/bridge conditional definitions
-  Bridges.def   — integration bridge definitions
-  Entities.def  — space and entity declarations
-  Lists.def     — list declarations
-
-Shared: New/Shared/Definitions/
-  Macros.def    — all macro definitions (shared across houses)
-  Settings.def  — global defaults
-
-
-** Generated output layout (target)
-
-New/<house>/hass/    — generated YAML tree, rsynced to the Home Assistant instance
-New/<house>/list.*   — Lovelace entity-card lists
-
-
-** Macro definitions
-
-Macros extend the DSL with higher-level constructs that expand into one or
-more entity declarations and definitions.
-
-Macro syntax:
-  macro <name> [no_raw] [space_level] { $p_1 t_1 [op], ..., $p_n t_n [op] }:
-     <body>
-  end;
-
-Supported parameter types:
-  (default)        entity specification (type.sphere:path form)
-  entityReference  concrete reference to an existing or derived entity
-  string           any text value
-  int              numeric value
-  boolean          true/false flag
-  set<entityReference>  comma-separated entity reference list
-  set<string>      comma-separated string list
-  set<int>         comma-separated integer list
-  path             Home Assistant entity or node path
-
-
-** Entity specification model
-
-Extensional: type.sphere/path  or  type.[raw-name]
-Intensional: type.sphere:path  (resolved against current space context)
-  type.sphere:path        → type.sphere/x/path
-  type.sphere:/path       → type.sphere/path
-  type.sphere:path:sub    → type.sphere/x/path/sub
-
-Entity namespaces:
-  physical       entities without an immediate social role
-  social         entities with a direct social/usage role
-  infrastructural entities pertaining to the IoT infrastructure

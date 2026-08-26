@@ -35,16 +35,25 @@ var integrationHeaderPattern = regexp.MustCompile(`^integration\s+(\S+)(?:\s+on\
 
 // parseIntegrationBlocks scans physical-layer content for top-level "integration <name>
 // [on <host>] with: ... end;" blocks, via the shared group-clause scanner (defined.go).
-func parseIntegrationBlocks(physicalContent string) ([]TIntegrationBlock, []string) {
+// mergedLineNos is collectLayerContent's own line-number mapping for physicalContent (its
+// "physical layer with: ... end;" wrapper already stripped) -- required to translate StartLine
+// back to a real Physical.def line number (translateContentLineNo, defined.go); pass nil to skip
+// translation (StartLine then reports a position within physicalContent instead, only correct if
+// the caller already knows physicalContent's lines line up 1:1 with the source file).
+func parseIntegrationBlocks(physicalContent string, mergedLineNos []int) ([]TIntegrationBlock, []string) {
 	matches, warnings := scanGroupClauseBlocks(splitLines(physicalContent), "physical layer", integrationHeaderPattern)
 
 	var blocks []TIntegrationBlock
 	for _, m := range matches {
+		startLine := m.StartLine
+		if mergedLineNos != nil {
+			startLine = translateContentLineNo(mergedLineNos, startLine)
+		}
 		blocks = append(blocks, TIntegrationBlock{
 			Name:      m.HeaderMatch[1],
 			Host:      m.HeaderMatch[2],
 			BodyLines: m.BodyLines,
-			StartLine: m.StartLine,
+			StartLine: startLine,
 		})
 	}
 	return blocks, warnings

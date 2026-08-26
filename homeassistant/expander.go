@@ -787,11 +787,12 @@ func parseEntityComponents(entityValue string) (domain, sphere, path string) {
 // Supported accessors: domain, sphere, path, space_path, sub_domain.
 //
 // For an entity_name value like "light.social/apartment/living_room/vidja/left":
-//   domain      = "light"
-//   sphere      = "social"
-//   path        = "social/apartment/living_room/vidja/left"  (entire path behind the dot)
-//   space_path  = "apartment/living_room/vidja/left"         (path behind sphere/)
-//   sub_domain  = "left" only if "left" is a known sub-domain keyword, else ""
+//
+//	domain      = "light"
+//	sphere      = "social"
+//	path        = "social/apartment/living_room/vidja/left"  (entire path behind the dot)
+//	space_path  = "apartment/living_room/vidja/left"         (path behind sphere/)
+//	sub_domain  = "left" only if "left" is a known sub-domain keyword, else ""
 //
 // When sphere is empty (e.g. "light.:main"), path is returned with a leading ":"
 // so that callers using it as an entity_space_path argument preserve the
@@ -1032,7 +1033,7 @@ func (ctx *TMacroExpansionContext) ValidateInvocationStrict(invocation *TMacroIn
 
 	validationErrors := ctx.ValidateInvocationParameters(invocation, macro)
 	if len(validationErrors) > 0 {
-		return fmt.Errorf(strings.Join(validationErrors, "; "))
+		return fmt.Errorf("%s", strings.Join(validationErrors, "; "))
 	}
 
 	return nil
@@ -1354,9 +1355,13 @@ func loadMacroContext(sharedDefinitionDir string) (*TMacroExpansionContext, erro
 	return ctx, nil
 }
 
-func parseSpaceHeader(line string) (string, string, bool) {
+// parseSpaceHeader recognises "space <spec> with:", "virtual space <spec> with:", and the "as
+// area" variant of either ("space <spec> as area with:") -- see administration.go's OpenSpace
+// for what isArea then does. Returns spaceKind, spec (with any "as area" marker stripped),
+// isArea, and whether line matched at all.
+func parseSpaceHeader(line string) (string, string, bool, bool) {
 	if !strings.HasSuffix(line, "with:") {
-		return "", "", false
+		return "", "", false, false
 	}
 
 	spaceKind := SpaceKindRegular
@@ -1367,14 +1372,21 @@ func parseSpaceHeader(line string) (string, string, bool) {
 	} else if strings.HasPrefix(header, "space ") {
 		header = strings.TrimPrefix(header, "space ")
 	} else {
-		return "", "", false
+		return "", "", false, false
 	}
 
+	spec := ""
 	if idx := strings.Index(header, " with"); idx > 0 {
-		return spaceKind, header[:idx], true
+		spec = header[:idx]
 	}
 
-	return spaceKind, "", true
+	isArea := false
+	if trimmed := strings.TrimSuffix(spec, " as area"); trimmed != spec {
+		spec = trimmed
+		isArea = true
+	}
+
+	return spaceKind, spec, isArea, true
 }
 
 func formatSpaceLabel(spaceKind string) string {
@@ -1572,6 +1584,15 @@ func normalizeEntityFullName(spec string, spacePath []string) string {
 	} else {
 		spherePart = remainder[:colonIdx]
 		rawPathPart = remainder[colonIdx+1:]
+		if spherePart == "" {
+			// An empty sphere segment before the colon (e.g. "device.:air-4") explicitly asks for
+			// the domain's default sphere, same fallback the no-colon branch above already uses --
+			// not a literal empty sphere, which would otherwise produce a malformed "type./path".
+			spherePart, _ = lookupDefaultSphere(typePart)
+			if spherePart == "" {
+				spherePart = "social"
+			}
+		}
 	}
 
 	if spherePart == "_" {
@@ -1814,7 +1835,6 @@ func lastPathSegment(path string) string {
 	return parts[len(parts)-1]
 }
 
-
 func findAggregateConstituents(aggregateName, spaceName string, spaceOrder []string, entityRecordsBySpace map[string][]TEntityRecord) []string {
 	constituents := []string{}
 
@@ -1986,8 +2006,24 @@ func parseConditionSpec(spec string, spacePath []string) string {
 	return resolveConditionEntityID(spec, spacePath)
 }
 
-// parseConditionDirective extracts sources and expression from a "condition ..." directive string.
+// parseConditionDirective extracts sources and expression from a "condition ..." directive
+// string. Also recognises the unquoted "condition <source> is available;" sugar -- shorthand for
+// the standard "states('$1') not in ['unavailable', 'unknown']" liveness-check boilerplate that
+// used to have to be spelled out by hand in every Macros.def condition body needing it.
 func parseConditionDirective(t string, spacePath []string) (sources []string, expr string) {
+	if rest, ok := strings.CutPrefix(t, "condition "); ok {
+		trimmed := strings.TrimSuffix(strings.TrimSpace(rest), ";")
+		if bareSpec, ok := strings.CutSuffix(trimmed, " is available"); ok {
+			if tok := parseConditionSpec(bareSpec, spacePath); tok != "" {
+				// $1 gets substituted with sourceToJinja2(sources[0]) -- already a full
+				// states('...')/state_attr('...') call -- so this must NOT pre-wrap $1 itself
+				// (that would double-wrap into states('states('...')')).
+				return []string{tok}, "$1 not in ['unavailable', 'unknown']"
+			}
+			return nil, ""
+		}
+	}
+
 	quoteIdx := strings.Index(t, "\"")
 	if quoteIdx <= len("condition ") {
 		return
@@ -2346,7 +2382,7 @@ func collectExpandedEntityRecords(ctx *TMacroExpansionContext, invocation *TMacr
 			continue
 		}
 
-		if spaceKind, spaceName, ok := parseSpaceHeader(trimmed); ok {
+		if spaceKind, spaceName, _, ok := parseSpaceHeader(trimmed); ok {
 			openBlocks = append(openBlocks, spaceKind)
 			savedNoCollect = append(savedNoCollect, currentNoCollect)
 			// An absolute-path space (e.g. "physical/apartment/living_room") has no ':'

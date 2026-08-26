@@ -14,25 +14,17 @@
 
 package main
 
-// DeviceClassOf keeps the object-level device class mapping from the legacy DSL settings.
-var DeviceClassOf = map[string]string{
-	"battery_alert": "battery",
-	"battery_level": "battery",
-	"co2":           "carbon_dioxide",
-	"illuminance":   "light",
-	"motion":        "motion",
-	"node":          "connectivity",
-	"noise":         "signal_strength",
-	"pressure":      "atmospheric_pressure",
-	"temperature":   "temperature",
-	"wind_speed":    "wind_speed",
-	"windy":         "safety",
-	"sunny":         "light",
-}
-
-func lookupDeviceClass(object string) (string, bool) {
-	deviceClass, exists := DeviceClassOf[object]
-	return deviceClass, exists
+// postfixCapabilityDefaults returns the seed icon for a capability, keyed by its path's last
+// segment (e.g. "node", "cpu/temperature" -> "temperature"), from subdomainIcons -- the
+// remaining domain-agnostic fallback for subdomains with no settled domain. device_class/unit/
+// state_class have no code-level fallback left: every domain-settled subdomain's full typing
+// (including its own icon) now lives in Shared/Definitions/Defaults.def's "defaults:" block
+// instead (capability_defaults.go's resolveCapabilityDefaults, checked first, domain-gated).
+// This is the lowest-priority tier: called only to fill in a field neither the capability's own
+// explicit metadata nor a "defaults: for ...;" rule already supplied.
+func postfixCapabilityDefaults(domain, path string) (deviceClass, unit, stateClass, icon string) {
+	icon = subdomainIcons[lastPathSegment(path)]
+	return
 }
 
 // AggregatedDomainOf defines which Home Assistant domain an aggregate object belongs to for upward space aggregation.
@@ -68,11 +60,11 @@ func lookupAggregatedDomain(object string) (string, bool) {
 // SphereOf defines the default sphere for objects when no sphere is provided explicitly.
 var SphereOf = map[string]string{
 	"battery_alert": "infrastructural",
+	"device":        "infrastructural",
 	"door":          "social",
 	"motion":        "social",
 	"water":         "social",
 	"sunny":         "social",
-	"node_alert":    "infrastructural",
 	"window":        "social",
 }
 

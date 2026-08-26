@@ -32,6 +32,7 @@ type TPendingEntityCollection struct {
 type TAdministrationState struct {
 	SpacePath                []string
 	OpenBlocks               []string
+	AreaStack                []string // parallel to SpacePath; see OpenSpace/CurrentArea
 	PendingEntityCollections []TPendingEntityCollection
 
 	SpaceOrder              []string
@@ -74,7 +75,7 @@ type TAdministrationState struct {
 	RestImports []TRestImportRecord
 
 	// CLI sensor/switch records, populated by ParseEntitiesAndFillAdministration.
-	CliSensors []TCliSensorRecord
+	CliSensors  []TCliSensorRecord
 	CliSwitches []TCliSwitchRecord
 
 	// Bridge targets (name → resolved URL+token), populated by generateHouseYAML.
@@ -96,6 +97,104 @@ type TAdministrationState struct {
 	// Per-space explicit switch turn-on items, set by "space on: <items>;" directives.
 	// When set, overrides the default lights-on list in the template switch turn_on block.
 	SpaceSwitchOnByName map[string][]string
+
+	// Physical.def device id -> conceptual-layer HA entity ids implied for it by an
+	// "entity device.<name> from <device-id> with: ...;" declaration in Spaces.def.
+	// Populated by registerDeviceImpliedEntities (Conceptual_DeviceEntities.go); read by
+	// generateCoordinatorDevicesFile to enrich coordinator/devices.yaml.
+	DeviceConceptualLinks map[string]TDeviceConceptualLink
+
+	// Our own HA entity id -> which "discovery" integration gateway device/leaf it's sourced
+	// from, for an "entity <spec> from <gateway-id>.<leaf>;" declaration in Spaces.def.
+	// Populated by registerDiscoveryEntityLink (Conceptual_DiscoveryEntities.go); read by
+	// generateDiscoveryIntegrationOutputs to write coordinator/discovery.yaml.
+	DiscoveryEntityLinks map[string]TDiscoveryEntityLink
+
+	// Physical.def's "defaults: for <domain>.<pattern>: ...; end; ... end;" rules
+	// (capability_defaults.go) -- device_class/unit/state_class/icon seeded onto every
+	// capability whose domain/path matches, when the capability declares no explicit override
+	// of its own. Set once by ParseEntitiesAndFillAdministration before registration begins;
+	// consulted by registerHassBridgeDeviceImpliedEntities (Conceptual_DeviceEntities.go).
+	CapabilityDefaults []TCapabilityDefaultRule
+}
+
+// TDiscoveryEntityLink records, for one of our own HA entity ids, which "discovery" integration
+// gateway device and leaf entity name it's sourced from -- e.g. EntityID
+// "sensor.social_garage_door_temperature" sourced from GatewayDeviceID "discovery.ems_esp",
+// Leaf "boiler_outdoortemp". The coordinator uses this to relay the gateway's own (externally
+// published) discovery config for that leaf under our entity id instead, once it's actually seen
+// one on the wire -- see Architecture.md's discovery-bridging notes.
+type TDiscoveryEntityLink struct {
+	EntityID        string
+	GatewayDeviceID string
+	Leaf            string
+
+	// DeviceClass/Unit/StateClass/Icon are resolved the same way as every other capability's
+	// (resolveCapabilityDefaults, capability_defaults.go: a "defaults: for ...;" rule, then the
+	// code-level postfix table) -- a *gap-filler* only. The gateway's own natively-published
+	// discovery payload is trusted first for these fields (it decided its own domain/device_class/
+	// unit itself, per this file's own header comment); the coordinator's discovery bridge
+	// (discoverybridge.go) only falls back to these when the gateway's payload leaves a field
+	// empty, never overriding a value the gateway already reported.
+	DeviceClass string
+	Unit        string
+	StateClass  string
+	Icon        string
+}
+
+// TDeviceConceptualLink records, for one Physical.def device id, the conceptual-layer HA
+// entity ids an "entity device.<name> from <device-id> with: ...;" declaration implies, plus
+// the naming/typing metadata the coordinator needs to build a proper HA discovery "device:"
+// block instead of falling back to the bare physical HostName.
+type TDeviceConceptualLink struct {
+	NodeEntityID string // e.g. "binary_sensor.infrastructural_smarty_node"
+
+	// NodeDeviceClass/NodeIcon are the node entity's own typing metadata, resolved the same way
+	// as every other capability's (resolveCapabilityDefaults: explicit > "defaults: for ...;"
+	// rule > code-level postfix table) -- so the coordinator, which builds this entity's
+	// discovery config independently of any generator-authored YAML, still inherits its typing
+	// from Defaults.def instead of a coordinator-hardcoded literal.
+	NodeDeviceClass string
+	NodeIcon        string
+
+	// DisplayName is a location-aware human-readable name for the HA device block -- e.g.
+	// "infrastructural/garage/smarty" for a device.<spec> declared inside "space
+	// social:garage", even though the entity ids themselves stay flat/absolute
+	// ("...smarty_node", no "garage"). Computed by deviceDisplayName (Conceptual_DeviceEntities.go).
+	DisplayName string
+
+	// ConstantAttributes are HA discovery "device:" map fields (model, manufacturer,
+	// hw_version, ...) -- integration-type defaults merged with any per-device overrides
+	// declared in Physical.def (mergedConstantAttributes, integration_hosts_storage.go). Not
+	// real hardware metadata unless overridden: mostly honest coarse categories ("what kind of
+	// thing is this"), since nothing reports real hardware data today.
+	ConstantAttributes map[string]TDeviceAttributeConstant
+
+	// AttributeEntityIDs maps attribute name -> its HA entity id + HA typing metadata
+	// (device_class/unit/state_class), both from THostsEntityMaterialization.AttributeSpecs.
+	AttributeEntityIDs map[string]TDeviceAttributeLink
+}
+
+// TDeviceAttributeConstant is one HA discovery device-map field's resolved value (see
+// THostConstantAttribute, integration_hosts_storage.go, for the DSL-side declaration this
+// mirrors after merging integration-type defaults with per-device overrides). Forced means
+// the value must never be overwritten by live-reported data (once that mechanism exists).
+type TDeviceAttributeConstant struct {
+	Value  string
+	Forced bool
+}
+
+// TDeviceAttributeLink is one variable attribute's HA entity id plus the typing metadata
+// (device_class/unit_of_measurement/state_class/icon) its integration type hardwires for it. No
+// FriendlyName: the coordinator derives the attribute's displayed name from its own leaf key
+// (capitalize(attr)) now that HA combines it with the device's own name automatically -- see
+// house_event_bus_coordinator/discovery.go's payload doc comments.
+type TDeviceAttributeLink struct {
+	EntityID    string
+	DeviceClass string
+	Unit        string
+	StateClass  string
+	Icon        string
 }
 
 // TFollowsRelation records a "follows <follower> <leader>;" space-level directive.
@@ -139,9 +238,9 @@ type TTimerDefRelation struct {
 
 // TTimerLimitsRelation records a "limits <timer> <entity>: off on;" space-level directive.
 type TTimerLimitsRelation struct {
-	SpaceName    string
-	TimerEntity  string // fully qualified DSL entity name, e.g. "timer.social/house/wc/removing_smell"
-	BoundEntity  string // fully qualified DSL entity name, e.g. "fan.social/house/wc"
+	SpaceName   string
+	TimerEntity string // fully qualified DSL entity name, e.g. "timer.social/house/wc/removing_smell"
+	BoundEntity string // fully qualified DSL entity name, e.g. "fan.social/house/wc"
 }
 
 // TRestImportRecord holds the parameters of a single "imported rest" directive.
@@ -184,7 +283,11 @@ type TEntityRecord struct {
 	Identity              TEntityIdentity
 	NoCollect             bool
 	HasDefinitionOrImport bool
-	Provenance            string // call chain that produced this record, e.g. "Entities.def:65 → battery_alert :roborock"
+	DiscoveryImplied      bool // true for entities this generator never materialises itself -- they're
+	// expected to be created later by the MQTT discovery coordinator (house_event_bus_coordinator),
+	// not by a live HA integration the DSL author manually declared. checkAssumedEntitiesOnline
+	// (presence.go) must not flag these as missing.
+	Provenance string // call chain that produced this record, e.g. "Entities.def:65 → battery_alert :roborock"
 
 	// Fields populated during macro expansion for template binary sensor generation.
 	NodeRepresentativeEntityID string // HA entity ID that the node monitors (e.g. sensor.infrastructural_..._battery_level)
@@ -233,29 +336,32 @@ const (
 
 func newAdministrationState() *TAdministrationState {
 	state := &TAdministrationState{
-		SpacePath:                []string{},
-		OpenBlocks:               []string{},
-		PendingEntityCollections: []TPendingEntityCollection{},
-		SpaceOrder:               []string{},
-		SpaceKindByName:          map[string]string{"root": SpaceKindRegular},
-		EntitiesBySpace:          map[string][]string{},
-		EntityRecordsBySpace:     map[string][]TEntityRecord{},
-		EntityRecordSeenBySpace:  map[string]map[string]string{},
-		ExternalEntitiesBySpace:  map[string][]string{},
-		SpaceDepthByName:         map[string]int{},
-		SpaceOffByName:           map[string][]string{},
-		SpaceOnByName:            map[string][]string{},
-		SpaceOnExplicitByName:    map[string][]string{},
-		SpaceLightsByName:        map[string][]string{},
-		SpaceMediaByName:         map[string][]string{},
-		SpaceLightOffByName:      map[string][]string{},
-		HeatingLeaksByName:       map[string][]string{},
-		SpaceHasExplicitOn:          map[string]bool{},
-		SpaceHasExplicitOff:         map[string]bool{},
+		SpacePath:                    []string{},
+		OpenBlocks:                   []string{},
+		AreaStack:                    []string{},
+		PendingEntityCollections:     []TPendingEntityCollection{},
+		SpaceOrder:                   []string{},
+		SpaceKindByName:              map[string]string{"root": SpaceKindRegular},
+		EntitiesBySpace:              map[string][]string{},
+		EntityRecordsBySpace:         map[string][]TEntityRecord{},
+		EntityRecordSeenBySpace:      map[string]map[string]string{},
+		ExternalEntitiesBySpace:      map[string][]string{},
+		SpaceDepthByName:             map[string]int{},
+		SpaceOffByName:               map[string][]string{},
+		SpaceOnByName:                map[string][]string{},
+		SpaceOnExplicitByName:        map[string][]string{},
+		SpaceLightsByName:            map[string][]string{},
+		SpaceMediaByName:             map[string][]string{},
+		SpaceLightOffByName:          map[string][]string{},
+		HeatingLeaksByName:           map[string][]string{},
+		SpaceHasExplicitOn:           map[string]bool{},
+		SpaceHasExplicitOff:          map[string]bool{},
 		SpaceNoMotionDelayByName:     map[string]int{},
 		SpaceMembersByName:           map[string][]string{},
 		SpaceSwitchOnByName:          map[string][]string{},
 		NodeRepresentativeByEntityID: map[string]string{},
+		DeviceConceptualLinks:        map[string]TDeviceConceptualLink{},
+		DiscoveryEntityLinks:         map[string]TDiscoveryEntityLink{},
 	}
 
 	state.EnsureSpaceRegistered(nil, SpaceKindRegular)
@@ -346,14 +452,41 @@ func (state *TAdministrationState) RegisterEntityClosure(pending TPendingEntityC
 	state.AppendEntityRecord(pending.SpaceName, pending.Record)
 }
 
-func (state *TAdministrationState) OpenSpace(spaceKind, spaceName string) {
+// OpenSpace enters a "space <spec> with:"/"virtual space <spec> with:" block. isArea marks a
+// "space <spec> as area with:" declaration: this space becomes an HA Area, named via the same
+// location-aware computation device display names use (deviceDisplayName/deviceSpecLeafPath,
+// Conceptual_DeviceEntities.go) -- this space's own sphere/leaf-path combined with its
+// *enclosing* space's context (computed here, before SpacePath is extended with this level).
+// A space that doesn't declare its own area inherits whatever the nearest enclosing "as area"
+// space set, so a nested "as area" simply shadows it for its own subtree; see CurrentArea.
+func (state *TAdministrationState) OpenSpace(spaceKind, spaceName string, isArea bool) {
 	state.OpenBlocks = append(state.OpenBlocks, spaceKind)
+
+	areaName := state.CurrentArea()
+	if isArea && spaceName != "" && spaceName != "?" {
+		if colonIdx := strings.Index(spaceName, ":"); colonIdx > 0 {
+			enclosing := formatNestedSpaceName(state.SpacePath)
+			sphere := spaceName[:colonIdx]
+			areaName = deviceDisplayName(enclosing, sphere, deviceSpecLeafPath(spaceName))
+		}
+	}
+	state.AreaStack = append(state.AreaStack, areaName)
+
 	if spaceName == "" {
 		state.SpacePath = append(state.SpacePath, "?")
 	} else {
 		state.SpacePath = append(state.SpacePath, spaceName)
 	}
 	state.EnsureSpaceRegistered(state.SpacePath, spaceKind)
+}
+
+// CurrentArea returns the nearest enclosing "as area" space's computed area name, or "" if none
+// is currently open.
+func (state *TAdministrationState) CurrentArea() string {
+	if len(state.AreaStack) == 0 {
+		return ""
+	}
+	return state.AreaStack[len(state.AreaStack)-1]
 }
 
 func (state *TAdministrationState) OpenOtherBlock() {
@@ -486,6 +619,9 @@ func (state *TAdministrationState) HandleEndToken(onSpaceClosed func(string)) {
 
 		onSpaceClosed(spaceName)
 		state.SpacePath = state.SpacePath[:len(state.SpacePath)-1]
+		if len(state.AreaStack) > 0 {
+			state.AreaStack = state.AreaStack[:len(state.AreaStack)-1]
+		}
 	}
 }
 
@@ -690,6 +826,31 @@ func (state *TAdministrationState) deriveEntityIfAbsent(spaceName, entityName, p
 	state.RegisterEntityClosure(TPendingEntityCollection{
 		SpaceName: spaceName,
 		Entry:     entityName + " (implied)",
+		Record:    record,
+	})
+}
+
+// RegisterDiscoveryImpliedEntity registers an entity this generator never materialises
+// itself -- it's expected to be created later by the MQTT discovery coordinator (see
+// TEntityRecord.DiscoveryImplied). Unlike deriveEntityIfAbsent, HasDefinitionOrImport is
+// left false: this isn't a generator-authored entity, it's a real DSL-level reference to
+// something that will exist, just not yet and not via this generator.
+func (state *TAdministrationState) RegisterDiscoveryImpliedEntity(spaceName, entityName, provenance string) {
+	if state.EntityRecordSeenBySpace[spaceName] != nil {
+		if _, seen := state.EntityRecordSeenBySpace[spaceName][entityName]; seen {
+			return
+		}
+	}
+	record := TEntityRecord{
+		Name:                  entityName,
+		Identity:              extractEntityIdentity(entityName),
+		HasDefinitionOrImport: false,
+		DiscoveryImplied:      true,
+		Provenance:            provenance,
+	}
+	state.RegisterEntityClosure(TPendingEntityCollection{
+		SpaceName: spaceName,
+		Entry:     entityName + " (discovery-implied)",
 		Record:    record,
 	})
 }

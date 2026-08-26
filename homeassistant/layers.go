@@ -54,10 +54,11 @@ var layerHeaderPattern = regexp.MustCompile(`^(\S+)\s+layer\s+with:\s*$`)
 // TLayerBlock is one "<layer> layer with: ... end;" block, with its header parsed and body
 // lines extracted but not yet interpreted.
 type TLayerBlock struct {
-	Layer      string
-	SourceFile string
-	BodyLines  []string
-	StartLine  int
+	Layer       string
+	SourceFile  string
+	BodyLines   []string
+	BodyLineNos []int
+	StartLine   int
 }
 
 // parseLayerBlocks scans content (from sourceFile, used only for diagnostics) for top-level
@@ -75,10 +76,11 @@ func parseLayerBlocks(content, sourceFile string) ([]TLayerBlock, []string) {
 			warnings = append(warnings, fmt.Sprintf("%s:%d: unrecognised layer name %q (expected physical, logical, or conceptual)", sourceFile, m.StartLine, layerName))
 		}
 		blocks = append(blocks, TLayerBlock{
-			Layer:      layerName,
-			SourceFile: sourceFile,
-			BodyLines:  m.BodyLines,
-			StartLine:  m.StartLine,
+			Layer:       layerName,
+			SourceFile:  sourceFile,
+			BodyLines:   m.BodyLines,
+			BodyLineNos: m.BodyLineNos,
+			StartLine:   m.StartLine,
 		})
 	}
 	return blocks, warnings
@@ -87,11 +89,16 @@ func parseLayerBlocks(content, sourceFile string) ([]TLayerBlock, []string) {
 // collectLayerContent reads each file in fileNames (missing files are skipped, not an
 // error) and concatenates every chunk found for layerName, across all of them, in
 // file-then-position order -- this is what lets a layer be "specified in multiple chunks,
-// across different def files." Returns the merged body as a single string plus any
-// warnings (unrecognised layer names, unclosed blocks, and content that looks like it
-// belongs in a different layer).
-func collectLayerContent(definitionDir string, fileNames []string, layerName string) (string, []string) {
+// across different def files." Returns the merged body as a single string, a parallel slice
+// giving each merged line's original 1-indexed source line number (mergedLineNos[i] is
+// merged-content line i+1's line number in its own SourceFile -- callers reporting
+// diagnostics against a merged-content line index must look up this slice rather than using
+// the index directly, since blank/comment stripping during extraction means the two no
+// longer coincide), plus any warnings (unrecognised layer names, unclosed blocks, and
+// content that looks like it belongs in a different layer).
+func collectLayerContent(definitionDir string, fileNames []string, layerName string) (string, []int, []string) {
 	var merged []string
+	var mergedLineNos []int
 	var warnings []string
 	found := false
 
@@ -108,6 +115,7 @@ func collectLayerContent(definitionDir string, fileNames []string, layerName str
 			}
 			found = true
 			merged = append(merged, block.BodyLines...)
+			mergedLineNos = append(mergedLineNos, block.BodyLineNos...)
 			warnings = append(warnings, misplacedContentWarnings(block)...)
 		}
 	}
@@ -116,7 +124,7 @@ func collectLayerContent(definitionDir string, fileNames []string, layerName str
 		warnings = append(warnings, fmt.Sprintf("no %q layer with: ... end; block found across %v", layerName, fileNames))
 	}
 
-	return strings.Join(merged, "\n"), warnings
+	return strings.Join(merged, "\n"), mergedLineNos, warnings
 }
 
 // misplacedContentWarnings flags top-level lines in a layer chunk that start with a

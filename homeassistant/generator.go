@@ -51,23 +51,39 @@ func runGenerationFromDefFile(cwd, defPath string) error {
 	listOutputDir := cwd
 	label := filepath.Base(cwd)
 
-	if err := generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutputDir, label); err != nil {
+	admin, err := generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutputDir, label)
+	if err != nil {
 		return err
 	}
-	if err := generatePhysicalIntegrationOutputs(definitionDir, cwd); err != nil {
+	// generatePhysicalIntegrationOutputs runs after generateFromPaths (and therefore after
+	// its runPostGenerationChecks call, presence.go), so any HA YAML it writes -- e.g. the
+	// "hosts" integration's reporting automations -- lands too late for check [1]
+	// (referential integrity, checkEntityReferences) to see it: those files exist on disk
+	// but outside the scan that check performed. Currently harmless (the only entities a
+	// reporting automation references are already covered by check [2] via
+	// homeAssistantCapabilityEntityIDs), but worth revisiting once secondary HA instances
+	// exist (see the commented-out "home_assistant: protocols-server-2
+	// ${protocols_server_2_home_assistant_url};" line in Physical.def) and this path grows
+	// more physical-layer-generated HA YAML.
+	if err := generatePhysicalIntegrationOutputs(definitionDir, cwd, outputDir, admin); err != nil {
 		return err
 	}
 	fmt.Printf("generated %s\n", label)
 	return nil
 }
 
-// generateFromPaths contains the full generation pipeline given resolved directory paths.
-func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutputDir, label string) error {
+// parseAdministrationFromPaths runs the generation pipeline's read-and-interpret phase only:
+// settings, "hosts"/"discovery" device collection, and Spaces.def entity parsing -- everything
+// generateFromPaths needs before it starts writing any YAML or touching the network. Split out
+// so a caller that only needs the resulting entity registry (e.g. runWouldDefineCheck,
+// would_define.go) can get it without the side effects (output directory wiped/rewritten, live
+// presence-check HTTP calls) the rest of generateFromPaths performs.
+func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label string) (*TAdministrationState, error) {
 	fmt.Printf("%s: reading configuration...\n", label)
 
 	ctx, err := loadMacroContext(sharedDefinitionDir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	sharedSettingsBytes, _ := os.ReadFile(filepath.Join(sharedDefinitionDir, "Settings.def"))
@@ -77,33 +93,62 @@ func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutput
 
 	fmt.Printf("%s: interpreting entities...\n", label)
 
-	entitiesPath := filepath.Join(definitionDir, "Entities.def")
-	entitiesContent, layerWarnings := collectLayerContent(definitionDir, []string{"Entities.def"}, LayerConceptual)
+	hostDevicesByID, hostDeviceWarnings := collectHostsDevicesByID(definitionDir)
+	for _, w := range hostDeviceWarnings {
+		fmt.Printf("[physical] %s\n", w)
+	}
+
+	discoveryGatewaysByID, discoveryGatewayWarnings := collectDiscoveryGatewaysByID(definitionDir)
+	for _, w := range discoveryGatewayWarnings {
+		fmt.Printf("[physical] %s\n", w)
+	}
+
+	hassBridgeDevicesByID, hassBridgeWarnings := collectHassBridgeDevicesByID(definitionDir)
+	for _, w := range hassBridgeWarnings {
+		fmt.Printf("[physical] %s\n", w)
+	}
+
+	capabilityDefaults, capabilityDefaultsWarnings := collectCapabilityDefaults(definitionDir, sharedDefinitionDir)
+	for _, w := range capabilityDefaultsWarnings {
+		fmt.Printf("[physical] %s\n", w)
+	}
+
+	entitiesPath := filepath.Join(definitionDir, "Spaces.def")
+	entitiesContent, entitiesLineNos, layerWarnings := collectLayerContent(definitionDir, []string{"Spaces.def"}, LayerConceptual)
 	for _, w := range layerWarnings {
 		fmt.Printf("[conceptual] %s\n", w)
 	}
 	if strings.TrimSpace(entitiesContent) == "" {
-		return fmt.Errorf("error reading entities: no %q layer content found in %s", LayerConceptual, entitiesPath)
+		return nil, fmt.Errorf("error reading entities: no %q layer content found in %s", LayerConceptual, entitiesPath)
 	}
 
 	var report strings.Builder
 	parseResult, err := ParseEntitiesAndFillAdministration(
-		strings.Split(entitiesContent, "\n"), entitiesPath, ctx, &report)
+		strings.Split(entitiesContent, "\n"), entitiesLineNos, entitiesPath, ctx, &report, hostDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, capabilityDefaults)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	admin := parseResult.Administration
 	if bridgeTargets, bridgeErr := resolveBridgeTargets(definitionDir); bridgeErr == nil {
 		admin.BridgeTargets = bridgeTargets
 	}
+	return admin, nil
+}
+
+// generateFromPaths contains the full generation pipeline given resolved directory paths.
+func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutputDir, label string) (*TAdministrationState, error) {
+	admin, err := parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label)
+	if err != nil {
+		return nil, err
+	}
 
 	fmt.Printf("%s: generating YAML...\n", label)
 
 	if err := os.RemoveAll(outputDir); err != nil {
-		return fmt.Errorf("cannot clean output directory: %w", err)
+		return nil, fmt.Errorf("cannot clean output directory: %w", err)
 	}
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return fmt.Errorf("cannot create output directory: %w", err)
+		return nil, fmt.Errorf("cannot create output directory: %w", err)
 	}
 
 	steps := []struct {
@@ -143,25 +188,24 @@ func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutput
 	}
 	for _, step := range steps {
 		if err := step.fn(outputDir, admin); err != nil {
-			return fmt.Errorf("%s: %w", step.name, err)
+			return nil, fmt.Errorf("%s: %w", step.name, err)
 		}
 	}
 
-	listsContent, listLayerWarnings := collectLayerContent(definitionDir, []string{"Lists.def"}, LayerConceptual)
+	listsContent, _, listLayerWarnings := collectLayerContent(definitionDir, []string{"Lists.def"}, LayerConceptual)
 	for _, w := range listLayerWarnings {
 		fmt.Printf("[conceptual] %s\n", w)
 	}
 	if strings.TrimSpace(listsContent) != "" {
 		if err := generateListFiles(listOutputDir, []byte(listsContent), admin); err != nil {
-			return fmt.Errorf("list files: %w", err)
+			return nil, fmt.Errorf("list files: %w", err)
 		}
 	}
 
 	runPostGenerationChecks(definitionDir, outputDir, label, admin)
 
-	return nil
+	return admin, nil
 }
-
 
 // --- configuration.yaml ---
 
@@ -612,20 +656,11 @@ func generateTemplateBinarySensors(outputDir string, admin *TAdministrationState
 					return err
 				}
 			}
-			// Customization for the node entity itself.
-			nodeCustom := buildCustomizationYAML(nodeEntityID, sphere+"/"+nodePath, "mdi:server-network")
+			// Customization for the node entity itself. No icon: device_class connectivity
+			// (buildTemplateNodeYAML/buildTemplateNodeWithRawYAML) already gives HA a sensible
+			// default.
+			nodeCustom := buildCustomizationYAML(nodeEntityID, sphere+"/"+nodePath, "")
 			if err := writeYAMLFile(filepath.Join(customDir, nodeEntityID+".yaml"), nodeCustom); err != nil {
-				return err
-			}
-			// Generate node_alert and its customization for every node.
-			alertEntityID := strings.TrimSuffix(nodeEntityID, "_node") + "_node_alert"
-			alertPath := strings.TrimSuffix(nodePath, "/node") + "/node_alert"
-			alertContent := buildTemplateNodeAlertYAML(alertEntityID, sphere+"/"+alertPath, nodeEntityID)
-			if err := writeYAMLFile(filepath.Join(dir, alertEntityID+".yaml"), alertContent); err != nil {
-				return err
-			}
-			alertCustom := buildCustomizationYAML(alertEntityID, sphere+"/"+alertPath, "mdi:server-off")
-			if err := writeYAMLFile(filepath.Join(customDir, alertEntityID+".yaml"), alertCustom); err != nil {
 				return err
 			}
 			continue
@@ -649,35 +684,6 @@ func generateTemplateBinarySensors(outputDir string, admin *TAdministrationState
 		}
 	}
 
-	// Generate node_alert for /node entities that were declared without a body (no template node file).
-	// These are entities like "entity binary_sensor.infrastructural:X/node;" or those imported via REST.
-	for _, ir := range infraRecords {
-		if !strings.HasSuffix(ir.rec.Identity.Path, "/node") {
-			continue
-		}
-		entityID := toHomeAssistantEntityID(ir.name)
-		path := ir.rec.Identity.Path
-		repID := resolveNodeRepresentative(ir.name, ir.rec, admin)
-		if repID != "" {
-			// Already handled above (has representative → node + node_alert both generated).
-			continue
-		}
-		// No representative: generate only node_alert (the node entity itself comes from elsewhere).
-		alertEntityID := strings.TrimSuffix(entityID, "_node") + "_node_alert"
-		alertPath := ir.rec.Identity.Sphere + "/" + strings.TrimSuffix(path, "/node") + "/node_alert"
-		alertContent := buildTemplateNodeAlertYAML(alertEntityID, alertPath, entityID)
-		dir := filepath.Join(outputDir, "entities", "template", "binary_sensor", "infrastructural")
-		if err := writeYAMLFile(filepath.Join(dir, alertEntityID+".yaml"), alertContent); err != nil {
-			return err
-		}
-		// Customization for this node_alert too.
-		customDir := filepath.Join(outputDir, "customization", "binary_sensor", "infrastructural")
-		alertCustom := buildCustomizationYAML(alertEntityID, alertPath, "mdi:server-off")
-		if err := writeYAMLFile(filepath.Join(customDir, alertEntityID+".yaml"), alertCustom); err != nil {
-			return err
-		}
-	}
-
 	// Generate nodes for media_player entities from media_player_device without an enabler.
 	// When the enabler is absent the macro does not call providing, so no infra node entity is
 	// created by the standard path. Old system always emits a node for every media_player entity.
@@ -695,24 +701,16 @@ func generateTemplateBinarySensors(outputDir string, admin *TAdministrationState
 			generatedNodeEntityIDs[nodeEntityID] = true
 			mediaPlayerHAID := toHomeAssistantEntityID(rec.Name)
 			displayPath := "infrastructural/" + spacePath + "/node"
-			alertEntityID := strings.TrimSuffix(nodeEntityID, "_node") + "_node_alert"
-			alertDisplayPath := "infrastructural/" + strings.TrimSuffix(spacePath, "/node") + "/node_alert"
 			dir := filepath.Join(outputDir, "entities", "template", "binary_sensor", "infrastructural")
 			customDir := filepath.Join(outputDir, "customization", "binary_sensor", "infrastructural")
 			nodeContent := buildTemplateNodeYAML(nodeEntityID, displayPath, mediaPlayerHAID)
 			if err := writeYAMLFile(filepath.Join(dir, nodeEntityID+".yaml"), nodeContent); err != nil {
 				return err
 			}
-			nodeCustom := buildCustomizationYAML(nodeEntityID, displayPath, "mdi:server-network")
+			// No icon: device_class connectivity (buildTemplateNodeYAML) already gives HA a
+			// sensible default.
+			nodeCustom := buildCustomizationYAML(nodeEntityID, displayPath, "")
 			if err := writeYAMLFile(filepath.Join(customDir, nodeEntityID+".yaml"), nodeCustom); err != nil {
-				return err
-			}
-			alertContent := buildTemplateNodeAlertYAML(alertEntityID, alertDisplayPath, nodeEntityID)
-			if err := writeYAMLFile(filepath.Join(dir, alertEntityID+".yaml"), alertContent); err != nil {
-				return err
-			}
-			alertCustom := buildCustomizationYAML(alertEntityID, alertDisplayPath, "mdi:server-off")
-			if err := writeYAMLFile(filepath.Join(customDir, alertEntityID+".yaml"), alertCustom); err != nil {
 				return err
 			}
 		}
@@ -797,17 +795,6 @@ func buildTemplateNodeWithRawYAML(entityID, displayPath, rawEntityID, enablerID,
 	return sb.String()
 }
 
-func buildTemplateNodeAlertYAML(entityID, displayPath, nodeEntityID string) string {
-	var sb strings.Builder
-	sb.WriteString(generatorHeader)
-	sb.WriteString("binary_sensor:\n")
-	sb.WriteString("- name: " + displayPath + "\n")
-	sb.WriteString("  unique_id: " + entityID + "\n")
-	sb.WriteString("  device_class: connectivity\n")
-	sb.WriteString("  state: \"{{ is_state('" + nodeEntityID + "', 'off') }}\"\n")
-	return sb.String()
-}
-
 func buildTemplateBatteryAlertYAML(entityID, displayPath, batteryLevelEntityID string, alertLevel int) string {
 	var sb strings.Builder
 	sb.WriteString(generatorHeader)
@@ -820,23 +807,6 @@ func buildTemplateBatteryAlertYAML(entityID, displayPath, batteryLevelEntityID s
 }
 
 // --- REST-imported sensor and binary_sensor files ---
-
-// restSensorSubdomainProps maps the last path segment of an imported REST sensor to its
-// HA platform properties. Fields left empty are omitted from the generated YAML.
-var restSensorSubdomainProps = map[string]struct {
-	DeviceClass string
-	Unit        string
-	StateClass  string
-}{
-	"battery_level": {"battery", "%", "measurement"},
-	"co2":           {"carbon_dioxide", "ppm", "measurement"},
-	"humidity":      {"", "%", "measurement"},
-	"illuminance":   {"illuminance", "lx", "measurement"},
-	"noise":         {"signal_strength", "dB", "measurement"},
-	"pressure":      {"atmospheric_pressure", "mbar", "measurement"},
-	"temperature":   {"temperature", "°C", "measurement"},
-	"wind_speed":    {"wind_speed", "km/h", "measurement"},
-}
 
 // generateRestImportedSensors writes entities/sensor/<sphere>/ and
 // entities/binary_sensor/<sphere>/ YAML files for each "imported rest" directive.
@@ -869,11 +839,9 @@ func generateRestImportedSensors(outputDir string, admin *TAdministrationState) 
 			}
 		} else {
 			// Regular sensor.
-			sub := lastPathSegment(identity.Path)
-			props := restSensorSubdomainProps[sub]
-			icon, _ := lookupIcon(sub)
+			deviceClass, unit, stateClass, icon := resolveCapabilityDefaults(admin.CapabilityDefaults, "sensor", identity.Path)
 			displayName := identity.Sphere + "/" + identity.Path
-			content = buildRestSensorYAML(id, displayName, resourceURL, bridge.Token, props.DeviceClass, props.Unit, props.StateClass, icon, rec.ScanInterval)
+			content = buildRestSensorYAML(id, displayName, resourceURL, bridge.Token, deviceClass, unit, stateClass, icon, rec.ScanInterval)
 			dir := filepath.Join(outputDir, "entities", "sensor", identity.Sphere)
 			if err := writeYAMLFile(filepath.Join(dir, id+".yaml"), content); err != nil {
 				return err
@@ -891,8 +859,7 @@ func generateCliSensors(outputDir string, admin *TAdministrationState) error {
 		}
 		identity := extractEntityIdentity(rec.LocalEntityName)
 		displayName := identity.Sphere + "/" + identity.Path
-		sub := lastPathSegment(identity.Path)
-		unit := restSensorSubdomainProps[sub].Unit
+		_, unit, _, _ := resolveCapabilityDefaults(admin.CapabilityDefaults, "sensor", identity.Path)
 		cmd := fmt.Sprintf("bash /config/bin/run %s %s %s", rec.UserAlias, rec.HostFQDN, rec.ScriptPath)
 		content := buildCliSensorYAML(displayName, cmd, unit)
 		dir := filepath.Join(outputDir, "entities", "command_line", "sensor", identity.Sphere)
@@ -1098,17 +1065,15 @@ func generateTemplateSensors(outputDir string, admin *TAdministrationState) erro
 			}
 			identity := rec.Identity
 			displayName := identity.Sphere + "/" + identity.Path
-			sub := lastPathSegment(identity.Path)
-			props := restSensorSubdomainProps[sub]
-			icon, _ := lookupIcon(sub)
+			deviceClass, unit, stateClass, icon := resolveCapabilityDefaults(admin.CapabilityDefaults, "sensor", identity.Path)
 			var content string
 			if rec.AdjustmentOffset != "" {
 				rawID := id + "_raw"
 				stateExpr := buildAdjustmentStateExpr(rawID, rec.AdjustmentOffset, rec.AdjustmentScale)
-				content = buildTemplateSensorYAML(id, displayName, props.Unit, props.DeviceClass, props.StateClass, icon, stateExpr)
+				content = buildTemplateSensorYAML(id, displayName, unit, deviceClass, stateClass, icon, stateExpr)
 			} else {
 				stateExpr := buildValueStateExpr(rec.ValueExpr, admin.SpaceOrder, admin)
-				content = buildTemplateSensorYAML(id, displayName, props.Unit, props.DeviceClass, props.StateClass, icon, stateExpr)
+				content = buildTemplateSensorYAML(id, displayName, unit, deviceClass, stateClass, icon, stateExpr)
 			}
 			dir := filepath.Join(outputDir, "entities", "template", "sensor", identity.Sphere)
 			if err := writeYAMLFile(filepath.Join(dir, id+".yaml"), content); err != nil {
@@ -1175,14 +1140,12 @@ func generateConditionEntities(outputDir string, admin *TAdministrationState) er
 			case "binary_sensor":
 				deviceClass := rec.ConditionDevClass
 				if deviceClass == "" {
-					deviceClass = binarySensorDeviceClassBySubdomain[lastPathSegment(identity.Path)]
+					deviceClass, _, _, _ = resolveCapabilityDefaults(admin.CapabilityDefaults, "binary_sensor", identity.Path)
 				}
 				content = buildConditionBinarySensorYAML(id, displayName, stateExpr, deviceClass, rec.ConditionDelayOn, rec.ConditionDelayOff)
 			case "sensor":
-				sub := lastPathSegment(identity.Path)
-				props := restSensorSubdomainProps[sub]
-				icon, _ := lookupIcon(sub)
-				content = buildTemplateSensorYAML(id, displayName, props.Unit, props.DeviceClass, props.StateClass, icon, stateExpr)
+				deviceClass, unit, stateClass, icon := resolveCapabilityDefaults(admin.CapabilityDefaults, "sensor", identity.Path)
+				content = buildTemplateSensorYAML(id, displayName, unit, deviceClass, stateClass, icon, stateExpr)
 			default:
 				continue
 			}
@@ -1198,14 +1161,35 @@ func generateConditionEntities(outputDir string, admin *TAdministrationState) er
 // buildConditionStateExpr substitutes $/$1/$2/... placeholders in a condition expression
 // with states('<entity_id>') calls for the corresponding sources.
 // sourceToJinja2 converts a condition source token to its Jinja2 expression.
-// A plain token produces states('entity_id'); one with "!attr" produces state_attr('entity_id', 'attr').
+// A plain token produces states('entity_id'); one with "!attr" produces state_attr('entity_id', 'attr');
+// one with a trailing " is available" produces the standard HA liveness check -- sugar for what
+// used to require spelling out `states('$1') not in ['unavailable', 'unknown']` by hand in every
+// Macros.def condition body that needed it (was "forgotten" boilerplate, not a distinct concept).
+// Rendered as the literal strings "ON"/"OFF", not a raw Python boolean: verified against HA's own
+// source (template.result_as_boolean, used by both template binary_sensor's "state:" field and
+// this codebase's own condition-clause consumers) that "ON"/"on"/"true"/"1" are accepted exactly
+// like True/False there, while a raw "True"/"False" is NOT one of MQTT binary_sensor discovery's
+// default payload_on/payload_off values -- rendering ON/OFF directly is correct for both
+// consumers, whereas raw Python booleans silently break the MQTT relay path (confirmed live:
+// host.junglinster's node capability stayed "unknown" in HA despite MQTT showing the retained
+// state "True").
 func sourceToJinja2(src string) string {
+	if entityID, ok := strings.CutSuffix(src, " is available"); ok {
+		return fmt.Sprintf("'ON' if (states('%s') not in ['unavailable', 'unknown']) else 'OFF'", entityID)
+	}
 	if bangIdx := strings.Index(src, "!"); bangIdx > 0 {
 		entityID := src[:bangIdx]
 		attr := src[bangIdx+1:]
 		return fmt.Sprintf("state_attr('%s', '%s')", entityID, attr)
 	}
 	return fmt.Sprintf("states('%s')", src)
+}
+
+// jinjaStringLiteral renders s as a single-quoted Jinja2 string literal, escaping any embedded
+// single quotes (Jinja/Python-style, "\'") so a literal like "Erik's Pi" doesn't break out of
+// the quoting.
+func jinjaStringLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "\\'") + "'"
 }
 
 func buildConditionStateExpr(sources []string, expr string) string {
@@ -1317,8 +1301,7 @@ func buildRestBinarySensorYAML(id, displayName, resourceURL, token, valueTemplat
 	sb.WriteString("name: " + displayName + "\n")
 	sb.WriteString("value_template: \"{{ " + valueTemplate + " }}\"\n")
 	sb.WriteString("unique_id: " + id + "\n")
-	sb.WriteString("device_class: connectivity\n")
-	sb.WriteString("icon: mdi:server-network\n")
+	sb.WriteString("device_class: connectivity\n") // no icon: HA already gives connectivity a sensible default
 	sb.WriteString(fmt.Sprintf("scan_interval: %d\n", scanInterval))
 	sb.WriteString("headers:\n")
 	sb.WriteString("  authorization: Bearer " + token + "\n")
@@ -1331,7 +1314,7 @@ func buildRestBinarySensorYAML(id, displayName, resourceURL, token, valueTemplat
 // generateInfrastructuralGroups writes binary_sensor/infrastructural/binary_sensor.infrastructural_battery_alert.yaml
 // and binary_sensor.infrastructural_node_alert.yaml, listing all matching entities sorted alphabetically.
 func generateInfrastructuralGroups(outputDir string, admin *TAdministrationState) error {
-	var batteryAlerts, nodeAlerts []string
+	var batteryAlerts, nodes []string
 	seen := map[string]bool{}
 	for _, spaceName := range admin.SpaceOrder {
 		for _, rec := range admin.EntityRecordsBySpace[spaceName] {
@@ -1346,15 +1329,16 @@ func generateInfrastructuralGroups(outputDir string, admin *TAdministrationState
 			if strings.HasSuffix(rec.Identity.Path, "/battery_alert") {
 				batteryAlerts = append(batteryAlerts, id)
 			} else if strings.HasSuffix(rec.Identity.Path, "/node") {
-				// node_alert is auto-derived for every /node entity (generated by the template step).
-				nodeEntityID, _ := resolvedNodeEntityID(rec.Name, rec, admin)
-				nodeAlerts = append(nodeAlerts, strings.TrimSuffix(nodeEntityID, "_node")+"_node_alert")
+				// Every declared /node binary_sensor feeds the AND aggregate below, whether it
+				// has a generator-built representative or is purely assumed/discovery-implied
+				// (e.g. an "entity device.<name> from <device-id> ...;" node -- Conceptual_DeviceEntities.go).
+				nodes = append(nodes, id)
 			}
 		}
 	}
-	// Add node_alert for media_player entities that have no explicit infra node entity.
-	// generateTemplateBinarySensors synthesises a node/node_alert pair for every media_player
-	// that was not already covered by the providing macro; include those here too.
+	// Add nodes for media_player entities that have no explicit infra node entity.
+	// generateTemplateBinarySensors synthesises a node for every media_player that was not
+	// already covered by the providing macro; include those here too.
 	for _, spaceName := range admin.SpaceOrder {
 		for _, rec := range admin.EntityRecordsBySpace[spaceName] {
 			if rec.Identity.Domain != "media_player" {
@@ -1365,47 +1349,61 @@ func generateInfrastructuralGroups(outputDir string, admin *TAdministrationState
 				continue
 			}
 			seen[nodeEntityID] = true
-			nodeAlerts = append(nodeAlerts, strings.TrimSuffix(nodeEntityID, "_node")+"_node_alert")
+			nodes = append(nodes, nodeEntityID)
 		}
 	}
 	sort.Strings(batteryAlerts)
-	sort.Strings(nodeAlerts)
+	sort.Strings(nodes)
 
 	dir := filepath.Join(outputDir, "entities", "binary_sensor", "infrastructural")
 	customDir := filepath.Join(outputDir, "customization", "binary_sensor", "infrastructural")
 	if len(batteryAlerts) > 0 {
 		const baID = "binary_sensor.infrastructural_battery_alert"
 		const baName = "infrastructural/battery_alert"
-		content := buildInfraGroupYAML(baID, baName, batteryAlerts)
+		deviceClass, _, _, _ := resolveCapabilityDefaults(admin.CapabilityDefaults, "binary_sensor", "battery_alert")
+		content := buildInfraGroupYAML(baID, baName, batteryAlerts, false, deviceClass)
 		if err := writeYAMLFile(filepath.Join(dir, baID+".yaml"), content); err != nil {
 			return err
 		}
-		custom := buildCustomizationYAML(baID, baName, "mdi:battery-alert")
+		// No icon: device_class (above) already gives HA a sensible default.
+		custom := buildCustomizationYAML(baID, baName, "")
 		if err := writeYAMLFile(filepath.Join(customDir, baID+".yaml"), custom); err != nil {
 			return err
 		}
 	}
-	if len(nodeAlerts) > 0 {
-		const naID = "binary_sensor.infrastructural_node_alert"
-		const naName = "infrastructural/node_alert"
-		content := buildInfraGroupYAML(naID, naName, nodeAlerts)
-		if err := writeYAMLFile(filepath.Join(dir, naID+".yaml"), content); err != nil {
+	if len(nodes) > 0 {
+		const nID = "binary_sensor.infrastructural_nodes"
+		const nName = "infrastructural/nodes"
+		deviceClass, _, _, _ := resolveCapabilityDefaults(admin.CapabilityDefaults, "binary_sensor", "nodes")
+		content := buildInfraGroupYAML(nID, nName, nodes, true, deviceClass)
+		if err := writeYAMLFile(filepath.Join(dir, nID+".yaml"), content); err != nil {
 			return err
 		}
-		custom := buildCustomizationYAML(naID, naName, "mdi:server-off")
-		if err := writeYAMLFile(filepath.Join(customDir, naID+".yaml"), custom); err != nil {
+		// No icon: device_class (above) already gives HA a sensible default.
+		custom := buildCustomizationYAML(nID, nName, "")
+		if err := writeYAMLFile(filepath.Join(customDir, nID+".yaml"), custom); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func buildInfraGroupYAML(uniqueID, name string, entities []string) string {
+// buildInfraGroupYAML builds a "platform: group" aggregate. all=true gives AND semantics
+// (state is "on" only when every member is "on" -- used for the nodes aggregate); all=false
+// keeps the default OR semantics (state is "on" when any member is "on" -- used for alerts,
+// where any single alert firing should trigger the aggregate).
+func buildInfraGroupYAML(uniqueID, name string, entities []string, all bool, deviceClass string) string {
 	var sb strings.Builder
 	sb.WriteString(generatorHeader)
 	sb.WriteString("platform: group\n")
 	sb.WriteString("name: " + name + "\n")
 	sb.WriteString("unique_id: " + uniqueID + "\n")
+	if all {
+		sb.WriteString("all: true\n")
+	}
+	if deviceClass != "" {
+		sb.WriteString("device_class: " + deviceClass + "\n")
+	}
 	sb.WriteString("entities:\n")
 	for _, e := range entities {
 		sb.WriteString("- " + e + "\n")
@@ -1531,7 +1529,8 @@ func generateBinarySensorSubdomainGroups(outputDir string, admin *TAdministratio
 			return err
 		}
 		sub := displayName[strings.LastIndex(displayName, "/")+1:]
-		custom := buildCustomizationYAML(groupID, displayName, subdomainIcons[sub])
+		_, _, _, icon := resolveCapabilityDefaults(admin.CapabilityDefaults, "binary_sensor", sub)
+		custom := buildCustomizationYAML(groupID, displayName, icon)
 		customDir := filepath.Join(outputDir, "customization", "binary_sensor", "social")
 		return writeYAMLFile(filepath.Join(customDir, groupID+".yaml"), custom)
 	}
@@ -1629,7 +1628,8 @@ func generateSensorSubdomainGroups(outputDir string, admin *TAdministrationState
 			return err
 		}
 		subdomain := displayName[strings.LastIndex(displayName, "/")+1:]
-		customContent := buildCustomizationYAML(groupID, displayName, subdomainIcons[subdomain])
+		_, _, _, icon := resolveCapabilityDefaults(admin.CapabilityDefaults, "sensor", subdomain)
+		customContent := buildCustomizationYAML(groupID, displayName, icon)
 		customDir := filepath.Join(outputDir, "customization", "sensor", "social")
 		return writeYAMLFile(filepath.Join(customDir, groupID+".yaml"), customContent)
 	}
@@ -1670,7 +1670,14 @@ func generateSensorSubdomainGroups(outputDir string, admin *TAdministrationState
 
 // sensorSubdomainEntities collects all sensor entities whose path ends with /<subdomain>
 // from the given space and all of its descendant spaces.  Passing "social" as spaceName
-// collects from all social-sphere spaces (the sphere-level aggregate case).
+// collects from all social-sphere spaces (the sphere-level aggregate case). Members are
+// deliberately not restricted to Sphere=="social": a room's climate readings are commonly
+// declared physical-sphere (raw hardware sensors, e.g. "sensor.physical:rear/aqara_multi/humidity")
+// while still belonging in that room's social-facing aggregate -- that's the dominant existing
+// pattern, not an exception. What must be excluded is Sphere=="infrastructural": those are
+// device/node health sensors (e.g. "sensor.infrastructural:/smarty/cpu/temperature",
+// Conceptual_DeviceEntities.go), not room climate, and can be filed under a "social/..." space
+// bucket via a sphere-absolute path while having nothing to do with that room.
 func sensorSubdomainEntities(spaceName, subdomain string, admin *TAdministrationState) []string {
 	prefix := spaceName + "/"
 	seen := map[string]bool{}
@@ -1681,6 +1688,7 @@ func sensorSubdomainEntities(spaceName, subdomain string, admin *TAdministration
 		}
 		for _, rec := range admin.EntityRecordsBySpace[s] {
 			if rec.Identity.Domain == "sensor" &&
+				rec.Identity.Sphere != "infrastructural" &&
 				strings.HasSuffix(rec.Identity.Path, "/"+subdomain) &&
 				!rec.NoCollect &&
 				!seen[rec.Name] {
@@ -1776,36 +1784,23 @@ func buildLightGroupYAML(entityID, displayName string, memberIDs []string) strin
 
 // --- customization files ---
 
-// subdomainIcons maps the last path segment (subdomain) of an entity to a default icon.
+// subdomainIcons maps the last path segment (subdomain) of an entity to a default icon, for
+// subdomains with no fixed domain (used regardless of what domain the entity actually is) --
+// everything with a settled domain now lives in Shared/Definitions/Defaults.def's "defaults:"
+// block instead (capability_defaults.go's resolveCapabilityDefaults, domain-gated), which is
+// consulted first; this table is only the remaining domain-agnostic fallback.
 // Entity-specific icons from "icon:" body properties are not yet tracked and take precedence
 // once Phase 2 adds Icon to TEntityRecord.
 var subdomainIcons = map[string]string{
-	"battery_alert":   "mdi:battery-alert",
-	"battery_level":   "mdi:battery",
-	"co2":             "mdi:cloud",
 	"consumes":        "mdi:flash",
 	"daylight":        "mdi:weather-sunset-up",
 	"health":          "mdi:cloud",
 	"dishwasher":      "mdi:dishwasher",
-	"door":            "mdi:door-open",
-	"humidity":        "mdi:water-percent",
-	"illuminance":     "mdi:brightness-5",
-	"load":            "mdi:cpu-64-bit",
 	"media":           "mdi:monitor-speaker",
-	"motion":          "mdi:motion-sensor",
-	"node":            "mdi:server-network",
-	"noise":           "mdi:volume-high",
-	"pressure":        "mdi:gauge",
 	"radiator":        "mdi:heating-coil",
 	"radio":           "mdi:signal",
-	"sunny":           "mdi:sunglasses",
-	"temperature":     "mdi:thermometer",
 	"washing_machine": "mdi:washing-machine",
-	"water":           "mdi:water-off",
-	"window":          "mdi:window-open",
 	"wind_direction":  "mdi:compass-outline",
-	"wind_speed":      "mdi:weather-windy",
-	"windy":           "mdi:weather-windy",
 }
 
 // domainDefaultIcons maps HA entity domains to a fallback icon when no subdomain-specific
@@ -1815,18 +1810,15 @@ var domainDefaultIcons = map[string]string{
 	"light": "mdi:lightbulb-group",
 }
 
-// iconForEntity returns the icon string for an entity, first checking the last path segment
-// against subdomainIcons, then falling back to a domain-level default.
-// Returns "" when no icon is known (entity-specific icons require Phase 2 support).
-func iconForEntity(rec TEntityRecord) string {
+// iconForEntity returns the icon string for an entity: an explicit rec.EntityIcon first, then a
+// "defaults: for ...;" rule or the code-level postfix table (resolveCapabilityDefaults), falling
+// back to a domain-level default. Returns "" when no icon is known.
+func iconForEntity(rec TEntityRecord, capabilityDefaults []TCapabilityDefaultRule) string {
 	if rec.EntityIcon != "" {
 		return rec.EntityIcon
 	}
-	path := rec.Identity.Path
-	if path != "" {
-		parts := strings.Split(path, "/")
-		subdomain := parts[len(parts)-1]
-		if icon, ok := subdomainIcons[subdomain]; ok {
+	if rec.Identity.Path != "" {
+		if _, _, _, icon := resolveCapabilityDefaults(capabilityDefaults, rec.Identity.Domain, rec.Identity.Path); icon != "" {
 			return icon
 		}
 	}
@@ -1841,6 +1833,14 @@ func generateCustomizationFiles(outputDir string, admin *TAdministrationState) e
 	for _, spaceName := range admin.SpaceOrder {
 		for _, rec := range admin.EntityRecordsBySpace[spaceName] {
 			if rec.Identity.IsRaw || rec.Identity.Domain == "" || rec.Identity.Sphere == "" {
+				continue
+			}
+			// Discovery-implied entities (device.<spec> node/attribute entities, Conceptual_DeviceEntities.go)
+			// are created by the MQTT discovery coordinator, not this generator -- their
+			// friendly_name/icon/device_class are already set directly in the coordinator's own
+			// discovery payload (discovery.go), so a generator-authored customization file here
+			// would be redundant leftover, not a real override.
+			if rec.DiscoveryImplied {
 				continue
 			}
 			// Node entities with a representative have their customization emitted by
@@ -1860,7 +1860,7 @@ func generateCustomizationFiles(outputDir string, admin *TAdministrationState) e
 			seen[entityID] = true
 
 			displayName := rec.Name[len(rec.Identity.Domain)+1:] // strip "domain."
-			icon := iconForEntity(rec)
+			icon := iconForEntity(rec, admin.CapabilityDefaults)
 			content := buildCustomizationYAML(entityID, displayName, icon)
 			dir := filepath.Join(outputDir, "customization", rec.Identity.Domain, rec.Identity.Sphere)
 			if err := writeYAMLFile(filepath.Join(dir, entityID+".yaml"), content); err != nil {
@@ -4057,13 +4057,6 @@ func buildPlatformGroupYAML(key string, all bool, memberIDs []string) string {
 
 // --- has_state entities ---
 
-// binarySensorDeviceClassBySubdomain maps a binary_sensor's last path segment to its default
-// device_class, mirroring the old bash generator's DeviceClassOf_* table.
-var binarySensorDeviceClassBySubdomain = map[string]string{
-	"motion": "motion",
-	"node":   "connectivity",
-}
-
 // generateHasStateEntities writes the template binary_sensor entity for every "definition as
 // has_state <source> <state> [delay_on] [delay_off];" directive: its state mirrors whether
 // <source> is in <state> (or has that attribute value, for "entity!attribute" sources).
@@ -4076,7 +4069,7 @@ func generateHasStateEntities(outputDir string, admin *TAdministrationState) err
 		identity := extractEntityIdentity(rel.SelfEntity)
 		displayName := identity.Sphere + "/" + identity.Path
 		stateExpr := hasStateExpr(rel.Source, rel.State)
-		deviceClass := binarySensorDeviceClassBySubdomain[lastPathSegment(identity.Path)]
+		deviceClass, _, _, _ := resolveCapabilityDefaults(admin.CapabilityDefaults, "binary_sensor", identity.Path)
 		content := buildConditionBinarySensorYAML(selfID, displayName, stateExpr, deviceClass, rel.DelayOn, rel.DelayOff)
 		dir := filepath.Join(outputDir, "entities", "template", "binary_sensor", identity.Sphere)
 		if err := writeYAMLFile(filepath.Join(dir, selfID+".yaml"), content); err != nil {
@@ -4529,9 +4522,10 @@ func generateSwitchControlledHeatingContent(outputDir string, admin *TAdministra
 // --- list file generation ---
 
 type TListPattern struct {
-	domain     string
-	sphere     string // empty = match any sphere; otherwise only entities in this sphere match
-	pathSuffix string // empty = match all; otherwise path must end with this segment sequence
+	domain       string
+	sphere       string // empty = match any sphere; otherwise only entities in this sphere match
+	pathSuffix   string // empty = match all; otherwise path must end with (wildcardLeaf: contain, one more segment past) this segment sequence
+	wildcardLeaf bool   // true for a trailing "/*" pattern segment -- see parseListPatterns
 }
 
 type TListCleanOp struct {
@@ -4543,6 +4537,13 @@ type TListDeclaration struct {
 	title    string
 	patterns []TListPattern
 	cleanOps []TListCleanOp
+	// asCards marks a "list ... as cards with: ... end;" declaration: render as a Lovelace
+	// vertical-stack of per-entity built-in "sensor" mini-graph cards (buildSensorGraphListFileYAML)
+	// instead of the default flat entities list (buildListFileYAML).
+	asCards bool
+	// detailLevel is the "detail_level N;" with:-block option -- only meaningful when asCards is
+	// true. Defaults to 2 if not given.
+	detailLevel int
 }
 
 // generateListFiles parses Lists.def content and writes a list.* file for each declaration.
@@ -4553,7 +4554,12 @@ func generateListFiles(outputDir string, content []byte, admin *TAdministrationS
 		if len(entries) == 0 {
 			continue
 		}
-		yaml := buildListFileYAML(decl.title, entries)
+		var yaml string
+		if decl.asCards {
+			yaml = buildSensorGraphListFileYAML(entries, decl.detailLevel)
+		} else {
+			yaml = buildListFileYAML(decl.title, entries)
+		}
 		fileName := "list." + listTitleToFileName(decl.title)
 		if err := os.WriteFile(filepath.Join(outputDir, fileName), []byte(yaml), 0644); err != nil {
 			return fmt.Errorf("cannot write %s: %w", fileName, err)
@@ -4602,11 +4608,21 @@ func parseListDeclarations(src string) []TListDeclaration {
 			// Patterns may end with ";" if no with block.
 			patternsPart = strings.TrimSuffix(strings.TrimSpace(patternsPart), ";")
 		}
+
+		// An "as cards" marker trails the patterns, before "with:" -- same convention as
+		// "space <spec> as area with:".
+		asCards := false
+		patternsPart = strings.TrimSpace(patternsPart)
+		if trimmed := strings.TrimSuffix(patternsPart, " as cards"); trimmed != patternsPart {
+			asCards = true
+			patternsPart = trimmed
+		}
 		patterns := parseListPatterns(patternsPart)
 
 		var cleanOps []TListCleanOp
+		detailLevel := 2
 		if withIdx >= 0 {
-			// Read clean_prefix / clean_postfix lines until "end;".
+			// Read clean_prefix / clean_postfix / detail_level lines until "end;".
 			i++
 			for i < len(lines) {
 				cline := strings.TrimSpace(lines[i])
@@ -4621,13 +4637,20 @@ func parseListDeclarations(src string) []TListDeclaration {
 						cleanOps = append(cleanOps, TListCleanOp{"prefix", fields[1]})
 					case "clean_postfix":
 						cleanOps = append(cleanOps, TListCleanOp{"postfix", fields[1]})
+					case "detail_level":
+						if n, err := strconv.Atoi(fields[1]); err == nil {
+							detailLevel = n
+						}
 					}
 				}
 				i++
 			}
 		}
 
-		declarations = append(declarations, TListDeclaration{title, patterns, cleanOps})
+		declarations = append(declarations, TListDeclaration{
+			title: title, patterns: patterns, cleanOps: cleanOps,
+			asCards: asCards, detailLevel: detailLevel,
+		})
 		i++
 	}
 	return declarations
@@ -4635,9 +4658,14 @@ func parseListDeclarations(src string) []TListDeclaration {
 
 // parseListPatterns parses one or more space-separated entity patterns.
 // Pattern forms:
-//   "domain.*"              — match all entities with domain, any sphere
-//   "domain.*/suffix"       — match by path tail, any sphere
-//   "domain.sphere/*/suffix" — match by path tail, specific sphere only
+//
+//	"domain.*"                 — match all entities with domain, any sphere
+//	"domain.*/suffix"          — match by path tail, any sphere
+//	"domain.sphere/*/suffix"   — match by path tail, specific sphere only
+//	"domain.*/prefix/*"        — match any path with "prefix" as its second-to-last segment
+//	                              and exactly one more (any) trailing leaf segment, any sphere
+//	                              -- e.g. "sensor.*/cpu/*" matches "…/cpu/load", "…/cpu/temperature",
+//	                              any current or future cpu-suffix attribute, but not bare "…/cpu".
 //
 // The keyword "all" and any other token without a '.' are silently ignored.
 func parseListPatterns(src string) []TListPattern {
@@ -4666,7 +4694,14 @@ func parseListPatterns(src string) []TListPattern {
 		if slashIdx := strings.Index(rest, "/"); slashIdx >= 0 {
 			pathSuffix = rest[slashIdx+1:]
 		}
-		patterns = append(patterns, TListPattern{domain: domain, sphere: sphere, pathSuffix: pathSuffix})
+		wildcardLeaf := false
+		if pathSuffix == "*" {
+			pathSuffix = "" // "domain.*/*" degenerates to "domain.*" -- any path at all
+		} else if strings.HasSuffix(pathSuffix, "/*") {
+			pathSuffix = strings.TrimSuffix(pathSuffix, "/*")
+			wildcardLeaf = true
+		}
+		patterns = append(patterns, TListPattern{domain: domain, sphere: sphere, pathSuffix: pathSuffix, wildcardLeaf: wildcardLeaf})
 	}
 	return patterns
 }
@@ -4769,6 +4804,15 @@ func matchesAnyListPattern(rec TEntityRecord, patterns []TListPattern) bool {
 			return true
 		}
 		path := rec.Identity.Path
+		if p.wildcardLeaf {
+			// p.pathSuffix must appear immediately before exactly one more trailing leaf
+			// segment -- "prefix/<anything>" at the start of path, or "…/prefix/<anything>"
+			// anywhere later in it. A bare path ending in just "prefix" (no leaf) doesn't count.
+			if strings.HasPrefix(path, p.pathSuffix+"/") || strings.Contains(path, "/"+p.pathSuffix+"/") {
+				return true
+			}
+			continue
+		}
 		if path == p.pathSuffix || strings.HasSuffix(path, "/"+p.pathSuffix) {
 			return true
 		}
@@ -4805,6 +4849,26 @@ func buildListFileYAML(title string, entries []TListEntry) string {
 	sb.WriteString("state_color: true\n")
 	sb.WriteString("type: entities\n")
 	sb.WriteString("show_header_toggle: false\n")
+	return sb.String()
+}
+
+// buildSensorGraphListFileYAML renders entries as a Lovelace vertical-stack card containing one
+// built-in "sensor" mini-graph card per entity -- the "as cards" list variant (parseListDeclarations),
+// an alternative to buildListFileYAML's flat "entities" list. Uses the same TListEntry.displayName
+// (full cleaned path, via the declaration's own clean_prefix/clean_postfix ops) as the flat form --
+// only the rendering shape differs, not how names are derived. No "title:" field: unlike the
+// "entities" card type, a vertical-stack has no title slot of its own in Lovelace.
+func buildSensorGraphListFileYAML(entries []TListEntry, detailLevel int) string {
+	var sb strings.Builder
+	sb.WriteString("cards:\n")
+	for _, e := range entries {
+		sb.WriteString("  - detail: " + strconv.Itoa(detailLevel) + "\n")
+		sb.WriteString("    entity: " + e.entityID + "\n")
+		sb.WriteString("    graph: line\n")
+		sb.WriteString("    name: '" + e.displayName + "'\n")
+		sb.WriteString("    type: sensor\n")
+	}
+	sb.WriteString("type: vertical-stack\n")
 	return sb.String()
 }
 

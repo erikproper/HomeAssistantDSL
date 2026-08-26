@@ -19,10 +19,58 @@
 
 package main
 
+// TPhysicalGenerationContext bundles the per-run inputs an "integration ... with: ...;"
+// handler may need, so the shared dispatch signature doesn't keep growing positional
+// parameters as physical-layer output gains new cross-cutting concerns (this is already its
+// fourth: outputRoot, then haOutputDir, then admin, now MQTT secrets).
+type TPhysicalGenerationContext struct {
+	OutputRoot     string                // house root (ping/hosts, coordinator/devices.yaml, cpu/secrets live there)
+	HAOutputDir    string                // main instance's HA YAML tree (hass/<incarnation>), for output HA itself must consume (e.g. reporting automations)
+	Admin          *TAdministrationState // conceptual layer's parsed state (Spaces.def), for integrations that look up conceptual-layer linkage (e.g. "hosts" devices via Conceptual_DeviceEntities.go)
+	MQTTSecrets    TMQTTBrokerSecrets    // main MQTT broker connection secrets, resolveMQTTBrokerSecrets (defined.go) -- zero value when HasMQTTSecrets is false
+	HasMQTTSecrets bool
+	// MQTTBrokerProfiles holds every named "mqtt <name>: ...; end;" broker declared in
+	// Physical.def (resolveMQTTBrokerProfiles, defined.go), keyed by name -- e.g. "main", "cloud".
+	// Lets a "hosts" device opt into a specific broker (e.g. a laptop reporting to a cloud broker
+	// instead of the house's local one) rather than always using MQTTSecrets ("main") implicitly.
+	MQTTBrokerProfiles map[string]TMQTTBrokerSecrets
+	// MQTTDiscoveryPhysicalPrefix is ${mqtt_discovery_physical} (resolveMQTTDiscoveryPhysicalPrefix,
+	// defined.go) -- "" if not configured (no "discovery" integration in use yet).
+	MQTTDiscoveryPhysicalPrefix string
+	// MQTTDiscoveryConceptualPrefix is ${mqtt_discovery_conceptual} (resolveMQTTDiscoveryConceptualPrefix,
+	// defined.go) -- the prefix the coordinator itself publishes conceptual-layer discovery
+	// under; always set (defaults to "homeassistant", HA's own default), unlike
+	// MQTTDiscoveryPhysicalPrefix.
+	MQTTDiscoveryConceptualPrefix string
+	// Installation is ${installation} (resolveInstallationName, defined.go) -- this house's own
+	// short name (e.g. "junglinster"), used to qualify state/discovery topics this coordinator
+	// publishes onto a shared cloud broker (mqtt_relay.go, coordinator side), so two
+	// installations sharing one cloud broker's namespace never collide.
+	Installation string
+	// ImportedDevices are every "integration import with: device <local-id> <remote-installation>
+	// <remote-host> <type>; ... end;" declaration (integration_import_parser.go), pre-collected
+	// before the generic per-block dispatch loop runs (mirroring how hassBridgeDevicesByID and
+	// instances are already pre-collected in generatePhysicalIntegrationOutputs) since
+	// generateHostsIntegrationOutputs needs them merged into its own devices.yaml/discovery
+	// output regardless of whether "import" happens to appear before or after "hosts" in
+	// Physical.def. Reuses THostDevice's own shape (ImportedFrom set, Capabilities always empty
+	// -- an import declares no capabilities of its own, it just names which remote device to
+	// relay in) rather than a separate type, since materialization/discovery are identical once
+	// a device's data starts flowing, regardless of whether it originates locally or remotely.
+	ImportedDevices []THostDevice
+}
+
 // integrationBodyParsers maps an "integration <name>" name to the function that turns its
 // body lines into generated output. Each integration owns its own local body syntax; only
 // the generic "integration <name> [on <host>] with: ... end;" wrapper is parsed elsewhere
 // (Physical_Parser.go).
-var integrationBodyParsers = map[string]func(bodyLines []string, outputRoot string) error{
-	"hosts": generateHostsIntegrationOutputs,
+var integrationBodyParsers = map[string]func(bodyLines []string, ctx TPhysicalGenerationContext) error{
+	"hosts":     generateHostsIntegrationOutputs,
+	"discovery": generateDiscoveryIntegrationOutputs,
+	// "import" is a no-op here deliberately -- generatePhysicalIntegrationOutputs pre-collects
+	// every "import" block into ctx.ImportedDevices before this generic dispatch loop runs (see
+	// TPhysicalGenerationContext.ImportedDevices' own doc comment), so generateHostsIntegrationOutputs
+	// can merge them into its own devices.yaml output regardless of block order. Registered here
+	// only so the loop doesn't warn "no parser registered" for it.
+	"import": func(bodyLines []string, ctx TPhysicalGenerationContext) error { return nil },
 }

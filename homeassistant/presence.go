@@ -55,9 +55,12 @@ var entityRefPatterns = []*regexp.Regexp{
 // entityIDLike validates that a string looks like a HA entity ID (domain.object_id).
 var entityIDLike = regexp.MustCompile(`^[a-z_][a-z0-9_]*\.[a-z0-9_]+$`)
 
-// runPostGenerationChecks performs both check [1] and check [2] after YAML generation
+// runPostGenerationChecks performs both check [1] and check [3] after YAML generation
 // completes.  Both checks are best-effort: warnings are printed but generation is not
-// aborted.
+// aborted. Check [2] (online availability of assumed entities) moved to the coordinator --
+// see coordinator/assumed_entities.yaml (generateAssumedEntitiesFile, Physical_Generator.go) and
+// house_event_bus_coordinator/discoveryassumed.go -- since it needs live MQTT access the
+// coordinator already has, not a separate REST token/credential the compiler had to hold.
 func runPostGenerationChecks(definitionDir, outputDir, label string, admin *TAdministrationState) {
 	// Check [1]: referential integrity.
 	fmt.Printf("%s: checking entity references ...\n", label)
@@ -68,9 +71,6 @@ func runPostGenerationChecks(definitionDir, outputDir, label string, admin *TAdm
 			fmt.Printf("%s:   - %s\n", label, id)
 		}
 	}
-
-	// Check [2]: online availability of assumed entities (only when HA is reachable).
-	checkAssumedEntitiesOnline(definitionDir, label, admin)
 
 	// Check [3]: bridge entity availability (one check per REST bridge, when reachable).
 	checkBridgeEntitiesOnline(label, admin)
@@ -146,64 +146,6 @@ func buildDeclaredEntityIDSet(outputDir string, admin *TAdministrationState) map
 	})
 
 	return declared
-}
-
-// checkAssumedEntitiesOnline attempts to reach the Home Assistant instance configured
-// for definitionDir.  If reachable, it verifies that every entity in EntityRecordsBySpace
-// that is assumed (not explicitly defined or imported) actually exists on the instance.
-// Silently skipped when no HA target is configured; prints a warning when configured but
-// unreachable; always prints a summary when the check runs.
-func checkAssumedEntitiesOnline(definitionDir, label string, admin *TAdministrationState) {
-	target, err := resolveHomeAssistantTarget(definitionDir)
-	if err != nil {
-		return // no target configured — skip silently
-	}
-
-	fmt.Printf("%s: checking assumed entities on the main instance (%s) ...\n", label, target.BaseURL)
-
-	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
-	if target.InsecureSkipTLS {
-		httpTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	}
-	client := &http.Client{Timeout: 8 * time.Second, Transport: httpTransport}
-
-	availableIDs, fetchErr := fetchAllEntityIDs(client, target)
-	if fetchErr != nil {
-		fmt.Printf("%s: [main] %s not reachable — skipping entity check\n", label, target.BaseURL)
-		return
-	}
-
-	// Collect assumed (external) entity IDs.
-	assumedByID := map[string]string{} // entity_id -> full DSL name
-	for _, records := range admin.EntityRecordsBySpace {
-		for _, rec := range records {
-			if rec.HasDefinitionOrImport || rec.NoCollect {
-				continue
-			}
-			id := toHomeAssistantEntityID(rec.Name)
-			if id != "" {
-				assumedByID[id] = rec.Name
-			}
-		}
-	}
-
-	var missing []string
-	for id := range assumedByID {
-		if !availableIDs[id] {
-			missing = append(missing, id)
-		}
-	}
-
-	if len(missing) == 0 {
-		fmt.Printf("%s: [main] %d assumed entities verified on %s\n", label, len(assumedByID), target.BaseURL)
-		return
-	}
-
-	sort.Strings(missing)
-	fmt.Printf("%s: [main] %d of %d assumed entities not found on %s\n", label, len(missing), len(assumedByID), target.BaseURL)
-	for _, id := range missing {
-		fmt.Printf("%s:   - %s\n", label, id)
-	}
 }
 
 // scanYAMLEntityReferences walks all YAML files under outputDir and collects every

@@ -105,8 +105,19 @@ type TExpansionParseResult struct {
 
 // ParseEntitiesAndFillAdministration parses entity lines, applies strict macro validation,
 // performs aggressive macro expansion, and records open/close entity/space events into administration.
-func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath string, ctx *TMacroExpansionContext, report *strings.Builder) (TExpansionParseResult, error) {
+// lineNos runs parallel to entityLines: lineNos[i] is entityLines[i]'s original 1-indexed line
+// number in entitiesPath. It must be used for every reported line number instead of i+1 --
+// entityLines is layer-extracted content with blank/comment lines already stripped, so the two
+// no longer coincide. Pass nil to fall back to i+1 (entityLines is the raw, unstripped file).
+func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, entitiesPath string, ctx *TMacroExpansionContext, report *strings.Builder, hostDevicesByID map[string]THostDevice, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, capabilityDefaults []TCapabilityDefaultRule) (TExpansionParseResult, error) {
+	sourceLine := func(i int) int {
+		if lineNos != nil && i >= 0 && i < len(lineNos) {
+			return lineNos[i]
+		}
+		return i + 1
+	}
 	administration := newAdministrationState()
+	administration.CapabilityDefaults = capabilityDefaults
 	onSpaceClosed := func(_ string) {
 		// Space-close hooks are centralized in administration; aggregate derivation stays a separate pass.
 	}
@@ -169,15 +180,39 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 
 		if candidateMacroName, isCreateInvocation := extractCallInvocationMacroName(trimmed); isCreateInvocation {
 			if _, exists := ctx.Macros[candidateMacroName]; !exists {
-				return TExpansionParseResult{}, fmt.Errorf("strict macro validation failed in %s at line %d: unknown macro %q in invocation %q", entitiesPath, i+1, candidateMacroName, trimmed)
+				return TExpansionParseResult{}, fmt.Errorf("strict macro validation failed in %s at line %d: unknown macro %q in invocation %q", entitiesPath, sourceLine(i), candidateMacroName, trimmed)
 			}
+		}
+
+		if deviceDecl, ok := extractDeviceEntityDeclaration(trimmed); ok {
+			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
+			for _, w := range registerDeviceImpliedEntities(administration, *deviceDecl, hostDevicesByID, hassBridgeDevicesByID, entitiesPath, sourceLine(i)) {
+				fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
+			}
+			continue
+		}
+
+		if discoveryDecl, ok := extractDiscoveryEntityDeclaration(trimmed); ok {
+			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
+			for _, w := range registerDiscoveryEntityLink(administration, *discoveryDecl, discoveryGatewaysByID, entitiesPath, sourceLine(i)) {
+				fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
+			}
+			continue
+		}
+
+		if sourceDecl, ok := extractDeviceSourceEntityDeclaration(trimmed); ok {
+			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
+			for _, w := range registerDeviceSourceEntityLink(administration, *sourceDecl, hassBridgeDevicesByID, entitiesPath, sourceLine(i)) {
+				fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
+			}
+			continue
 		}
 
 		if entityDecl, ok := extractEntityDeclaration(trimmed); ok {
 			// A second ':' in an entity spec is legacy sub-domain notation; '/' must be used instead.
 			if hasSecondColonSeparator(entityDecl.Specification) {
 				fmt.Fprintf(os.Stderr, "[WARNING] %s line %d: entity specification %q uses a second ':' sub-domain separator (legacy); use '/' instead\n",
-					entitiesPath, i+1, entityDecl.Specification)
+					entitiesPath, sourceLine(i), entityDecl.Specification)
 			}
 
 			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
@@ -196,7 +231,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 					break
 				}
 			}
-			entry := fmt.Sprintf("%s (line %d)", fullName, i+1)
+			entry := fmt.Sprintf("%s (line %d)", fullName, sourceLine(i))
 			if noCollect {
 				entry += " [no_collect]"
 			}
@@ -204,7 +239,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 			hasExternalRef := false
 			if !hasDefOrImport {
 				hasExternalRef = true
-				externalEntry = fmt.Sprintf("%s (line %d)", fullName, i+1)
+				externalEntry = fmt.Sprintf("%s (line %d)", fullName, sourceLine(i))
 				if hasConfigOptions {
 					externalEntry += fmt.Sprintf(" [config options: %s]", strings.Join(optionKeys, ", "))
 				}
@@ -215,7 +250,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 				Identity:              extractEntityIdentity(fullName),
 				NoCollect:             noCollect,
 				HasDefinitionOrImport: hasDefOrImport,
-				Provenance:            fmt.Sprintf("%s:%d", filepath.Base(entitiesPath), i+1),
+				Provenance:            fmt.Sprintf("%s:%d", filepath.Base(entitiesPath), sourceLine(i)),
 			}
 
 			// Extract inline "with adjustment <offset> <scale>;" properties.
@@ -289,7 +324,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 							nodeEntityName := normalizeEntityFullName("binary_sensor.infrastructural:"+target+"/node", administration.SpacePath)
 							administration.NodeRepresentativeByEntityID[nodeEntityName] = toHomeAssistantEntityID(fullName)
 						}
-						if err := processInvocation(inlineStmt, i+1); err != nil {
+						if err := processInvocation(inlineStmt, sourceLine(i)); err != nil {
 							return TExpansionParseResult{}, err
 						}
 					}
@@ -527,14 +562,14 @@ func ParseEntitiesAndFillAdministration(entityLines []string, entitiesPath strin
 					administration.NodeRepresentativeByEntityID[nodeEntityName] = toHomeAssistantEntityID(hostName)
 				}
 			}
-			if err := processInvocation(invocationText, i+1); err != nil {
+			if err := processInvocation(invocationText, sourceLine(i)); err != nil {
 				return TExpansionParseResult{}, err
 			}
 			continue
 		}
 
-		if spaceKind, spaceName, ok := parseSpaceHeader(trimmed); ok {
-			administration.OpenSpace(spaceKind, spaceName)
+		if spaceKind, spaceName, isArea, ok := parseSpaceHeader(trimmed); ok {
+			administration.OpenSpace(spaceKind, spaceName, isArea)
 			continue
 		}
 

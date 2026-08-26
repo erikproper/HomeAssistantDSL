@@ -16,29 +16,6 @@ package main
 
 import "testing"
 
-func TestLookupDeviceClass(t *testing.T) {
-	testCases := []struct {
-		object            string
-		expectedClass     string
-		expectClassExists bool
-	}{
-		{object: "battery_alert", expectedClass: "battery", expectClassExists: true},
-		{object: "battery_level", expectedClass: "battery", expectClassExists: true},
-		{object: "noise", expectedClass: "signal_strength", expectClassExists: true},
-		{object: "unknown", expectedClass: "", expectClassExists: false},
-	}
-
-	for _, testCase := range testCases {
-		actualClass, classExists := lookupDeviceClass(testCase.object)
-		if classExists != testCase.expectClassExists {
-			t.Fatalf("lookupDeviceClass(%q) existence mismatch: got %v, expected %v", testCase.object, classExists, testCase.expectClassExists)
-		}
-		if actualClass != testCase.expectedClass {
-			t.Fatalf("lookupDeviceClass(%q) value mismatch: got %q, expected %q", testCase.object, actualClass, testCase.expectedClass)
-		}
-	}
-}
-
 func TestLookupAggregatedDomain(t *testing.T) {
 	testCases := []struct {
 		object             string
@@ -102,7 +79,6 @@ func TestLookupDefaultSphere(t *testing.T) {
 		expectedSphere    string
 		expectSphereFound bool
 	}{
-		{object: "node_alert", expectedSphere: "infrastructural", expectSphereFound: true},
 		{object: "door", expectedSphere: "social", expectSphereFound: true},
 		{object: "co2", expectedSphere: "", expectSphereFound: false},
 	}

@@ -5,7 +5,7 @@
  * Component: Defined
  *
  * Shared utilities for resolving Home Assistant connection targets, fetching entity state lists,
- * parsing Server.def / Bridges.def / Settings.def / Secrets.def configuration files, and the
+ * parsing Bridges.def / Settings.def configuration files, and the
  * generic "group clause" grammar (QualifiedElementsGroup/ForcedElementsGroup/
  * ForceElementsSequence, Background/Arch2.md) shared by every "<header> [with]: ... end;"
  * construct parsed outside the main Entities.def grammar.
@@ -19,19 +19,16 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
-	"time"
 )
 
 type THomeAssistantTarget struct {
@@ -48,6 +45,135 @@ type TBridgeRestDefinition struct {
 	InsecureTLS   bool
 	ResolvedURL   string
 	ResolvedToken string
+}
+
+// TMQTTBrokerSecrets holds one named MQTT broker profile's connection secrets, resolved from a
+// Physical.def "mqtt <name>: server ...; login ...; password ...; port ...; [tls true;] end;"
+// block (resolveMQTTBrokerProfiles). TLS is false unless the block explicitly declares
+// "tls true;" -- every existing house's local broker stays plaintext by default, matching
+// current behaviour exactly.
+type TMQTTBrokerSecrets struct {
+	Server   string
+	Login    string
+	Password string
+	Port     string
+	TLS      bool
+	// CoordinatorOnly marks a profile as holding broad-access credentials meant for the
+	// coordinator process itself, never for leaf host ping/cpu report scripts -- e.g. a cloud
+	// broker's coordinator account, as opposed to the narrowly-scoped client account every leaf
+	// device shares. generateHostsIntegrationOutputs excludes any profile with this set from the
+	// per-broker secrets files it writes into cpu/, so a laptop never ends up with a copy of the
+	// coordinator's own credentials on disk. Declared via "coordinator_only true;".
+	CoordinatorOnly bool
+}
+
+var mqttProfileHeaderPattern = regexp.MustCompile(`^mqtt\s+(\S+):\s*$`)
+var mqttProfileFieldPattern = regexp.MustCompile(`^(server|login|password|port|tls|coordinator_only)\s+(\S+);\s*$`)
+
+// resolveMQTTBrokerProfiles scans Physical.def for every "mqtt <name>: ... end;" block and
+// resolves each declared field (server/login/password/port/tls) via resolveDefinitionReference
+// against Settings.def's variables -- a field's value may be a literal or a "${var}" reference,
+// exactly as already written in the block (e.g. "server ${main_mqtt_server};"); nothing about the
+// profile name itself is assumed or required to match a variable-naming convention. Returns every
+// profile found, keyed by its declared name (e.g. "main", "cloud"), plus any warnings for
+// unrecognised lines.
+func resolveMQTTBrokerProfiles(definitionDir string) (map[string]TMQTTBrokerSecrets, []string) {
+	physicalContent, _, warnings := collectLayerContent(definitionDir, []string{"Physical.def"}, LayerPhysical)
+	settingsContent := readCombinedSettingsContent(definitionDir)
+	vars := parseDefinitionAssignments(settingsContent)
+
+	blocks, blockWarnings := scanGroupClauseBlocks(splitLines(physicalContent), "Physical.def", mqttProfileHeaderPattern)
+	warnings = append(warnings, blockWarnings...)
+
+	profiles := map[string]TMQTTBrokerSecrets{}
+	for _, block := range blocks {
+		name := block.HeaderMatch[1]
+		var secrets TMQTTBrokerSecrets
+		for _, rawLine := range block.BodyLines {
+			line := strings.TrimSpace(rawLine)
+			if commentIdx := strings.Index(line, "#"); commentIdx >= 0 {
+				line = strings.TrimSpace(line[:commentIdx])
+			}
+			if line == "" {
+				continue
+			}
+			matches := mqttProfileFieldPattern.FindStringSubmatch(line)
+			if matches == nil {
+				warnings = append(warnings, fmt.Sprintf("Physical.def: unrecognised line inside \"mqtt %s\" block: %q", name, line))
+				continue
+			}
+			value := resolveDefinitionReference(matches[2], vars)
+			switch matches[1] {
+			case "server":
+				secrets.Server = value
+			case "login":
+				secrets.Login = value
+			case "password":
+				secrets.Password = value
+			case "port":
+				secrets.Port = value
+			case "tls":
+				secrets.TLS = value == "true"
+			case "coordinator_only":
+				secrets.CoordinatorOnly = value == "true"
+			}
+		}
+		profiles[name] = secrets
+	}
+	return profiles, warnings
+}
+
+// resolveMQTTBrokerSecrets resolves the house's "main" MQTT broker connection secrets --
+// backward-compatible convenience wrapper over resolveMQTTBrokerProfiles for callers that only
+// ever cared about the one house-wide broker. Returns ok=false if "main" isn't declared, or all
+// four connection fields are empty -- not every house has an MQTT broker configured yet (e.g.
+// Vienna today), and callers should treat that as "nothing to generate," not an error.
+func resolveMQTTBrokerSecrets(definitionDir string) (TMQTTBrokerSecrets, bool) {
+	profiles, _ := resolveMQTTBrokerProfiles(definitionDir)
+	secrets, found := profiles["main"]
+	if !found || (secrets.Server == "" && secrets.Login == "" && secrets.Password == "" && secrets.Port == "") {
+		return TMQTTBrokerSecrets{}, false
+	}
+	return secrets, true
+}
+
+// resolveMQTTDiscoveryPhysicalPrefix resolves ${mqtt_discovery_physical} from Settings.def --
+// the MQTT Discovery topic prefix external "physical gateway" devices (e.g. EMS-ESP) publish
+// their own native HA discovery under, instead of the default "homeassistant" prefix HA itself
+// subscribes to. This is what lets the coordinator observe and selectively relay a gateway's
+// auto-discovered entities (the "discovery" integration, integration_discovery_*.go) without HA
+// picking up the gateway's raw, unpositioned discovery directly. "" if not configured -- not
+// every house has a "discovery" integration yet.
+func resolveMQTTDiscoveryPhysicalPrefix(definitionDir string) string {
+	settingsContent := readCombinedSettingsContent(definitionDir)
+	vars := parseDefinitionAssignments(settingsContent)
+	return resolveDefinitionReference("${mqtt_discovery_physical}", vars)
+}
+
+// resolveMQTTDiscoveryConceptualPrefix resolves ${mqtt_discovery_conceptual} from Settings.def --
+// the MQTT Discovery topic prefix the coordinator itself publishes our own conceptual-layer
+// entities under (mirrors resolveMQTTDiscoveryPhysicalPrefix's role for the *source* side).
+// Falls back to "homeassistant" -- HA's own default discovery prefix -- when unset, so this is
+// never "" the way MQTTDiscoveryPhysicalPrefix legitimately can be for a house with no
+// "discovery" integration; every house's coordinator always publishes conceptual discovery.
+func resolveMQTTDiscoveryConceptualPrefix(definitionDir string) string {
+	settingsContent := readCombinedSettingsContent(definitionDir)
+	vars := parseDefinitionAssignments(settingsContent)
+	if prefix := resolveDefinitionReference("${mqtt_discovery_conceptual}", vars); prefix != "" {
+		return prefix
+	}
+	return "homeassistant"
+}
+
+// resolveInstallationName resolves ${installation} from Settings.def -- this house's own short
+// name (e.g. "junglinster", "vienna"), used to qualify state/discovery topics a coordinator
+// publishes onto a shared cloud broker (mqtt_relay.go, house_event_bus_coordinator side) so two
+// installations sharing that broker's namespace never collide. "" if not configured -- not every
+// house has adopted the cloud broker "cloud"/"local"/"import" mechanism yet.
+func resolveInstallationName(definitionDir string) string {
+	settingsContent := readCombinedSettingsContent(definitionDir)
+	vars := parseDefinitionAssignments(settingsContent)
+	return resolveDefinitionReference("${installation}", vars)
 }
 
 // --- shared file and string utilities ---
@@ -76,19 +202,14 @@ func unquoteShellValue(s string) string {
 }
 
 func resolveBridgeTargets(definitionDir string) (map[string]THomeAssistantTarget, error) {
-	serverPath := filepath.Join(definitionDir, "Server.def")
 	bridgesPath := filepath.Join(definitionDir, "Bridges.def")
 
-	serverContent, _ := readOptionalFile(serverPath)
 	// Settings.def (local, per-house) now also holds real secrets -- see .gitignore in
 	// the SmartLiving repo -- so there's no separate Secrets.def to read anymore.
 	settingsContent := readCombinedSettingsContent(definitionDir)
 	bridgesContent, _ := readOptionalFile(bridgesPath)
 
-	vars := parseServerAssignmentsWithDefined(serverContent, isServerHostUp)
-	for name, value := range parseDefinitionAssignments(settingsContent) {
-		vars[name] = value
-	}
+	vars := parseDefinitionAssignments(settingsContent)
 
 	bridgeTargets := map[string]THomeAssistantTarget{}
 	for _, bridgeDef := range parseBridgeRestDefinitions(bridgesContent) {
@@ -170,54 +291,6 @@ func splitStatesEndpointURL(endpoint string) (string, string) {
 	return baseURL, statesPath
 }
 
-func resolveHomeAssistantTarget(definitionDir string) (THomeAssistantTarget, error) {
-	baseURL := ""
-	token := ""
-	insecureSkipTLS := false
-
-	serverPath := filepath.Join(definitionDir, "Server.def")
-
-	serverContent, _ := readOptionalFile(serverPath)
-	// Settings.def (local, per-house) now also holds real secrets -- see .gitignore in
-	// the SmartLiving repo -- so there's no separate Secrets.def to read anymore.
-	settingsContent := readCombinedSettingsContent(definitionDir)
-
-	vars := parseServerAssignmentsWithDefined(serverContent, isServerHostUp)
-	for name, value := range parseDefinitionAssignments(settingsContent) {
-		vars[name] = value
-	}
-
-	mainTargetExpr := parseMainTargetExpression(serverContent)
-	baseURL = resolveDefinitionReference(mainTargetExpr, vars)
-	token = resolveDefinitionReference("${main_api_token}", vars)
-	insecureSkipTLS = resolveDefinitionBoolReference([]string{"${main_api_tls_insecure}", "${main_api_tls_skip_verify}", "${main_api_insecure_tls}"}, vars)
-
-	if baseURL == "" {
-		baseURL = firstNonEmptyEnv("HASS_BASE_URL", "HOMEASSISTANT_BASE_URL")
-	}
-	if token == "" {
-		token = firstNonEmptyEnv("HASS_TOKEN", "HOMEASSISTANT_TOKEN")
-	}
-	if !insecureSkipTLS {
-		insecureSkipTLS = parseBoolLike(firstNonEmptyEnv("HASS_INSECURE_SKIP_TLS_VERIFY", "HOMEASSISTANT_INSECURE_SKIP_TLS_VERIFY"))
-	}
-
-	baseURL = strings.TrimSpace(strings.TrimSuffix(baseURL, "/"))
-	token = strings.TrimSpace(token)
-
-	if baseURL == "" {
-		return THomeAssistantTarget{}, fmt.Errorf("missing Home Assistant base URL; provide main target in Server.def or set HASS_BASE_URL/HOMEASSISTANT_BASE_URL")
-	}
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		return THomeAssistantTarget{}, fmt.Errorf("invalid Home Assistant base URL %q; expected http:// or https://", baseURL)
-	}
-	if token == "" {
-		return THomeAssistantTarget{}, fmt.Errorf("missing Home Assistant token; provide ${main_api_token} in Secrets.def or set HASS_TOKEN/HOMEASSISTANT_TOKEN")
-	}
-
-	return THomeAssistantTarget{BaseURL: baseURL, Token: token, InsecureSkipTLS: insecureSkipTLS, StatesPath: "/api/states"}, nil
-}
-
 // resolveMainIncarnationName reads Physical.def (plus combined Settings.def, which also
 // holds real secrets, for ${var} resolution) and returns the name declared by
 // "home_assistant main: <name> <url>;", e.g. "junglinster". Returns "" if Physical.def
@@ -228,7 +301,7 @@ func resolveMainIncarnationName(definitionDir string) string {
 	// Warnings from this extraction are intentionally dropped here: generatePhysicalIntegrationOutputs
 	// re-collects the same physical layer content later in the pipeline and reports them there,
 	// so surfacing them again from this early, output-path-only read would just be noise.
-	physicalContent, _ := collectLayerContent(definitionDir, []string{"Physical.def"}, LayerPhysical)
+	physicalContent, _, _ := collectLayerContent(definitionDir, []string{"Physical.def"}, LayerPhysical)
 	if strings.TrimSpace(physicalContent) == "" {
 		return ""
 	}
@@ -246,15 +319,96 @@ func resolveMainIncarnationName(definitionDir string) string {
 // parseHomeAssistantMainDirective extracts the two whitespace-separated tokens (name, url
 // expressions) from a "home_assistant main: <name> <url>;" line in Physical.def.
 func parseHomeAssistantMainDirective(physicalContent string) (nameExpr, urlExpr string) {
-	pattern := regexp.MustCompile(`^home_assistant\s+main:\s*(\S+)\s+(\S+)\s*;\s*$`)
+	pattern := regexp.MustCompile(`^home_assistant\s+main:\s*(.+?)\s*;\s*$`)
 	for _, rawLine := range strings.Split(strings.ReplaceAll(physicalContent, "\r\n", "\n"), "\n") {
 		line := strings.TrimSpace(rawLine)
 		matches := pattern.FindStringSubmatch(line)
-		if matches != nil {
-			return matches[1], matches[2]
+		if matches == nil {
+			continue
 		}
+		fields := strings.Fields(matches[1])
+		if len(fields) == 0 {
+			continue
+		}
+		nameExpr = fields[0]
+		if len(fields) > 1 {
+			urlExpr = fields[1]
+		}
+		return nameExpr, urlExpr
 	}
 	return "", ""
+}
+
+// collectAssumedEntityIDs returns every HA entity_id the DSL references but never defines or
+// imports itself -- i.e. assumed to already exist on some HA instance. Shared by
+// generateAssumedEntitiesFile (Physical_Generator.go) and, previously, presence.go's
+// now-removed REST-based checkAssumedEntitiesOnline -- same computation, relocated rather than
+// duplicated. Sorted for deterministic generated output.
+func collectAssumedEntityIDs(definitionDir string, admin *TAdministrationState) []string {
+	assumedByID := map[string]bool{}
+	for _, records := range admin.EntityRecordsBySpace {
+		for _, rec := range records {
+			if rec.HasDefinitionOrImport || rec.NoCollect || rec.DiscoveryImplied {
+				continue
+			}
+			if id := toHomeAssistantEntityID(rec.Name); id != "" {
+				assumedByID[id] = true
+			}
+		}
+	}
+	// Physical.def's "integration hosts" home_assistant-type devices reference entities (e.g.
+	// sensor.processor_use) that are assumed to already exist locally, the same way -- these
+	// aren't declared in Spaces.def (no space/entity linkage exists for them), so they'd
+	// otherwise go unaccounted for entirely.
+	for id := range homeAssistantCapabilityEntityIDs(definitionDir) {
+		assumedByID[id] = true
+	}
+
+	ids := make([]string, 0, len(assumedByID))
+	for id := range assumedByID {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// THomeAssistantInstance is one "home_assistant <qualifier>: <name> <url>;" declaration in
+// Physical.def -- Name/URL still as their raw ${...} expressions, unresolved.
+type THomeAssistantInstance struct {
+	Name string
+	URL  string
+}
+
+// collectHomeAssistantInstances generalises parseHomeAssistantMainDirective to every qualifier,
+// not just "main" -- e.g. "home_assistant protocols-server-2: protocols-server-2;" names a
+// secondary instance the same way "home_assistant main: junglinster;" names the main one. The url
+// token is optional (nothing requires it any more now that the REST-based presence check is gone
+// -- see presence.go's removed checkAssumedEntitiesOnline; the coordinator's replacement routes
+// entirely by instance name over MQTT), kept only as an informational field when given. Keyed by
+// qualifier (not by Name, which callers must resolveDefinitionReference themselves). This is
+// naming/declaration only -- it doesn't imply any entity-bridging capability for the named
+// instance, just gives it a stable key other generator output (e.g.
+// coordinator/assumed_entities.yaml) can group by.
+func collectHomeAssistantInstances(physicalContent string) map[string]THomeAssistantInstance {
+	instances := map[string]THomeAssistantInstance{}
+	pattern := regexp.MustCompile(`^home_assistant\s+(\S+):\s*(.+?)\s*;\s*$`)
+	for _, rawLine := range strings.Split(strings.ReplaceAll(physicalContent, "\r\n", "\n"), "\n") {
+		line := strings.TrimSpace(rawLine)
+		matches := pattern.FindStringSubmatch(line)
+		if matches == nil {
+			continue
+		}
+		fields := strings.Fields(matches[2])
+		if len(fields) == 0 {
+			continue
+		}
+		instance := THomeAssistantInstance{Name: fields[0]}
+		if len(fields) > 1 {
+			instance.URL = fields[1]
+		}
+		instances[matches[1]] = instance
+	}
+	return instances
 }
 
 func resolveDefinitionBoolReference(candidates []string, vars map[string]string) bool {
@@ -275,6 +429,25 @@ func parseBoolLike(value string) bool {
 	return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "y" || normalized == "on"
 }
 
+// settingsAssignmentAttemptPattern recognises a line that was clearly *intended* as a
+// "${name} = value" assignment (starts with "${...} ="), even if it doesn't fully match
+// parseDefinitionAssignmentLine's stricter grammar (e.g. a missing trailing ";") -- used only to
+// decide whether an unmatched line deserves a warning, not to extract anything from it.
+var settingsAssignmentAttemptPattern = regexp.MustCompile(`^\$\{[A-Za-z_][A-Za-z0-9_]*\}\s*=`)
+
+// warnedSettingsLines de-dupes parseDefinitionAssignments' own warning: it's called repeatedly,
+// once per resolver that needs settings (resolveMQTTBrokerSecrets, resolveMQTTDiscoveryPhysicalPrefix,
+// ...), typically re-parsing the exact same Settings.def content each time -- without this, one
+// malformed line would warn once per resolver invoked that run, not once overall.
+var warnedSettingsLines = map[string]bool{}
+
+// parseDefinitionAssignments parses every "${name} = value;" line in content into a name->value
+// map, silently skipping blank lines and "#" comments. Any other non-empty line that looks like
+// an assignment attempt (starts "${...} =") but doesn't match the full grammar -- most commonly a
+// missing trailing ";", which is easy to type and produces no other symptom -- gets a warning
+// printed directly (this is called repeatedly, once per resolver that needs settings, so a
+// warning here is the only place guaranteed to fire regardless of which resolver first hits the
+// malformed line; warnedSettingsLines keeps that to once per line, not once per resolver call).
 func parseDefinitionAssignments(content string) map[string]string {
 	assignments := map[string]string{}
 
@@ -286,6 +459,11 @@ func parseDefinitionAssignments(content string) map[string]string {
 		name, value, matched := parseDefinitionAssignmentLine(line)
 		if matched {
 			assignments[name] = value
+			continue
+		}
+		if settingsAssignmentAttemptPattern.MatchString(line) && !warnedSettingsLines[line] {
+			warnedSettingsLines[line] = true
+			fmt.Fprintf(os.Stderr, "[settings] %q looks like a \"${name} = value;\" assignment but wasn't recognised -- missing trailing \";\"?\n", line)
 		}
 	}
 
@@ -301,129 +479,6 @@ func parseDefinitionAssignmentLine(line string) (string, string, bool) {
 	name := matches[1]
 	value := unquoteShellValue(strings.TrimSpace(matches[2]))
 	return name, value, true
-}
-
-func parseServerAssignmentsWithDefined(serverContent string, hostUp func(string) bool) map[string]string {
-	assignments := map[string]string{}
-	ifPattern := regexp.MustCompile(`^if\s+is\s+up\s+"([^"]+)"\s+then$`)
-	elifPattern := regexp.MustCompile(`^elif\s+is\s+up\s+"([^"]+)"\s+then$`)
-
-	inConditional := false
-	branchSelected := false
-	branchApplies := false
-
-	for _, rawLine := range strings.Split(strings.ReplaceAll(serverContent, "\r\n", "\n"), "\n") {
-		line := strings.TrimSpace(rawLine)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		if matches := ifPattern.FindStringSubmatch(line); matches != nil {
-			inConditional = true
-			branchSelected = false
-			branchApplies = false
-			host := strings.TrimSpace(matches[1])
-			if host != "" && hostUp(host) {
-				branchSelected = true
-				branchApplies = true
-			}
-			continue
-		}
-
-		if matches := elifPattern.FindStringSubmatch(line); matches != nil {
-			if !inConditional {
-				continue
-			}
-			branchApplies = false
-			if !branchSelected {
-				host := strings.TrimSpace(matches[1])
-				if host != "" && hostUp(host) {
-					branchSelected = true
-					branchApplies = true
-				}
-			}
-			continue
-		}
-
-		if line == "else" {
-			if inConditional && !branchSelected {
-				branchSelected = true
-				branchApplies = true
-			} else {
-				branchApplies = false
-			}
-			continue
-		}
-
-		if line == "end;" {
-			if inConditional {
-				inConditional = false
-				branchSelected = false
-				branchApplies = false
-			}
-			continue
-		}
-
-		name, value, matched := parseDefinitionAssignmentLine(line)
-		if !matched {
-			continue
-		}
-		if !inConditional || branchApplies {
-			assignments[name] = value
-		}
-	}
-
-	return assignments
-}
-
-func isServerHostUp(host string) bool {
-	trimmedHost := strings.TrimSpace(host)
-	if trimmedHost == "" {
-		return false
-	}
-
-	targets := []string{}
-	if strings.Contains(trimmedHost, ":") {
-		targets = append(targets, trimmedHost)
-	} else {
-		targets = append(targets, net.JoinHostPort(trimmedHost, "8123"))
-		targets = append(targets, net.JoinHostPort(trimmedHost, "443"))
-		targets = append(targets, net.JoinHostPort(trimmedHost, "80"))
-	}
-
-	for _, target := range targets {
-		conn, err := net.DialTimeout("tcp", target, 1500*time.Millisecond)
-		if err != nil {
-			continue
-		}
-		_ = conn.Close()
-		return true
-	}
-
-	if strings.Contains(trimmedHost, ":") {
-		return false
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "ping", "-c", "1", trimmedHost)
-	if err := cmd.Run(); err == nil {
-		return true
-	}
-
-	return false
-}
-
-func parseMainTargetExpression(serverContent string) string {
-	mainPattern := regexp.MustCompile(`^main\s+[A-Za-z_][A-Za-z0-9_]*\s+(.+?)\s*;\s*$`)
-	for _, rawLine := range strings.Split(strings.ReplaceAll(serverContent, "\r\n", "\n"), "\n") {
-		line := strings.TrimSpace(rawLine)
-		matches := mainPattern.FindStringSubmatch(line)
-		if matches != nil {
-			return strings.TrimSpace(matches[1])
-		}
-	}
-	return ""
 }
 
 func resolveDefinitionReference(expression string, vars map[string]string) string {
@@ -554,7 +609,7 @@ func fetchAllEntityIDs(client *http.Client, target THomeAssistantTarget) (map[st
 		return entityIDs, nil
 	}
 
-	return nil, fmt.Errorf(strings.Join(errors, "; "))
+	return nil, fmt.Errorf("%s", strings.Join(errors, "; "))
 }
 
 func extractEntityIDsFromStatesPayload(payload []byte) (map[string]bool, error) {
@@ -613,10 +668,15 @@ const endToken = "end;"
 // body lines between the header and its matching "end;" (nested groups' own headers and
 // closing "end;" lines are included verbatim, since from the caller's point of view a
 // nested group is just more body text -- interpreting it is up to whatever per-context
-// parser consumes BodyLines next), and the header's source line for diagnostics.
+// parser consumes BodyLines next), and the header's source line for diagnostics. BodyLineNos
+// runs parallel to BodyLines: BodyLineNos[i] is BodyLines[i]'s original 1-indexed line number
+// in SourceFile, surviving the blank-line/comment stripping newLineCursor does while
+// scanning -- callers that report diagnostics against a body line must use BodyLineNos[i],
+// not the body's own local index, or the reported line drifts from the source file.
 type TGroupClauseBlock struct {
 	HeaderMatch []string
 	BodyLines   []string
+	BodyLineNos []int
 	SourceFile  string
 	StartLine   int
 }
@@ -676,18 +736,20 @@ func (c *TLineCursor) Advance() string {
 // nested inside another element's body (its "end;" is that outer body's text too); the
 // outermost call in scanGroupClauseBlocks passes nil so the block-terminating "end;" isn't
 // recorded as part of the block's own content.
-func forceElementsSequence(cur *TLineCursor, element func(*TLineCursor) bool, appendEndTo *[]string) bool {
+func forceElementsSequence(cur *TLineCursor, element func(*TLineCursor) bool, appendEndTo *[]string, appendEndLineNos *[]int) bool {
 	if cur.ThisLine() == endToken {
+		lineNo := cur.ThisLineNumber()
 		line := cur.Advance()
 		if appendEndTo != nil {
 			*appendEndTo = append(*appendEndTo, line)
+			*appendEndLineNos = append(*appendEndLineNos, lineNo)
 		}
 		return true
 	}
 	if !element(cur) {
 		return false
 	}
-	return forceElementsSequence(cur, element, appendEndTo)
+	return forceElementsSequence(cur, element, appendEndTo, appendEndLineNos)
 }
 
 // forcedElementsGroup: (MaybeToken(ColonToken) && ForceElementsSequence(f)) || f().
@@ -695,9 +757,9 @@ func forceElementsSequence(cur *TLineCursor, element func(*TLineCursor) bool, ap
 // line ended in ":" (a sequence follows) or not (a single bare element follows) from their
 // own header-matching regex, so there's no separate colon token left on the cursor to
 // re-check here.
-func forcedElementsGroup(cur *TLineCursor, hadColon bool, element func(*TLineCursor) bool, appendEndTo *[]string) bool {
+func forcedElementsGroup(cur *TLineCursor, hadColon bool, element func(*TLineCursor) bool, appendEndTo *[]string, appendEndLineNos *[]int) bool {
 	if hadColon {
-		return forceElementsSequence(cur, element, appendEndTo)
+		return forceElementsSequence(cur, element, appendEndTo, appendEndLineNos)
 	}
 	return element(cur)
 }
@@ -708,16 +770,18 @@ func forcedElementsGroup(cur *TLineCursor, hadColon bool, element func(*TLineCur
 // recursively. This is what makes nested "with:"/"end;" pairs (e.g. a per-device
 // capability block inside an "integration hosts with:" block) not close the outer group
 // early, without an explicit depth counter: the recursion IS the depth tracking.
-func genericBodyElement(body *[]string) func(cur *TLineCursor) bool {
+func genericBodyElement(body *[]string, lineNos *[]int) func(cur *TLineCursor) bool {
 	var element func(cur *TLineCursor) bool
 	element = func(cur *TLineCursor) bool {
 		if cur.AtEnd() {
 			return false
 		}
 		line := cur.ThisLine()
+		lineNo := cur.ThisLineNumber()
 		*body = append(*body, cur.Advance())
+		*lineNos = append(*lineNos, lineNo)
 		if strings.HasSuffix(line, ":") {
-			return forceElementsSequence(cur, element, body)
+			return forceElementsSequence(cur, element, body, lineNos)
 		}
 		return true
 	}
@@ -747,16 +811,36 @@ func scanGroupClauseBlocks(rawLines []string, sourceFile string, headerPattern *
 		cur.Advance()
 
 		var body []string
+		var bodyLineNos []int
 		hadColon := strings.HasSuffix(line, ":")
-		if !forcedElementsGroup(cur, hadColon, genericBodyElement(&body), nil) {
+		if !forcedElementsGroup(cur, hadColon, genericBodyElement(&body, &bodyLineNos), nil, nil) {
 			warnings = append(warnings, fmt.Sprintf("%s:%d: block starting %q is missing its closing \"end;\"", sourceFile, startLine, matches[0]))
 			break
 		}
 
-		blocks = append(blocks, TGroupClauseBlock{HeaderMatch: matches, BodyLines: body, SourceFile: sourceFile, StartLine: startLine})
+		blocks = append(blocks, TGroupClauseBlock{HeaderMatch: matches, BodyLines: body, BodyLineNos: bodyLineNos, SourceFile: sourceFile, StartLine: startLine})
 	}
 
 	return blocks, warnings
+}
+
+// translateContentLineNo maps a line number computed within a layer-extracted content string
+// (e.g. scanGroupClauseBlocks's StartLine, when it's given content collectLayerContent already
+// merged/stripped the "<layer> with: ... end;" wrapper from) back to the original source file's
+// line number, via collectLayerContent's own returned mergedLineNos (mergedLineNos[i] is merged
+// content line i+1's original file line). Without this translation, a StartLine computed by
+// re-splitting and re-scanning collectLayerContent's *output* -- as parseIntegrationBlocks and
+// collectHassBridgeDevicesByID both do, since Physical.def's own "integration ... with: ... end;"
+// blocks are nested one level inside the outer "physical layer with: ... end;" wrapper
+// collectLayerContent already stripped -- reports a position within that already-shifted content,
+// not a real Physical.def line number (this is what produced a materially wrong line number in a
+// real warning; see PROJECT.md/this commit). Falls back to contentLineNo unchanged if the mapping
+// doesn't cover it (shouldn't normally happen).
+func translateContentLineNo(mergedLineNos []int, contentLineNo int) int {
+	if contentLineNo-1 >= 0 && contentLineNo-1 < len(mergedLineNos) {
+		return mergedLineNos[contentLineNo-1]
+	}
+	return contentLineNo
 }
 
 // splitLines is a small helper for callers that have raw file content rather than an
@@ -764,4 +848,3 @@ func scanGroupClauseBlocks(rawLines []string, sourceFile string, headerPattern *
 func splitLines(content string) []string {
 	return strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
 }
-
