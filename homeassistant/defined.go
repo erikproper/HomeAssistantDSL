@@ -27,7 +27,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 )
 
@@ -339,39 +338,6 @@ func parseHomeAssistantMainDirective(physicalContent string) (nameExpr, urlExpr 
 	return "", ""
 }
 
-// collectAssumedEntityIDs returns every HA entity_id the DSL references but never defines or
-// imports itself -- i.e. assumed to already exist on some HA instance. Shared by
-// generateAssumedEntitiesFile (Physical_Generator.go) and, previously, presence.go's
-// now-removed REST-based checkAssumedEntitiesOnline -- same computation, relocated rather than
-// duplicated. Sorted for deterministic generated output.
-func collectAssumedEntityIDs(definitionDir string, admin *TAdministrationState) []string {
-	assumedByID := map[string]bool{}
-	for _, records := range admin.EntityRecordsBySpace {
-		for _, rec := range records {
-			if rec.HasDefinitionOrImport || rec.NoCollect || rec.DiscoveryImplied {
-				continue
-			}
-			if id := toHomeAssistantEntityID(rec.Name); id != "" {
-				assumedByID[id] = true
-			}
-		}
-	}
-	// Physical.def's "integration hosts" home_assistant-type devices reference entities (e.g.
-	// sensor.processor_use) that are assumed to already exist locally, the same way -- these
-	// aren't declared in Spaces.def (no space/entity linkage exists for them), so they'd
-	// otherwise go unaccounted for entirely.
-	for id := range homeAssistantCapabilityEntityIDs(definitionDir) {
-		assumedByID[id] = true
-	}
-
-	ids := make([]string, 0, len(assumedByID))
-	for id := range assumedByID {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return ids
-}
-
 // THomeAssistantInstance is one "home_assistant <qualifier>: <name> <url>;" declaration in
 // Physical.def -- Name/URL still as their raw ${...} expressions, unresolved.
 type THomeAssistantInstance struct {
@@ -382,13 +348,12 @@ type THomeAssistantInstance struct {
 // collectHomeAssistantInstances generalises parseHomeAssistantMainDirective to every qualifier,
 // not just "main" -- e.g. "home_assistant protocols-server-2: protocols-server-2;" names a
 // secondary instance the same way "home_assistant main: junglinster;" names the main one. The url
-// token is optional (nothing requires it any more now that the REST-based presence check is gone
-// -- see presence.go's removed checkAssumedEntitiesOnline; the coordinator's replacement routes
-// entirely by instance name over MQTT), kept only as an informational field when given. Keyed by
-// qualifier (not by Name, which callers must resolveDefinitionReference themselves). This is
-// naming/declaration only -- it doesn't imply any entity-bridging capability for the named
-// instance, just gives it a stable key other generator output (e.g.
-// coordinator/assumed_entities.yaml) can group by.
+// token is optional (nothing requires it any more now that this generator's own checks route
+// entirely by instance name over MQTT -- generateInstanceAutomationTrees's bootstrap automations,
+// mqtt_entity_catalogue.go's live entity fetch), kept only as an informational field when given.
+// Keyed by qualifier (not by Name, which callers must resolveDefinitionReference themselves).
+// This is naming/declaration only -- it doesn't imply any entity-bridging capability for the
+// named instance, just gives it a stable key other generator output can group by.
 func collectHomeAssistantInstances(physicalContent string) map[string]THomeAssistantInstance {
 	instances := map[string]THomeAssistantInstance{}
 	pattern := regexp.MustCompile(`^home_assistant\s+(\S+):\s*(.+?)\s*;\s*$`)

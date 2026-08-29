@@ -195,6 +195,14 @@ type TDeviceAttributeLink struct {
 	Unit        string
 	StateClass  string
 	Icon        string
+
+	// Identity is EntityID's own pre-flattening TEntityIdentity (Domain/Sphere/Path) --
+	// toHomeAssistantEntityID's underscore-joining loses segment boundaries (e.g. is
+	// "netatmo_co2" the path "netatmo/co2" flattened, or one segment that happened to contain an
+	// underscore already?), so anything that needs the *segmented* fully qualified name -- PROJECT.md
+	// 1.1's per-entity reporting/command automation filenames and aliases -- must be built from
+	// this, not by trying to un-flatten EntityID.
+	Identity TEntityIdentity
 }
 
 // TFollowsRelation records a "follows <follower> <leader>;" space-level directive.

@@ -48,7 +48,7 @@ type TDeviceCapability struct {
 // defaults/overrides, per-attribute device_class/unit/state_class). Absent (nil) for devices
 // with no such declaration yet -- most devices today.
 type TDeviceConceptual struct {
-	NodeEntity      string `yaml:"node_entity"`
+	NodeEntity string `yaml:"node_entity"`
 	// NodeDeviceClass/NodeIcon are the node entity's own typing metadata -- resolved generator-
 	// side from Defaults.def/a house's own Physical.def "defaults: for ...;" rules
 	// (resolveCapabilityDefaults), not coordinator-invented. Empty when no rule matches.
@@ -200,13 +200,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	assumedFile, err := loadAssumedEntitiesFile(filepath.Join(coordinatorDir, "assumed_entities.yaml"))
+	hassBridgeFile, err := loadHassBridgeFile(filepath.Join(coordinatorDir, "homeassistant_bridge.yaml"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
-	hassBridgeFile, err := loadHassBridgeFile(filepath.Join(coordinatorDir, "homeassistant_bridge.yaml"))
+	homeAssistantInstancesFile, err := loadHomeAssistantInstancesFile(filepath.Join(coordinatorDir, "home_assistant_instances.yaml"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -253,14 +253,16 @@ func main() {
 	for t := range expectedDiscoveryBridgeTopics(discoveryFile, conceptualPrefix) {
 		expectedTopics[t] = true
 	}
-	for name := range assumedFile.Instances {
-		for _, cfg := range buildAssumedDiscoveryConfigs(name, conceptualPrefix) {
-			expectedTopics[cfg.Topic] = true
-		}
-	}
 	for t := range expectedHassBridgeTopics(hassBridgeFile, conceptualPrefix) {
 		expectedTopics[t] = true
 	}
+	// The "Discover entity" meta control (discover_entity_input.go) is permanent, coordinator-owned,
+	// and not derived from any devices/discovery/hassbridge file -- must be listed here explicitly,
+	// or watchForOrphanedDiscoveryTopics (below) retires it moments after publishDiscoverEntityInput
+	// (further down this function) ever publishes it, since its own "coordinator"-owned topic would
+	// otherwise never appear "expected". Confirmed live 2026-08-28: without this, the entity never
+	// stayed up long enough for HA to show it at all.
+	expectedTopics[discoveryTopic(conceptualPrefix, "text", discoverEntityStableID)] = true
 
 	declaredCleanNodeIDs := make(map[string]bool, len(cleanupFile.CleanTopics))
 	for _, t := range cleanupFile.CleanTopics {
@@ -326,20 +328,47 @@ func main() {
 		}
 	}
 	if discoveryFile.PhysicalPrefix != "" {
-		if err := subscribeDiscoveryBridge(client, discoveryFile, publisher, conceptualPrefix); err != nil {
+		// PROJECT.md 1.8: kind-2's own passive counterpart to kind-3's entity-existence inquiry --
+		// no active inquiry needed (a gateway self-announces), but the coordinator still needs to
+		// track and report each declared source leaf's status, seeded not-known-to-exist from
+		// discovery.yaml's own EntityLinks, populated as a byproduct of the discovery-bridge
+		// subscription below.
+		discoveryExistenceTracker := newDiscoveryExistenceTracker(filepath.Join(coordinatorDir, "discovery_existence.json"))
+		discoveryExistenceTracker.Seed(discoveryFile)
+		if err := subscribeDiscoveryBridge(client, cloudClient, discoveryFile, publisher, conceptualPrefix, discoveryExistenceTracker); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
-	}
-	if err := subscribeAssumedEntityWarnings(client, assumedFile, publisher, conceptualPrefix); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
 	}
 	if err := subscribeHassBridge(client, hassBridgeFile, store, publisher, conceptualPrefix); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 	if err := subscribeHassBridgeDeviceInfo(client, hassBridgeFile, store, publisher, conceptualPrefix); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Entity-existence inquiry (PROJECT.md 1.1): seeded from hassBridgeFile (every declared
+	// capability's source entity is "assumed to exist" per Physical.def/Spaces.def), paced-inquired
+	// one at a time per named instance -- applies to every declared instance, "main" included, not
+	// just remote bridge sources (that's the whole point of asking one entity at a time instead of
+	// scanning every state, unlike the disabled coordinator_bootstrap mechanism).
+	existenceTracker := newEntityExistenceTracker(filepath.Join(coordinatorDir, "entity_existence.json"))
+	existenceTracker.Seed(hassBridgeFile)
+	if err := existenceTracker.StartEntityExistenceInquiries(client, cloudClient, homeAssistantInstancesFile.Instances); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Architecture.md §6.9: bootstrapping an entirely new, undeclared device needs a human-provided
+	// seed -- DiscoverSiblings can only enrich a device the tracker already has some anchor for.
+	if err := publishDiscoverEntityInput(client, conceptualPrefix); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("[existence] published \"Discover entity\" meta control at %s\n", discoveryTopic(conceptualPrefix, "text", discoverEntityStableID))
+	if err := subscribeDiscoverEntityRequests(client, existenceTracker, homeAssistantInstancesFile.Instances); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}

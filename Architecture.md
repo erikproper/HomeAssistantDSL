@@ -282,9 +282,12 @@ make deliberately per case, not a detail to paper over.
 A related, structurally different case: entities that already exist as fully-formed entities on
 *another* HA instance (not raw physical/protocol data at all) shouldn't be bridged via MQTT
 discovery either, even for domains MQTT *does* support — see §6, "coordinator-based warning"
-design note (PROJECT.md) for why this calls for a conceptual-to-conceptual mechanism (state
-mirroring, closer to HA's own `mqtt_statestream` pattern) rather than the physical-layer discovery
-path "hosts"/"discovery" use.
+design note (PROJECT.md) for why this calls for a conceptual-to-conceptual mechanism rather than
+the physical-layer discovery path "hosts"/"discovery" use. That mechanism is PROJECT.md 1.1's
+entity-existence inquiry design (2026-08-28) — per-entity generated reporting/command automations
+plus a coordinator-side inquiry loop, *not* HA's `mqtt_statestream`/`event_stream` (both classified
+legacy in current Home Assistant, ruled out after this section originally cited statestream as the
+model to follow).
 
 ### 6.8 Typing-metadata defaults: `Defaults.def`, never coordinator-invented
 
@@ -315,6 +318,126 @@ entity, a "hosts" device's hardwired attribute typing):
    handful of domain-agnostic icon-only subdomains (`subdomainIcons` — `consumes`, `daylight`,
    `radio`, ...) remain, since they don't fit a single settled domain to write a `defaults:` rule
    against.
+
+### 6.9 Entity-existence discovery always needs a seed
+
+PROJECT.md 1.1's entity-existence mechanism (three-state known-to-exist / not-known-to-exist /
+known-not-to-exist tracking, paced ≤1/minute-per-instance inquiry) can *enrich* a device it already
+knows about — an inquiry reply about any tracked entity also carries `device_entities()` for its
+device, and any sibling entity that reply reveals but the tracker didn't already know about is
+folded in as newly known-to-exist (`DiscoverSiblings`, `house_event_bus_coordinator/entity_existence.go`).
+That only works because there's an *anchor*: some already-tracked entity belonging to the same
+device, obtained from HA's own device_id/device_entities() registry functions.
+
+This is a structural limit, not a missing feature: **there is no way to discover an entirely new,
+never-declared device without either a seed or a scan.** A periodic full-instance enumeration
+(`{% for s in states %}`-style) is the thing 2026-08-27's incident already ruled out — it's
+synchronous and O(every entity on the instance), unsafe at any real scale, which is exactly why the
+paced one-entity-at-a-time design exists in the first place. An RPC-style "ask the instance to list
+everything it has, right now" call is the other theoretical option, and is rejected for the same
+reason from the other direction: it reintroduces a request whose cost scales with instance size,
+just wrapped differently — no better than the automation it would replace, and meaningfully more
+moving parts (a new protocol on top of the existing paced one, not a variation of it).
+
+**Chosen resolution: a human-provided seed, not an automatic one.** The coordinator discovery-
+publishes a single MQTT `text` entity on "main" (HA's `text.mqtt` platform, optimistic — no
+`state_topic`, since nothing needs to report a value back) whose `command_topic` the coordinator
+itself subscribes to. A person types a fully qualified entity_id into that field when they know
+(from checking the remote instance directly) that something new exists but the DSL doesn't know
+about it yet. Two accepted input shapes: a bare entity_id is inquired about on *every* declared
+instance (it doesn't say which one it belongs to, and asking all of them is cheap); an
+`<instance>: <entity_id>` prefix (colon, then exactly one space — never a valid substring of an HA
+entity_id, so the split is always unambiguous) routes it to that one instance only. Either shape may
+be repeated, separated by `;`, in a single text-field submission (`splitDiscoverEntityRequests`,
+2026-08-29) — pasting a whole list of entities, one per line each ending in `;`, some bare and some
+instance-prefixed, seeds and inquires about every one of them from one write instead of needing one
+submission per entity; one unrecognised entry in the batch is logged and dropped without aborting
+the rest. Either way the coordinator treats each request as a fresh seed (no owning DSL device yet)
+and inquires about it immediately —
+bypassing the normal per-instance pacing, since this is an explicit, rare, human-triggered action,
+not the automatic loop the pacing exists to protect the instance from. Once that seed resolves, the
+ordinary `DiscoverSiblings` mechanism takes over exactly as it does for any other anchor, surfacing
+the rest of that device's entities. Since a manually-seeded anchor has no DSL-declared device to
+attribute those siblings to, `DiscoverSiblings` mints a stable synthetic id (`hass.discovered_<slug
+of the remote instance's own device name>`) and assigns it to the anchor and every sibling it finds
+— so the resulting suggestion entry still renders as a proper `device hass.discovered_... with:
+...; end;` block, not dumped into an "no known device grouping" section, and stays stable across
+later inquiry rounds for the same device.
+
+*Implementation note*: this meta entity's own discovery topic must be listed as "expected" in
+`main.go` alongside every device/discovery/hassbridge-derived topic — otherwise
+`watchForOrphanedDiscoveryTopics` (a live, ongoing watcher, not just a startup sweep) sees it as an
+unrecognised "coordinator"-owned topic the moment it's published and retires it again immediately.
+Hit and fixed live 2026-08-28: the entity was published but never actually stayed up long enough
+for HA to show it.
+
+This is a deliberate trade: bootstrapping a new device is no longer fully automatic (the old
+manifest mechanism's one genuine advantage), in exchange for the paced mechanism never being able
+to overload an instance regardless of how many entities it has — the same trade the whole
+entity-existence design already made everywhere else.
+
+### 6.10 Existence tracking anchors on the physical layer's own declared *source*, per kind
+
+**Layering principle** (the general rule this section's checks are an instance of): anything
+declared at the conceptual layer is defined one of three ways — in terms of other, already-existing
+conceptual entities; assumed to exist as a native entity on the main HA instance directly (never
+imported from anywhere); or defined in terms of an entity the physical layer (or, later, the
+logical layer) provides. Existence-checking only ever concerns that third case — and what it
+checks is never the conceptual-layer name, always the *source* specification the physical layer
+declared it in terms of (a capability line's right-hand side, e.g. `sensor.outdoor_temperature:
+sensor.boiler_outdoortemp;`'s `sensor.boiler_outdoortemp`, or
+`sensor.production/current/power: sensor.inverter_122325122653;`'s
+`sensor.inverter_122325122653`) — the conceptual-layer name on the left is always the generator's
+own choice and is never in question.
+
+This reframes what each integration kind's check actually needs, and corrects an earlier version of
+this section that wrongly concluded kind-2 needs no existence-tracking machinery at all (see below).
+
+- **Kind 1 (hosts)**: no separate tracking needed — a *direct* link. The coordinator's own scripts
+  publish these entities' state themselves, so there is no "does the source exist" question
+  distinct from "is it currently reporting," which the existing liveness/ping mechanism already
+  answers.
+- **Kind 2 (discovery — Zigbee2MQTT, Z-Wave, EMS-ESP)** and **kind 3 (`home_assistant` bridge)**:
+  both need the coordinator to maintain and report an up-to-date three-state status
+  (known-to-exist / not-known-to-exist / known-not-to-exist) for every declared source entity —
+  kind-2's `TDiscoveryEntityLink.Leaf` (the gateway's own leaf identifier), kind-3's
+  `bareEntityFromSource(cap.SourceEntity)` — exactly mirroring what
+  `house_event_bus_coordinator/entity_existence.go` already does for kind-3. Without this, the
+  generator has no existence signal at all for a newly-referenced source when it runs offline — not
+  even kind-3's old gap (a bare assumption), but a complete blind spot for kind-2 today.
+- **Where kind-2 and kind-3 differ is *how* the coordinator learns the status, not *whether* it
+  tracks it**: kind-3 needs active, paced inquiry (PROJECT.md 1.1) because a remote HA instance
+  never self-announces anything to the coordinator unprompted. Kind-2 needs no inquiry at all — the
+  gateway's own native HA MQTT discovery payload already *is* the existence claim, and its
+  retraction (an empty/retracted payload on the same topic) *is* the non-existence claim, both
+  observed passively as a byproduct of `discoverybridge.go`'s existing subscription. "We trust the
+  advertiser" still holds for kind-2 (no independent verification round, the gateway's own report is
+  authoritative) — but *trusting* the signal and *tracking/reporting* it to the generator are two
+  different things, and only the first was true of the original (corrected) version of this section.
+
+**Status (2026-08-29): kind-2 passive tracking built** — see PROJECT.md 1.8. Coordinator side
+(`discovery_existence.go`): a per-gateway three-state tracker seeded from `discovery.yaml`'s
+`EntityLinks` (not-known-to-exist until observed), populated by `discoverybridge.go`'s existing
+discovery-payload handler (arrival → known-to-exist, no new subscription), published to
+`discovery_gateways/<gatewayID>/existence/state` (retained, local + cloud unconditionally, mirroring
+kind-3's `publishStatus`). Generator side (`mqtt_discovery_existence.go`): fetch/cache mirroring
+kind-3's `fetchEntityExistence`, and `checkDiscoveryKnownNotToExistErrors`
+(`checkKnownNotToExistErrors`'s kind-2 counterpart), wired into `Physical_Generator.go` right after
+the kind-3 check. Confirmed via a real `./generate`: soft-fails gracefully offline (no broker
+reachable, no cache yet) exactly like kind-3, generation still succeeds. First-phase (arrival-only)
+tracking deployed live and confirmed clean (no errors on deploy/generate).
+
+**Retraction (known-not-to-exist) also built, 2026-08-29 (same day, corrected mid-build)** — an
+earlier draft of this section wrongly claimed this needed a topic→identity map the coordinator
+"doesn't keep and can't build cheaply." That was wrong: the handler already has both the topic and
+the decoded `(gatewayID, leaf)` together at the moment any real payload arrives, so it costs nothing
+to remember `topic → (gatewayID, leaf)` as it goes (`RecordTopicIdentity`) — no new subscription, no
+persistence needed (discovery config topics are retained, so a coordinator restart's own subscribe
+naturally replays every gateway's current config before any new retraction could arrive, making the
+map self-healing in memory alone). An empty payload on a topic (HA's own MQTT discovery removal
+convention) resolves via that map (`MarkRetracted`) and moves the leaf to known-not-to-exist. The
+generator-side check (`checkDiscoveryKnownNotToExistErrors`) needed no change at all — it was
+already written expecting all three states.
 
 Where HA itself already supplies a sensible default icon from a `device_class` alone (most of
 them — `connectivity`, `temperature`, `battery`, `power`, `energy`, ...), a `defaults:` rule
@@ -576,7 +699,11 @@ But:  house/junglinster/weather/outdoor_temperature
 
 Typical shared categories: weather, energy, security state, occupancy (if desired). The Netatmo account problem (§6.5) is the canonical example of why one house sometimes needs to be the sole owner of a cloud integration on the other's behalf, with the coordinator responsible for making that cross-home relationship — and its lineage — explicit rather than silently duplicating credentials or entities.
 
-**Roaming infrastructure devices** (noted 2026-08-21): laptops physically move between Junglinster and Vienna — and beyond, since they also travel away from both houses entirely. Rather than each laptop's `cpu` report script targeting whichever house's local broker it happens to be near (fragile — needs reconfiguring, or picking one house arbitrarily, every time it moves; and simply unreachable while away from both houses), it should report to a shared **bridging MQTT broker** set up for exactly this purpose, with each house's own coordinator/instance importing the relevant topics from there instead of owning them locally. This means the bridging broker must itself be reachable from anywhere the laptop's local network allows outbound access to it — not just LAN-local to either house, unlike each house's own local broker today — so a laptop keeps reporting its CPU data even while away from both houses, whenever it has network access. Same federation shape as the Netatmo cross-home example (§6.5) — a device whose "home" isn't fixed needs its data to flow through a broker neither house directly owns — just for infrastructural monitoring data instead of cloud-sourced semantic data. Not yet designed further than this (no bridging broker exists yet; today's laptops — `eriks-macbook-pro-2`, `paulas-air-m1` — report to Junglinster's local broker only, per Physical.def's current `hosts` integration declarations). Whatever host ends up running the bridging broker itself is just another `cpu`-type "hosts" integration device once it exists — no special-casing needed, the same self-monitoring applies to it too.
+**Roaming infrastructure devices** (noted 2026-08-21, built 2026-08-26/27): laptops physically move between Junglinster and Vienna — and beyond, since they also travel away from both houses entirely. Each laptop's `cpu` report script (`Integrations/cpu/report`) reports to a shared **bridging MQTT broker** (Mosquitto on mqtt.erikproper.eu, TLS via Let's Encrypt) instead of either house's local broker — reachable from anywhere the laptop has outbound network access, so it keeps reporting even while away from both houses. Same federation shape as the Netatmo cross-home example (§6.5) — a device whose "home" isn't fixed needs its data to flow through a broker neither house directly owns — just for infrastructural monitoring data instead of cloud-sourced semantic data.
+
+Each house's coordinator relays a "cloud"-routed device's traffic from the cloud broker onto its own local broker (`mqtt_relay.go`'s `relayCloudDevice`/`relayCloudDevices`), qualifying the topic with the reporting installation's name inserted *after* the hostname (`hosts/<hostname>/<installation>/...`, never as an overall prefix) so the cloud broker's client-ID-scoped ACL (`hosts/%c/#`) still matches. Liveness can't be an explicit ping here — a laptop "on the road" is unreachable, unlike a LAN-local host — so `TCloudLivenessTracker` infers it instead: arrival of relayed cpu/device-info traffic is itself the liveness signal, "true" the moment traffic resumes, "false" after `cloudDeviceStaleAfter` (3 minutes) of silence, checked every `cloudLivenessSweepInterval` (30 seconds).
+
+The report script's cross-platform TLS handling: Linux has a standard CA bundle file (checked in order — `/etc/ssl/certs/ca-certificates.crt`, `/etc/pki/tls/certs/ca-bundle.crt`, `/etc/ssl/cert.pem`); macOS has none, so the script exports one from the system Keychain on first use and caches it at `~/.cache/mqtt-ca-bundle.pem` (re-exporting on every scheduled run would be wasteful). Deployed and running on `eriks-macbook-pro-2` and `paulas-air-m1` via `launchd` (`com.erikproper.cpu-report-cloud-client.plist`), both installations' devices reporting through the shared cloud broker as above. Whatever host ends up running the bridging broker itself is just another `cpu`-type "hosts" integration device — no special-casing needed, the same self-monitoring applies to it too.
 
 ---
 

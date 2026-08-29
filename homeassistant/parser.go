@@ -121,9 +121,33 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 	onSpaceClosed := func(_ string) {
 		// Space-close hooks are centralized in administration; aggregate derivation stays a separate pass.
 	}
+
 	invocationCount := 0
 	validInvocations := 0
 	typeErrors := 0
+
+	// pendingCapabilityLink/pendingSourceLink hold "entity ... from <device-id> entity ...;" /
+	// "entity ... as ... from <device-id>;" declarations reached before their device's own
+	// "device <spec> from <device-id>;" (U2) positioning -- registerDeviceCapabilityEntityLink /
+	// registerDeviceSourceEntityLink report deferred=true rather than warning in that case (the
+	// positioning may still appear later in the same file), and the main loop below queues them
+	// here instead of registering immediately. Retried once, after the whole file has been read
+	// (below, past the main loop) -- an in-memory retry over already-parsed declarations, not a
+	// second scan of entityLines. This is what keeps positioning order-independent without the
+	// separate scratch-state pre-pass this file used to have (removed 2026-08-27 after it caused a
+	// real bug: the pre-pass wrote into the real administration state ahead of the real OpenSpace
+	// call for the same space, fooling EnsureSpaceRegistered's idempotency check into never
+	// registering that space at all -- see Conceptual_DevicePositioning.go's doc comment).
+	type pendingCapabilityLink struct {
+		decl    TDeviceCapabilityEntityDeclaration
+		lineNum int
+	}
+	type pendingSourceLink struct {
+		decl    TDeviceSourceEntityDeclaration
+		lineNum int
+	}
+	var pendingCapabilityLinks []pendingCapabilityLink
+	var pendingSourceLinks []pendingSourceLink
 
 	// processInvocation parses, validates, expands, and registers one macro invocation text.
 	// It is used both for top-level invocations and for inline "entity … with <invocation>;" bodies.
@@ -172,9 +196,30 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 		return nil
 	}
 
+	// forDeviceID is "" outside a "for <device-id>: ... end;" block (Conceptual_DeviceCapabilityEntities.go's
+	// device-capability-entity shorthand); a flat state flag, not a stack -- nesting isn't supported,
+	// there's no use case for it.
+	forDeviceID := ""
+
 	for i := 0; i < len(entityLines); i++ {
 		trimmed := strings.TrimSpace(entityLines[i])
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		if forDeviceID != "" {
+			if trimmed == EndToken+StatementEndToken {
+				forDeviceID = ""
+				continue
+			}
+			expanded, ok := expandForDeviceShorthandLine(trimmed, forDeviceID)
+			if !ok {
+				fmt.Fprintf(os.Stderr, "[WARNING] %s line %d: inside \"for %s:\" block, expected \"entity <spec> from entity <capability>;\", got %q; ignored\n", entitiesPath, sourceLine(i), forDeviceID, trimmed)
+				continue
+			}
+			trimmed = expanded
+		} else if deviceID, ok := extractForDeviceHeader(trimmed); ok {
+			forDeviceID = deviceID
 			continue
 		}
 
@@ -184,10 +229,31 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			}
 		}
 
+		if positioningDecl, ok := extractDevicePositioningDeclaration(trimmed); ok {
+			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
+			for _, w := range registerDevicePositioning(administration, *positioningDecl, hassBridgeDevicesByID, entitiesPath, sourceLine(i)) {
+				fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
+			}
+			continue
+		}
+
 		if deviceDecl, ok := extractDeviceEntityDeclaration(trimmed); ok {
 			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
 			for _, w := range registerDeviceImpliedEntities(administration, *deviceDecl, hostDevicesByID, hassBridgeDevicesByID, entitiesPath, sourceLine(i)) {
 				fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
+			}
+			continue
+		}
+
+		if capabilityDecl, ok := extractDeviceCapabilityEntityDeclaration(trimmed); ok {
+			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
+			warnings, deferred := registerDeviceCapabilityEntityLink(administration, *capabilityDecl, discoveryGatewaysByID, hassBridgeDevicesByID, hostDevicesByID, entitiesPath, sourceLine(i), false)
+			if deferred {
+				pendingCapabilityLinks = append(pendingCapabilityLinks, pendingCapabilityLink{decl: *capabilityDecl, lineNum: sourceLine(i)})
+			} else {
+				for _, w := range warnings {
+					fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
+				}
 			}
 			continue
 		}
@@ -202,8 +268,13 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 
 		if sourceDecl, ok := extractDeviceSourceEntityDeclaration(trimmed); ok {
 			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
-			for _, w := range registerDeviceSourceEntityLink(administration, *sourceDecl, hassBridgeDevicesByID, entitiesPath, sourceLine(i)) {
-				fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
+			warnings, deferred := registerDeviceSourceEntityLink(administration, *sourceDecl, hassBridgeDevicesByID, entitiesPath, sourceLine(i), false, "")
+			if deferred {
+				pendingSourceLinks = append(pendingSourceLinks, pendingSourceLink{decl: *sourceDecl, lineNum: sourceLine(i)})
+			} else {
+				for _, w := range warnings {
+					fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
+				}
 			}
 			continue
 		}
@@ -800,6 +871,24 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 
 		if trimmed == EndToken+StatementEndToken {
 			administration.HandleEndToken(onSpaceClosed)
+		}
+	}
+
+	// One retry over the small pending list built above -- not a second scan of entityLines, just
+	// re-registering declarations already parsed during the single main loop, now that every
+	// "device <spec> from <device-id>;" positioning in the whole file has been seen. Anything still
+	// unresolved here was never positioned anywhere in the file, so finalAttempt=true turns that
+	// into a real, reported warning this time.
+	for _, pending := range pendingCapabilityLinks {
+		warnings, _ := registerDeviceCapabilityEntityLink(administration, pending.decl, discoveryGatewaysByID, hassBridgeDevicesByID, hostDevicesByID, entitiesPath, pending.lineNum, true)
+		for _, w := range warnings {
+			fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
+		}
+	}
+	for _, pending := range pendingSourceLinks {
+		warnings, _ := registerDeviceSourceEntityLink(administration, pending.decl, hassBridgeDevicesByID, entitiesPath, pending.lineNum, true, "")
+		for _, w := range warnings {
+			fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
 		}
 	}
 

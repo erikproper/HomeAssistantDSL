@@ -609,11 +609,13 @@ end;`
 		t.Errorf("link.ConstantAttributes[model] = %+v, want %+v", got, TDeviceAttributeConstant{Value: "Compute host"})
 	}
 	wantAttrs := map[string]TDeviceAttributeLink{
-		"load":        {EntityID: "sensor.infrastructural_smarty_cpu_load", Unit: "%", StateClass: "measurement", Icon: "mdi:cpu-64-bit"},
+		"load": {EntityID: "sensor.infrastructural_smarty_cpu_load", Unit: "%", StateClass: "measurement", Icon: "mdi:cpu-64-bit",
+			Identity: TEntityIdentity{Domain: "sensor", Sphere: "infrastructural", Path: "smarty/cpu/load"}},
 		// No Icon: cpuAttributeSpecs["temperature"] sets none, and this test passes no
 		// capabilityDefaults (nil) -- "mdi:thermometer" now comes only from Defaults.def's
 		// "defaults: for sensor.*/temperature: ...;" rule, not a Go-level fallback.
-		"temperature": {EntityID: "sensor.infrastructural_smarty_cpu_temperature", DeviceClass: "temperature", Unit: "°C", StateClass: "measurement"},
+		"temperature": {EntityID: "sensor.infrastructural_smarty_cpu_temperature", DeviceClass: "temperature", Unit: "°C", StateClass: "measurement",
+			Identity: TEntityIdentity{Domain: "sensor", Sphere: "infrastructural", Path: "smarty/cpu/temperature"}},
 	}
 	for attr, want := range wantAttrs {
 		if got := link.AttributeEntityIDs[attr]; got != want {

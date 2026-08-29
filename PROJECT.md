@@ -1,53 +1,104 @@
-** TODO (as of 2026-08-26)
+** TODO (as of 2026-08-28)
 
-Current focus: 1.3 mobile (laptop) devices reporting CPU data to the cloud broker -- the next
-piece of plumbing now that 1.2 (cloud-based MQTT broker) is basically finished. See step 1.3
-below for the staleness-based liveness design already sketched, plus a new note on cross-platform
-TLS CA handling the report script will need. `home_assistant` bridge devices (Envoy etc., 1.1
-below) can continue in parallel, not gated on this.
+Current focus: 1.1 entity-existence inquiry & optimistic generation for the two HA incarnations
+(main, protocols-server-2) -- core mechanism BUILT, DEPLOYED, and confirmed running live
 
 1. Netatmo + other cloud services, via protocols-server-2 (first real MQTT bridging/federation
    test end-to-end) -- broken into concrete steps, roughly in this order though not strictly
    gating each other:
-   1.2. Cloud-based MQTT broker -- DONE (2026-08-26). Mosquitto installed on mqtt.erikproper.eu,
-      TLS via Let's Encrypt (certbot standalone + a renewal deploy-hook copying certs to where
-      Mosquitto can read them, working around the mosquitto user's default lack of access to
-      /etc/letsencrypt/live), two auth classes (`coordinator`: broad `#` access; `client`: scoped
-      to `hosts/<own-client-id>/#` via Mosquitto's `%c` ACL pattern-matching, so every leaf device
-      can share one login without losing per-device topic isolation). Verified end-to-end (TLS
-      handshake, auth, publish/subscribe, and per-client isolation both allowed and rejected
-      cases) from the server itself, from xanadu (Junglinster), and from a MacBook. Design
-      confirmed: coordinator-mediated relay (not native Mosquitto broker-to-broker bridging),
-      since JSON payload reshaping will be needed at the relay point, which a dumb broker bridge
-      can't do -- see [[project_roaming_devices_bridging_broker]] (memory) for the fuller
-      rationale. Not yet done: the actual coordinator-side relay code, and wiring real
-      house/laptop credentials into Settings.def.
-   1.3. Mobile (My laptop) devices to report CPU data (and implied availability). Unlike a fixed
-      host, a laptop has no reliable "going offline" hook (sleep, lid closed, network loss all
-      look the same as just not reporting) -- so its "node" liveness can't be an explicit
-      true/false report the way it is today. Instead it needs to be staleness-based: the
-      coordinator tracks each such device's last-reported time and infers "offline" once nothing
-      has arrived for e.g. 3x the expected update_interval, publishing the node state itself
-      rather than relaying an explicit report -- a new coordinator responsibility (a per-device
-      staleness watchdog), not just a report-script change.
-      EP: The difference is that a device on the "home" network can be pinged. A laptop that is "on the road" cannot be pinged. For such devices, we need a "liveness" strategy. Potentially not only in such cases.
-      Cross-platform TLS CA handling (noted 2026-08-26): `Integrations/cpu/report` runs
-      cross-platform already but has only ever talked to a local, non-TLS house broker, so it has
-      no CA-bundle logic at all today. Reporting to mqtt.erikproper.eu over TLS will need a
-      per-OS CA path -- confirmed working around this manually during broker testing: Debian/
-      Ubuntu has a standard bundle at /etc/ssl/certs/ca-certificates.crt, but macOS has no
-      equivalent file and needs one exported from the system Keychain
-      (`security find-certificate -a -p /System/Library/Keychains/SystemRootCertificates.keychain`)
-      since Homebrew-installed CLI tools don't consult the Keychain automatically. The report
-      script needs this same per-OS handling built in before it can report to the cloud broker.
-   1.4. With this in place, we can also update the architecture with regards to the reporting by the coordinator of the available entities, and then syncing of these lists to the transformer's local cache, and then using this to give warnings of non existance, and possibly suggestions of "addable" entities in a copy-paste friendly format for the physical layer.
-   1.5. Netatmo temperature/weather data, flow to cloud MQTT, and test re-import "faking" Vienna import in Junglinster. Can't do this in vienna yet due to crashed systems in Vienna. homeassistant@protocols-server-2 -> MQTT. 
-   1.6. Volvo stuff back
-   1.7. Overkiz-based SOMFY cover control: homeassistant@protocols-server-2 -> MQTT.
-   1.8. Netatmo flow to Vienna
+
+   1.1. Finish migration of netatmo
+   - First trigger the discovery for the physical layer
+   - Then update the space.def file ==> Can Claude help here?
+
+   1.2. Netatmo temperature/weather data, flow to cloud MQTT, and test re-import "faking" Vienna import in Junglinster. Can't do this in vienna yet due to crashed systems in Vienna. homeassistant@protocols-server-2 -> MQTT.
+   Note: rename local keyword to "native", as "local" is also used to speak about the local MQTT broker. And then use "export" as additional keyword to signify the export of devices, and "import" as integration.
+   
+   1.2b Also: discovery based integration ... also a suggestion file for these. In a way, the HA version of this is a "weaker" version, as HA needs to use the 3-value logic, where the discovery based ones are more explicit ... present or not present.
+   
+   1.3. Deprecate the use of "entity device.infrastructural:ring-camera from host.ring-camera with: all entities;" by doing a one time replace.
+      Note (2026-08-27): mqtt does not have a temperature sensor, so don't include one for that
+      device when doing the replacement.
+
+   1.4. Deploy-trigger reload mechanism: a `meta/reload/<installation>/request` topic the deploy
+      script posts to (cloud or local, a command-line choice, with broker secrets looked up from
+      the def files), which the coordinator relays cloud->local when it arrives via the cloud
+      broker for its own installation, and each HA instance's bootstrap automation reacts to by
+      reloading its own YAML. Spun out of the (now-done) entity-manifests item; deferred until
+      now, no longer blocked on anything.
+   
+   1.5. Try to get Volvo stuff back on-line.
+   
+   1.6. Overkiz-based SOMFY cover control: homeassistant@protocols-server-2 -> MQTT.
+      Note (2026-08-28): this is also where 1.1's command-automation half
+      (command_<fully_qualified_entity_name>_<command>.yaml, deferred there -- see memory:
+      project_entity_existence_inquiry_design) needs its open design question resolved: which
+      commands a capability/domain supports, and how one maps to a remote service call on the
+      bridged instance. Covers (open/close/stop) are the first real commandable domain due here;
+      until then everything bridged is sensor-shaped (read-only). 1.5 (Volvo) may bring the first
+      buttons/locks even earlier, if that lands first.
+   
+         - State reporting: one trigger/action pair per entity, one YAML file per entity --
+        filename `reporting_<fully_qualified_entity_name>.yaml`, alias
+        `reporting/<fully_qualified_entity_name_with_slashes>`.
+      
+      - Commands (e.g. light_on): one file per entity per command --
+        filename `command_<fully_qualified_entity_name>_<command>.yaml`, alias
+        `command/<fully_qualified_entity_name_with_slashes>/<command>`.
+
+   1.7. Netatmo flow to Vienna
    Blocked
       specifically: a hardware (bridge/router) issue at the Vienna site (noted 2026-08-23) blocks
       testing this data path to Vienna, independent of the cloud-broker work above.
+
+   1.8. Kind-2 (discovery) passive existence tracking -- closes the scope gap 1.1's own
+      "Scope confirmation" note got wrong (2026-08-29, memory: project_entity_existence_inquiry_design).
+      Kind-2 gateways (Zigbee2MQTT, Z-Wave, EMS-ESP) don't need active inquiry the way kind-3
+      (`home_assistant` bridge) does -- a gateway self-announces via its own native HA MQTT
+      discovery, unlike a remote HA instance, which never tells the coordinator anything
+      unprompted -- but the coordinator still needs to track and report each declared kind-2
+      *source* entity's three-state status (known-to-exist / not-known-to-exist /
+      known-not-to-exist) to the generator, exactly as it already does for kind-3. Today the
+      generator has zero existence signal for kind-2 sources at all -- not even kind-3's old bare
+      assumption, a complete blind spot. See Architecture.md §6.10 for the corrected, unified
+      framing (existence checks always anchor on the physical layer's own declared *source*
+      specification -- a capability line's right-hand side -- never the conceptual-layer name).
+
+      **Status (2026-08-29): first-phase built.** Coordinator side (`discovery_existence.go`, new
+      file): `TDiscoveryExistenceTracker`, keyed by `(gatewayID, leaf)`
+      (`TDiscoveryEntityLink.Leaf` -- the same field `discoverybridge.go`'s
+      `matchingGateway`/`buildRelayedDiscoveryConfig` already match against), `Seed` reads
+      `discovery.yaml`'s `EntityLinks` as not-known-to-exist, `MarkKnown` is called directly from
+      `discoverybridge.go`'s existing discovery-payload subscription handler (no new subscription)
+      the moment any payload for a leaf arrives -- whether or not an `EntityLink` claims it yet --
+      `publishStatus` relays to `discovery_gateways/<gatewayID>/existence/state` (retained, local +
+      cloud unconditionally, mirroring kind-3's own policy), persisted to
+      `discovery_existence.json` across restarts (mirroring `entity_existence.json`'s pattern).
+      Generator side (`mqtt_discovery_existence.go`, new file): `fetchDiscoveryExistence`
+      (fetch-then-cache-fallback, mirroring `fetchEntityExistence`) and
+      `checkDiscoveryKnownNotToExistErrors` (`checkKnownNotToExistErrors`'s kind-2 counterpart),
+      wired into `Physical_Generator.go` right after the kind-3 check, gated the same way
+      (`hasMQTTSecrets`). Unit-tested both sides; confirmed via a real `./generate` against
+      Junglinster: soft-fails gracefully offline (no broker reachable, no local cache yet) exactly
+      like kind-3's own behaviour, generation still succeeds. **Deployed live and confirmed clean**
+      (no errors on deploy/generate) -- not yet exercised against a real gateway discovery payload
+      though (no live `[discovery-existence] ... known-to-exist` log line seen yet).
+
+      **Retraction (known-not-to-exist) -- [DONE, 2026-08-29, same day].** The first draft of this
+      item wrongly deferred this, claiming it needed a topic→identity map the coordinator "doesn't
+      keep and can't build cheaply." Corrected same day: the discovery-payload handler already has
+      both the topic and the decoded `(gatewayID, leaf)` together at the moment any real payload
+      arrives, so remembering `topic -> (gatewayID, leaf)` costs nothing
+      (`TDiscoveryExistenceTracker.RecordTopicIdentity`) -- no new subscription, and no persistence
+      needed either, since discovery config topics are retained: a coordinator restart's own
+      subscribe naturally replays every gateway's current config before any new retraction could
+      arrive, so the map self-heals in memory alone. An empty payload on a topic (HA's own MQTT
+      discovery removal convention) resolves via that map (`MarkRetracted`) and moves the leaf to
+      known-not-to-exist; `checkDiscoveryKnownNotToExistErrors` needed no change at all, it was
+      already written expecting all three states. Unit-tested
+      (`TestDiscoveryExistenceTrackerMarkRetractedResolvesViaRecordedTopicIdentity`,
+      `TestSubscribeDiscoveryBridgeRetractsOnEmptyPayload`); not yet deployed/exercised live.
+
 2. Control of picture frame via MQTT (commandline integration) --
    design/syntax not yet worked out.
 3. MQTT (local) broker in container on p-s-1
@@ -60,7 +111,7 @@ Smaller pending items, not gating the above:
   device, e.g. smarty's Zigbee switch into host.smarty) -- gated on steps 3 and 4 both landing.
 - Raw/extensional Spaces.def entity references ("domain.[raw-id]") should become unnecessary
   once a device has a `device.<spec> from <device-id>` link instead -- audit once the MQTT
-  migration is fully complete. (Step 1.3's sun.sun work is the first concrete case.)
+  migration is fully complete. (Step 1.2's sun.sun work is the first concrete case.)
 - Future refinement (2026-08-23, not yet designed): replace the `.def` files with an integrated
   database representing the coordinator+transformer's actual current understanding of the
   conceptual and physical layers -- physical-layer content populated/kept live from what the
@@ -77,7 +128,7 @@ Smaller pending items, not gating the above:
   backed by that same database and possibly its own web UI, would remove that whole class of
   "did you redeploy/reload yet" friction rather than just papering over it with better tooling.
 - Rename the `homeassistant_instances/...` MQTT topic tree (bootstrap/bridge protocol,
-  discoveryassumed.go/discoveryhassbridge.go) to `homeassistant.instances/...`, matching this
+  discoveryhassbridge.go) to `homeassistant.instances/...`, matching this
   project's own dot-separated discovery-prefix convention (`homeassistant.physical`/
   `homeassistant.conceptual`) -- purely a naming inconsistency introduced 2026-08-23, not yet
   fixed. Safe/mechanical now that both the coordinator code and every instance's automations are
@@ -236,3 +287,13 @@ Phase 5 — Publish (not started)
   Architecture.md should, at some stage, be ready for others to read, alongside an
   up-to-date README.md, on GitHub. Explicitly deferred until the architecture above has
   actually been built and proven out, not before.
+
+---
+
+Pending live test, once we're done building for now (2026-08-29):
+- PROJECT.md 1.8's retraction (known-not-to-exist) half -- code-complete, unit-tested, not yet
+  exercised live. Doesn't need a real gateway event: publish a dummy discovery config (matching a
+  declared gateway's identifiers) to the physical-discovery prefix, confirm it's picked up
+  (known-to-exist), then publish an empty retained payload to that same topic and confirm a
+  "[discovery-existence] ... known-not-to-exist (retracted)" log line plus an updated
+  discovery_gateways/<gatewayID>/existence/state publish.

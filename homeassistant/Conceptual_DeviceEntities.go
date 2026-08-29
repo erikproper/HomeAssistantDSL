@@ -247,6 +247,7 @@ func registerHostDeviceImpliedEntities(administration *TAdministrationState, dec
 					Unit:        unit,
 					StateClass:  stateClass,
 					Icon:        icon,
+					Identity:    extractEntityIdentity(attrFullName),
 				}
 			}
 		default:
@@ -328,6 +329,7 @@ func registerHassBridgeDeviceImpliedEntities(administration *TAdministrationStat
 					Unit:        unit,
 					StateClass:  stateClass,
 					Icon:        icon,
+					Identity:    extractEntityIdentity(attrFullName),
 				}
 			}
 		default:

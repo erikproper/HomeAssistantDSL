@@ -57,10 +57,11 @@ var entityIDLike = regexp.MustCompile(`^[a-z_][a-z0-9_]*\.[a-z0-9_]+$`)
 
 // runPostGenerationChecks performs both check [1] and check [3] after YAML generation
 // completes.  Both checks are best-effort: warnings are printed but generation is not
-// aborted. Check [2] (online availability of assumed entities) moved to the coordinator --
-// see coordinator/assumed_entities.yaml (generateAssumedEntitiesFile, Physical_Generator.go) and
-// house_event_bus_coordinator/discoveryassumed.go -- since it needs live MQTT access the
-// coordinator already has, not a separate REST token/credential the compiler had to hold.
+// aborted. Check [2] (online availability of assumed entities) was superseded entirely by
+// mqtt_entity_catalogue.go's live entity fetch -- run at generate time from the DSL's own
+// declarations against a fresh MQTT-reported list, rather than a separate coordinator-side
+// discrepancy check reporting through its own meta sensors (removed 2026-08-27, redundant once
+// the generator itself could see the live list).
 func runPostGenerationChecks(definitionDir, outputDir, label string, admin *TAdministrationState) {
 	// Check [1]: referential integrity.
 	fmt.Printf("%s: checking entity references ...\n", label)

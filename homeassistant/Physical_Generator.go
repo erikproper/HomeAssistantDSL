@@ -73,6 +73,30 @@ func writeMQTTSecretsFields(sb *strings.Builder, indent string, secrets TMQTTBro
 	sb.WriteString(indent + "tls: " + tls + "\n")
 }
 
+// generateHomeAssistantInstancesFile writes <outputRoot>/coordinator/home_assistant_instances.yaml:
+// the flat list of every declared "home_assistant <qualifier>: <name>;" instance -- the
+// coordinator's own entity_catalogue.go reads this to know which instances' "report entities
+// detailed" bootstrap automation to subscribe/request from, independent of whether any
+// "home_assistant" bridge *device* has been declared for that instance yet (homeassistant_bridge.yaml
+// alone can't answer that -- it's keyed by device, and an instance being onboarded, like
+// protocols-server-2 for a first Netatmo device, may have no devices declared at all yet).
+func generateHomeAssistantInstancesFile(outputRoot string, instances map[string]THomeAssistantInstance) error {
+	names := make([]string, 0, len(instances))
+	for qualifier := range instances {
+		names = append(names, qualifier)
+	}
+	sort.Strings(names)
+
+	var sb strings.Builder
+	sb.WriteString(generatorHeader)
+	sb.WriteString("instances:\n")
+	for _, name := range names {
+		sb.WriteString("  - " + name + "\n")
+	}
+	dir := filepath.Join(outputRoot, "coordinator")
+	return writeYAMLFile(filepath.Join(dir, "home_assistant_instances.yaml"), sb.String())
+}
+
 // generatePhysicalIntegrationOutputs resolves the main MQTT broker's secrets once
 // (resolveMQTTBrokerSecrets, defined.go) and writes the coordinator's secrets.yaml from them
 // (skipped, with a warning, when the house has no MQTT settings configured yet -- e.g. Vienna
@@ -122,7 +146,7 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 	}
 
 	instances := collectHomeAssistantInstances(physicalContent)
-	if err := generateAssumedEntitiesFile(outputRoot, definitionDir, admin, instances); err != nil {
+	if err := generateHomeAssistantInstancesFile(outputRoot, instances); err != nil {
 		return err
 	}
 
@@ -133,7 +157,25 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 	if err := generateHassBridgeFile(outputRoot, hassBridgeDevicesByID, admin); err != nil {
 		return err
 	}
+	// PROJECT.md 1.1: the only entity-existence status that blocks generation is a *confirmed*
+	// known-not-to-exist verdict from the coordinator -- not-known-to-exist (the coordinator
+	// hasn't gotten to it yet) and known-to-exist both generate optimistically, same as before
+	// this check existed. Skipped entirely when the house has no MQTT settings (Vienna today).
+	if hasMQTTSecrets {
+		if err := checkKnownNotToExistErrors(definitionDir, hassBridgeDevicesByID, ctx); err != nil {
+			return err
+		}
+		// PROJECT.md 1.8: kind-2's own passive counterpart -- same rule, a confirmed
+		// known-not-to-exist source leaf blocks generation, not-known-to-exist/known-to-exist both
+		// generate optimistically.
+		if err := checkDiscoveryKnownNotToExistErrors(definitionDir, admin.DiscoveryEntityLinks, ctx); err != nil {
+			return err
+		}
+	}
 	if err := generateInstanceAutomationTrees(haOutputDir, instances, hassBridgeDevicesByID, admin); err != nil {
+		return err
+	}
+	if err := generateEntityCatalogueSuggestions(definitionDir, outputRoot, instances, hassBridgeDevicesByID, ctx); err != nil {
 		return err
 	}
 
