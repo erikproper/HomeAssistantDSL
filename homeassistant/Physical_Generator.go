@@ -154,6 +154,13 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 	for _, w := range hassBridgeWarnings {
 		fmt.Printf("[physical] %s\n", w)
 	}
+	// PROJECT.md 1.2b: "export" implies "all entities used," even for a device Spaces.def never
+	// positions at all -- must run after Spaces.def parsing (admin is already fully populated by
+	// the time generatePhysicalIntegrationOutputs runs) and before generateHassBridgeFile/
+	// generateInstanceAutomationTrees, both of which gate on DeviceConceptualLinks.
+	for _, w := range registerExportedHassBridgeDevices(admin, hassBridgeDevicesByID) {
+		fmt.Printf("[physical] %s\n", w)
+	}
 	if err := generateHassBridgeFile(outputRoot, hassBridgeDevicesByID, admin); err != nil {
 		return err
 	}
@@ -178,6 +185,16 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 	if err := generateEntityCatalogueSuggestions(definitionDir, outputRoot, instances, hassBridgeDevicesByID, ctx); err != nil {
 		return err
 	}
+	// PROJECT.md 1.8: kind-2's own suggestion report, mirroring the kind-3 one just above --
+	// collected independently here, same as hassBridgeDevicesByID above, rather than threaded
+	// through from generator.go's own earlier parse.
+	discoveryGatewaysByID, discoveryGatewayWarnings := collectDiscoveryGatewaysByID(definitionDir)
+	for _, w := range discoveryGatewayWarnings {
+		fmt.Printf("[physical] %s\n", w)
+	}
+	if err := generateDiscoverySuggestions(definitionDir, outputRoot, discoveryGatewaysByID, admin.DiscoveryEntityLinks, ctx); err != nil {
+		return err
+	}
 
 	blocks, warnings := parseIntegrationBlocks(physicalContent, mergedLineNos)
 	for _, w := range warnings {
@@ -189,6 +206,26 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 		fmt.Printf("[physical] %s\n", w)
 	}
 	ctx.ImportedDevices = importedDevices
+	if err := generateImportedDeviceFile(outputRoot, importedDevices, ctx.Admin); err != nil {
+		return err
+	}
+	// Baseline devices.yaml write, unconditional: a house with no "integration hosts" block at
+	// all (e.g. Vienna today, PROJECT.md 1.2c/1.2d -- coordinator/cloud broker stood up before any
+	// local hosts devices exist) still needs devices.yaml to carry Installation/
+	// MQTTDiscoveryConceptualPrefix, which every other coordinator subscription
+	// (subscribeImportedDevices included) reads from there. If an "integration hosts" block DOES
+	// exist, generateHostsIntegrationOutputs (below, per-block dispatch) overwrites this with the
+	// fuller hosts device list -- this call only ever supplies the fallback baseline for a house
+	// that has none. Real bug found live 2026-08-30: without this, Vienna's coordinator logged "a
+	// cloud broker is configured but devices.yaml has no installation set" and refused to
+	// publish/clean up cloud-side topics at all. Cross-house imports no longer belong in
+	// devices.yaml at all (2026-09-05 unification -- they resolve entirely through
+	// coordinator/imported.yaml and discoveryimport.go instead), so this baseline call always
+	// passes an empty device list now; only a genuinely native "hosts" block ever populates
+	// devices.yaml's own device entries.
+	if err := generateCoordinatorDevicesFile(ctx.OutputRoot, nil, ctx.Admin, ctx.MQTTDiscoveryConceptualPrefix, ctx.Installation); err != nil {
+		return err
+	}
 
 	for _, block := range blocks {
 		handler, known := integrationBodyParsers[block.Name]

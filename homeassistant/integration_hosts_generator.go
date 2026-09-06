@@ -60,6 +60,15 @@ func generatePingHostsFile(outputRoot string, devices []THostDevice) error {
 // "secrets.cloud_client"). Which of these a given host machine's scheduler (cron/launchd) actually
 // invokes cpu/report against is entirely outside this generator's concern -- it just makes every
 // leaf-usable profile's secrets available, once, for any host to use.
+//
+// Every cloud-qualified (non-"main") profile also gets a second copy written under
+// "secrets.<installation>" -- e.g. "secrets.junglinster" alongside "secrets.cloud_client",
+// identical content -- so the report script and its deploy script can address "the cloud profile
+// for this installation" generically, by installation name, without needing to know the literal
+// profile name "cloud_client" at all. Added 2026-09-02 for the "cloud"+"import"/"roaming"
+// unification: a report script invoked uniformly as "cpu/report ${installation}" is what makes a
+// single deploy script work unmodified across every installation, rather than each one needing
+// its own hardcoded profile name.
 func generateCPUBrokerSecretsFiles(outputRoot string, profiles map[string]TMQTTBrokerSecrets, installation string) error {
 	names := make([]string, 0, len(profiles))
 	for name := range profiles {
@@ -83,6 +92,11 @@ func generateCPUBrokerSecretsFiles(outputRoot string, profiles map[string]TMQTTB
 		}
 		if err := generateMQTTShellSecretsFile(outputRoot, "cpu", filename, secrets, reportInstallation); err != nil {
 			return err
+		}
+		if name != "main" && installation != "" {
+			if err := generateMQTTShellSecretsFile(outputRoot, "cpu", "secrets."+installation, secrets, reportInstallation); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -147,9 +161,6 @@ func generateCoordinatorDevicesFile(outputRoot string, devices []THostDevice, ad
 		sb.WriteString("    integration: " + d.IntegrationType + "\n")
 		if d.Cloud {
 			sb.WriteString("    cloud: true\n")
-		}
-		if d.Local {
-			sb.WriteString("    local: true\n")
 		}
 		if d.ImportedFrom != "" {
 			sb.WriteString("    imported_from: \"" + d.ImportedFrom + "\"\n")
@@ -361,31 +372,42 @@ func generateHostsIntegrationOutputs(bodyLines []string, ctx TPhysicalGeneration
 	for _, w := range warnings {
 		fmt.Printf("[integration hosts] %s\n", w)
 	}
-	if len(devices) == 0 && len(ctx.ImportedDevices) == 0 {
+	if len(devices) == 0 {
 		return nil
 	}
 
 	for _, w := range warnDuplicateDeviceIDs(devices) {
 		fmt.Printf("[integration hosts] %s\n", w)
 	}
-	for _, d := range devices {
-		if d.Local && !d.Cloud {
-			fmt.Printf("[integration hosts] device %q: \"local\" without \"cloud\" has no effect; ignored\n", d.DeviceID)
+	// Resolve each device's own selfImport flag (parseRoutingKeywords' "import" keyword) into
+	// ImportedFrom set to this installation's own name -- mirrors collectHostsDevicesByID's own
+	// resolution exactly (see THostDevice.selfImport's doc comment for why this can't happen
+	// inside the lower-level parser itself). ctx.Installation is already resolved here. "import"
+	// without "cloud" is meaningless (same as the old "native" keyword's own precondition) -- left
+	// unresolved (ImportedFrom stays "") and warned about, rather than silently producing a
+	// self-import that was never actually cloud-routed in the first place.
+	for i := range devices {
+		if !devices[i].selfImport {
+			continue
 		}
+		if !devices[i].Cloud {
+			fmt.Printf("[integration hosts] device %q: \"import\" without \"cloud\" has no effect; ignored\n", devices[i].DeviceID)
+			continue
+		}
+		if ctx.Installation == "" {
+			fmt.Printf("[integration hosts] device %q: \"import\" declared but ${installation} is not set; cannot self-qualify -- ignored\n", devices[i].DeviceID)
+			continue
+		}
+		devices[i].ImportedFrom = ctx.Installation
 	}
 
 	if err := generatePingHostsFile(ctx.OutputRoot, devices); err != nil {
 		return err
 	}
-	// The coordinator's devices.yaml additionally carries every "integration import"-declared
-	// device (ctx.ImportedDevices, pre-collected in generatePhysicalIntegrationOutputs) --
-	// discovery/materialization is identical to a genuinely local device once its data starts
-	// flowing (mqtt_relay.go bridges it in, coordinator side), so it belongs in the same file.
-	// generatePingHostsFile/generateReportingAutomations deliberately still use "devices" alone,
-	// not this combined list -- an imported device is never on this house's own LAN to ping, and
-	// carries no local capabilities to poll (see integration_import_parser.go's own doc comment).
-	coordinatorDevices := append(append([]THostDevice{}, devices...), ctx.ImportedDevices...)
-	if err := generateCoordinatorDevicesFile(ctx.OutputRoot, coordinatorDevices, ctx.Admin, ctx.MQTTDiscoveryConceptualPrefix, ctx.Installation); err != nil {
+	// Cross-house imports no longer belong in devices.yaml (2026-09-05 unification -- they resolve
+	// entirely through coordinator/imported.yaml and discoveryimport.go instead), so devices.yaml
+	// only ever carries this house's own native "hosts" declarations now.
+	if err := generateCoordinatorDevicesFile(ctx.OutputRoot, devices, ctx.Admin, ctx.MQTTDiscoveryConceptualPrefix, ctx.Installation); err != nil {
 		return err
 	}
 	if ctx.HasMQTTSecrets {

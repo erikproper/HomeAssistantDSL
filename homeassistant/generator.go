@@ -9,8 +9,8 @@
  * template switches, binary sensor groups (heating leakage, per-subdomain door/window/
  * motion/water, windoor), sensor subdomain mean groups (temperature/humidity/co2/noise/
  * pressure/illuminance), Zigbee light groups, and entity customization files.
- * Entity body properties (condition, REST import, cli_sensor, cli_switch, adjustment,
- * input_number, scripts, automations) are Phase 2.
+ * Entity body properties (condition, cli_switch, adjustment, input_number, scripts,
+ * automations) are Phase 2.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
@@ -108,6 +108,16 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 		fmt.Printf("[physical] %s\n", w)
 	}
 
+	importedDevicesByID, importedDeviceWarnings := collectImportedDevicesByID(definitionDir)
+	for _, w := range importedDeviceWarnings {
+		fmt.Printf("[physical] %s\n", w)
+	}
+
+	commandlineDevicesByID, commandlineDeviceWarnings := collectCommandlineDevicesByID(definitionDir)
+	for _, w := range commandlineDeviceWarnings {
+		fmt.Printf("[physical] %s\n", w)
+	}
+
 	capabilityDefaults, capabilityDefaultsWarnings := collectCapabilityDefaults(definitionDir, sharedDefinitionDir)
 	for _, w := range capabilityDefaultsWarnings {
 		fmt.Printf("[physical] %s\n", w)
@@ -124,14 +134,11 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 
 	var report strings.Builder
 	parseResult, err := ParseEntitiesAndFillAdministration(
-		strings.Split(entitiesContent, "\n"), entitiesLineNos, entitiesPath, ctx, &report, hostDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, capabilityDefaults)
+		strings.Split(entitiesContent, "\n"), entitiesLineNos, entitiesPath, ctx, &report, hostDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, capabilityDefaults)
 	if err != nil {
 		return nil, err
 	}
 	admin := parseResult.Administration
-	if bridgeTargets, bridgeErr := resolveBridgeTargets(definitionDir); bridgeErr == nil {
-		admin.BridgeTargets = bridgeTargets
-	}
 	return admin, nil
 }
 
@@ -170,8 +177,6 @@ func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutput
 		{"has_state entities", generateHasStateEntities},
 		{"timer definitions", generateTimerDefinitions},
 		{"customization", generateCustomizationFiles},
-		{"rest imported sensors", generateRestImportedSensors},
-		{"cli sensors", generateCliSensors},
 		{"cli switches", generateCliSwitches},
 		{"input numbers", generateInputNumbers},
 		{"input booleans", generateInputBooleans},
@@ -806,70 +811,6 @@ func buildTemplateBatteryAlertYAML(entityID, displayPath, batteryLevelEntityID s
 	return sb.String()
 }
 
-// --- REST-imported sensor and binary_sensor files ---
-
-// generateRestImportedSensors writes entities/sensor/<sphere>/ and
-// entities/binary_sensor/<sphere>/ YAML files for each "imported rest" directive.
-func generateRestImportedSensors(outputDir string, admin *TAdministrationState) error {
-	for _, rec := range admin.RestImports {
-		bridge, ok := admin.BridgeTargets[rec.BridgeName]
-		if !ok {
-			continue
-		}
-		id := toHomeAssistantEntityID(rec.LocalEntityName)
-		if id == "" {
-			continue
-		}
-		identity := extractEntityIdentity(rec.LocalEntityName)
-		statesPath := bridge.StatesPath
-		if statesPath == "" {
-			statesPath = "/api/states"
-		}
-		resourceURL := strings.TrimSuffix(bridge.BaseURL, "/") + statesPath + "/" + rec.RemoteEntityID
-
-		var content string
-		if rec.ValueExpr != "" {
-			// Binary sensor (reachability / connectivity) — value_template evaluates to bool.
-			valTemplate := strings.ReplaceAll(rec.ValueExpr, "$", "value_json.state")
-			displayName := identity.Sphere + "/" + identity.Path
-			content = buildRestBinarySensorYAML(id, displayName, resourceURL, bridge.Token, valTemplate, rec.ScanInterval)
-			dir := filepath.Join(outputDir, "entities", "binary_sensor", identity.Sphere)
-			if err := writeYAMLFile(filepath.Join(dir, id+".yaml"), content); err != nil {
-				return err
-			}
-		} else {
-			// Regular sensor.
-			deviceClass, unit, stateClass, icon := resolveCapabilityDefaults(admin.CapabilityDefaults, "sensor", identity.Path)
-			displayName := identity.Sphere + "/" + identity.Path
-			content = buildRestSensorYAML(id, displayName, resourceURL, bridge.Token, deviceClass, unit, stateClass, icon, rec.ScanInterval)
-			dir := filepath.Join(outputDir, "entities", "sensor", identity.Sphere)
-			if err := writeYAMLFile(filepath.Join(dir, id+".yaml"), content); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func generateCliSensors(outputDir string, admin *TAdministrationState) error {
-	for _, rec := range admin.CliSensors {
-		id := toHomeAssistantEntityID(rec.LocalEntityName)
-		if id == "" {
-			continue
-		}
-		identity := extractEntityIdentity(rec.LocalEntityName)
-		displayName := identity.Sphere + "/" + identity.Path
-		_, unit, _, _ := resolveCapabilityDefaults(admin.CapabilityDefaults, "sensor", identity.Path)
-		cmd := fmt.Sprintf("bash /config/bin/run %s %s %s", rec.UserAlias, rec.HostFQDN, rec.ScriptPath)
-		content := buildCliSensorYAML(displayName, cmd, unit)
-		dir := filepath.Join(outputDir, "entities", "command_line", "sensor", identity.Sphere)
-		if err := writeYAMLFile(filepath.Join(dir, id+".yaml"), content); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func generateCliSwitches(outputDir string, admin *TAdministrationState) error {
 	for _, rec := range admin.CliSwitches {
 		id := toHomeAssistantEntityID(rec.LocalEntityName)
@@ -885,20 +826,6 @@ func generateCliSwitches(outputDir string, admin *TAdministrationState) error {
 		}
 	}
 	return nil
-}
-
-func buildCliSensorYAML(displayName, cmd, unit string) string {
-	var sb strings.Builder
-	sb.WriteString(generatorHeader)
-	sb.WriteString("- sensor:\n")
-	sb.WriteString("    name: " + displayName + "\n")
-	sb.WriteString("    command: \"" + cmd + "\"\n")
-	sb.WriteString("    command_timeout: 15\n")
-	sb.WriteString("    scan_interval: 60\n")
-	if unit != "" {
-		sb.WriteString("    unit_of_measurement: " + unit + "\n")
-	}
-	return sb.String()
 }
 
 func buildCliSwitchYAML(id, displayName, userAlias, hostFQDN, onScript, offScript, stateScript string) string {
@@ -1165,17 +1092,30 @@ func generateConditionEntities(outputDir string, admin *TAdministrationState) er
 // one with a trailing " is available" produces the standard HA liveness check -- sugar for what
 // used to require spelling out `states('$1') not in ['unavailable', 'unknown']` by hand in every
 // Macros.def condition body that needed it (was "forgotten" boilerplate, not a distinct concept).
-// Rendered as the literal strings "ON"/"OFF", not a raw Python boolean: verified against HA's own
+// Rendered as the literal strings "on"/"off", not a raw Python boolean: verified against HA's own
 // source (template.result_as_boolean, used by both template binary_sensor's "state:" field and
-// this codebase's own condition-clause consumers) that "ON"/"on"/"true"/"1" are accepted exactly
+// this codebase's own condition-clause consumers) that "on"/"ON"/"true"/"1" are accepted exactly
 // like True/False there, while a raw "True"/"False" is NOT one of MQTT binary_sensor discovery's
-// default payload_on/payload_off values -- rendering ON/OFF directly is correct for both
+// default payload_on/payload_off values -- rendering on/off directly is correct for both
 // consumers, whereas raw Python booleans silently break the MQTT relay path (confirmed live:
 // host.junglinster's node capability stayed "unknown" in HA despite MQTT showing the retained
 // state "True").
+//
+// Lowercase, not uppercase: when this feeds a hassbridge/import "node" capability's reporting
+// automation, the coordinator relays the retained payload verbatim into TWO places that both
+// match it case-sensitively (raw MQTT string comparison, no Jinja involved) -- applyProxiedBinarySensorPayload's
+// own payload_on/payload_off ("on"/"off", house_event_bus_coordinator/discovery.go) for the node
+// entity's own displayed state, and buildAvailabilityFields' nodeTopic factor (payload_available
+// "on"/payload_not_available "off", same file) that gates every OTHER capability of the same
+// device. A prior version of this literal was uppercase "ON"/"OFF" -- accepted fine by template
+// binary_sensor's own case-insensitive "state:" evaluation, but silently never matched either of
+// those two lowercase MQTT comparisons, permanently stranding the node entity's own display AND
+// every sibling capability's availability at "unavailable" for any device using this "is
+// available" node-sourcing form (confirmed live 2026-09-02: hass.envoy + its 10 inverters, the
+// first devices to combine this form with the newer availability-gating mechanism).
 func sourceToJinja2(src string) string {
 	if entityID, ok := strings.CutSuffix(src, " is available"); ok {
-		return fmt.Sprintf("'ON' if (states('%s') not in ['unavailable', 'unknown']) else 'OFF'", entityID)
+		return fmt.Sprintf("'on' if (states('%s') not in ['unavailable', 'unknown']) else 'off'", entityID)
 	}
 	if bangIdx := strings.Index(src, "!"); bangIdx > 0 {
 		entityID := src[:bangIdx]
@@ -1263,49 +1203,6 @@ func buildTemplateSensorYAML(id, displayName, unit, deviceClass, stateClass, ico
 		sb.WriteString("  state_class: " + stateClass + "\n")
 	}
 	sb.WriteString("  state: \"{{ " + stateExpr + " }}\"\n")
-	return sb.String()
-}
-
-func buildRestSensorYAML(id, displayName, resourceURL, token, deviceClass, unit, stateClass, icon string, scanInterval int) string {
-	var sb strings.Builder
-	sb.WriteString(generatorHeader)
-	sb.WriteString("platform: rest\n")
-	sb.WriteString("resource: " + resourceURL + "\n")
-	sb.WriteString("name: " + displayName + "\n")
-	sb.WriteString("value_template: \"{{ value_json.state }}\"\n")
-	sb.WriteString("unique_id: " + id + "\n")
-	if unit != "" {
-		sb.WriteString("unit_of_measurement: \"" + unit + "\"\n")
-	}
-	if deviceClass != "" {
-		sb.WriteString("device_class: " + deviceClass + "\n")
-	}
-	if stateClass != "" {
-		sb.WriteString("state_class: " + stateClass + "\n")
-	}
-	if icon != "" {
-		sb.WriteString("icon: " + icon + "\n")
-	}
-	sb.WriteString(fmt.Sprintf("scan_interval: %d\n", scanInterval))
-	sb.WriteString("headers:\n")
-	sb.WriteString("  authorization: Bearer " + token + "\n")
-	sb.WriteString("  content-type: \"application/json\"\n")
-	return sb.String()
-}
-
-func buildRestBinarySensorYAML(id, displayName, resourceURL, token, valueTemplate string, scanInterval int) string {
-	var sb strings.Builder
-	sb.WriteString(generatorHeader)
-	sb.WriteString("platform: rest\n")
-	sb.WriteString("resource: " + resourceURL + "\n")
-	sb.WriteString("name: " + displayName + "\n")
-	sb.WriteString("value_template: \"{{ " + valueTemplate + " }}\"\n")
-	sb.WriteString("unique_id: " + id + "\n")
-	sb.WriteString("device_class: connectivity\n") // no icon: HA already gives connectivity a sensible default
-	sb.WriteString(fmt.Sprintf("scan_interval: %d\n", scanInterval))
-	sb.WriteString("headers:\n")
-	sb.WriteString("  authorization: Bearer " + token + "\n")
-	sb.WriteString("  content-type: \"application/json\"\n")
 	return sb.String()
 }
 
@@ -1832,7 +1729,7 @@ func generateCustomizationFiles(outputDir string, admin *TAdministrationState) e
 	seen := map[string]bool{}
 	for _, spaceName := range admin.SpaceOrder {
 		for _, rec := range admin.EntityRecordsBySpace[spaceName] {
-			if rec.Identity.IsRaw || rec.Identity.Domain == "" || rec.Identity.Sphere == "" {
+			if rec.Identity.Domain == "" || rec.Identity.Sphere == "" {
 				continue
 			}
 			// Discovery-implied entities (device.<spec> node/attribute entities, Conceptual_DeviceEntities.go)
@@ -2948,7 +2845,7 @@ func generateThermostatAutomations(outputDir string, admin *TAdministrationState
 	climateIDsByRoom := map[string][]string{}
 	for _, spaceName := range admin.SpaceOrder {
 		for _, rec := range admin.EntityRecordsBySpace[spaceName] {
-			if rec.Identity.Domain != "climate" || rec.Identity.IsRaw {
+			if rec.Identity.Domain != "climate" {
 				continue
 			}
 			physPath := strings.TrimPrefix(spaceName, "social/")
@@ -3222,7 +3119,7 @@ func generateVacuumAutomations(outputDir string, admin *TAdministrationState) er
 	}
 
 	for _, rec := range vacuumRecs {
-		if rec.Identity.IsRaw || rec.Identity.Sphere == "" {
+		if rec.Identity.Sphere == "" {
 			continue
 		}
 		sphere := rec.Identity.Sphere

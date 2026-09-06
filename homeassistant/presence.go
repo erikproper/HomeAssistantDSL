@@ -16,11 +16,6 @@
  *     Entities marked as assumed-from-HA (no definition or import in the DSL) are verified
  *     against a live Home Assistant instance.  Skipped silently when HA cannot be reached.
  *
- *   Check [3] — bridge entity availability (when each bridge is reachable):
- *     For every REST bridge declared in Bridges.def, the remote entity IDs referenced by
- *     "import rest" directives are verified against that bridge's live HA instance.
- *     Each bridge is checked independently; unreachable bridges are reported and skipped.
- *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
  * Version of: 27.04.2026
@@ -30,15 +25,12 @@
 package main
 
 import (
-	"crypto/tls"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
-	"time"
 )
 
 // entityRefPatterns extracts entity ID strings from generated YAML.
@@ -73,8 +65,6 @@ func runPostGenerationChecks(definitionDir, outputDir, label string, admin *TAdm
 		}
 	}
 
-	// Check [3]: bridge entity availability (one check per REST bridge, when reachable).
-	checkBridgeEntitiesOnline(label, admin)
 }
 
 // checkEntityReferences builds the declared entity ID set (DSL entities + generated file
@@ -170,70 +160,6 @@ func scanYAMLEntityReferences(outputDir string) (map[string]bool, error) {
 		return nil, fmt.Errorf("scanning %s: %w", outputDir, err)
 	}
 	return refs, nil
-}
-
-// checkBridgeEntitiesOnline verifies each REST bridge declared in Bridges.def.
-// For every bridge that is reachable, the remote entity IDs referenced by "import rest"
-// directives are checked against that bridge's live HA instance.  Each bridge is checked
-// independently; unreachable bridges are reported and skipped.  Multiple bridges are
-// handled in bridge-name order for deterministic output.
-func checkBridgeEntitiesOnline(label string, admin *TAdministrationState) {
-	if len(admin.RestImports) == 0 || len(admin.BridgeTargets) == 0 {
-		return
-	}
-
-	// Group remote entity IDs by bridge name.
-	byBridge := map[string][]string{}
-	for _, imp := range admin.RestImports {
-		byBridge[imp.BridgeName] = append(byBridge[imp.BridgeName], imp.RemoteEntityID)
-	}
-
-	bridgeNames := make([]string, 0, len(byBridge))
-	for name := range byBridge {
-		bridgeNames = append(bridgeNames, name)
-	}
-	sort.Strings(bridgeNames)
-
-	for _, bridgeName := range bridgeNames {
-		remoteIDs := byBridge[bridgeName]
-		target, exists := admin.BridgeTargets[bridgeName]
-		if !exists {
-			fmt.Printf("%s: [bridge/%s] bridge not declared in Bridges.def — skipping\n", label, bridgeName)
-			continue
-		}
-
-		fmt.Printf("%s: checking assumed bridge entities on the %s instance (%s) ...\n", label, bridgeName, target.BaseURL)
-
-		httpTransport := http.DefaultTransport.(*http.Transport).Clone()
-		if target.InsecureSkipTLS {
-			httpTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-		}
-		client := &http.Client{Timeout: 8 * time.Second, Transport: httpTransport}
-
-		availableIDs, fetchErr := fetchAllEntityIDs(client, target)
-		if fetchErr != nil {
-			fmt.Printf("%s: [bridge/%s] %s not reachable — skipping entity check\n", label, bridgeName, target.BaseURL)
-			continue
-		}
-
-		var missing []string
-		for _, id := range remoteIDs {
-			if !availableIDs[id] {
-				missing = append(missing, id)
-			}
-		}
-
-		if len(missing) == 0 {
-			fmt.Printf("%s: [bridge/%s] %d bridge entities verified on %s\n", label, bridgeName, len(remoteIDs), target.BaseURL)
-			continue
-		}
-
-		sort.Strings(missing)
-		fmt.Printf("%s: [bridge/%s] %d of %d bridge entities not found on %s\n", label, bridgeName, len(missing), len(remoteIDs), target.BaseURL)
-		for _, id := range missing {
-			fmt.Printf("%s:   - %s\n", label, id)
-		}
-	}
 }
 
 // extractEntityIDsFromYAML applies all entityRefPatterns against the YAML content

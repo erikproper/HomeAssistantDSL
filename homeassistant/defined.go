@@ -4,8 +4,7 @@
  * Package:   Main
  * Component: Defined
  *
- * Shared utilities for resolving Home Assistant connection targets, fetching entity state lists,
- * parsing Bridges.def / Settings.def configuration files, and the
+ * Shared utilities for parsing Settings.def configuration files, and the
  * generic "group clause" grammar (QualifiedElementsGroup/ForcedElementsGroup/
  * ForceElementsSequence, Background/Arch2.md) shared by every "<header> [with]: ... end;"
  * construct parsed outside the main Entities.def grammar.
@@ -19,32 +18,12 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 )
-
-type THomeAssistantTarget struct {
-	BaseURL         string
-	Token           string
-	InsecureSkipTLS bool
-	StatesPath      string
-}
-
-type TBridgeRestDefinition struct {
-	BridgeName    string
-	EndpointExpr  string
-	TokenExpr     string
-	InsecureTLS   bool
-	ResolvedURL   string
-	ResolvedToken string
-}
 
 // TMQTTBrokerSecrets holds one named MQTT broker profile's connection secrets, resolved from a
 // Physical.def "mqtt <name>: server ...; login ...; password ...; port ...; [tls true;] end;"
@@ -168,7 +147,7 @@ func resolveMQTTDiscoveryConceptualPrefix(definitionDir string) string {
 // name (e.g. "junglinster", "vienna"), used to qualify state/discovery topics a coordinator
 // publishes onto a shared cloud broker (mqtt_relay.go, house_event_bus_coordinator side) so two
 // installations sharing that broker's namespace never collide. "" if not configured -- not every
-// house has adopted the cloud broker "cloud"/"local"/"import" mechanism yet.
+// house has adopted the cloud broker "cloud"/"native"/"import" mechanism yet.
 func resolveInstallationName(definitionDir string) string {
 	settingsContent := readCombinedSettingsContent(definitionDir)
 	vars := parseDefinitionAssignments(settingsContent)
@@ -198,96 +177,6 @@ func unquoteShellValue(s string) string {
 		}
 	}
 	return s
-}
-
-func resolveBridgeTargets(definitionDir string) (map[string]THomeAssistantTarget, error) {
-	bridgesPath := filepath.Join(definitionDir, "Bridges.def")
-
-	// Settings.def (local, per-house) now also holds real secrets -- see .gitignore in
-	// the SmartLiving repo -- so there's no separate Secrets.def to read anymore.
-	settingsContent := readCombinedSettingsContent(definitionDir)
-	bridgesContent, _ := readOptionalFile(bridgesPath)
-
-	vars := parseDefinitionAssignments(settingsContent)
-
-	bridgeTargets := map[string]THomeAssistantTarget{}
-	for _, bridgeDef := range parseBridgeRestDefinitions(bridgesContent) {
-		resolvedURL := resolveInterpolatedDefinitionValue(bridgeDef.EndpointExpr, vars)
-		baseURL, statesPath := splitStatesEndpointURL(resolvedURL)
-		if baseURL == "" {
-			continue
-		}
-		token := resolveDefinitionReference(bridgeDef.TokenExpr, vars)
-		bridgeTargets[bridgeDef.BridgeName] = THomeAssistantTarget{
-			BaseURL:         strings.TrimSpace(strings.TrimSuffix(baseURL, "/")),
-			Token:           strings.TrimSpace(token),
-			InsecureSkipTLS: resolveDefinitionBoolReference([]string{"${main_api_tls_insecure}", "${main_api_tls_skip_verify}", "${main_api_insecure_tls}"}, vars),
-			StatesPath:      statesPath,
-		}
-	}
-
-	return bridgeTargets, nil
-}
-
-func parseBridgeRestDefinitions(bridgesContent string) []TBridgeRestDefinition {
-	definitions := []TBridgeRestDefinition{}
-	pattern := regexp.MustCompile(`^bridge\s+rest\s+([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s+authorization\s+(.+?)\s*;\s*$`)
-	for _, rawLine := range strings.Split(strings.ReplaceAll(bridgesContent, "\r\n", "\n"), "\n") {
-		trimmed := strings.TrimSpace(rawLine)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		matches := pattern.FindStringSubmatch(trimmed)
-		if matches == nil {
-			continue
-		}
-		definitions = append(definitions, TBridgeRestDefinition{
-			BridgeName:   strings.TrimSpace(matches[1]),
-			EndpointExpr: strings.TrimSpace(matches[2]),
-			TokenExpr:    strings.TrimSpace(matches[3]),
-		})
-	}
-	return definitions
-}
-
-func resolveInterpolatedDefinitionValue(expression string, vars map[string]string) string {
-	value := strings.TrimSpace(unquoteShellValue(expression))
-	if !strings.HasPrefix(value, "${") {
-		return value
-	}
-	end := strings.Index(value, "}")
-	if end < 2 {
-		return value
-	}
-	name := value[2:end]
-	resolvedVar, exists := vars[name]
-	if !exists {
-		return ""
-	}
-	return strings.TrimSpace(resolvedVar) + value[end+1:]
-}
-
-func splitStatesEndpointURL(endpoint string) (string, string) {
-	trimmed := strings.TrimSpace(endpoint)
-	if trimmed == "" {
-		return "", ""
-	}
-
-	parsedURL, err := url.Parse(trimmed)
-	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
-		return "", ""
-	}
-
-	baseURL := fmt.Sprintf("%s://%s", parsedURL.Scheme, parsedURL.Host)
-	statesPath := parsedURL.Path
-	if statesPath == "" {
-		statesPath = "/api/states"
-	}
-	if !strings.HasPrefix(statesPath, "/") {
-		statesPath = "/" + statesPath
-	}
-
-	return baseURL, statesPath
 }
 
 // resolveMainIncarnationName reads Physical.def (plus combined Settings.def, which also
@@ -374,24 +263,6 @@ func collectHomeAssistantInstances(physicalContent string) map[string]THomeAssis
 		instances[matches[1]] = instance
 	}
 	return instances
-}
-
-func resolveDefinitionBoolReference(candidates []string, vars map[string]string) bool {
-	for _, candidate := range candidates {
-		resolved := resolveDefinitionReference(candidate, vars)
-		if resolved == "" {
-			continue
-		}
-		if parseBoolLike(resolved) {
-			return true
-		}
-	}
-	return false
-}
-
-func parseBoolLike(value string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(value))
-	return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "y" || normalized == "on"
 }
 
 // settingsAssignmentAttemptPattern recognises a line that was clearly *intended* as a
@@ -481,13 +352,6 @@ func toHomeAssistantEntityID(fullName string) string {
 		return ""
 	}
 
-	if rawPattern := regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.\[([^\]]+)\]$`); rawPattern.MatchString(trimmed) {
-		matches := rawPattern.FindStringSubmatch(trimmed)
-		if matches != nil {
-			return fmt.Sprintf("%s.%s", matches[1], sanitizeObjectID(matches[2]))
-		}
-	}
-
 	dotIdx := strings.Index(trimmed, ".")
 	if dotIdx <= 0 || dotIdx >= len(trimmed)-1 {
 		return ""
@@ -523,75 +387,6 @@ func sanitizeObjectID(value string) string {
 		}
 	}
 	return strings.Trim(builder.String(), "_")
-}
-
-func fetchAllEntityIDs(client *http.Client, target THomeAssistantTarget) (map[string]bool, error) {
-	statePath := strings.TrimSpace(target.StatesPath)
-	if statePath == "" {
-		statePath = "/api/states"
-	}
-	statePath = "/" + strings.TrimPrefix(strings.TrimSuffix(statePath, "/"), "/")
-	endpoints := []string{statePath, statePath + "/"}
-	errors := []string{}
-
-	for _, path := range endpoints {
-		endpoint := target.BaseURL + path
-		req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-		if err != nil {
-			errors = append(errors, fmt.Sprintf("%s: %v", path, err))
-			continue
-		}
-		req.Header.Set("Authorization", "Bearer "+target.Token)
-		req.Header.Set("Content-Type", "application/json")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			errors = append(errors, fmt.Sprintf("%s: %v", path, err))
-			continue
-		}
-		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
-		resp.Body.Close()
-		if readErr != nil {
-			errors = append(errors, fmt.Sprintf("%s: %v", path, readErr))
-			continue
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			snippet := strings.TrimSpace(string(body))
-			if len(snippet) > 200 {
-				snippet = snippet[:200]
-			}
-			errors = append(errors, fmt.Sprintf("%s: api returned %d: %s", path, resp.StatusCode, snippet))
-			continue
-		}
-
-		entityIDs, parseErr := extractEntityIDsFromStatesPayload(body)
-		if parseErr != nil {
-			errors = append(errors, fmt.Sprintf("%s: invalid states payload: %v", path, parseErr))
-			continue
-		}
-
-		return entityIDs, nil
-	}
-
-	return nil, fmt.Errorf("%s", strings.Join(errors, "; "))
-}
-
-func extractEntityIDsFromStatesPayload(payload []byte) (map[string]bool, error) {
-	states := []struct {
-		EntityID string `json:"entity_id"`
-	}{}
-	if err := json.Unmarshal(payload, &states); err != nil {
-		return nil, err
-	}
-	entityIDs := map[string]bool{}
-	for _, state := range states {
-		trimmed := strings.TrimSpace(state.EntityID)
-		if trimmed != "" {
-			entityIDs[trimmed] = true
-		}
-	}
-	return entityIDs, nil
 }
 
 // readCombinedSettingsContent reads the shared Settings.def followed by the house-local

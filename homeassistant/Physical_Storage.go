@@ -47,17 +47,13 @@ type TPhysicalGenerationContext struct {
 	// publishes onto a shared cloud broker (mqtt_relay.go, coordinator side), so two
 	// installations sharing one cloud broker's namespace never collide.
 	Installation string
-	// ImportedDevices are every "integration import with: device <local-id> <remote-installation>
-	// <remote-host> <type>; ... end;" declaration (integration_import_parser.go), pre-collected
-	// before the generic per-block dispatch loop runs (mirroring how hassBridgeDevicesByID and
-	// instances are already pre-collected in generatePhysicalIntegrationOutputs) since
-	// generateHostsIntegrationOutputs needs them merged into its own devices.yaml/discovery
-	// output regardless of whether "import" happens to appear before or after "hosts" in
-	// Physical.def. Reuses THostDevice's own shape (ImportedFrom set, Capabilities always empty
-	// -- an import declares no capabilities of its own, it just names which remote device to
-	// relay in) rather than a separate type, since materialization/discovery are identical once
-	// a device's data starts flowing, regardless of whether it originates locally or remotely.
-	ImportedDevices []THostDevice
+	// ImportedDevices are every "integration import with: device <local-id> from
+	// <remote-installation> <remote-device-id> with: ...; end;" declaration
+	// (integration_import_parser.go), pre-collected before the generic per-block dispatch loop
+	// runs (mirroring how hassBridgeDevicesByID and instances are already pre-collected in
+	// generatePhysicalIntegrationOutputs) since generateImportedDeviceFile needs them regardless
+	// of "import"/"hosts"/"home_assistant" block order in Physical.def.
+	ImportedDevices []TImportedDevice
 }
 
 // integrationBodyParsers maps an "integration <name>" name to the function that turns its
@@ -65,12 +61,14 @@ type TPhysicalGenerationContext struct {
 // the generic "integration <name> [on <host>] with: ... end;" wrapper is parsed elsewhere
 // (Physical_Parser.go).
 var integrationBodyParsers = map[string]func(bodyLines []string, ctx TPhysicalGenerationContext) error{
-	"hosts":     generateHostsIntegrationOutputs,
-	"discovery": generateDiscoveryIntegrationOutputs,
+	"hosts":       generateHostsIntegrationOutputs,
+	"discovery":   generateDiscoveryIntegrationOutputs,
+	"commandline": generateCommandlineIntegrationOutputs,
 	// "import" is a no-op here deliberately -- generatePhysicalIntegrationOutputs pre-collects
 	// every "import" block into ctx.ImportedDevices before this generic dispatch loop runs (see
-	// TPhysicalGenerationContext.ImportedDevices' own doc comment), so generateHostsIntegrationOutputs
-	// can merge them into its own devices.yaml output regardless of block order. Registered here
-	// only so the loop doesn't warn "no parser registered" for it.
+	// TPhysicalGenerationContext.ImportedDevices' own doc comment) and writes
+	// coordinator/imported.yaml from that list directly (generateImportedDeviceFile), independent
+	// of "hosts"/"home_assistant" block order. Registered here only so the loop doesn't warn "no
+	// parser registered" for it.
 	"import": func(bodyLines []string, ctx TPhysicalGenerationContext) error { return nil },
 }

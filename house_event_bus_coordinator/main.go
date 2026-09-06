@@ -70,8 +70,10 @@ type TConceptualConstant struct {
 // TConceptualAttribute is one variable attribute's HA entity id plus the typing metadata its
 // integration type hardwires for it (device_class/unit/state_class/icon -- e.g. "temperature"
 // reports device_class "temperature", unit "°C"). No Name: the coordinator always derives the
-// attribute's displayed name from its own leaf key (capitalize(attr), discovery.go) now that HA
-// combines it with the device's own name automatically -- see discovery.go's doc comments.
+// attribute's displayed name from the device's own DisplayName plus its leaf key
+// (buildDiscoveryConfigs, discovery.go) -- fixed live 2026-09-02: MQTT discovery entities can't
+// use "has_entity_name", so HA does NOT combine a bare leaf-only name with the device's own name
+// automatically; the location has to be baked into the entity's own "name" directly.
 type TConceptualAttribute struct {
 	Entity      string `yaml:"entity"`
 	DeviceClass string `yaml:"device_class,omitempty"`
@@ -92,13 +94,16 @@ type TDevice struct {
 	DeviceInfoTopic string                       `yaml:"device_info_topic,omitempty"`
 	Capabilities    map[string]TDeviceCapability `yaml:"capabilities"`
 	Conceptual      *TDeviceConceptual           `yaml:"conceptual,omitempty"`
-	// Cloud/Local/ImportedFrom are the "cloud"/"local"/"integration import" routing this device
-	// declared in Physical.def (homeassistant/mqtt_routing_keywords.go,
-	// homeassistant/integration_import_parser.go) -- see mqtt_relay.go's own doc comment for the
-	// full routing table this drives (which broker(s) get this device's discovery config, and
-	// whether its state/device-info traffic needs relaying from the cloud broker onto main).
+	// Cloud/ImportedFrom are the "cloud"/"import" routing this device declared in Physical.def
+	// (homeassistant/mqtt_routing_keywords.go, homeassistant/integration_import_parser.go) -- see
+	// mqtt_relay.go's own doc comment for the full routing table this drives (which broker(s) get
+	// this device's discovery config, and whether its state/device-info traffic needs relaying
+	// from the cloud broker onto main). ImportedFrom may name this house's own installation (a
+	// self-import, the "cloud"+"import" case: the device is genuinely owned here, and this
+	// coordinator both publishes its cloud catalogue entry AND reads its own data back the same
+	// way any importing house would) or another house's (a real cross-house import) -- both are
+	// handled identically from here on; there is no more separate "native" field/keyword.
 	Cloud        bool   `yaml:"cloud,omitempty"`
-	Local        bool   `yaml:"local,omitempty"`
 	ImportedFrom string `yaml:"imported_from,omitempty"`
 }
 
@@ -212,7 +217,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	client, err := connectMQTT(secrets.MQTT, "house_event_bus_coordinator")
+	importedFile, err := loadImportedFile(filepath.Join(coordinatorDir, "imported.yaml"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	commandlineFile, err := loadCommandlineFile(filepath.Join(coordinatorDir, "commandline.yaml"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	client, err := connectMQTT(secrets.MQTT, "house_event_bus_coordinator-"+devicesFile.Installation)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -229,7 +246,21 @@ func main() {
 		// nothing to connect -- no house-declared "cloud"/"local"/import routing yet.
 	case 1:
 		for name, brokerSecrets := range secrets.Brokers {
-			cloudClient, err = connectMQTT(brokerSecrets, "house_event_bus_coordinator-"+name)
+			// Installation-qualified: real bug found live 2026-08-31 -- every house names its
+			// cloud broker profile the same thing in Physical.def (e.g. "cloud_coordinator"), and
+			// this client ID used to be built from that bare profile name alone. Since the cloud
+			// broker (mqtt.erikproper.eu) is genuinely shared across installations, every house's
+			// coordinator was connecting with the IDENTICAL MQTT client ID -- per the MQTT spec, a
+			// broker forcibly disconnects whichever session already holds a client ID the moment a
+			// new CONNECT arrives with that same ID, so Junglinster's and Vienna's coordinators
+			// were continuously kicking each other off the shared broker. This is what caused the
+			// live/import relay to intermittently go stale (whichever side had just been kicked
+			// off stopped receiving anything until its own AutoReconnect re-claimed the ID back,
+			// kicking the OTHER side off in turn), and, once the resulting reconnect churn got
+			// tight enough, a real crash loop (a disconnect landing in the narrow window between
+			// this Connect and main()'s early cloud-broker Subscribe calls, which treat any
+			// subscribe failure as fatal).
+			cloudClient, err = connectMQTT(brokerSecrets, "house_event_bus_coordinator-"+devicesFile.Installation+"-"+name)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "error: connecting to %q broker: %v\n", name, err)
 				os.Exit(1)
@@ -244,7 +275,7 @@ func main() {
 	topicToDeviceID, hostNameToDeviceID := buildDeviceLookups(devicesFile)
 
 	conceptualPrefix := devicesFile.conceptualPrefix()
-	expectedHostsContent, err := expectedHostsPayloads(devicesFile)
+	expectedHostsContent, err := expectedHostsPayloads(devicesFile, cloudClient != nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -256,6 +287,15 @@ func main() {
 	for t := range expectedHassBridgeTopics(hassBridgeFile, conceptualPrefix) {
 		expectedTopics[t] = true
 	}
+	// An imported device's local discovery configs belong on "main" (they're locally-published
+	// relay entities, same as any other device) -- fully precomputable from Physical.def alone, see
+	// discoveryimport.go's own header comment for why.
+	for t := range expectedImportedTopics(importedFile, conceptualPrefix) {
+		expectedTopics[t] = true
+	}
+	for t := range expectedCommandlineTopics(commandlineFile, conceptualPrefix) {
+		expectedTopics[t] = true
+	}
 	// The "Discover entity" meta control (discover_entity_input.go) is permanent, coordinator-owned,
 	// and not derived from any devices/discovery/hassbridge file -- must be listed here explicitly,
 	// or watchForOrphanedDiscoveryTopics (below) retires it moments after publishDiscoverEntityInput
@@ -263,6 +303,12 @@ func main() {
 	// otherwise never appear "expected". Confirmed live 2026-08-28: without this, the entity never
 	// stayed up long enough for HA to show it at all.
 	expectedTopics[discoveryTopic(conceptualPrefix, "text", discoverEntityStableID)] = true
+	// Same reasoning as discoverEntityStableID immediately above -- the reload/restart meta
+	// buttons (meta_reload_restart.go) are also coordinator-owned, not derived from any
+	// devices/discovery/hassbridge file, and must be listed here explicitly.
+	for t := range expectedMetaReloadRestartTopics(conceptualPrefix, devicesFile.Installation, homeAssistantInstancesFile.Instances) {
+		expectedTopics[t] = true
+	}
 
 	declaredCleanNodeIDs := make(map[string]bool, len(cleanupFile.CleanTopics))
 	for _, t := range cleanupFile.CleanTopics {
@@ -271,7 +317,7 @@ func main() {
 
 	publisher := newDiscoveryPublisher(filepath.Join(coordinatorDir, "discovery_topics.json"))
 	publisher.RetireMissing(client, "main", expectedTopics)
-	if err := watchForOrphanedDiscoveryTopics(client, expectedTopics, expectedHostsContent, declaredCleanNodeIDs, conceptualPrefix); err != nil {
+	if err := watchForOrphanedDiscoveryTopics(client, publisher, "main", expectedTopics, expectedHostsContent, declaredCleanNodeIDs, conceptualPrefix); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
@@ -293,9 +339,12 @@ func main() {
 			os.Exit(1)
 		}
 		expectedCloudTopics := topicSet(expectedCloudContent)
+		for t := range expectedHassBridgeCloudTopics(hassBridgeFile, devicesFile.Installation, conceptualPrefix) {
+			expectedCloudTopics[t] = true
+		}
 		publisher.RetireMissing(cloudClient, "cloud_coordinator", expectedCloudTopics)
 		cloudPrefix := devicesFile.Installation + "/" + conceptualPrefix
-		if err := watchForOrphanedDiscoveryTopics(cloudClient, expectedCloudTopics, expectedCloudContent, declaredCleanNodeIDs, cloudPrefix); err != nil {
+		if err := watchForOrphanedDiscoveryTopics(cloudClient, publisher, "cloud_coordinator", expectedCloudTopics, expectedCloudContent, declaredCleanNodeIDs, cloudPrefix); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -335,28 +384,46 @@ func main() {
 		// subscription below.
 		discoveryExistenceTracker := newDiscoveryExistenceTracker(filepath.Join(coordinatorDir, "discovery_existence.json"))
 		discoveryExistenceTracker.Seed(discoveryFile)
-		if err := subscribeDiscoveryBridge(client, cloudClient, discoveryFile, publisher, conceptualPrefix, discoveryExistenceTracker); err != nil {
+		discoveryExistenceTracker.PublishAll(client, cloudClient, devicesFile.Installation, discoveryFile)
+		if err := subscribeDiscoveryBridge(client, cloudClient, devicesFile.Installation, discoveryFile, publisher, conceptualPrefix, discoveryExistenceTracker); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
 	}
-	if err := subscribeHassBridge(client, hassBridgeFile, store, publisher, conceptualPrefix); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-	if err := subscribeHassBridgeDeviceInfo(client, hassBridgeFile, store, publisher, conceptualPrefix); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-
 	// Entity-existence inquiry (PROJECT.md 1.1): seeded from hassBridgeFile (every declared
 	// capability's source entity is "assumed to exist" per Physical.def/Spaces.def), paced-inquired
 	// one at a time per named instance -- applies to every declared instance, "main" included, not
 	// just remote bridge sources (that's the whole point of asking one entity at a time instead of
-	// scanning every state, unlike the disabled coordinator_bootstrap mechanism).
+	// scanning every state, unlike the disabled coordinator_bootstrap mechanism). Constructed and
+	// seeded here (ahead of subscribeHassBridge/subscribeHassBridgeDeviceInfo below) so its
+	// LiveTyping fallback (2026-09-06) is available the moment either starts building discovery
+	// bodies -- StartEntityExistenceInquiries' own subscriptions are still wired up further down,
+	// order doesn't matter for those.
 	existenceTracker := newEntityExistenceTracker(filepath.Join(coordinatorDir, "entity_existence.json"))
 	existenceTracker.Seed(hassBridgeFile)
-	if err := existenceTracker.StartEntityExistenceInquiries(client, cloudClient, homeAssistantInstancesFile.Instances); err != nil {
+
+	if err := subscribeHassBridge(client, cloudClient, devicesFile.Installation, hassBridgeFile, store, publisher, conceptualPrefix, existenceTracker); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	if err := subscribeHassBridgeDeviceInfo(client, cloudClient, devicesFile.Installation, hassBridgeFile, store, publisher, conceptualPrefix, existenceTracker); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	if err := subscribeHassBridgeSelfImport(cloudClient, client, devicesFile.Installation, hassBridgeFile); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	if err := subscribeImportedDevices(client, cloudClient, importedFile, publisher, conceptualPrefix); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	if err := publishCommandlineDiscovery(client, commandlineFile, publisher, conceptualPrefix); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := existenceTracker.StartEntityExistenceInquiries(client, cloudClient, devicesFile.Installation, homeAssistantInstancesFile.Instances); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
@@ -369,6 +436,18 @@ func main() {
 	}
 	fmt.Printf("[existence] published \"Discover entity\" meta control at %s\n", discoveryTopic(conceptualPrefix, "text", discoverEntityStableID))
 	if err := subscribeDiscoverEntityRequests(client, existenceTracker, homeAssistantInstancesFile.Instances); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// PROJECT.md item 2: reload/restart meta-commands -- one button per (action, scope), scopes
+	// being every declared real instance, this installation, and "all" (cross-house via the cloud
+	// broker, meta_reload_restart.go's own doc comment for the loop-guard reasoning).
+	if err := publishMetaReloadRestartButtons(client, conceptualPrefix, devicesFile.Installation, homeAssistantInstancesFile.Instances); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	if err := subscribeMetaFanOut(client, cloudClient, devicesFile.Installation, homeAssistantInstancesFile.Instances); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
@@ -417,10 +496,19 @@ func loadDiscoveryFile(path string) (TDiscoveryFile, error) {
 	return discoveryFile, nil
 }
 
-// loadDevicesFile reads and parses a generator-produced devices.yaml file.
+// loadDevicesFile reads and parses a generator-produced devices.yaml file. Mirrors
+// loadHassBridgeFile/loadDiscoveryFile's own "missing file -> zero value, not an error" pattern
+// (bug found live 2026-08-30 standing up Vienna's coordinator: this was the one loader that
+// didn't, hard-failing startup for a house with no "hosts" integration devices declared yet at
+// all -- the generator only ever writes devices.yaml when at least one is, same as every other
+// integration-specific output file, so its total absence is a perfectly normal, expected state
+// for a house just getting its coordinator running, not a configuration error).
 func loadDevicesFile(path string) (TDevicesFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return TDevicesFile{}, nil
+		}
 		return TDevicesFile{}, fmt.Errorf("cannot read %s: %w", path, err)
 	}
 

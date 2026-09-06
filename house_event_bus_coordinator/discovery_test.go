@@ -4,6 +4,75 @@ import "testing"
 
 const testPrefix = "homeassistant"
 
+// TestApplyProxiedBinarySensorPayloadSetsLowercaseOnOff is a regression test for a real bug found
+// live 2026-08-31: a hassbridge/import binary_sensor's discovery config never set payload_on/
+// payload_off at all, so HA's MQTT platform fell back to its own uppercase "ON"/"OFF" default --
+// which never matched a proxied HA entity's actual lowercase "on"/"off" state, leaving the entity
+// stuck at "unknown" forever even though the upstream source was reporting a perfectly good value.
+func TestApplyProxiedBinarySensorPayloadSetsLowercaseOnOff(t *testing.T) {
+	body := map[string]interface{}{}
+	applyProxiedBinarySensorPayload(body, "binary_sensor.infrastructural_apartment_living_room_netatmo_node")
+	if body["payload_on"] != "on" || body["payload_off"] != "off" {
+		t.Errorf("payload_on/payload_off = %v/%v, want on/off", body["payload_on"], body["payload_off"])
+	}
+}
+
+// TestApplyProxiedBinarySensorPayloadNoopForOtherDomains confirms a plain sensor domain entity
+// (which has no on/off concept at all) is left untouched.
+func TestApplyProxiedBinarySensorPayloadNoopForOtherDomains(t *testing.T) {
+	body := map[string]interface{}{}
+	applyProxiedBinarySensorPayload(body, "sensor.physical_apartment_bedroom_netatmo_temperature")
+	if _, present := body["payload_on"]; present {
+		t.Errorf("payload_on = %v, want omitted for a non-binary_sensor domain", body["payload_on"])
+	}
+	if _, present := body["payload_off"]; present {
+		t.Errorf("payload_off = %v, want omitted for a non-binary_sensor domain", body["payload_off"])
+	}
+}
+
+// findAvailabilityEntry returns the "availability" list entry whose "topic" equals topic, or nil
+// if none does -- shared test helper for the hassbridge/import availability tests, whose entry
+// ordering (buildAvailabilityFields, discovery.go) isn't itself something tests should assert on.
+// Accepts body["availability"] in either of the two shapes it can have in a test: the native
+// []map[string]interface{} buildAvailabilityFields itself produces (a body built and inspected
+// directly, no JSON round-trip), or the []interface{} json.Unmarshal always produces (a body read
+// back off a fakeClient's published bytes).
+func findAvailabilityEntry(body map[string]interface{}, topic string) map[string]interface{} {
+	switch entries := body["availability"].(type) {
+	case []map[string]interface{}:
+		for _, entry := range entries {
+			if entry["topic"] == topic {
+				return entry
+			}
+		}
+	case []interface{}:
+		for _, e := range entries {
+			if entry, ok := e.(map[string]interface{}); ok && entry["topic"] == topic {
+				return entry
+			}
+		}
+	}
+	return nil
+}
+
+// TestAvailabilityTopicForGatesOnNodeCapability covers the shared rule every device kind with a
+// node/connectivity entity follows (generalised live 2026-08-31 from what started as hosts-only
+// duplicated logic): every other capability's availability_topic points at the node topic, the
+// node capability's own config never references itself, and a device with no node topic at all
+// has nothing to gate on.
+func TestAvailabilityTopicForGatesOnNodeCapability(t *testing.T) {
+	const nodeTopic = "hosts/smarty/node/state"
+	if got := availabilityTopicFor(nodeTopic, "cpu/load"); got != nodeTopic {
+		t.Errorf("availabilityTopicFor(%q, %q) = %q, want %q", nodeTopic, "cpu/load", got, nodeTopic)
+	}
+	if got := availabilityTopicFor(nodeTopic, "node"); got != "" {
+		t.Errorf("availabilityTopicFor(%q, \"node\") = %q, want \"\" (would be circular)", nodeTopic, got)
+	}
+	if got := availabilityTopicFor("", "cpu/load"); got != "" {
+		t.Errorf("availabilityTopicFor(\"\", %q) = %q, want \"\" (no node topic to gate on)", "cpu/load", got)
+	}
+}
+
 // TestBuildDiscoveryConfigsNodeHasNoHardcodedDeviceClass is a regression test for a real bug:
 // the node entity's device_class/icon used to be hardcoded ("connectivity") directly in this
 // package, completely independent of Defaults.def/resolveCapabilityDefaults -- the one place in
@@ -87,8 +156,8 @@ func TestBuildDiscoveryConfigsForDeviceWithConceptualLink(t *testing.T) {
 	if loadPayload.DefaultEntityID != "sensor.infrastructural_smarty_cpu_load" {
 		t.Errorf("load payload DefaultEntityID = %q, want %q", loadPayload.DefaultEntityID, "sensor.infrastructural_smarty_cpu_load")
 	}
-	if loadPayload.Name != "Load" {
-		t.Errorf("load payload Name = %q, want %q (short leaf label -- HA combines it with device.name)", loadPayload.Name, "Load")
+	if loadPayload.Name != "infrastructural/garage/smarty/load" {
+		t.Errorf("load payload Name = %q, want %q (device location baked in -- MQTT discovery entities can't use has_entity_name)", loadPayload.Name, "infrastructural/garage/smarty/load")
 	}
 
 	tempTopic := "homeassistant/sensor/coordinator/host_smarty_temperature/config"
@@ -104,8 +173,8 @@ func TestBuildDiscoveryConfigsForDeviceWithConceptualLink(t *testing.T) {
 		t.Errorf("temperature payload DeviceClass/Unit/StateClass = %q/%q/%q, want \"temperature\"/\"°C\"/\"measurement\"",
 			tempPayload.DeviceClass, tempPayload.UnitOfMeasurement, tempPayload.StateClass)
 	}
-	if tempPayload.Name != "Temperature" {
-		t.Errorf("temperature payload Name = %q, want %q", tempPayload.Name, "Temperature")
+	if tempPayload.Name != "infrastructural/garage/smarty/temperature" {
+		t.Errorf("temperature payload Name = %q, want %q", tempPayload.Name, "infrastructural/garage/smarty/temperature")
 	}
 }
 

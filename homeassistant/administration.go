@@ -40,6 +40,13 @@ type TAdministrationState struct {
 	EntitiesBySpace         map[string][]string
 	EntityRecordsBySpace    map[string][]TEntityRecord
 	EntityRecordSeenBySpace map[string]map[string]string // spaceName → entityKey → provenance of first registration
+
+	// ConceptualUseBySource tracks, per physical-layer (device, capability) pair -- keyed by an
+	// opaque "deviceID!capability" identifier -- the first conceptual-layer entity name (and its
+	// provenance) that pair was registered under via RegisterDiscoveryImpliedEntity. A second,
+	// DIFFERENT entity name for the same source pair (possibly in a different space) means the same
+	// device capability was positioned twice at the conceptual layer, which item 0b's rule forbids.
+	ConceptualUseBySource map[string]TConceptualSourceUse
 	ExternalEntitiesBySpace map[string][]string
 	SpaceDepthByName        map[string]int
 	SpaceOffByName          map[string][]string // Entities/aggregations to turn off
@@ -70,16 +77,8 @@ type TAdministrationState struct {
 	// Populated by ParseEntitiesAndFillAdministration; used by the template binary sensor generator.
 	NodeRepresentativeByEntityID map[string]string
 
-	// REST import records, one per "imported rest" directive, in source order.
-	// Populated by ParseEntitiesAndFillAdministration; used by the REST sensor/binary_sensor generator.
-	RestImports []TRestImportRecord
-
-	// CLI sensor/switch records, populated by ParseEntitiesAndFillAdministration.
-	CliSensors  []TCliSensorRecord
+	// CLI switch records, populated by ParseEntitiesAndFillAdministration.
 	CliSwitches []TCliSwitchRecord
-
-	// Bridge targets (name → resolved URL+token), populated by generateHouseYAML.
-	BridgeTargets map[string]THomeAssistantTarget
 
 	// Track whether an explicit light on: / space off: directive was given for a space.
 	// When false, defaults are derived from the domain collections at space-close time.
@@ -98,9 +97,10 @@ type TAdministrationState struct {
 	// When set, overrides the default lights-on list in the template switch turn_on block.
 	SpaceSwitchOnByName map[string][]string
 
-	// Physical.def device id -> conceptual-layer HA entity ids implied for it by an
-	// "entity device.<name> from <device-id> with: ...;" declaration in Spaces.def.
-	// Populated by registerDeviceImpliedEntities (Conceptual_DeviceEntities.go); read by
+	// Physical.def device id -> conceptual-layer HA entity ids implied for it by a
+	// "device <spec> from <device-id>;" positioning declaration (Conceptual_DevicePositioning.go)
+	// and any "entity <spec> from <device-id> entity <capability>;" links registered against it
+	// (Conceptual_DeviceCapabilityEntities.go) in Spaces.def. Read by
 	// generateCoordinatorDevicesFile to enrich coordinator/devices.yaml.
 	DeviceConceptualLinks map[string]TDeviceConceptualLink
 
@@ -114,7 +114,7 @@ type TAdministrationState struct {
 	// (capability_defaults.go) -- device_class/unit/state_class/icon seeded onto every
 	// capability whose domain/path matches, when the capability declares no explicit override
 	// of its own. Set once by ParseEntitiesAndFillAdministration before registration begins;
-	// consulted by registerHassBridgeDeviceImpliedEntities (Conceptual_DeviceEntities.go).
+	// consulted by registerHassBridgeAttributeEntity (Conceptual_DeviceEntities.go).
 	CapabilityDefaults []TCapabilityDefaultRule
 }
 
@@ -173,6 +173,17 @@ type TDeviceConceptualLink struct {
 	// AttributeEntityIDs maps attribute name -> its HA entity id + HA typing metadata
 	// (device_class/unit/state_class), both from THostsEntityMaterialization.AttributeSpecs.
 	AttributeEntityIDs map[string]TDeviceAttributeLink
+
+	// HostIdentity is the device's own resolved sphere/path, set only for "hosts"-kind devices
+	// (registerHostNodeEntity, Conceptual_DeviceEntities.go) -- unlike a "home_assistant" bridge
+	// capability (whose entity naming is free-form, driven entirely by the LocalSpec written on
+	// its own "entity ... from <device-id> entity <capability>;" line), a hosts attribute's naming
+	// is always computed from the device's OWN position plus its integration type's materialization
+	// (mat.AttributeDomain/splitCapabilityName), never chosen per-attribute -- so
+	// registerDeviceCapabilityEntityLink's hosts-kind branch needs the device's identity back from
+	// wherever it was first positioned, not re-derivable from the capability-link line's own spec.
+	// Zero value for every other device kind.
+	HostIdentity TEntityIdentity
 }
 
 // TDeviceAttributeConstant is one HA discovery device-map field's resolved value (see
@@ -251,23 +262,6 @@ type TTimerLimitsRelation struct {
 	BoundEntity string // fully qualified DSL entity name, e.g. "fan.social/house/wc"
 }
 
-// TRestImportRecord holds the parameters of a single "imported rest" directive.
-type TRestImportRecord struct {
-	LocalEntityName string // fully qualified local DSL entity name
-	BridgeName      string // bridge name (e.g. "junglinster")
-	RemoteEntityID  string // remote HA entity ID (e.g. "sensor.physical_vienna_living_room_co2")
-	ScanInterval    int    // scan interval in seconds
-	ValueExpr       string // optional value expression with "$" as state placeholder (e.g. "$ == 'True'")
-}
-
-// TCliSensorRecord holds parameters of a single "cli_sensor <alias> <fqdn> <script>" directive.
-type TCliSensorRecord struct {
-	LocalEntityName string
-	UserAlias       string
-	HostFQDN        string
-	ScriptPath      string
-}
-
 // TCliSwitchRecord holds parameters of a single "cli_switch <alias> <fqdn> <on> <off> <state>" directive.
 type TCliSwitchRecord struct {
 	LocalEntityName string
@@ -279,11 +273,9 @@ type TCliSwitchRecord struct {
 }
 
 type TEntityIdentity struct {
-	Domain  string
-	IsRaw   bool
-	RawName string
-	Sphere  string
-	Path    string
+	Domain string
+	Sphere string
+	Path   string
 }
 
 type TEntityRecord struct {
@@ -342,6 +334,13 @@ const (
 	SpaceKindVirtual = "virtual-space"
 )
 
+// TConceptualSourceUse records the first conceptual-layer entity a physical-layer (device,
+// capability) source was registered under -- see TAdministrationState.ConceptualUseBySource.
+type TConceptualSourceUse struct {
+	EntityName string
+	Provenance string
+}
+
 func newAdministrationState() *TAdministrationState {
 	state := &TAdministrationState{
 		SpacePath:                    []string{},
@@ -370,6 +369,7 @@ func newAdministrationState() *TAdministrationState {
 		NodeRepresentativeByEntityID: map[string]string{},
 		DeviceConceptualLinks:        map[string]TDeviceConceptualLink{},
 		DiscoveryEntityLinks:         map[string]TDiscoveryEntityLink{},
+		ConceptualUseBySource:        map[string]TConceptualSourceUse{},
 	}
 
 	state.EnsureSpaceRegistered(nil, SpaceKindRegular)
@@ -784,7 +784,7 @@ func heatingCapableSpaces(state *TAdministrationState) (climateSpaces map[string
 	for _, spaceName := range state.SpaceOrder {
 		physPath := strings.TrimPrefix(spaceName, "social/")
 		for _, rec := range state.EntityRecordsBySpace[spaceName] {
-			if rec.Identity.Domain == "climate" && !rec.Identity.IsRaw {
+			if rec.Identity.Domain == "climate" {
 				climateSpaces[physPath] = true
 			}
 			if rec.Identity.Domain == "switch" && rec.Identity.Sphere == "physical" {
@@ -843,7 +843,26 @@ func (state *TAdministrationState) deriveEntityIfAbsent(spaceName, entityName, p
 // TEntityRecord.DiscoveryImplied). Unlike deriveEntityIfAbsent, HasDefinitionOrImport is
 // left false: this isn't a generator-authored entity, it's a real DSL-level reference to
 // something that will exist, just not yet and not via this generator.
-func (state *TAdministrationState) RegisterDiscoveryImpliedEntity(spaceName, entityName, provenance string) {
+//
+// sourceKey identifies the underlying physical-layer (device, capability) this conceptual entity
+// derives from (e.g. "host.smarty!cpu/load"); pass "" when no stable source identity is available
+// (skips the cross-space reuse check below). A given sourceKey registered under two different
+// entityNames -- even across different spaces -- violates the "each entity of a device can only
+// be used once at the conceptual layer" rule (PROJECT.md item 0b), and is reported directly here
+// rather than threaded back through callers, mirroring AppendEntityRecord's own same-space
+// duplicate-registration warning.
+func (state *TAdministrationState) RegisterDiscoveryImpliedEntity(spaceName, entityName, provenance, sourceKey string) {
+	if sourceKey != "" {
+		if existing, seen := state.ConceptualUseBySource[sourceKey]; seen {
+			if existing.EntityName != entityName {
+				fmt.Fprintf(os.Stderr, "[WARNING] Device capability %q already used as a different conceptual entity\n  first:  %s (%s)\n  second: %s (%s)\n",
+					sourceKey, existing.EntityName, provenanceLabel(existing.Provenance), entityName, provenanceLabel(provenance))
+			}
+		} else {
+			state.ConceptualUseBySource[sourceKey] = TConceptualSourceUse{EntityName: entityName, Provenance: provenance}
+		}
+	}
+
 	if state.EntityRecordSeenBySpace[spaceName] != nil {
 		if _, seen := state.EntityRecordSeenBySpace[spaceName][entityName]; seen {
 			return

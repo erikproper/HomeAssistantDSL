@@ -109,7 +109,7 @@ type TExpansionParseResult struct {
 // number in entitiesPath. It must be used for every reported line number instead of i+1 --
 // entityLines is layer-extracted content with blank/comment lines already stripped, so the two
 // no longer coincide. Pass nil to fall back to i+1 (entityLines is the raw, unstripped file).
-func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, entitiesPath string, ctx *TMacroExpansionContext, report *strings.Builder, hostDevicesByID map[string]THostDevice, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, capabilityDefaults []TCapabilityDefaultRule) (TExpansionParseResult, error) {
+func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, entitiesPath string, ctx *TMacroExpansionContext, report *strings.Builder, hostDevicesByID map[string]THostDevice, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, commandlineDevicesByID map[string]TCommandlineDevice, capabilityDefaults []TCapabilityDefaultRule) (TExpansionParseResult, error) {
 	sourceLine := func(i int) int {
 		if lineNos != nil && i >= 0 && i < len(lineNos) {
 			return lineNos[i]
@@ -196,9 +196,10 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 		return nil
 	}
 
-	// forDeviceID is "" outside a "for <device-id>: ... end;" block (Conceptual_DeviceCapabilityEntities.go's
-	// device-capability-entity shorthand); a flat state flag, not a stack -- nesting isn't supported,
-	// there's no use case for it.
+	// forDeviceID is "" outside a device-capability-shorthand block -- either the older standalone
+	// "for <device-id>: ... end;" form or the merged "device <spec> from <device-id> with: ...
+	// end;" form (Conceptual_DeviceCapabilityEntities.go / Conceptual_DevicePositioning.go); a flat
+	// state flag, not a stack -- nesting isn't supported, there's no use case for it.
 	forDeviceID := ""
 
 	for i := 0; i < len(entityLines); i++ {
@@ -218,8 +219,12 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 				continue
 			}
 			trimmed = expanded
-		} else if deviceID, ok := extractForDeviceHeader(trimmed); ok {
-			forDeviceID = deviceID
+		} else if withBlockDecl, ok := extractDeviceWithBlockHeader(trimmed); ok {
+			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
+			for _, w := range registerDevicePositioning(administration, *withBlockDecl, hostDevicesByID, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, sourceLine(i)) {
+				fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
+			}
+			forDeviceID = withBlockDecl.DeviceID
 			continue
 		}
 
@@ -231,15 +236,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 
 		if positioningDecl, ok := extractDevicePositioningDeclaration(trimmed); ok {
 			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
-			for _, w := range registerDevicePositioning(administration, *positioningDecl, hassBridgeDevicesByID, entitiesPath, sourceLine(i)) {
-				fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
-			}
-			continue
-		}
-
-		if deviceDecl, ok := extractDeviceEntityDeclaration(trimmed); ok {
-			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
-			for _, w := range registerDeviceImpliedEntities(administration, *deviceDecl, hostDevicesByID, hassBridgeDevicesByID, entitiesPath, sourceLine(i)) {
+			for _, w := range registerDevicePositioning(administration, *positioningDecl, hostDevicesByID, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, sourceLine(i)) {
 				fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
 			}
 			continue
@@ -247,7 +244,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 
 		if capabilityDecl, ok := extractDeviceCapabilityEntityDeclaration(trimmed); ok {
 			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
-			warnings, deferred := registerDeviceCapabilityEntityLink(administration, *capabilityDecl, discoveryGatewaysByID, hassBridgeDevicesByID, hostDevicesByID, entitiesPath, sourceLine(i), false)
+			warnings, deferred := registerDeviceCapabilityEntityLink(administration, *capabilityDecl, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, entitiesPath, sourceLine(i), false)
 			if deferred {
 				pendingCapabilityLinks = append(pendingCapabilityLinks, pendingCapabilityLink{decl: *capabilityDecl, lineNum: sourceLine(i)})
 			} else {
@@ -268,7 +265,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 
 		if sourceDecl, ok := extractDeviceSourceEntityDeclaration(trimmed); ok {
 			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
-			warnings, deferred := registerDeviceSourceEntityLink(administration, *sourceDecl, hassBridgeDevicesByID, entitiesPath, sourceLine(i), false, "")
+			warnings, deferred := registerDeviceSourceEntityLink(administration, *sourceDecl, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, sourceLine(i), false, "")
 			if deferred {
 				pendingSourceLinks = append(pendingSourceLinks, pendingSourceLink{decl: *sourceDecl, lineNum: sourceLine(i)})
 			} else {
@@ -401,49 +398,6 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 					}
 				}
 			}
-		}
-
-		// Record "imported rest <bridge> <remote_id> <interval> [<value_expr>];" directives.
-		// These appear inside entity "with:" bodies; the enclosing entity is the last pending collection.
-		if strings.HasPrefix(trimmed, "imported rest ") && len(administration.PendingEntityCollections) > 0 {
-			fields := strings.Fields(strings.TrimSuffix(trimmed, ";"))
-			if len(fields) >= 5 {
-				bridgeName := fields[2]
-				remoteID := fields[3]
-				scanEvery, scanErr := strconv.Atoi(fields[4])
-				if scanErr == nil && scanEvery > 0 {
-					valueExpr := ""
-					if len(fields) >= 6 {
-						raw := strings.Join(fields[5:], " ")
-						raw = strings.Trim(raw, "\"")
-						valueExpr = raw
-					}
-					localName := administration.PendingEntityCollections[len(administration.PendingEntityCollections)-1].Record.Name
-					administration.RestImports = append(administration.RestImports, TRestImportRecord{
-						LocalEntityName: localName,
-						BridgeName:      bridgeName,
-						RemoteEntityID:  remoteID,
-						ScanInterval:    scanEvery,
-						ValueExpr:       valueExpr,
-					})
-				}
-			}
-			continue
-		}
-
-		// Record "cli_sensor <alias> <fqdn> <script>;" directives inside entity bodies.
-		if strings.HasPrefix(trimmed, "cli_sensor ") && len(administration.PendingEntityCollections) > 0 {
-			fields := strings.Fields(strings.TrimSuffix(trimmed, ";"))
-			if len(fields) >= 4 {
-				localName := administration.PendingEntityCollections[len(administration.PendingEntityCollections)-1].Record.Name
-				administration.CliSensors = append(administration.CliSensors, TCliSensorRecord{
-					LocalEntityName: localName,
-					UserAlias:       fields[1],
-					HostFQDN:        fields[2],
-					ScriptPath:      fields[3],
-				})
-			}
-			continue
 		}
 
 		// Record "cli_switch <alias> <fqdn> <on> <off> <state>;" directives inside entity bodies.
@@ -880,13 +834,13 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 	// unresolved here was never positioned anywhere in the file, so finalAttempt=true turns that
 	// into a real, reported warning this time.
 	for _, pending := range pendingCapabilityLinks {
-		warnings, _ := registerDeviceCapabilityEntityLink(administration, pending.decl, discoveryGatewaysByID, hassBridgeDevicesByID, hostDevicesByID, entitiesPath, pending.lineNum, true)
+		warnings, _ := registerDeviceCapabilityEntityLink(administration, pending.decl, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, entitiesPath, pending.lineNum, true)
 		for _, w := range warnings {
 			fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
 		}
 	}
 	for _, pending := range pendingSourceLinks {
-		warnings, _ := registerDeviceSourceEntityLink(administration, pending.decl, hassBridgeDevicesByID, entitiesPath, pending.lineNum, true, "")
+		warnings, _ := registerDeviceSourceEntityLink(administration, pending.decl, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, pending.lineNum, true, "")
 		for _, w := range warnings {
 			fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
 		}

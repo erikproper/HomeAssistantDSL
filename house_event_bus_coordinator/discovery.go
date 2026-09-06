@@ -189,14 +189,80 @@ func sanitizeTopicSegment(s string) string {
 	return strings.ReplaceAll(s, ".", "_")
 }
 
-// capitalize returns s with its first rune upper-cased -- used to turn an attribute name
-// ("load") into a minimal human-readable entity name ("Load"); no richer naming metadata
-// exists in devices.yaml today.
-func capitalize(s string) string {
-	if s == "" {
-		return s
+// availabilityTopicFor is the shared "a device's node/connectivity entity gates every other
+// capability's availability" rule -- every discovery-config builder with a device-level node
+// entity follows it: hosts devices (buildDiscoveryConfigs' own attribute loop, below), hassbridge
+// (hassBridgeAvailabilityTopic, discoveryhassbridge.go), and imports (importedAvailabilityTopic,
+// discoveryimport.go). Generalised live 2026-08-31 from what started as hosts-only, then got
+// duplicated near-identically into the other two kinds -- one shared rule instead of three copies.
+// capability's own config must never reference itself -- "node" (the capability node's own
+// discovery config is built from) returns "" to avoid a circular definition -- and a device with
+// no node entity/topic at all has nothing to gate on. Callers each resolve nodeStateTopic their
+// own device-kind-specific way (already-known device.NodeTopic for hosts; a computed bridge/relay
+// state topic for hassbridge/imports) -- this function only owns the gating rule itself, not
+// topic resolution, since that genuinely differs per kind.
+func availabilityTopicFor(nodeStateTopic, capability string) string {
+	if capability == "node" || nodeStateTopic == "" {
+		return ""
 	}
-	return strings.ToUpper(s[:1]) + s[1:]
+	return nodeStateTopic
+}
+
+// buildAvailabilityFields sets body's HA MQTT discovery "availability"/"availability_mode"
+// fields for an entity proxying a real, independently-fallible upstream HA entity (hassbridge and
+// import kinds -- not used by hosts, whose self-reported values are tied to the same liveness as
+// their own node signal, so this two-factor distinction doesn't apply there). Refines the earlier
+// node-only gating live 2026-08-31: node being reachable does NOT guarantee every entity it
+// reports is itself valid right now -- e.g. one Netatmo module's own reading can drop out
+// (upstream integration reports it "unavailable") while the module's own connectivity stays fine.
+// Availability is therefore the AND (availability_mode "all", the same mechanism Zigbee2MQTT's own
+// discovery configs already use to AND bridge-level + device-level availability) of up to two
+// factors:
+//  1. stateTopic itself, always checked -- if the entity's own last-reported payload is literally
+//     "unavailable" (what a proxied HA entity's own state naturally becomes when its upstream
+//     integration can't read it, independent of device connectivity), it's unavailable.
+//  2. nodeTopic, when non-"" (the device's own connectivity signal, already gated via
+//     availabilityTopicFor -- "" for the node capability itself, or a device with no declared node
+//     capability, meaning only factor 1 applies).
+//
+// A further factor -- mixing in the availability of the compute node/host an entity's own
+// integration runs on (e.g. protocols-server-2 itself) -- is intentionally not built here; that's
+// a separate, later step per the user's own explicit sequencing.
+func buildAvailabilityFields(body map[string]interface{}, stateTopic, nodeTopic string) {
+	entries := []map[string]interface{}{
+		{
+			"topic":                 stateTopic,
+			"value_template":        "{{ 'unavailable' if value == 'unavailable' else 'available' }}",
+			"payload_available":     "available",
+			"payload_not_available": "unavailable",
+		},
+	}
+	if nodeTopic != "" {
+		entries = append(entries, map[string]interface{}{
+			"topic":                 nodeTopic,
+			"payload_available":     "on",
+			"payload_not_available": "off",
+		})
+	}
+	body["availability"] = entries
+	body["availability_mode"] = "all"
+}
+
+// applyProxiedBinarySensorPayload sets body's "payload_on"/"payload_off" to HA's own native
+// binary_sensor state convention ("on"/"off", lowercase) when localEntity's domain is
+// "binary_sensor" -- a no-op for every other domain. Real bug found live 2026-08-31: hassbridge
+// and import discovery configs never set these fields at all, so HA's MQTT binary_sensor platform
+// fell back to its OWN default ("ON"/"OFF", uppercase) -- which never matches a proxied entity's
+// actual lowercase state, leaving it stuck at "unknown" even though the upstream source was
+// reporting a perfectly good "on". Hosts devices don't need this: their own node entity already
+// sets PayloadOn/PayloadOff explicitly (TBinarySensorDiscoveryPayload, "true"/"false" -- a
+// coordinator-chosen convention, not a proxied HA entity's own state).
+func applyProxiedBinarySensorPayload(body map[string]interface{}, localEntity string) {
+	if !strings.HasPrefix(localEntity, "binary_sensor.") {
+		return
+	}
+	body["payload_on"] = "on"
+	body["payload_off"] = "off"
 }
 
 // buildDiscoveryConfigs returns every HA MQTT Discovery config implied by one devices.yaml
@@ -267,10 +333,10 @@ func buildDiscoveryConfigs(deviceID string, device TDevice, live map[string]stri
 			Payload: TSensorDiscoveryPayload{
 				UniqueID:            uniqueID,
 				DefaultEntityID:     link.Entity,
-				Name:                capitalize(attr),
+				Name:                name + "/" + attr,
 				StateTopic:          device.Topic,
 				ValueTemplate:       "{{ value_json." + attr + " }}",
-				AvailabilityTopic:   device.NodeTopic,
+				AvailabilityTopic:   availabilityTopicFor(device.NodeTopic, attr),
 				PayloadAvailable:    "true",
 				PayloadNotAvailable: "false",
 				DeviceClass:         link.DeviceClass,

@@ -56,7 +56,7 @@ type THostDevice struct {
 	DeviceID        string
 	HostName        string
 	IntegrationType string            // "home_assistant", "cpu", or "ping"
-	Capabilities    map[string]string // capability name -> Home Assistant entity reference (home_assistant type only), e.g. "sensor.processor_use" or "update.home_assistant_operating_system_update!installed_version" (the same "<entity>!<attribute>" convention Spaces.def entity bodies use, e.g. "value sensor.X!state_message;"). A name may carry an explicit "<group>/<leaf>" prefix (e.g. "cpu/load") marking it as a variable attribute in that group -- see splitCapabilityName/AttributeNames/AttributeGroup. A name with no group prefix is a device-info capability instead (feeds the discovery "device:" block only, never gets its own sensor entity).
+	Capabilities    map[string]string // capability name -> Home Assistant entity reference (home_assistant type only), e.g. "sensor.processor_use" or "update.home_assistant_operating_system_update!installed_version" (the same "<entity>!<attribute>" convention Spaces.def entity bodies use, e.g. "value sensor.X!state_message;"). A name may carry an explicit "<group>/<leaf>" prefix (e.g. "cpu/load") marking it as a variable attribute in that group -- see splitCapabilityName/AttributeNames. A name with no group prefix is a device-info capability instead (feeds the discovery "device:" block only, never gets its own sensor entity).
 	// CapabilityLiteralPrefixes holds an optional literal string prefix for a capability,
 	// declared as `<capability>: "<literal>" <entity>[!<attribute>];` -- e.g. `sw_version:
 	// "Home Assistant Operating System " update.home_assistant_operating_system_update!installed_version;`
@@ -64,20 +64,31 @@ type THostDevice struct {
 	// (generateReportingAutomations). Absent for a capability with no literal prefix.
 	CapabilityLiteralPrefixes map[string]string
 	ConstantAttributes        map[string]THostConstantAttribute // per-device overrides for HA device-map fields, e.g. "model" -> {"Cool raspi", false}
-	// Cloud/Local are the "cloud"/"local" routing keywords (parseRoutingKeywords) trailing a
-	// device declaration -- see its own doc comment for the full semantics. Cloud means this
-	// device communicates (reports/is discovered) via the house's cloud broker profiles
-	// ("cloud_client"/"cloud_coordinator" in Physical.def) instead of "main"; Local, meaningful
-	// only alongside Cloud, additionally mirrors it onto the local/main broker too. Neither set
-	// (the default) means this device is purely local, today's existing behaviour.
+	// Cloud is the "cloud" routing keyword (parseRoutingKeywords) trailing a device declaration --
+	// see its own doc comment for the full semantics. Means this device communicates
+	// (reports/is discovered) via the house's cloud broker profiles ("cloud_client"/
+	// "cloud_coordinator" in Physical.def) instead of "main". Not set (the default) means this
+	// device is purely local, today's existing behaviour.
 	Cloud bool
-	Local bool
+	// selfImport is parseRoutingKeywords' "import" keyword, parsed alongside Cloud but NOT
+	// resolved to ImportedFrom here -- integration_hosts_parser.go has no installation name
+	// available to resolve it against. Unexported: pure parse-to-resolve plumbing, never
+	// serialized into devices.yaml or read by anything outside this package. Both places that
+	// construct a THostDevice from "integration hosts" (collectHostsDevicesByID below,
+	// generateHostsIntegrationOutputs/integration_hosts_generator.go) already have -- or cheaply
+	// resolve -- this installation's own name, and must immediately turn selfImport into
+	// ImportedFrom set to that name right after parsing, mirroring exactly what an ordinary
+	// "integration import with: device <id> <this-installation> <host> <type>;" declaration
+	// would have produced, had the DSL author written it out by hand pointing at themselves.
+	selfImport bool
 	// ImportedFrom is the remote installation name (e.g. "junglinster") this device was declared
 	// via "integration import with: device <local-id> <remote-installation> <remote-host>
-	// <type>; ...;" (integration_import_parser.go) instead of "integration hosts" -- "" for a
-	// genuinely local device. HostName holds the *remote* host name in that case, reused as-is
-	// for local topic construction too (see mqtt_relay.go, coordinator side) -- no separate
-	// "local alias" concept, to keep this from growing yet another name to track.
+	// <type>; ...;" (integration_import_parser.go) instead of "integration hosts", OR the
+	// resolved self-import case above (this installation's own name, from a "cloud import"
+	// declaration in "integration hosts") -- "" for a device that's neither. HostName holds the
+	// *remote* host name for a real cross-house import, reused as-is for local topic construction
+	// too (see mqtt_relay.go, coordinator side) -- no separate "local alias" concept, to keep this
+	// from growing yet another name to track.
 	ImportedFrom string
 }
 
@@ -103,10 +114,15 @@ func dedupedHostNames(devices []THostDevice) []string {
 // Conceptual_DeviceEntities.go, presence checks). First declaration wins for a duplicated id
 // (matching warnDuplicateDeviceIDs' policy), but this helper doesn't itself warn -- callers
 // that care about duplicates already get that from generateHostsIntegrationOutputs' own pass.
+// Resolves each device's own selfImport flag (parseRoutingKeywords' "import" keyword) into
+// ImportedFrom set to this installation's own resolved name, mirroring generateHostsIntegrationOutputs'
+// own resolution -- see THostDevice.selfImport's doc comment for why this has to happen here
+// rather than inside the lower-level parser.
 func collectHostsDevicesByID(definitionDir string) (map[string]THostDevice, []string) {
 	physicalContent, mergedLineNos, warnings := collectLayerContent(definitionDir, []string{"Physical.def"}, LayerPhysical)
 	blocks, blockWarnings := parseIntegrationBlocks(physicalContent, mergedLineNos)
 	warnings = append(warnings, blockWarnings...)
+	installation := resolveInstallationName(definitionDir)
 
 	byID := map[string]THostDevice{}
 	for _, block := range blocks {
@@ -116,6 +132,15 @@ func collectHostsDevicesByID(definitionDir string) (map[string]THostDevice, []st
 		devices, bodyWarnings := parseHostsIntegrationBody(block.BodyLines)
 		warnings = append(warnings, bodyWarnings...)
 		for _, d := range devices {
+			// "import" without "cloud" is meaningless (generateHostsIntegrationOutputs warns
+			// about it once; not repeated here to avoid double warnings for the same file).
+			if d.selfImport && d.Cloud {
+				if installation == "" {
+					warnings = append(warnings, fmt.Sprintf("device %q: \"import\" declared but ${installation} is not set; cannot self-qualify -- ignored", d.DeviceID))
+				} else {
+					d.ImportedFrom = installation
+				}
+			}
 			if _, exists := byID[d.DeviceID]; !exists {
 				byID[d.DeviceID] = d
 			}
@@ -137,8 +162,7 @@ func collectHostsDevicesByID(definitionDir string) (map[string]THostDevice, []st
 // since Physical.def can only declare one home_assistant target per house. Once a second,
 // named HA instance can be declared (e.g. the protocols-server-2 integration-adapter role,
 // Architecture.md §7/§9.2), this needs to become per-instance, grouping devices by which
-// instance hosts them and checking each independently -- the same shape
-// checkBridgeEntitiesOnline (presence.go) already uses per Bridges.def entry.
+// instance hosts them and checking each independently.
 func homeAssistantCapabilityEntityIDs(definitionDir string) map[string]string {
 	devicesByID, _ := collectHostsDevicesByID(definitionDir)
 
@@ -252,11 +276,17 @@ func (m THostsEntityMaterialization) DeviceInfoTopic(hostName string) string {
 	return fmt.Sprintf(m.DeviceInfoTopicTemplate, hostName)
 }
 
-// AttributeNames returns the variable-attribute names device implies: m's own hardwired
-// AttributeSpecs names if m has any (e.g. "cpu" type, where every device of that type reports
-// the same names regardless of what it declares), otherwise the leaf names of device's own
-// declared Capabilities that carry an explicit "<group>/<leaf>" prefix (e.g. "cpu/load") --
-// see splitCapabilityName. A capability with no group prefix is a device-info capability, not a
+// AttributeNames returns the variable-attribute names device implies, each in full
+// "<group>/<leaf>" form (e.g. "cpu/load") -- consistent with how a "home_assistant" bridge
+// device's own capabilities are named (Physical.def's "sensor.cpu/load: ...;" lines), so a
+// Spaces.def author references a device's attributes the same way regardless of which
+// integration kind it belongs to (PROJECT.md, 2026-09-01: was inconsistent -- hosts devices
+// used to expose bare leaf names like "load" here, home_assistant bridge devices always used
+// the full "cpu/load" form). Two sources: m's own hardwired AttributeSpecs names if m has any
+// (e.g. "cpu" type, where every device of that type reports the same names regardless of what
+// it declares) prefixed with m.AttributeSuffix, otherwise device's own declared Capabilities
+// names that already carry an explicit "<group>/<leaf>" prefix (e.g. "cpu/load") -- see
+// splitCapabilityName. A capability with no group prefix is a device-info capability, not a
 // variable attribute (generateReportingAutomations posts it to DeviceInfoTopic instead, the
 // coordinator's TLiveDeviceInfoStore merges it into ConstantAttributes), and must NOT get a
 // standalone sensor entity -- omitting the group is exactly what excludes it here. Sorted for
@@ -265,6 +295,9 @@ func (m THostsEntityMaterialization) AttributeNames(device THostDevice) []string
 	if len(m.AttributeSpecs) > 0 {
 		names := make([]string, 0, len(m.AttributeSpecs))
 		for name := range m.AttributeSpecs {
+			if m.AttributeSuffix != "" {
+				name = m.AttributeSuffix + "/" + name
+			}
 			names = append(names, name)
 		}
 		sort.Strings(names)
@@ -272,11 +305,11 @@ func (m THostsEntityMaterialization) AttributeNames(device THostDevice) []string
 	}
 	names := make([]string, 0, len(device.Capabilities))
 	for declared := range device.Capabilities {
-		group, leaf := splitCapabilityName(declared)
+		group, _ := splitCapabilityName(declared)
 		if group == "" {
 			continue
 		}
-		names = append(names, leaf)
+		names = append(names, declared)
 	}
 	sort.Strings(names)
 	return names
@@ -286,8 +319,8 @@ func (m THostsEntityMaterialization) AttributeNames(device THostDevice) []string
 // leaf name -- "cpu/load" -> ("cpu", "load"); "load" (no group) -> ("", "load"). The group,
 // when present, is this attribute's path-suffix segment (in place of the integration type's
 // own hardwired AttributeSuffix, e.g. "cpu" for the "cpu" integration type -- see
-// AttributeGroup) and marks it as a variable attribute rather than a device-info capability
-// (see AttributeNames).
+// registerHostAttributeEntity, Conceptual_DeviceEntities.go) and marks it as a variable
+// attribute rather than a device-info capability (see AttributeNames).
 func splitCapabilityName(declared string) (group, leaf string) {
 	if idx := strings.Index(declared, "/"); idx >= 0 {
 		return declared[:idx], declared[idx+1:]
@@ -295,36 +328,21 @@ func splitCapabilityName(declared string) (group, leaf string) {
 	return "", declared
 }
 
-// AttributeGroup resolves leaf's path-suffix segment (the "cpu" in
-// "sensor..../cpu/load"): m's own AttributeSuffix if m hardwires its attribute names itself
-// (e.g. "cpu" type -- these devices don't declare capabilities in the DSL at all, so there's
-// no per-device group to read), otherwise the explicit group prefix device declared for leaf
-// (e.g. "cpu" from "cpu/load: sensor.processor_use;"). Falls back to m.AttributeSuffix if leaf
-// isn't found with a group -- shouldn't normally happen, since AttributeNames only returns
-// leaves that had one.
-func (m THostsEntityMaterialization) AttributeGroup(device THostDevice, leaf string) string {
-	if len(m.AttributeSpecs) > 0 {
-		return m.AttributeSuffix
-	}
-	for declared := range device.Capabilities {
-		group, l := splitCapabilityName(declared)
-		if l == leaf && group != "" {
-			return group
-		}
-	}
-	return m.AttributeSuffix
-}
-
-// AttributeSpec resolves attr's HA typing metadata: m's own AttributeSpecs entry if present,
-// else a lookup in cpuAttributeSpecs -- covers "load"/"temperature" for home_assistant-type
-// devices, whose Capabilities names aren't hardwired in any THostsEntityMaterialization's own
-// AttributeSpecs. A name neither table knows about resolves to the zero value (HA treats an
-// absent device_class/unit/state_class as a generic numeric sensor).
+// AttributeSpec resolves attr's HA typing metadata: attr is the full "<group>/<leaf>" name
+// AttributeNames returns (e.g. "cpu/load") -- only the leaf half (splitCapabilityName) is ever
+// used to key the typing tables, since cpuAttributeSpecs/m.AttributeSpecs are keyed by leaf name
+// alone (they predate the group-prefixed DSL-facing convention and have no need to duplicate
+// it). Tries m's own AttributeSpecs entry first, else cpuAttributeSpecs -- the latter covers
+// "load"/"temperature" for home_assistant-type devices, whose Capabilities names aren't
+// hardwired in any THostsEntityMaterialization's own AttributeSpecs. A name neither table knows
+// about resolves to the zero value (HA treats an absent device_class/unit/state_class as a
+// generic numeric sensor).
 func (m THostsEntityMaterialization) AttributeSpec(attr string) THostsAttributeSpec {
-	if spec, ok := m.AttributeSpecs[attr]; ok {
+	_, leaf := splitCapabilityName(attr)
+	if spec, ok := m.AttributeSpecs[leaf]; ok {
 		return spec
 	}
-	return cpuAttributeSpecs[attr]
+	return cpuAttributeSpecs[leaf]
 }
 
 // hostsEntityMaterializationByType maps a "hosts" integration device's IntegrationType to how
@@ -336,14 +354,14 @@ func (m THostsEntityMaterialization) AttributeSpec(attr string) THostsAttributeS
 // entities identically; "cpu" always reports load+temperature there (AttributeSpecs hardwires
 // both names for every device of that type), while home_assistant-type devices leave
 // AttributeSpecs unset -- their variable attributes are already explicit via Capabilities, a
-// differently shaped (entity-mapped, not name-only) mechanism, so registerDeviceImpliedEntities
-// (Conceptual_DeviceEntities.go) falls back to each device's own Capabilities names, typed via
-// cpuAttributeSpecs, when AttributeSpecs is empty.
+// differently shaped (entity-mapped, not name-only) mechanism, so AttributeNames
+// (integration_hosts_storage.go, below) falls back to each device's own Capabilities names, typed
+// via cpuAttributeSpecs, when AttributeSpecs is empty.
 // cpuAttributeSpecs is the HA typing metadata for the "cpu"-topic-family attribute names
 // ("load", "temperature"), shared between "cpu" type (where AttributeSpecs hardwires that
 // every device of that type reports both) and "home_assistant" type (where a device's own
-// Capabilities names, not the type, decide which of these apply -- see
-// registerDeviceImpliedEntities's fallback in Conceptual_DeviceEntities.go). Both types name
+// Capabilities names, not the type, decide which of these apply -- see AttributeNames's own
+// fallback below). Both types name
 // the resulting entities identically (AttributeSuffix "cpu"), since both report on the same
 // hosts/<host>/cpu/state topic family and a "load"/"temperature" reading means the same thing
 // regardless of which mechanism populated it.

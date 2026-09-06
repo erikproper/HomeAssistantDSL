@@ -44,7 +44,6 @@ New/
 | `Main.def` | Include-order entry point |
 | `Settings.def` | Per-house variable overrides (also holds real secrets — gitignored) |
 | `Physical.def` | Physical layer: MQTT/Home Assistant main target, integration device declarations |
-| `Bridges.def` | REST bridge declarations |
 | `Spaces.def` | Conceptual layer: space and entity declarations |
 | `Lists.def` | Lovelace list declarations |
 
@@ -54,7 +53,7 @@ Entities are named with a domain, sphere, and path.
 
 **Extensional** (absolute):
 ```
-type.sphere/path          e.g.  sensor.physical/apartment/hallway/temperature
+type.sphere/path          e.g.  sensor.social/apartment/hallway/temperature
 type.[raw-name]           e.g.  sensor.[some_integration_entity]
 ```
 
@@ -65,13 +64,21 @@ type.sphere:/path         →  type.sphere/path
 type.sphere:path:sub      →  type.sphere/x/path/sub
 ```
 
-**Entity spheres:**
+**Entity spheres** (conceptual-layer namespaces — see Architecture.md §2 for how spheres relate to
+the separate conceptual/logical/physical *layer* split; "physical" names a layer there, not a
+sphere):
 
 | Sphere | Meaning |
 |---|---|
-| `physical` | Entities without an immediate social role |
 | `social` | Entities with a direct social/usage role |
-| `infrastructural` | IoT infrastructure entities (nodes, battery sensors, …) |
+| `infrastructural` | Entities reporting on the state of the automation platform's own IoT infrastructure (nodes, battery sensors, radio/signal strength, …) |
+| `meta` | Entities that operate the DSL/generator/coordinator system itself, rather than the house or its infrastructure (e.g. discover-entity/reload/restart controls) |
+
+`physical` also appears as a sphere in both real houses' current Spaces.def files (2026-09-06 and
+earlier) — a legacy naming choice from before the conceptual/logical/physical layer split was
+established, not part of the current three-sphere standard above. Left as-is deliberately: retiring
+it would mean renaming ~200 real, already-deployed HA entity_ids across both houses (dashboards,
+history, automations), a separate migration of its own, not a documentation-only change.
 
 ## DSL syntax
 
@@ -127,6 +134,9 @@ integration hosts with:
 
   device host.someswitch someswitch ping;               # liveness-only, no capabilities
 
+  device host.eriks-mac-studio eriks-mac-studio cpu cloud import;  # reports via the shared cloud
+                                                                    # broker, relayed back locally
+
   device host.junglinster junglinster home_assistant with:
     cpu/load:        sensor.processor_use;               # grouped -> its own sensor entity, path suffix "cpu"
     cpu/temperature: sensor.processor_temperature;
@@ -142,6 +152,15 @@ A capability name is either `<leaf>` (a device-info string — manufacturer, mod
 gets its own sensor entity at `.../<group>/<leaf>`, posted as numeric JSON on the device's MQTT
 state topic). A capability's entity reference may use the same `entity!attribute` syntax as
 regular entity bodies, and an optional leading `"<literal>"` string prefix concatenated onto it.
+
+The trailing `cloud`/`import` keywords route a `cpu`/`ping`-type device's traffic through the
+shared cloud broker instead of (or in addition to) this house's own local one, relayed back by the
+coordinator — see `Architecture.md` §12 for the full mechanism. **Every macOS `cpu`-reporting host
+must use `cloud import`, never a plain local declaration**: `mosquitto_pub` under `launchd`
+reliably fails to deliver (`Error: Bad file descriptor`, silent) when the destination is a LAN
+address, but works cleanly against the cloud broker every time — a launchd/libmosquitto quirk found
+live 2026-09-05 (`Architecture.md` §12 has the full incident writeup), not a bug in this DSL or the
+report script. Linux `cpu`-reporting hosts are unaffected and may use either form.
 
 `Spaces.def` then positions a declared host in the conceptual tree and pulls in its implied
 entities:

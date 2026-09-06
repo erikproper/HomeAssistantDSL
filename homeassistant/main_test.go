@@ -26,7 +26,6 @@ func TestHomeAssistantEntityIDMapping(t *testing.T) {
 		fullName string
 		expected string
 	}{
-		{fullName: "sun.[sun]", expected: "sun.sun"},
 		{fullName: "binary_sensor.social/entrance/front_door/ding", expected: "binary_sensor.social_entrance_front_door_ding"},
 		{fullName: "sensor.infrastructural/house/server_room/xanadu/temperature", expected: "sensor.infrastructural_house_server_room_xanadu_temperature"},
 	}
@@ -36,24 +35,6 @@ func TestHomeAssistantEntityIDMapping(t *testing.T) {
 		if actual != testCase.expected {
 			t.Fatalf("unexpected entity id mapping for %q: got %q, expected %q", testCase.fullName, actual, testCase.expected)
 		}
-	}
-}
-
-func TestExtractEntityIDsFromStatesPayload(t *testing.T) {
-	payload := []byte(`[
-  {"entity_id":"sun.sun","state":"above_horizon"},
-  {"entity_id":"sensor.outdoor_temperature","state":"17"}
-]`)
-
-	entityIDs, err := extractEntityIDsFromStatesPayload(payload)
-	if err != nil {
-		t.Fatalf("unexpected parse error: %v", err)
-	}
-	if !entityIDs["sun.sun"] {
-		t.Fatalf("expected sun.sun to be present")
-	}
-	if !entityIDs["sensor.outdoor_temperature"] {
-		t.Fatalf("expected sensor.outdoor_temperature to be present")
 	}
 }
 
@@ -474,7 +455,7 @@ func TestSpaceOnInVirtualSpacePopulatesSwitchOnByName(t *testing.T) {
 end;`
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -491,7 +472,7 @@ end;`
 
 func TestSourceToJinja2IsAvailableSugar(t *testing.T) {
 	got := sourceToJinja2("sensor.processor_use is available")
-	want := "'ON' if (states('sensor.processor_use') not in ['unavailable', 'unknown']) else 'OFF'"
+	want := "'on' if (states('sensor.processor_use') not in ['unavailable', 'unknown']) else 'off'"
 	if got != want {
 		t.Errorf("sourceToJinja2 = %q, want %q", got, want)
 	}
@@ -553,7 +534,10 @@ func TestNormalizeEntityFullNameLeadingSlashIsSphereAbsolute(t *testing.T) {
 
 func TestDeviceEntityImpliesDiscoveryEntitiesWithoutSpacePrefix(t *testing.T) {
 	const miniDSL = `space social:garage with:
-  entity device.infrastructural:/smarty from host.smarty with: all entities;
+  device infrastructural:/smarty from host.smarty with:
+    entity sensor.infrastructural:/smarty/cpu/load        from entity cpu/load;
+    entity sensor.infrastructural:/smarty/cpu/temperature from entity cpu/temperature;
+  end;
 end;`
 
 	hostDevicesByID := map[string]THostDevice{
@@ -561,7 +545,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -602,8 +586,8 @@ end;`
 	if link.NodeEntityID != "binary_sensor.infrastructural_smarty_node" {
 		t.Errorf("link.NodeEntityID = %q, want %q", link.NodeEntityID, "binary_sensor.infrastructural_smarty_node")
 	}
-	if link.DisplayName != "infrastructural/garage/smarty" {
-		t.Errorf("link.DisplayName = %q, want %q", link.DisplayName, "infrastructural/garage/smarty")
+	if link.DisplayName != "garage/smarty" {
+		t.Errorf("link.DisplayName = %q, want %q (sphere \"infrastructural\" is omitted from display names, 2026-08-29)", link.DisplayName, "garage/smarty")
 	}
 	if got := link.ConstantAttributes["model"]; got != (TDeviceAttributeConstant{Value: "Compute host"}) {
 		t.Errorf("link.ConstantAttributes[model] = %+v, want %+v", got, TDeviceAttributeConstant{Value: "Compute host"})
@@ -624,12 +608,78 @@ end;`
 	}
 }
 
+// TestDeviceEntitySingleAttributeFlagRegistersOnlyThatAttribute covers PROJECT.md 1.3b: a device
+// that doesn't actually have every attribute its integration type hardwires (e.g. a cloud VM with
+// no real "temperature" sensor to report, like the real host.mqtt) can name only the ones it
+// genuinely has, instead of bulk-importing the full hardwired set and getting a
+// permanently-unavailable entity for the rest.
+func TestDeviceEntitySingleAttributeFlagRegistersOnlyThatAttribute(t *testing.T) {
+	const miniDSL = `space social:garage with:
+  device infrastructural:/mqtt from host.mqtt with:
+    entity sensor.infrastructural:/mqtt/cpu/load from entity cpu/load;
+  end;
+end;`
+
+	hostDevicesByID := map[string]THostDevice{
+		"host.mqtt": {DeviceID: "host.mqtt", HostName: "mqtt", IntegrationType: "cpu"},
+	}
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	admin := result.Administration
+
+	link, ok := admin.DeviceConceptualLinks["host.mqtt"]
+	if !ok {
+		t.Fatalf("expected DeviceConceptualLinks[host.mqtt] to be populated")
+	}
+	if _, present := link.AttributeEntityIDs["load"]; !present {
+		t.Errorf("link.AttributeEntityIDs = %v, want \"load\" present", link.AttributeEntityIDs)
+	}
+	if _, present := link.AttributeEntityIDs["temperature"]; present {
+		t.Errorf("link.AttributeEntityIDs = %v, want \"temperature\" absent (not requested)", link.AttributeEntityIDs)
+	}
+	if link.NodeEntityID == "" {
+		t.Errorf("link.NodeEntityID = %q, want the node entity still registered (unconditional, regardless of flags)", link.NodeEntityID)
+	}
+}
+
+// TestDeviceEntityUnrecognisedFlagRegistersNothingExtra confirms a genuinely unknown attribute
+// name (not one of this device's integration type's real attributes) is rejected, registering
+// nothing for it, rather than being silently matched.
+func TestDeviceEntityUnrecognisedFlagRegistersNothingExtra(t *testing.T) {
+	const miniDSL = `space social:garage with:
+  device infrastructural:/mqtt from host.mqtt with:
+    entity sensor.infrastructural:/mqtt/bogus_attribute from entity bogus_attribute;
+  end;
+end;`
+
+	hostDevicesByID := map[string]THostDevice{
+		"host.mqtt": {DeviceID: "host.mqtt", HostName: "mqtt", IntegrationType: "cpu"},
+	}
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	link, ok := result.Administration.DeviceConceptualLinks["host.mqtt"]
+	if !ok {
+		t.Fatalf("expected DeviceConceptualLinks[host.mqtt] to be populated")
+	}
+	if len(link.AttributeEntityIDs) != 0 {
+		t.Errorf("link.AttributeEntityIDs = %v, want none registered for an unrecognised flag", link.AttributeEntityIDs)
+	}
+}
+
 func TestDeviceEntityBareSpecDefaultsToInfrastructuralSphereAndSpaceRelativePath(t *testing.T) {
 	// No explicit sphere/absolute marker: "device" defaults to the infrastructural sphere
 	// (taxonomy.go's SphereOf), but the path still follows the normal space-relative
 	// convention -- same as any other entity declared without a leading "/".
 	const miniDSL = `space social:garage with:
-  entity device.smarty from host.smarty with: all entities;
+  device smarty from host.smarty;
 end;`
 
 	hostDevicesByID := map[string]THostDevice{
@@ -637,7 +687,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -661,8 +711,8 @@ end;`
 	if !ok {
 		t.Fatalf("expected DeviceConceptualLinks[host.smarty] to be populated")
 	}
-	if link.DisplayName != "infrastructural/garage/smarty" {
-		t.Errorf("link.DisplayName = %q, want %q", link.DisplayName, "infrastructural/garage/smarty")
+	if link.DisplayName != "garage/smarty" {
+		t.Errorf("link.DisplayName = %q, want %q (sphere \"infrastructural\" is omitted from display names, 2026-08-29)", link.DisplayName, "garage/smarty")
 	}
 }
 
@@ -719,7 +769,7 @@ func TestGenerateReportingAutomationsSplitsNumericAndDeviceInfoCapabilities(t *t
 
 func TestGenerateCustomizationFilesSkipsDiscoveryImpliedEntities(t *testing.T) {
 	const miniDSL = `space social:garage with:
-  entity device.infrastructural:/smarty from host.smarty with: all entities;
+  device infrastructural:/smarty from host.smarty;
   entity switch.social:test_switch;
 end;`
 
@@ -728,7 +778,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -751,42 +801,11 @@ end;`
 	}
 }
 
-func TestRegisterDeviceImpliedEntitiesNoWarningForPingType(t *testing.T) {
-	// "ping" type has no AttributeDomain at all -- liveness-only by design, so registering the
-	// node entity only is the expected, permanent outcome, not a warning-worthy edge case.
-	admin := newAdministrationState()
-	decl := TDeviceEntityDeclaration{DeviceSpec: "infrastructural:appletv-office", DeviceID: "host.appletv-office", Flags: []string{"all entities"}}
-	hostDevicesByID := map[string]THostDevice{
-		"host.appletv-office": {DeviceID: "host.appletv-office", HostName: "appletv-office", IntegrationType: "ping"},
-	}
-
-	warnings := registerDeviceImpliedEntities(admin, decl, hostDevicesByID, nil, "Spaces.def", 898)
-	if len(warnings) != 0 {
-		t.Errorf("expected no warnings for a ping-type device, got %v", warnings)
-	}
-}
-
-func TestRegisterDeviceImpliedEntitiesStillWarnsForHomeAssistantTypeWithNoCapabilities(t *testing.T) {
-	// "home_assistant" type DOES have the structural capacity for variable attributes
-	// (AttributeDomain set) -- an empty set here usually means the device forgot to declare
-	// capabilities, so this case should still warn.
-	admin := newAdministrationState()
-	decl := TDeviceEntityDeclaration{DeviceSpec: "infrastructural:junglinster", DeviceID: "host.junglinster", Flags: []string{"all entities"}}
-	hostDevicesByID := map[string]THostDevice{
-		"host.junglinster": {DeviceID: "host.junglinster", HostName: "junglinster", IntegrationType: "home_assistant"},
-	}
-
-	warnings := registerDeviceImpliedEntities(admin, decl, hostDevicesByID, nil, "Spaces.def", 42)
-	if len(warnings) == 0 {
-		t.Errorf("expected a warning for a home_assistant-type device with no declared capabilities")
-	}
-}
-
 func TestSpaceAsAreaAssignsSuggestedAreaToDevices(t *testing.T) {
 	const miniDSL = `space social:house with:
   space social:laundry_kitchen with:
     space infrastructural:rack as area with:
-      entity device.infrastructural:junglinster from host.junglinster with: all entities;
+      device infrastructural:junglinster from host.junglinster;
     end;
   end;
 end;`
@@ -796,7 +815,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -805,9 +824,9 @@ end;`
 	if !ok {
 		t.Fatalf("expected DeviceConceptualLinks[host.junglinster] to be populated")
 	}
-	want := TDeviceAttributeConstant{Value: "infrastructural/house/laundry_kitchen/rack"}
+	want := TDeviceAttributeConstant{Value: "house/laundry_kitchen/rack"}
 	if got := link.ConstantAttributes["suggested_area"]; got != want {
-		t.Errorf("link.ConstantAttributes[suggested_area] = %+v, want %+v", got, want)
+		t.Errorf("link.ConstantAttributes[suggested_area] = %+v, want %+v (sphere \"infrastructural\" is omitted from display/area names, 2026-08-29)", got, want)
 	}
 }
 
@@ -817,10 +836,10 @@ func TestSpaceAsAreaShadowingAndExplicitOverride(t *testing.T) {
 	// the outer garage area. protocols-server-1 has its own explicit suggested_area override,
 	// which must survive even though it's positioned inside the "rack" area space.
 	const miniDSL = `space infrastructural:garage as area with:
-  entity device.infrastructural:smarty from host.smarty with: all entities;
+  device infrastructural:smarty from host.smarty;
   space infrastructural:rack as area with:
-    entity device.infrastructural:junglinster from host.junglinster with: all entities;
-    entity device.infrastructural:protocols-server-1 from host.protocols-server-1 with: all entities;
+    device infrastructural:junglinster from host.junglinster;
+    device infrastructural:protocols-server-1 from host.protocols-server-1;
   end;
 end;`
 
@@ -836,15 +855,17 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
 	admin := result.Administration
 
 	cases := map[string]string{
-		"host.smarty":             "infrastructural/garage",
-		"host.junglinster":        "infrastructural/garage/rack",
+		"host.smarty":      "garage",      // computed via deviceDisplayName -- "infrastructural" omitted, 2026-08-29
+		"host.junglinster": "garage/rack", // computed via deviceDisplayName -- "infrastructural" omitted, 2026-08-29
+		// protocols-server-1's own literal fixture override, never derived via deviceDisplayName --
+		// must survive unchanged.
 		"host.protocols-server-1": "infrastructural/basement",
 	}
 	for deviceID, want := range cases {
@@ -973,15 +994,9 @@ func TestParseHostsIntegrationBodyGroupedCapabilityName(t *testing.T) {
 		t.Fatalf("no materialization for integration type %q", d.IntegrationType)
 	}
 	attrNames := mat.AttributeNames(d)
-	want := []string{"load", "temperature"}
+	want := []string{"cpu/load", "cpu/temperature"}
 	if len(attrNames) != len(want) || attrNames[0] != want[0] || attrNames[1] != want[1] {
 		t.Fatalf("AttributeNames = %v, want %v", attrNames, want)
-	}
-	if group := mat.AttributeGroup(d, "load"); group != "cpu" {
-		t.Errorf("AttributeGroup(load) = %q, want %q", group, "cpu")
-	}
-	if group := mat.AttributeGroup(d, "temperature"); group != "cpu" {
-		t.Errorf("AttributeGroup(temperature) = %q, want %q", group, "cpu")
 	}
 }
 
@@ -1051,10 +1066,10 @@ func TestExtractDiscoveryEntityDeclarationLastDotIsLeafBoundary(t *testing.T) {
 		t.Errorf("Leaf = %q, want %q", decl.Leaf, "boiler_outdoortemp")
 	}
 
-	// Must not be confused with the unrelated "entity device.<spec> from <device-id> with:
-	// ...;" construct (Conceptual_DeviceEntities.go), which always has a trailing "with:" clause.
-	if _, ok := extractDiscoveryEntityDeclaration("entity device.infrastructural:junglinster from host.junglinster with: all entities;"); ok {
-		t.Errorf("must not match a device.<spec> from <device-id> with: ...; line")
+	// Must not be confused with the unrelated "device <spec> from <device-id> with: ...; end;"
+	// construct (Conceptual_DevicePositioning.go), which always has a trailing "with:" clause.
+	if _, ok := extractDiscoveryEntityDeclaration("device infrastructural:junglinster from host.junglinster with:"); ok {
+		t.Errorf("must not match a device <spec> from <device-id> with: ...; end; block header")
 	}
 }
 
@@ -1073,7 +1088,7 @@ func TestRegisterDiscoveryEntityLinkViaParse(t *testing.T) {
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1108,7 +1123,7 @@ func TestRegisterDiscoveryEntityLinkWarnsOnUnknownGateway(t *testing.T) {
 end;`
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, map[string]TDiscoveryGatewayDevice{}, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, map[string]TDiscoveryGatewayDevice{}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1132,7 +1147,7 @@ func TestAttributeNamesExcludesDeviceInfoCapabilities(t *testing.T) {
 	}
 
 	got := mat.AttributeNames(device)
-	want := []string{"load", "temperature"}
+	want := []string{"cpu/load", "cpu/temperature"}
 	if len(got) != len(want) {
 		t.Fatalf("AttributeNames = %v, want %v", got, want)
 	}
@@ -1140,9 +1155,6 @@ func TestAttributeNamesExcludesDeviceInfoCapabilities(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("AttributeNames = %v, want %v", got, want)
 		}
-	}
-	if group := mat.AttributeGroup(device, "load"); group != "cpu" {
-		t.Errorf("AttributeGroup(load) = %q, want %q", group, "cpu")
 	}
 	// Regression guard: sw_version has no group prefix, so it must never become a "variable
 	// device attribute" -- it's a device-info capability, destined for the discovery "device:"

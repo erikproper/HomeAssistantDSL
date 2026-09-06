@@ -75,7 +75,7 @@ func parseHostsIntegrationBody(bodyLines []string) ([]THostDevice, []string) {
 			continue
 		}
 
-		strippedLine, cloud, local := parseRoutingKeywords(line)
+		strippedLine, cloud, selfImport := parseRoutingKeywords(line)
 
 		if matches := withDevicePattern.FindStringSubmatch(strippedLine); matches != nil {
 			current = THostDevice{
@@ -83,14 +83,14 @@ func parseHostsIntegrationBody(bodyLines []string) ([]THostDevice, []string) {
 				Capabilities:              map[string]string{},
 				CapabilityLiteralPrefixes: map[string]string{},
 				ConstantAttributes:        map[string]THostConstantAttribute{},
-				Cloud:                     cloud, Local: local,
+				Cloud:                     cloud, selfImport: selfImport,
 			}
 			inDeviceCapabilities = true
 			continue
 		}
 
 		if matches := bareDevicePattern.FindStringSubmatch(strippedLine); matches != nil {
-			devices = append(devices, THostDevice{DeviceID: matches[1], HostName: matches[2], IntegrationType: matches[3], Cloud: cloud, Local: local})
+			devices = append(devices, THostDevice{DeviceID: matches[1], HostName: matches[2], IntegrationType: matches[3], Cloud: cloud, selfImport: selfImport})
 			continue
 		}
 

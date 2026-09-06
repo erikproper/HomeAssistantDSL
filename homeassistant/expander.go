@@ -1470,7 +1470,7 @@ func analyzeEntityDefinitionContext(lines []string, entityLineIdx int) (bool, []
 		// keywords all mark the entity as defined by this system (not assumed from HA).
 		for _, kw := range []string{
 			"definition as ", "imported ",
-			"adjustment ", "cli_switch ", "cli_sensor ", "condition ", "value ", "available ",
+			"adjustment ", "cli_switch ", "condition ", "value ", "available ",
 		} {
 			if strings.HasPrefix(lower, kw) {
 				hasDefinitionOrImported = true
@@ -1679,12 +1679,6 @@ func extractEntityIdentity(fullName string) TEntityIdentity {
 
 	identity.Domain = fullName[:dotIdx]
 	remainder := fullName[dotIdx+1:]
-
-	if strings.HasPrefix(remainder, "[") && strings.HasSuffix(remainder, "]") {
-		identity.IsRaw = true
-		identity.RawName = strings.TrimSuffix(strings.TrimPrefix(remainder, "["), "]")
-		return identity
-	}
 
 	slashIdx := strings.Index(remainder, "/")
 	if slashIdx < 0 {
