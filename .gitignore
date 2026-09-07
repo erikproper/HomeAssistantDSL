@@ -12,3 +12,8 @@ New/*/Definitions/Expansion.txt
 
 # Legacy source tree may contain sensitive values
 Old/
+
+# Compiled binaries (each `go build .` names the binary after its own directory)
+/homeassistant/homeassistant
+/house_event_bus_coordinator/house_event_bus_coordinator
+/mqtt_commandline/mqtt_commandline

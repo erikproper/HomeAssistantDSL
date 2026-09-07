@@ -414,7 +414,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
-	if err := subscribeImportedDevices(client, cloudClient, importedFile, publisher, conceptualPrefix); err != nil {
+	// PROJECT.md item 1 (2026-09-07): kind-4 existence tracking for shorthand-declared import
+	// capabilities -- same "seed, publish current status immediately, let the coordinator's own
+	// discovery-config subscription passively confirm the rest" shape as kind-2's own tracker.
+	importExistenceTracker := newImportExistenceTracker(filepath.Join(coordinatorDir, "import_existence.json"))
+	importExistenceTracker.Seed(importedFile)
+	importExistenceTracker.PublishAll(client, cloudClient, devicesFile.Installation, importedFile)
+	if err := subscribeImportedDevices(client, cloudClient, devicesFile.Installation, importedFile, publisher, conceptualPrefix, importExistenceTracker); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}

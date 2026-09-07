@@ -209,6 +209,15 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 	if err := generateImportedDeviceFile(outputRoot, importedDevices, ctx.Admin); err != nil {
 		return err
 	}
+	// PROJECT.md 1 (2026-09-07): kind-4's own passive counterpart to kind-2/kind-3 above -- same
+	// rule, a confirmed known-not-to-exist remote stable id blocks generation for a shorthand-declared
+	// import capability, not-known-to-exist/known-to-exist both generate optimistically. Explicit-ref
+	// capabilities predate this mechanism and are never checked here.
+	if hasMQTTSecrets {
+		if err := checkImportKnownNotToExistErrors(definitionDir, importedDevices, ctx); err != nil {
+			return err
+		}
+	}
 	// Baseline devices.yaml write, unconditional: a house with no "integration hosts" block at
 	// all (e.g. Vienna today, PROJECT.md 1.2c/1.2d -- coordinator/cloud broker stood up before any
 	// local hosts devices exist) still needs devices.yaml to carry Installation/
