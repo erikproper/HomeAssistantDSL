@@ -219,8 +219,17 @@ func hassBridgeDiscoveryTopic(localEntity, prefix string) (topic string, ok bool
 // declared. Decoupling the cloud identity from local naming means it can never drift due to the
 // exporter's own repositioning; it depends only on (installation, deviceID, capability), all of
 // which are exactly what an importer's own declaration already states.
+//
+// capability is sanitized ("/" -> "_") here, separately from sanitizeTopicSegment(deviceID) --
+// a hosts-kind capability's own name is group-prefixed (e.g. "cpu/load", TDiscoveryConfig's own
+// Capability field, discovery.go), and this whole string must stay exactly ONE MQTT topic segment
+// (discoveryTopic embeds it as "<prefix>/<component>/coordinator/<stableID>/config") for
+// matchImportedCapabilityByStableID's segment-counting to work. Deliberately NOT folded into
+// sanitizeTopicSegment itself -- that helper also sanitizes a hosts-kind capability's LOCAL
+// discovery topic (buildDiscoveryConfigs' own uniqueID), which must keep its "/" untouched;
+// changing it there would rename every such topic already live in production.
 func exportStableID(qualifier, deviceID, capability string) string {
-	return qualifier + "_" + sanitizeTopicSegment(deviceID) + "_" + capability
+	return qualifier + "_" + sanitizeTopicSegment(deviceID) + "_" + strings.ReplaceAll(capability, "/", "_")
 }
 
 // hassBridgeCloudDiscoveryTopic is exportStableID's own topic counterpart -- the discovery CONFIG

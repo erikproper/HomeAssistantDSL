@@ -187,7 +187,14 @@ func expectedCloudHostsPayloads(devicesFile TDevicesFile, ownInstallation string
 			if err != nil {
 				return nil, fmt.Errorf("marshalling discovery payload for %s: %w", cfg.Topic, err)
 			}
-			expected[ownInstallation+"/"+cfg.Topic] = string(data)
+			// Must match publishDeviceDiscovery's own cloud topic formula exactly (mqtt.go,
+			// 2026-09-07) -- independent of cfg.Topic (the local one), keyed by
+			// exportStableID(ownInstallation, id, cfg.Capability), so a hosts-kind capability's
+			// cloud catalogue entry can be matched by cross-house import shorthand too. Drifting
+			// from that formula here would make the orphan watcher retire every real cloud
+			// discovery config the moment it's published, mistaking it for unexpected.
+			stableID := exportStableID(ownInstallation, id, cfg.Capability)
+			expected[ownInstallation+"/"+discoveryTopic(prefix, cfg.Component, stableID)] = string(data)
 		}
 	}
 	return expected, nil

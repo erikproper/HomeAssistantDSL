@@ -162,9 +162,20 @@ type TSensorDiscoveryPayload struct {
 }
 
 // TDiscoveryConfig bundles one discovery config topic with its (not-yet-serialised) payload.
+// Component/Capability (added 2026-09-07) let a caller rebuild an INDEPENDENT cloud-side topic
+// for this same config, keyed by exportStableID(ownInstallation, deviceID, Capability) rather than
+// Topic's own deviceID-derived naming -- mqtt.go's publishDeviceDiscovery/discoverycleanup.go's
+// expectedCloudHostsPayloads both need this so a hosts-kind capability's cloud catalogue entry can
+// be matched by cross-house import shorthand (discoveryimport.go's matchImportedCapabilityByStableID)
+// the same way a hassbridge capability's already can (discoveryhassbridge.go), without touching
+// Topic itself -- which stays exactly as before for the LOCAL discovery config, never renamed.
+// Component is the HA MQTT discovery component ("binary_sensor"/"sensor"); Capability is the bare
+// key within the device ("node", or an attribute name like "cpu/load").
 type TDiscoveryConfig struct {
-	Topic   string
-	Payload interface{}
+	Topic      string
+	Payload    interface{}
+	Component  string
+	Capability string
 }
 
 // discoveryTopic builds the standard HA MQTT Discovery config topic for one component/entity
@@ -305,7 +316,9 @@ func buildDiscoveryConfigs(deviceID string, device TDevice, live map[string]stri
 	if device.Conceptual.NodeEntity != "" {
 		uniqueID := deviceID + "_node"
 		configs = append(configs, TDiscoveryConfig{
-			Topic: discoveryTopic(prefix, "binary_sensor", uniqueID),
+			Topic:      discoveryTopic(prefix, "binary_sensor", uniqueID),
+			Component:  "binary_sensor",
+			Capability: "node",
 			Payload: TBinarySensorDiscoveryPayload{
 				UniqueID:        uniqueID,
 				DefaultEntityID: device.Conceptual.NodeEntity,
@@ -328,8 +341,19 @@ func buildDiscoveryConfigs(deviceID string, device TDevice, live map[string]stri
 	for _, attr := range attrNames {
 		link := device.Conceptual.AttributeEntities[attr]
 		uniqueID := deviceID + "_" + attr
+		// Capability is the DSL-wide group-prefixed name ("cpu/load") when devices.yaml carries
+		// one (TConceptualAttribute.Capability's own doc comment explains why it must differ from
+		// attr, the bare leaf used everywhere else in this function) -- falls back to the bare
+		// leaf for an attribute with no group, or a devices.yaml generated before this field
+		// existed.
+		capability := link.Capability
+		if capability == "" {
+			capability = attr
+		}
 		configs = append(configs, TDiscoveryConfig{
-			Topic: discoveryTopic(prefix, "sensor", uniqueID),
+			Topic:      discoveryTopic(prefix, "sensor", uniqueID),
+			Component:  "sensor",
+			Capability: capability,
 			Payload: TSensorDiscoveryPayload{
 				UniqueID:            uniqueID,
 				DefaultEntityID:     link.Entity,

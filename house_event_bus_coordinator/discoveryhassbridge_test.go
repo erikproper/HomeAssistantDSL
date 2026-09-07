@@ -770,6 +770,19 @@ func TestExportStableIDIndependentOfLocalNaming(t *testing.T) {
 	}
 }
 
+// TestExportStableIDSanitizesSlashInCapability is the regression test for extending stable ids to
+// hosts-kind capabilities (2026-09-07): a hosts-kind capability's own name is group-prefixed (e.g.
+// "cpu/load", discovery.go's TDiscoveryConfig.Capability) -- the "/" must be sanitized so the whole
+// stable id stays exactly one MQTT topic segment, or matchImportedCapabilityByStableID's
+// segment-counting (".../coordinator/<stableID>/config") breaks.
+func TestExportStableIDSanitizesSlashInCapability(t *testing.T) {
+	got := exportStableID("junglinster", "host.pro-1", "cpu/load")
+	want := "junglinster_host_pro-1_cpu_load"
+	if got != want {
+		t.Errorf("exportStableID = %q, want %q", got, want)
+	}
+}
+
 func TestExportQualifierUsesExportAsWhenSet(t *testing.T) {
 	device := THassBridgeDevice{ExportAs: "roaming"}
 	if got := exportQualifier(device, "junglinster"); got != "roaming" {

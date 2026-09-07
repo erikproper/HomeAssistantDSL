@@ -231,16 +231,29 @@ func generateCoordinatorDevicesFile(outputRoot string, devices []THostDevice, ad
 				// entry_id produces for the same capability.
 				// AttributeEntityIDs is keyed by bare leaf name ("load"), but AttributeNames
 				// returns the full "<group>/<leaf>" form ("cpu/load") -- splitCapabilityName
-				// bridges the two, same as registerHostAttributeEntity's own leaf/group split.
+				// bridges the two, same as registerHostAttributeEntity's own leaf/group split. The
+				// bare leaf stays the map key (and hence the local unique_id/value_template's own
+				// JSON field name -- Integrations/cpu/report's real wire payload is the flat
+				// {"load": ..., "temperature": ...} shape generateReportingAutomations' own doc
+				// comment describes; group-prefixing THAT would break every cpu-integration host's
+				// discovery config). The full group-prefixed name is instead carried separately, in
+				// the new "capability:" field below -- see TConceptualAttribute.Capability's own
+				// doc comment (house_event_bus_coordinator/main.go) for why: exportStableID needs
+				// the SAME capability name a DSL author's Spaces.def/import-shorthand declaration
+				// already uses ("cpu/load", the DSL-wide convention for this integration, confirmed
+				// live 2026-09-07 -- Vienna's own Spaces.def references every cpu-integration
+				// device's attributes this way, imported or native), not the internal bare leaf.
 				var hostsAttrNames []string
 				if mat, known := MaterializationForIntegrationType(d.IntegrationType); known {
 					hostsAttrNames = mat.AttributeNames(d)
 				}
+				leafToFullName := map[string]string{}
 				attrNames := make([]string, 0, len(hostsAttrNames))
 				for _, fullName := range hostsAttrNames {
 					_, leaf := splitCapabilityName(fullName)
 					if _, known := link.AttributeEntityIDs[leaf]; known {
 						attrNames = append(attrNames, leaf)
+						leafToFullName[leaf] = fullName
 					}
 				}
 				sort.Strings(attrNames)
@@ -250,6 +263,9 @@ func generateCoordinatorDevicesFile(outputRoot string, devices []THostDevice, ad
 						attr := link.AttributeEntityIDs[name]
 						sb.WriteString("        " + name + ":\n")
 						sb.WriteString("          entity: " + attr.EntityID + "\n")
+						if fullName := leafToFullName[name]; fullName != "" && fullName != name {
+							sb.WriteString("          capability: " + fullName + "\n")
+						}
 						if attr.DeviceClass != "" {
 							sb.WriteString("          device_class: " + attr.DeviceClass + "\n")
 						}

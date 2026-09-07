@@ -66,3 +66,40 @@ func TestGenerateCoordinatorDevicesFileExcludesForeignAttributeEntityIDs(t *test
 		t.Errorf("devices.yaml must not carry the foreign \"slideshow\" attribute; got:\n%s", content)
 	}
 }
+
+// TestGenerateCoordinatorDevicesFileWritesGroupPrefixedCapability is the regression test for
+// exportStableID's own cross-house import shorthand needing the DSL-wide "cpu/load" capability
+// name, not the internal bare "load" leaf key (found live 2026-09-07, alongside the hosts-kind
+// stable id work -- see house_event_bus_coordinator/main.go's TConceptualAttribute.Capability doc
+// comment). The map key itself must stay bare (value_template's own JSON field name depends on
+// it), but a new "capability:" line should additionally carry the full group-prefixed name.
+func TestGenerateCoordinatorDevicesFileWritesGroupPrefixedCapability(t *testing.T) {
+	outputRoot := t.TempDir()
+	admin := newAdministrationState()
+	admin.DeviceConceptualLinks["host.pro-1"] = TDeviceConceptualLink{
+		NodeEntityID: "binary_sensor.infrastructural_cloud_pro1_node",
+		AttributeEntityIDs: map[string]TDeviceAttributeLink{
+			"load":        {EntityID: "sensor.infrastructural_cloud_pro1_cpu_load"},
+			"temperature": {EntityID: "sensor.infrastructural_cloud_pro1_cpu_temperature"},
+		},
+	}
+	devices := []THostDevice{
+		{DeviceID: "host.pro-1", HostName: "pro1", IntegrationType: "cpu"},
+	}
+
+	if err := generateCoordinatorDevicesFile(outputRoot, devices, admin, "homeassistant", ""); err != nil {
+		t.Fatalf("generateCoordinatorDevicesFile: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(outputRoot, "coordinator", "devices.yaml"))
+	if err != nil {
+		t.Fatalf("reading devices.yaml: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "        load:\n          entity: sensor.infrastructural_cloud_pro1_cpu_load\n          capability: cpu/load\n") {
+		t.Errorf("devices.yaml missing \"capability: cpu/load\" right after \"load\"'s entity; got:\n%s", content)
+	}
+	if !strings.Contains(content, "        temperature:\n          entity: sensor.infrastructural_cloud_pro1_cpu_temperature\n          capability: cpu/temperature\n") {
+		t.Errorf("devices.yaml missing \"capability: cpu/temperature\" right after \"temperature\"'s entity; got:\n%s", content)
+	}
+}

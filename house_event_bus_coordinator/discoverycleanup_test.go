@@ -284,13 +284,16 @@ func TestExpectedCloudHostsPayloadsQualifiesTopicsAndSkipsNonCloudAndRealImporte
 		t.Fatalf("expectedCloudHostsPayloads error: %v", err)
 	}
 
+	prefix := devicesFile.conceptualPrefix()
 	wantCloudOnly := map[string]bool{}
-	for _, cfg := range buildDiscoveryConfigs("host.cloud_only", cloudDevice, nil, "", devicesFile.conceptualPrefix()) {
-		wantCloudOnly["junglinster/"+cfg.Topic] = true
+	for _, cfg := range buildDiscoveryConfigs("host.cloud_only", cloudDevice, nil, "", prefix) {
+		stableID := exportStableID("junglinster", "host.cloud_only", cfg.Capability)
+		wantCloudOnly["junglinster/"+discoveryTopic(prefix, cfg.Component, stableID)] = true
 	}
 	wantSelfImport := map[string]bool{}
-	for _, cfg := range buildDiscoveryConfigs("host.self_import", selfImportDevice, nil, "", devicesFile.conceptualPrefix()) {
-		wantSelfImport["junglinster/"+cfg.Topic] = true
+	for _, cfg := range buildDiscoveryConfigs("host.self_import", selfImportDevice, nil, "", prefix) {
+		stableID := exportStableID("junglinster", "host.self_import", cfg.Capability)
+		wantSelfImport["junglinster/"+discoveryTopic(prefix, cfg.Component, stableID)] = true
 	}
 
 	for topic := range wantCloudOnly {

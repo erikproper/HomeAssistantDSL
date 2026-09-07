@@ -186,6 +186,30 @@ func TestMatchImportedCapabilityByStableIDCoercesAcrossDomains(t *testing.T) {
 	}
 }
 
+// TestMatchImportedCapabilityByStableIDMatchesGroupPrefixedHostsCapability is the regression test
+// for extending shorthand to hosts-kind capabilities (2026-09-07): a group-prefixed capability
+// name ("cpu/load") must still resolve to exactly one topic segment (exportStableID sanitizes "/"
+// internally), and the declared capability key on the import side is the SAME group-prefixed name
+// a DSL author's Spaces.def already uses -- not the exporter's own internal bare leaf.
+func TestMatchImportedCapabilityByStableIDMatchesGroupPrefixedHostsCapability(t *testing.T) {
+	importFile := TImportedFile{Devices: map[string]TImportedDevice{
+		"import.pro-1": {
+			RemoteInstallation: "junglinster", RemoteDeviceID: "host.pro-1",
+			Capabilities: map[string]TImportedCapability{
+				"cpu/load": {LocalEntity: "sensor.infrastructural_cloud_pro1_cpu_load"},
+			},
+		},
+	}}
+	topic := "junglinster/homeassistant/sensor/coordinator/junglinster_host_pro-1_cpu_load/config"
+	match, matched := matchImportedCapabilityByStableID(importFile, "junglinster", topic)
+	if !matched {
+		t.Fatalf("expected a match for the group-prefixed \"cpu/load\" capability")
+	}
+	if match.LocalDeviceID != "import.pro-1" || match.Capability != "cpu/load" || match.LocalEntity != "sensor.infrastructural_cloud_pro1_cpu_load" {
+		t.Errorf("match = %+v, want {import.pro-1 cpu/load sensor.infrastructural_cloud_pro1_cpu_load}", match)
+	}
+}
+
 func TestBuildImportedDiscoveryBody(t *testing.T) {
 	payload := importedDiscoveryPayload{
 		DefaultEntityID: "sensor.infrastructural_vienna_shower_room_temperature",

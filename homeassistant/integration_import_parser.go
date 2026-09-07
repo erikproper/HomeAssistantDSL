@@ -46,13 +46,18 @@ var importCapabilityPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_/]*):\s*
 // importCapabilityPattern: the explicit form always has a colon right after the capability name,
 // this form never does.
 //
+// The capability group allows "/" (e.g. "sensor.cpu/load;"), matching importCapabilityPattern's own
+// charset -- a hosts-kind export's capability names are group-prefixed (integration_hosts_storage.go's
+// AttributeNames), so the shorthand form has to accept that shape too, not just hassbridge's bare
+// names, for a hosts-kind import to ever be expressible without RemoteEntityRef.
+//
 // <domain> is captured but never stored -- it exists purely for readability/convention consistency
 // with hassbridge's own "domain always explicit" style. The LOCAL discovery config's own domain
 // always comes from wherever Spaces.def positions this capability's LocalEntity, independent of
 // both this declared domain and whatever domain the remote side actually used -- a deliberate
 // coercion (house_event_bus_coordinator/discoveryimport.go's own stable-id-based matching, which
 // never inspects the incoming payload's own domain at all).
-var importShorthandCapabilityPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_]*)\s*;\s*$`)
+var importShorthandCapabilityPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s*;\s*$`)
 
 // parseImportIntegrationBody parses the body lines of an "integration import with: ... end;"
 // block. Lines that don't parse cleanly are reported as warnings rather than aborting the parse,

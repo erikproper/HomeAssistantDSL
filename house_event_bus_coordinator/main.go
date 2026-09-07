@@ -74,8 +74,20 @@ type TConceptualConstant struct {
 // (buildDiscoveryConfigs, discovery.go) -- fixed live 2026-09-02: MQTT discovery entities can't
 // use "has_entity_name", so HA does NOT combine a bare leaf-only name with the device's own name
 // automatically; the location has to be baked into the entity's own "name" directly.
+//
+// Capability (added 2026-09-07) is the attribute's full "<group>/<leaf>" name (e.g. "cpu/load"),
+// when it has a group -- distinct from this map's own bare-leaf key ("load"), which stays bare
+// because it doubles as the JSON field name buildDiscoveryConfigs' value_template extracts
+// ("{{ value_json.load }}"), matching Integrations/cpu/report's real flat wire payload shape.
+// Capability exists purely so buildDiscoveryConfigs can populate TDiscoveryConfig.Capability with
+// the SAME name a DSL author's Spaces.def/import-shorthand declaration already uses -- confirmed
+// live 2026-09-07: Vienna's own Spaces.def references every cpu-integration device's attributes
+// as "cpu/load"/"cpu/temperature", imported or native, and exportStableID's cloud stable id must
+// match that convention, not the internal bare leaf, for cross-house import shorthand to resolve a
+// hosts-kind capability at all. "" for an attribute with no group (falls back to the bare key).
 type TConceptualAttribute struct {
 	Entity      string `yaml:"entity"`
+	Capability  string `yaml:"capability,omitempty"`
 	DeviceClass string `yaml:"device_class,omitempty"`
 	Unit        string `yaml:"unit,omitempty"`
 	StateClass  string `yaml:"state_class,omitempty"`

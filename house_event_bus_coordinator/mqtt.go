@@ -84,7 +84,17 @@ func publishDeviceDiscovery(mainClient, cloudClient mqtt.Client, ownInstallation
 			published++
 		}
 		if plan.PublishCloud {
-			qualifiedTopic := ownInstallation + "/" + cfg.Topic
+			// Cloud topic is INDEPENDENT of cfg.Topic (the local one) -- keyed by
+			// exportStableID(ownInstallation, deviceID, cfg.Capability), the same stable-id scheme
+			// discoveryhassbridge.go's own cloud export already uses, so a hosts-kind capability's
+			// cloud catalogue entry can be matched by cross-house import shorthand
+			// (discoveryimport.go's matchImportedCapabilityByStableID) too. Added 2026-09-07;
+			// previously this was ownInstallation+"/"+cfg.Topic, the SAME id the local config uses --
+			// fine for content-based import matching (matchImportedCapability), but unusable for
+			// stable-id-based shorthand matching, and NOT independent of this house's own local
+			// naming the way the hassbridge side already was fixed to be.
+			stableID := exportStableID(ownInstallation, deviceID, cfg.Capability)
+			qualifiedTopic := ownInstallation + "/" + discoveryTopic(prefix, cfg.Component, stableID)
 			if err := publisher.Publish(cloudClient, "cloud_coordinator", qualifiedTopic, data); err != nil {
 				return published, err
 			}

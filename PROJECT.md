@@ -7,17 +7,12 @@ Even though more and more entities will be pushed "under" the MQTT bus, we know 
 1b: See point about sources and their names.
 
 2. EP: Hardware migration in Vienna.
-- Mo 1 HASS backup; copy backup to MacMini
-- Mo 2 HASS on green
-- Mo 3 Backup Samsung + photos/frame to AppleSSD on frame
-- Tu 4 Pi4 as P-S-1 for Vienna 
-    Restore from AppleSSD (also photos!)
 - Tu 5 Pi3 as P-S-2 for Vienna
     Copy photos back to P-S-2
 - We 6 Setup P-S-1 for Vienna:
-    { zigbee, samba, mqtt, smtpproxy, ... }
+    { zigbee, samba | mqtt, smtpproxy, ... }
 - ?? 7 Setup P-S-2 for Vienna:
-    { picture frame, HA,... }
+    { picture frame, HA, ... }
 
 https://www.reichelt.at/at/de/shop/produkt/raspberry_pi_-_usb_3_0_256_gb-422300
 https://shop.funk24.net/Raspberry-Pi-Flash-Drive-USB-3.0-Stick-256-GB
@@ -378,29 +373,32 @@ Smaller pending items, not gating the above:
   its capabilities. Worked around for Vienna by reordering (the reference now sits after its
   device's positioning); the real fix is capturing SpacePath in pendingCapabilityLink/
   pendingSourceLink and restoring it before each deferred retry call.
-- Cross-house import naming decoupling + shorthand grammar + kind-4 existence tracking (2026-09-07):
-  built and unit-tested locally (generator + coordinator, `go vet`/`go test -race` clean across all
-  three packages), NOT yet deployed or verified live. Three changes, requested together: (1) the
-  export side's cloud stable identity is now `exportStableID(qualifier, deviceID, capability)` =
-  `"<qualifier>_<deviceID-with-dots-as-underscores>_<capability>"` (discoveryhassbridge.go),
-  decoupled from the exporting house's own local entity naming -- previously the cloud `unique_id`
-  was derived from the local entity_id, so repositioning a device locally on the exporting side
-  silently broke every importer. (2) Physical.def's import grammar now also accepts a shorthand
-  form, `<domain>.<capability>;` (domain read for DSL-author readability only, discarded), alongside
-  the existing explicit `<capability>: <domain>.<remote-entity-ref>;` form -- the coordinator
-  resolves a shorthand capability purely from the topic's own stable-id segment
-  (matchImportedCapabilityByStableID, discoveryimport.go), and always republishes it locally under
-  the *declared* domain regardless of what domain the exporter actually used (silent coercion, by
-  design -- never warned about). (3) Kind-4 existence tracking, mirroring kind-2's own three-state
-  model exactly: house_event_bus_coordinator/import_existence.go tracks only shorthand-declared
-  capabilities, publishes to `import_existence/<remoteInstallation>/existence/state`;
-  homeassistant/mqtt_import_existence.go fetches it generate-time and hard-fails on a confirmed
-  known-not-to-exist verdict, wired into Physical_Generator.go right after
-  generateImportedDeviceFile. Both houses' `deploy.d/0{2,4}_deploy.coordinator` already exclude the
-  new `import_existence.json` runtime-state file from the rsync `--delete`. Remaining: regenerate
-  both real houses and diff `coordinator/*.yaml` output before any live deploy; consider migrating
-  one real declaration (e.g. Junglinster's own Vienna Netatmo imports) to the shorthand form as live
-  verification -- propose to the user rather than doing unilaterally.
+- DONE + DEPLOYED (2026-09-07): cross-house import naming decoupling + shorthand grammar + kind-4
+  existence tracking, PLUS a same-day follow-up extending it to hosts-kind capabilities. (1) the
+  export side's cloud stable identity is `exportStableID(qualifier, deviceID, capability)` =
+  `"<qualifier>_<deviceID-with-dots-as-underscores>_<sanitized-capability>"`
+  (discoveryhassbridge.go), decoupled from the exporting house's own local entity naming. (2)
+  Physical.def's import grammar accepts a shorthand form, `<domain>.<capability>;`, alongside the
+  explicit `<capability>: <domain>.<remote-entity-ref>;` form -- the coordinator resolves a
+  shorthand capability purely from the topic's own stable-id segment
+  (matchImportedCapabilityByStableID, discoveryimport.go), coercing across domain mismatches by
+  design. (3) Kind-4 existence tracking mirrors kind-2's three-state model
+  (import_existence.go/mqtt_import_existence.go). (4) Same-day extension: hosts-kind capabilities
+  (e.g. "cpu/load") needed two more fixes to actually work with shorthand -- (a) hosts-kind's own
+  cloud discovery topic previously reused its LOCAL topic naming; decoupled via new
+  `TDiscoveryConfig.Component`/`.Capability` fields feeding an independent `exportStableID`-based
+  cloud topic (mqtt.go/discoverycleanup.go), (b) a real naming-convention mismatch: Spaces.def
+  references a "cpu" integration's attributes by the group-prefixed name ("cpu/load"), but
+  devices.yaml's own internal map stays keyed by the bare leaf ("load", required by
+  Integrations/cpu/report's real flat JSON payload) -- fixed by adding
+  `TConceptualAttribute.Capability` (a new, purely additive `capability:` field in devices.yaml)
+  carrying the group-prefixed name through separately, so exportStableID can use the SAME name a
+  DSL author's shorthand declaration does. Vienna's all 8 cross-house imports (5 hassbridge Netatmo
+  + 3 hosts-kind) migrated to shorthand; regenerated + diffed clean (imported.yaml lost only its
+  `remote_entity_ref:` lines, `local_entity:` and all `hass/` output byte-identical). Both
+  coordinators redeployed and verified live (clean restart, no errors, normal traffic resumed).
+  The explicit `<capability>: <domain>.<ref>;` form still works and stays supported -- migrate it
+  away as it's noticed elsewhere, not a hard cutover.
 - Logical-layer device combining ("aggregate" a new device vs "absorb" into an existing master
   device, e.g. smarty's Zigbee switch into host.smarty) -- gated on steps 3 and 4 both landing.
 - Logical-layer availability composition, noted 2026-08-31 once the physical-layer coordinator

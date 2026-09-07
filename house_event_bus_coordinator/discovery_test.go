@@ -136,6 +136,9 @@ func TestBuildDiscoveryConfigsForDeviceWithConceptualLink(t *testing.T) {
 	if nodePayload.Device.Model != "Compute host" {
 		t.Errorf("node payload Device.Model = %q, want %q", nodePayload.Device.Model, "Compute host")
 	}
+	if nodeCfg.Component != "binary_sensor" || nodeCfg.Capability != "node" {
+		t.Errorf("node cfg Component/Capability = %q/%q, want \"binary_sensor\"/\"node\"", nodeCfg.Component, nodeCfg.Capability)
+	}
 
 	loadTopic := "homeassistant/sensor/coordinator/host_smarty_load/config"
 	loadCfg, ok := byTopic[loadTopic]
@@ -159,6 +162,9 @@ func TestBuildDiscoveryConfigsForDeviceWithConceptualLink(t *testing.T) {
 	if loadPayload.Name != "infrastructural/garage/smarty/load" {
 		t.Errorf("load payload Name = %q, want %q (device location baked in -- MQTT discovery entities can't use has_entity_name)", loadPayload.Name, "infrastructural/garage/smarty/load")
 	}
+	if loadCfg.Component != "sensor" || loadCfg.Capability != "load" {
+		t.Errorf("load cfg Component/Capability = %q/%q, want \"sensor\"/\"load\"", loadCfg.Component, loadCfg.Capability)
+	}
 
 	tempTopic := "homeassistant/sensor/coordinator/host_smarty_temperature/config"
 	tempCfg, ok := byTopic[tempTopic]
@@ -175,6 +181,44 @@ func TestBuildDiscoveryConfigsForDeviceWithConceptualLink(t *testing.T) {
 	}
 	if tempPayload.Name != "infrastructural/garage/smarty/temperature" {
 		t.Errorf("temperature payload Name = %q, want %q", tempPayload.Name, "infrastructural/garage/smarty/temperature")
+	}
+}
+
+// TestBuildDiscoveryConfigsUsesGroupPrefixedCapabilityWhenSet is the regression test for
+// TConceptualAttribute.Capability (2026-09-07): a hosts-kind attribute's cfg.Capability must be
+// the DSL-wide "cpu/load" name when devices.yaml carries one, not the bare "load" map key -- the
+// bare key stays exactly as-is for Topic/UniqueID/ValueTemplate (unaffected by this).
+func TestBuildDiscoveryConfigsUsesGroupPrefixedCapabilityWhenSet(t *testing.T) {
+	device := smartyDevice()
+	loadAttr := device.Conceptual.AttributeEntities["load"]
+	loadAttr.Capability = "cpu/load"
+	device.Conceptual.AttributeEntities["load"] = loadAttr
+
+	configs := buildDiscoveryConfigs("host.smarty", device, nil, "", testPrefix)
+	byTopic := map[string]TDiscoveryConfig{}
+	for _, c := range configs {
+		byTopic[c.Topic] = c
+	}
+
+	loadCfg, ok := byTopic["homeassistant/sensor/coordinator/host_smarty_load/config"]
+	if !ok {
+		t.Fatalf("missing load discovery config")
+	}
+	if loadCfg.Capability != "cpu/load" {
+		t.Errorf("load cfg.Capability = %q, want %q", loadCfg.Capability, "cpu/load")
+	}
+	loadPayload := loadCfg.Payload.(TSensorDiscoveryPayload)
+	if loadPayload.UniqueID != "host.smarty_load" || loadPayload.ValueTemplate != "{{ value_json.load }}" {
+		t.Errorf("load payload UniqueID/ValueTemplate = %q/%q, want the bare leaf still used for both, unaffected by Capability",
+			loadPayload.UniqueID, loadPayload.ValueTemplate)
+	}
+
+	tempCfg, ok := byTopic["homeassistant/sensor/coordinator/host_smarty_temperature/config"]
+	if !ok {
+		t.Fatalf("missing temperature discovery config")
+	}
+	if tempCfg.Capability != "temperature" {
+		t.Errorf("temperature cfg.Capability = %q, want the bare leaf fallback %q (no Capability set)", tempCfg.Capability, "temperature")
 	}
 }
 
