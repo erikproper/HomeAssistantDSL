@@ -224,6 +224,51 @@ straight from the UI, no coordinator-side relay needed.
 entity switch.social:picture_frame from host.frame entity slideshow;
 ```
 
+### Devices (cross-house import)
+
+`Physical.def`'s `integration import with: ... end;` block pulls in a device another installation
+already exposes on the shared cloud broker — kind-agnostic: the DSL author never states whether the
+exporting installation declared it via `hosts` or `home_assistant`:
+
+```
+integration import with:
+  device import.pro-1 from junglinster host.pro-1 with:
+    binary_sensor.node;
+    sensor.cpu/load;
+    sensor.cpu/temperature;
+  end;
+
+  device import.vienna_livingroom from junglinster hass.vienna_livingroom with:
+    binary_sensor.node;
+    sensor.co2;
+    sensor.humidity;
+  end;
+end;
+```
+
+`<remote-device-id>` is the exporting installation's own `DeviceID`. Each `<domain>.<capability>;`
+line names one capability to pull in — `<domain>` is for readability only (never stored); the local
+discovery config's actual domain always comes from wherever `Spaces.def` positions it, coercing
+across any domain mismatch with the remote's own declaration silently, by design. A capability's
+name must match the DSL-wide convention the exporting installation's own declarations use for it
+(e.g. `cpu/load`, group-prefixed, for a `hosts`-kind capability — see the `hosts` integration
+section above) — the coordinator recomputes the exporter's own stable id from
+`(remote-installation, remote-device-id, capability-name)` and matches on that alone, never on the
+incoming payload's own content.
+
+`Spaces.def` positions an imported device exactly like a native one:
+
+```
+device infrastructural:pro-1 from import.pro-1 with:
+  entity sensor.infrastructural:pro-1/cpu/load        from entity cpu/load;
+  entity sensor.infrastructural:pro-1/cpu/temperature from entity cpu/temperature;
+end;
+```
+
+Only capabilities Spaces.def actually references end up in `coordinator/imported.yaml` — an
+imported-but-unused capability is silently skipped, same as every other device kind's own
+positioning gate. See `Architecture.md` §12 for the underlying cloud-broker federation mechanism.
+
 ### Macros
 
 Macros expand into one or more entity declarations. They are defined in `Macros.def` and invoked from `Entities.def`:

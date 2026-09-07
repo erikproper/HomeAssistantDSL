@@ -329,6 +329,47 @@ func checkKnownNotToExistErrors(definitionDir string, hassBridgeDevicesByID map[
 		len(problems), strings.Join(problems, "\n  "))
 }
 
+// checkMainEntityKnownNotToExistErrors is checkKnownNotToExistErrors' kind-5 counterpart
+// (PROJECT.md item 1, 2026-09-07): mainEntityIDs (collectMainEntityIDs, main_entities.go) has no
+// device grouping known ahead of time -- unlike a hassbridge capability's own declared device id,
+// a bare Spaces.def entity is just a name -- so this scans every device bucket in instance "main"'s
+// own status payload (including the "" no-device bucket) for a matching entry, rather than
+// indexing by device id the way checkKnownNotToExistErrors does. Same rule as every other kind:
+// this is the *only* status that blocks generation; not-known-to-exist and known-to-exist both
+// generate optimistically.
+func checkMainEntityKnownNotToExistErrors(definitionDir string, mainEntityIDs []string, ctx TPhysicalGenerationContext) error {
+	if len(mainEntityIDs) == 0 {
+		return nil
+	}
+	status, err := fetchEntityExistence(definitionDir, ctx, "main")
+	if err != nil {
+		fmt.Printf("[physical] entity existence for %q: %v\n", "main", err)
+		return nil
+	}
+
+	byEntity := map[string]TEntityExistenceStatusEntry{}
+	for _, device := range status {
+		for entityID, entry := range device.Entities {
+			byEntity[entityID] = entry
+		}
+	}
+
+	var problems []string
+	for _, entityID := range mainEntityIDs {
+		entry, known := byEntity[entityID]
+		if !known || entry.Status != existenceStatusKnownNotToExist {
+			continue
+		}
+		problems = append(problems, fmt.Sprintf("%s: confirmed not to exist on instance \"main\"", entityID))
+	}
+
+	if len(problems) == 0 {
+		return nil
+	}
+	return fmt.Errorf("main-instance entity existence check failed -- the coordinator has confirmed %d declared entit(y/ies) do not exist:\n  %s",
+		len(problems), strings.Join(problems, "\n  "))
+}
+
 // existenceStatusKnownNotToExist/existenceStatusKnownToExist mirror house_event_bus_coordinator's
 // own Status* constant strings exactly -- kept as plain strings here (not an imported type; the
 // two are separate Go modules) so this file has no build dependency on the coordinator.
@@ -517,7 +558,12 @@ func buildSuggestionReportFromExistence(status TEntityExistenceStatusPayload, us
 // warning, not an error) per instance when neither a fresh nor a cached status is available, so an
 // unreachable broker/coordinator never breaks an otherwise successful ./generate run. No-op
 // entirely when ctx has no MQTT secrets configured or no "home_assistant" instance is declared.
-func generateEntityCatalogueSuggestions(definitionDir, outputRoot string, instances map[string]THomeAssistantInstance, hassBridgeDevicesByID map[string]THassBridgeDevice, ctx TPhysicalGenerationContext) error {
+//
+// mainEntityIDs (collectMainEntityIDs, main_entities.go, PROJECT.md item 1, 2026-09-07) is folded
+// into instance "main"'s own `used` set -- without this, every already-declared bare entity would
+// be suggested right back as if unclaimed, since usedHassBridgeEntityIDs only knows about
+// hassbridge-declared sources, not kind-5's own flat list.
+func generateEntityCatalogueSuggestions(definitionDir, outputRoot string, instances map[string]THomeAssistantInstance, hassBridgeDevicesByID map[string]THassBridgeDevice, mainEntityIDs []string, ctx TPhysicalGenerationContext) error {
 	if !ctx.HasMQTTSecrets || len(instances) == 0 {
 		return nil
 	}
@@ -539,6 +585,11 @@ func generateEntityCatalogueSuggestions(definitionDir, outputRoot string, instan
 		}
 		declared := declaredDeviceIDByEntity(hassBridgeDevicesByID, name)
 		used := usedHassBridgeEntityIDs(hassBridgeDevicesByID, name)
+		if name == "main" {
+			for _, id := range mainEntityIDs {
+				used[id] = true
+			}
+		}
 		report := buildSuggestionReportFromExistence(status, used, declared)
 		suggestionPath := filepath.Join(outputRoot, "suggestions", "home_assistant_"+name+".txt")
 		if strings.TrimSpace(report) == "" {

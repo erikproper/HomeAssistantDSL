@@ -241,6 +241,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	mainEntitiesFile, err := loadMainEntitiesFile(filepath.Join(coordinatorDir, "main_entities.yaml"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
 	client, err := connectMQTT(secrets.MQTT, "house_event_bus_coordinator-"+devicesFile.Installation)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -412,6 +418,11 @@ func main() {
 	// bodies -- StartEntityExistenceInquiries' own subscriptions are still wired up further down,
 	// order doesn't matter for those.
 	existenceTracker := newEntityExistenceTracker(filepath.Join(coordinatorDir, "entity_existence.json"))
+	// SeedMainEntities MUST run before Seed -- it populates existenceTracker's own protected
+	// mainEntities set, which Seed's pruning loop consults so a confirmed-dead main-instance bare
+	// entity (kind-5, PROJECT.md item 1) is never mistaken for a hassbridge-declared orphan and
+	// silently pruned. See SeedMainEntities' own doc comment (entity_existence.go).
+	existenceTracker.SeedMainEntities(mainEntitiesFile.Entities)
 	existenceTracker.Seed(hassBridgeFile)
 
 	if err := subscribeHassBridge(client, cloudClient, devicesFile.Installation, hassBridgeFile, store, publisher, conceptualPrefix, existenceTracker); err != nil {

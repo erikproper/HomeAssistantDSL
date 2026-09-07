@@ -259,6 +259,59 @@ func TestCheckKnownNotToExistErrorsFlagsConfirmedAbsence(t *testing.T) {
 	}
 }
 
+// TestCheckMainEntityKnownNotToExistErrorsFlagsConfirmedAbsence confirms a bare main-instance
+// entity (kind-5, PROJECT.md item 1) is flagged only when the coordinator has actually confirmed
+// it known-not-to-exist -- scanning every device bucket in the payload (including the "" no-device
+// one), since a bare entity has no device grouping known ahead of time, unlike a hassbridge
+// capability's own declared device id.
+func TestCheckMainEntityKnownNotToExistErrorsFlagsConfirmedAbsence(t *testing.T) {
+	definitionDir := t.TempDir()
+	seedExistenceCache(t, definitionDir, "main", TEntityExistenceStatusPayload{
+		"": {Entities: map[string]TEntityExistenceStatusEntry{
+			"sensor.physical_door_aqara_multi_temperature": {Status: "known-not-to-exist"},
+		}},
+		"hass.discovered_door": {Entities: map[string]TEntityExistenceStatusEntry{
+			"sensor.physical_door_aqara_multi_humidity": {Status: "known-to-exist", State: "42"},
+		}},
+	})
+
+	mainEntityIDs := []string{"sensor.physical_door_aqara_multi_temperature", "sensor.physical_door_aqara_multi_humidity"}
+	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
+	err := checkMainEntityKnownNotToExistErrors(definitionDir, mainEntityIDs, ctx)
+	if err == nil {
+		t.Fatalf("expected an error for the confirmed-absent temperature entity")
+	}
+	if !strings.Contains(err.Error(), "sensor.physical_door_aqara_multi_temperature") {
+		t.Errorf("error = %v, want it to name the confirmed-absent entity", err)
+	}
+	if strings.Contains(err.Error(), "humidity") {
+		t.Errorf("error = %v, want it to NOT flag humidity -- it's known-to-exist", err)
+	}
+}
+
+func TestCheckMainEntityKnownNotToExistErrorsOptimisticWhenUnresolved(t *testing.T) {
+	definitionDir := t.TempDir()
+	seedExistenceCache(t, definitionDir, "main", TEntityExistenceStatusPayload{
+		"": {Entities: map[string]TEntityExistenceStatusEntry{
+			// No entry at all for this entity -- the coordinator hasn't inquired about it yet.
+		}},
+	})
+
+	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
+	err := checkMainEntityKnownNotToExistErrors(definitionDir, []string{"sensor.physical_door_aqara_multi_temperature"}, ctx)
+	if err != nil {
+		t.Errorf("unresolved status must not block generation, got: %v", err)
+	}
+}
+
+func TestCheckMainEntityKnownNotToExistErrorsNoEntitiesIsNoop(t *testing.T) {
+	definitionDir := t.TempDir()
+	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
+	if err := checkMainEntityKnownNotToExistErrors(definitionDir, nil, ctx); err != nil {
+		t.Errorf("no main entities at all must be a no-op (no fetch attempted), got: %v", err)
+	}
+}
+
 func TestCheckKnownNotToExistErrorsOptimisticWhenUnresolved(t *testing.T) {
 	definitionDir := t.TempDir()
 	seedExistenceCache(t, definitionDir, "protocols-server-2", TEntityExistenceStatusPayload{

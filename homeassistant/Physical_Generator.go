@@ -164,6 +164,14 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 	if err := generateHassBridgeFile(outputRoot, hassBridgeDevicesByID, admin); err != nil {
 		return err
 	}
+	// PROJECT.md item 1 (kind-5, 2026-09-07): every "bare" Spaces.def entity declaration (no
+	// value/condition/from-entity/anything -- assumed to already exist on this house's own main HA
+	// instance, "like all entities used to be") -- see main_entities.go's own header comment for why
+	// EntityRecordsBySpace (not ExternalEntitiesBySpace) is the right source.
+	mainEntityIDs := collectMainEntityIDs(admin)
+	if err := generateMainEntitiesFile(outputRoot, mainEntityIDs); err != nil {
+		return err
+	}
 	// PROJECT.md 1.1: the only entity-existence status that blocks generation is a *confirmed*
 	// known-not-to-exist verdict from the coordinator -- not-known-to-exist (the coordinator
 	// hasn't gotten to it yet) and known-to-exist both generate optimistically, same as before
@@ -178,11 +186,15 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 		if err := checkDiscoveryKnownNotToExistErrors(definitionDir, admin.DiscoveryEntityLinks, ctx); err != nil {
 			return err
 		}
+		// PROJECT.md item 1 (kind-5): same rule again, for main-instance bare entities.
+		if err := checkMainEntityKnownNotToExistErrors(definitionDir, mainEntityIDs, ctx); err != nil {
+			return err
+		}
 	}
 	if err := generateInstanceAutomationTrees(haOutputDir, instances, hassBridgeDevicesByID, admin); err != nil {
 		return err
 	}
-	if err := generateEntityCatalogueSuggestions(definitionDir, outputRoot, instances, hassBridgeDevicesByID, ctx); err != nil {
+	if err := generateEntityCatalogueSuggestions(definitionDir, outputRoot, instances, hassBridgeDevicesByID, mainEntityIDs, ctx); err != nil {
 		return err
 	}
 	// PROJECT.md 1.8: kind-2's own suggestion report, mirroring the kind-3 one just above --

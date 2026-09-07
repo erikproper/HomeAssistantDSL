@@ -154,6 +154,67 @@ func TestEntityExistenceTrackerSeedNeverPrunesStillDeclaredEntries(t *testing.T)
 	}
 }
 
+// TestEntityExistenceTrackerSeedMainEntities confirms a fresh SeedMainEntities call creates
+// not-known-to-exist entries for instance "main", and a second call leaves an already-tracked
+// (and since-confirmed) one untouched rather than resetting its status.
+func TestEntityExistenceTrackerSeedMainEntities(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.SeedMainEntities([]string{"sensor.physical_door_aqara_multi_temperature", "sensor.already_known"})
+
+	byDevice := tracker.snapshotByDevice("main")
+	entry, found := byDevice[""]["sensor.physical_door_aqara_multi_temperature"]
+	if !found || entry.Status != StatusNotKnownToExist {
+		t.Errorf("expected a fresh not-known-to-exist entry, got %+v (found=%v)", entry, found)
+	}
+
+	tracker.Record("main", "sensor.already_known", true, "21.0", "°C", "temperature")
+	tracker.SeedMainEntities([]string{"sensor.physical_door_aqara_multi_temperature", "sensor.already_known"})
+
+	byDevice = tracker.snapshotByDevice("main")
+	known, found := byDevice[""]["sensor.already_known"]
+	if !found || known.Status != StatusKnownToExist {
+		t.Errorf("expected the already-tracked, since-confirmed entry to survive a re-seed untouched, got %+v (found=%v)", known, found)
+	}
+}
+
+// TestEntityExistenceTrackerSeedMainEntitiesPrunesOwnGhosts confirms a confirmed-dead main entity
+// dropped from a later SeedMainEntities call (its own declaration removed from Spaces.def) is
+// removed, mirroring Seed's own pruning behaviour for kind-3.
+func TestEntityExistenceTrackerSeedMainEntitiesPrunesOwnGhosts(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.SeedMainEntities([]string{"sensor.removed_from_spaces_def"})
+	tracker.Record("main", "sensor.removed_from_spaces_def", false, "", "", "")
+
+	tracker.SeedMainEntities(nil)
+
+	byDevice := tracker.snapshotByDevice("main")
+	if _, found := byDevice[""]["sensor.removed_from_spaces_def"]; found {
+		t.Errorf("confirmed-dead, no-longer-declared main entity was not pruned: %+v", byDevice)
+	}
+}
+
+// TestEntityExistenceTrackerSeedNeverPrunesMainEntities is the regression test for a real bug
+// found during design review (2026-09-07): Seed(bridgeFile)'s own pruning has no visibility into
+// kind-5's own main-instance entities at all, so without the mainEntities protected-set check it
+// would silently wipe a confirmed-dead bare entity's status on every coordinator restart --
+// re-opening the "not yet checked" window for hours (see entity_existence.go's own doc comments on
+// Seed/SeedMainEntities for the full mutual-protection contract).
+func TestEntityExistenceTrackerSeedNeverPrunesMainEntities(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.SeedMainEntities([]string{"sensor.physical_door_aqara_multi_temperature"})
+	tracker.Record("main", "sensor.physical_door_aqara_multi_temperature", false, "", "", "")
+
+	// A bridgeFile that never mentions this entity at all -- exactly what every real coordinator
+	// restart looks like for a kind-5 entity, since Seed only ever knows about hassbridge devices.
+	tracker.Seed(THassBridgeFile{})
+
+	byDevice := tracker.snapshotByDevice("main")
+	entry, found := byDevice[""]["sensor.physical_door_aqara_multi_temperature"]
+	if !found || entry.Status != StatusKnownNotToExist {
+		t.Errorf("a confirmed-dead main entity must survive Seed(bridgeFile) re-seeding even though bridgeFile never declares it, got %+v (found=%v)", entry, found)
+	}
+}
+
 func TestEntityExistenceTrackerSeedManualEntity(t *testing.T) {
 	tracker := newEntityExistenceTracker("")
 	tracker.SeedManualEntity("main", "sensor.newly_typed_in")

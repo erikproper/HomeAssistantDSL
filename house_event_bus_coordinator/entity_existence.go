@@ -92,6 +92,13 @@ type TEntityExistenceTracker struct {
 	order    map[string][]string                          // instance -> stable registration order (round-robin base)
 	cursor   map[string]int                               // instance -> next round-robin index for the "recheck known" pass
 	lastSent map[string]time.Time                         // instance -> last inquiry send time
+	// mainEntities is kind-5's own protected set (PROJECT.md item 1, 2026-09-07) -- every
+	// entity SeedMainEntities currently declares for instance "main". In-memory only, never
+	// persisted (no JSON schema change): Seed's own pruning loop consults it to avoid deleting a
+	// confirmed-dead main-instance entity that bridgeFile never declared and so would otherwise
+	// look, to Seed alone, exactly like an orphan. See SeedMainEntities' own doc comment for the
+	// full mutual-protection contract and the call-order requirement it depends on.
+	mainEntities map[string]bool
 }
 
 // newEntityExistenceTracker loads path's previously persisted state, if any (loadPersisted --
@@ -101,11 +108,12 @@ type TEntityExistenceTracker struct {
 // that have no reason to touch disk.
 func newEntityExistenceTracker(path string) *TEntityExistenceTracker {
 	t := &TEntityExistenceTracker{
-		path:     path,
-		entries:  map[string]map[string]*TEntityExistenceEntry{},
-		order:    map[string][]string{},
-		cursor:   map[string]int{},
-		lastSent: map[string]time.Time{},
+		path:         path,
+		entries:      map[string]map[string]*TEntityExistenceEntry{},
+		order:        map[string][]string{},
+		cursor:       map[string]int{},
+		lastSent:     map[string]time.Time{},
+		mainEntities: map[string]bool{},
 	}
 	t.loadPersisted()
 	return t
@@ -234,12 +242,69 @@ func (t *TEntityExistenceTracker) Seed(bridgeFile THassBridgeFile) {
 			if entry.Status != StatusKnownNotToExist || declared[instance][entity] {
 				continue
 			}
+			// Kind-5's own protected set (PROJECT.md item 1, 2026-09-07) -- a main-instance bare
+			// entity SeedMainEntities currently declares. bridgeFile has no visibility into these
+			// at all, so without this check every confirmed-dead one would look like an orphan to
+			// THIS seed and get silently pruned on every coordinator restart, re-opening the
+			// not-yet-checked window for hours. See SeedMainEntities' own doc comment.
+			if instance == "main" && t.mainEntities[entity] {
+				continue
+			}
 			delete(t.entries[instance], entity)
 			t.order[instance] = removeString(t.order[instance], entity)
 			fmt.Printf("[existence] %s: pruned %q -- confirmed not-to-exist and no longer declared\n", instance, entity)
 		}
 	}
 
+	t.persist()
+}
+
+// SeedMainEntities registers every declared "bare" main-instance entity (kind-5, PROJECT.md item 1,
+// 2026-09-07 -- coordinator/main_entities.yaml, generator-side collectMainEntityIDs) as a
+// not-known-to-exist entry for instance "main", unless already tracked -- same "already tracked?
+// leave it alone" rule as SeedManualEntity. Also prunes ITS OWN confirmed-dead ghost entries no
+// longer declared, mirroring Seed's own pruning exactly but scoped to entries this method owns
+// (t.mainEntities) -- never touches a hassbridge-declared entry, the symmetric counterpart to Seed's
+// own new exclusion just above.
+//
+// Populates t.mainEntities as a side effect, which Seed's own pruning loop consults to avoid
+// deleting a confirmed-dead main entity bridgeFile never declared in the first place. Call this
+// BEFORE Seed(bridgeFile) on every coordinator startup so t.mainEntities is populated before Seed's
+// own pruning pass runs that same startup -- ordering is load-bearing, not stylistic.
+func (t *TEntityExistenceTracker) SeedMainEntities(entityIDs []string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	declared := map[string]bool{}
+	for _, id := range entityIDs {
+		declared[id] = true
+	}
+
+	if _, ok := t.entries["main"]; !ok {
+		t.entries["main"] = map[string]*TEntityExistenceEntry{}
+	}
+	for _, id := range entityIDs {
+		if _, seen := t.entries["main"][id]; seen {
+			continue
+		}
+		t.entries["main"][id] = &TEntityExistenceEntry{Status: StatusNotKnownToExist}
+		t.order["main"] = append(t.order["main"], id)
+	}
+
+	for entity := range t.mainEntities {
+		if declared[entity] {
+			continue
+		}
+		entry, tracked := t.entries["main"][entity]
+		if !tracked || entry.Status != StatusKnownNotToExist {
+			continue
+		}
+		delete(t.entries["main"], entity)
+		t.order["main"] = removeString(t.order["main"], entity)
+		fmt.Printf("[existence] main: pruned %q -- confirmed not-to-exist and no longer declared\n", entity)
+	}
+
+	t.mainEntities = declared
 	t.persist()
 }
 

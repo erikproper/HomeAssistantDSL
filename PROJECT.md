@@ -12,18 +12,15 @@ Even though more and more entities will be pushed "under" the MQTT bus, we know 
 - ?? 7 Setup P-S-2 for Vienna:
     { picture frame | HA, ... }
 
-https://www.reichelt.at/at/de/shop/produkt/raspberry_pi_-_usb_3_0_256_gb-422300
-https://shop.funk24.net/Raspberry-Pi-Flash-Drive-USB-3.0-Stick-256-GB
-https://shop.funk24.net/Raspberry-Pi-Flash-Drive-USB-3.0-Stick-128-GB
-
-Unifiy port/script mapping
-
 3. Stick migration for Pi3 and PiB:
 - Use stick on Pi3 in Vienna
 - If this works, order three Raspberry sticks
 - Copy the pi3 stick in vienna to one of these sticks
 - Migrate frame.junglinster to one of these sticks on fedora
 - Migrate protocol-server-2.junglinster to one of these sticks (see below!!)
+    https://www.reichelt.at/at/de/shop/produkt/raspberry_pi_-_usb_3_0_256_gb-422300
+    https://shop.funk24.net/Raspberry-Pi-Flash-Drive-USB-3.0-Stick-256-GB
+    https://shop.funk24.net/Raspberry-Pi-Flash-Drive-USB-3.0-Stick-128-GB
 
 4. EP: Fritz's have CPU temperature, plus other things + fix compute tabs + check suggestions.
 Vienna: Open. Blocked until we have the new hardware deployment
@@ -371,38 +368,12 @@ Smaller pending items, not gating the above:
   its capabilities. Worked around for Vienna by reordering (the reference now sits after its
   device's positioning); the real fix is capturing SpacePath in pendingCapabilityLink/
   pendingSourceLink and restoring it before each deferred retry call.
-- DONE + DEPLOYED (2026-09-07): cross-house import naming decoupling + shorthand grammar + kind-4
-  existence tracking, PLUS a same-day follow-up extending it to hosts-kind capabilities. (1) the
-  export side's cloud stable identity is `exportStableID(qualifier, deviceID, capability)` =
-  `"<qualifier>_<deviceID-with-dots-as-underscores>_<sanitized-capability>"`
-  (discoveryhassbridge.go), decoupled from the exporting house's own local entity naming. (2)
-  Physical.def's import grammar accepts a shorthand form, `<domain>.<capability>;`, alongside the
-  explicit `<capability>: <domain>.<remote-entity-ref>;` form -- the coordinator resolves a
-  shorthand capability purely from the topic's own stable-id segment
-  (matchImportedCapabilityByStableID, discoveryimport.go), coercing across domain mismatches by
-  design. (3) Kind-4 existence tracking mirrors kind-2's three-state model
-  (import_existence.go/mqtt_import_existence.go). (4) Same-day extension: hosts-kind capabilities
-  (e.g. "cpu/load") needed two more fixes to actually work with shorthand -- (a) hosts-kind's own
-  cloud discovery topic previously reused its LOCAL topic naming; decoupled via new
-  `TDiscoveryConfig.Component`/`.Capability` fields feeding an independent `exportStableID`-based
-  cloud topic (mqtt.go/discoverycleanup.go), (b) a real naming-convention mismatch: Spaces.def
-  references a "cpu" integration's attributes by the group-prefixed name ("cpu/load"), but
-  devices.yaml's own internal map stays keyed by the bare leaf ("load", required by
-  Integrations/cpu/report's real flat JSON payload) -- fixed by adding
-  `TConceptualAttribute.Capability` (a new, purely additive `capability:` field in devices.yaml)
-  carrying the group-prefixed name through separately, so exportStableID can use the SAME name a
-  DSL author's shorthand declaration does. Vienna's all 8 cross-house imports (5 hassbridge Netatmo
-  + 3 hosts-kind) migrated to shorthand; regenerated + diffed clean (imported.yaml lost only its
-  `remote_entity_ref:` lines, `local_entity:` and all `hass/` output byte-identical). Both
-  coordinators redeployed and verified live (clean restart, no errors, normal traffic resumed).
-  Also added `pro-1` (a new device, positioned inside Junglinster's `space infrastructural:cloud as
-  area` block alongside `mqtt`) -- verified live end to end, including Vienna's own import
-  resolving it via the stable-id mechanism with no Vienna-side redeploy needed.
-  Same-day follow-up: the explicit `<capability>: <domain>.<ref>;` form was removed outright (not
-  kept alongside) once confirmed unused anywhere real -- `TImportedCapability.RemoteEntityRef`,
-  `matchImportedCapability` (content-based matching), and `remoteLocalEntityToLocalEntity` are all
-  gone; every import now resolves purely via `matchImportedCapabilityByStableID`. Pure refactor,
-  zero behaviour change -- both houses regenerated and diffed byte-identical before/after.
+- DONE + DEPLOYED (2026-09-07): cross-house import shorthand grammar (`<domain>.<capability>;`,
+  matched via a stable id derived from `(remote-installation, remote-device-id, capability)`, never
+  the exporter's own local naming) + kind-4 existence tracking, extended same-day to hosts-kind
+  capabilities (`cpu/load`) too. See README.md's "Devices (cross-house import)" section for the
+  grammar and Architecture.md §12 for the mechanism. Legacy explicit-ref grammar removed same day,
+  no longer supported.
 - Logical-layer device combining ("aggregate" a new device vs "absorb" into an existing master
   device, e.g. smarty's Zigbee switch into host.smarty) -- gated on steps 3 and 4 both landing.
 - Logical-layer availability composition, noted 2026-08-31 once the physical-layer coordinator
