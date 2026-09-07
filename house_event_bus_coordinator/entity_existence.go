@@ -91,7 +91,18 @@ type TEntityExistenceTracker struct {
 	entries  map[string]map[string]*TEntityExistenceEntry // instance -> sourceEntity -> entry
 	order    map[string][]string                          // instance -> stable registration order (round-robin base)
 	cursor   map[string]int                               // instance -> next round-robin index for the "recheck known" pass
-	lastSent map[string]time.Time                         // instance -> last inquiry send time
+	// backlogCursor is nextToInquire's own rotation position within the not-known-to-exist
+	// backlog specifically (as opposed to cursor's round-robin over EVERY entry, used only once
+	// the whole backlog is empty). Real bug found live 2026-09-07: without this, nextToInquire
+	// always rescanned the backlog from index 0 and returned the FIRST still-unresolved entry --
+	// if that one entity's reply never arrived (a dropped MQTT message, an HA-side automation
+	// queue overflow, or simply a typo'd/never-existing entity_id whose inquiry silently never
+	// got recorded), it stayed the head of the backlog forever, permanently starving every OTHER
+	// entity registered after it in order. Confirmed live: a bare main-instance entity (kind-5)
+	// with a typo in its name sat unresolved for 3+ hours across multiple ./generate runs,
+	// blocking everything alphabetically after it. See nextToInquire's own doc comment.
+	backlogCursor map[string]int
+	lastSent      map[string]time.Time // instance -> last inquiry send time
 	// mainEntities is kind-5's own protected set (PROJECT.md item 1, 2026-09-07) -- every
 	// entity SeedMainEntities currently declares for instance "main". In-memory only, never
 	// persisted (no JSON schema change): Seed's own pruning loop consults it to avoid deleting a
@@ -108,12 +119,13 @@ type TEntityExistenceTracker struct {
 // that have no reason to touch disk.
 func newEntityExistenceTracker(path string) *TEntityExistenceTracker {
 	t := &TEntityExistenceTracker{
-		path:         path,
-		entries:      map[string]map[string]*TEntityExistenceEntry{},
-		order:        map[string][]string{},
-		cursor:       map[string]int{},
-		lastSent:     map[string]time.Time{},
-		mainEntities: map[string]bool{},
+		path:          path,
+		entries:       map[string]map[string]*TEntityExistenceEntry{},
+		order:         map[string][]string{},
+		cursor:        map[string]int{},
+		backlogCursor: map[string]int{},
+		lastSent:      map[string]time.Time{},
+		mainEntities:  map[string]bool{},
 	}
 	t.loadPersisted()
 	return t
@@ -338,8 +350,9 @@ func bareEntityFromSource(src string) string {
 }
 
 // nextToInquire picks the next source entity to ask instance about: any not-known-to-exist entity
-// first, in registration order (the backlog of unresolved/newly-seeded ones); once every entity
-// has a resolved status, round-robin through them as a refresh pass. This applies uniformly
+// first, ROTATING through the backlog rather than always starting from the front (backlogCursor --
+// see its own doc comment for the real bug this fixes, 2026-09-07); once every entity has a
+// resolved status, round-robin through them as a refresh pass (cursor). This applies uniformly
 // whether or not the entity has a known owning device -- PROJECT.md 1.1's original design sketched
 // a separate third pass just for device-less ("orphan") entities, but registration order and the
 // round-robin refresh already cover them exactly like any other entity, so no such separate pass
@@ -349,15 +362,19 @@ func (t *TEntityExistenceTracker) nextToInquire(instance string) string {
 	defer t.mu.Unlock()
 	byEntity := t.entries[instance]
 	order := t.order[instance]
-	if len(order) == 0 {
+	n := len(order)
+	if n == 0 {
 		return ""
 	}
-	for _, entity := range order {
-		if byEntity[entity].Status == StatusNotKnownToExist {
-			return entity
+	start := t.backlogCursor[instance] % n
+	for i := 0; i < n; i++ {
+		idx := (start + i) % n
+		if byEntity[order[idx]].Status == StatusNotKnownToExist {
+			t.backlogCursor[instance] = idx + 1
+			return order[idx]
 		}
 	}
-	idx := t.cursor[instance] % len(order)
+	idx := t.cursor[instance] % n
 	t.cursor[instance] = idx + 1
 	return order[idx]
 }

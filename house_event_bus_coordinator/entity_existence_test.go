@@ -292,6 +292,42 @@ func TestEntityExistenceTrackerSeedThenNextToInquirePrefersUnknown(t *testing.T)
 	}
 }
 
+// TestEntityExistenceTrackerNextToInquireRotatesPastStuckEntry is the regression test for a real
+// bug found live 2026-09-07: a bare main-instance entity (kind-5) with a typo in its name sat
+// unresolved for 3+ hours across multiple ./generate runs, because nextToInquire always rescanned
+// the not-known-to-exist backlog from index 0 and returned the SAME first-unresolved entry every
+// single call -- if that entity's own inquiry reply never arrives (a dropped MQTT message, an
+// HA-side automation queue overflow, or simply a never-existing entity_id whose reply never gets
+// recorded), it permanently starves every other entity registered after it in order. Simulates
+// exactly that: the first-registered entity never gets Record'd (as if its reply never arrived),
+// and asserts nextToInquire still rotates forward to ask about the others instead of returning the
+// same stuck one every time.
+func TestEntityExistenceTrackerNextToInquireRotatesPastStuckEntry(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.SeedMainEntities([]string{
+		"sensor.stuck_never_replies",
+		"sensor.second_in_line",
+		"sensor.third_in_line",
+	})
+
+	seen := map[string]bool{}
+	for i := 0; i < 3; i++ {
+		// Deliberately never call Record for "sensor.stuck_never_replies" -- simulates its reply
+		// never arriving, exactly like the live incident.
+		entity := tracker.nextToInquire("main")
+		seen[entity] = true
+		if entity != "sensor.stuck_never_replies" {
+			tracker.Record("main", entity, true, "", "", "")
+		}
+	}
+	if len(seen) != 3 {
+		t.Errorf("nextToInquire asked about %v (len=%d), want all 3 entities eventually asked despite the first one never resolving", seen, len(seen))
+	}
+	if !seen["sensor.second_in_line"] || !seen["sensor.third_in_line"] {
+		t.Errorf("nextToInquire never reached entries registered after the stuck one: %v", seen)
+	}
+}
+
 func TestEntityExistenceTrackerNextToInquireEmptyInstance(t *testing.T) {
 	tracker := newEntityExistenceTracker("")
 	if got := tracker.nextToInquire("nothing-tracked"); got != "" {
