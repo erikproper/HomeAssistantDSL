@@ -94,8 +94,8 @@ func TestCheckImportKnownNotToExistErrorsFlagsConfirmedAbsence(t *testing.T) {
 			RemoteInstallation: "junglinster",
 			RemoteDeviceID:     "hass.vienna_livingroom",
 			Capabilities: map[string]TImportedCapability{
-				"co2":  {}, // shorthand -- RemoteEntityRef == ""
-				"node": {}, // shorthand, known-to-exist -- must not be flagged
+				"co2":  {}, // confirmed known-not-to-exist -- must be flagged
+				"node": {}, // known-to-exist -- must not be flagged
 			},
 		},
 	}
@@ -134,27 +134,6 @@ func TestCheckImportKnownNotToExistErrorsOptimisticWhenUnresolved(t *testing.T) 
 	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
 	if err := checkImportKnownNotToExistErrors(definitionDir, importedDevices, ctx); err != nil {
 		t.Errorf("unresolved status must not block generation, got: %v", err)
-	}
-}
-
-func TestCheckImportKnownNotToExistErrorsIgnoresExplicitRefCapabilities(t *testing.T) {
-	definitionDir := t.TempDir()
-	// Deliberately no cache seeded at all -- an explicit-ref capability must never even attempt a
-	// fetch, let alone be flagged, since it predates this mechanism entirely.
-	importedDevices := []TImportedDevice{
-		{
-			DeviceID:           "import.vienna_terrace",
-			RemoteInstallation: "junglinster",
-			RemoteDeviceID:     "hass.vienna_terrace",
-			Capabilities: map[string]TImportedCapability{
-				"temperature": {RemoteEntityRef: "sensor.infrastructural_vienna_terrace_temperature"},
-			},
-		},
-	}
-
-	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
-	if err := checkImportKnownNotToExistErrors(definitionDir, importedDevices, ctx); err != nil {
-		t.Errorf("an explicit-ref-only device must be a no-op (no fetch attempted at all), got: %v", err)
 	}
 }
 

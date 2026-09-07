@@ -9,22 +9,35 @@
  * forms; see integration_import_storage.go's own header comment for the design rationale):
  *
  *   "device <local-id> from <remote-installation> <remote-device-id> with:
- *      <local-capability>: <domain>.<remote-entity-local-part>;
+ *      <domain>.<capability>;
  *      ...
  *    end;"
  *
  * <remote-device-id> is the remote installation's own DeviceID for the device (the key its own
- * cloud-published discovery payloads' "device.identifiers[0]" carry). <domain>.<remote-entity-
- * local-part> is the remote installation's own already-positioned local Home Assistant entity id
- * for that capability (e.g. "sensor.junglinster_smarty_cpu_load") -- matched against each incoming
- * cloud discovery payload's own "default_entity_id" field to recognise which capability arrived.
- * The DSL author never states which integration kind ("hosts" or "home_assistant"/hassbridge) the
- * exporting installation used -- house_event_bus_coordinator/discoveryimport.go resolves that
- * purely from fields already present on the cloud discovery payload itself.
+ * cloud-published discovery payloads' "device.identifiers[0]" carry). <domain> is captured but
+ * never stored -- it exists purely for readability/convention consistency with hassbridge's own
+ * "domain always explicit" style; the LOCAL discovery config's own domain always comes from
+ * wherever Spaces.def positions this capability's LocalEntity, independent of whatever domain the
+ * remote side actually used (a deliberate coercion,
+ * house_event_bus_coordinator/discoveryimport.go's own stable-id-based matching, which never
+ * inspects the incoming payload's own domain at all). <capability> is combined with
+ * (RemoteInstallation, RemoteDeviceID) to compute the exporter's own stable id (exportStableID,
+ * house_event_bus_coordinator/discoveryhassbridge.go) -- the DSL author never spells out the
+ * exporting installation's own internal entity naming by hand, and never states which integration
+ * kind ("hosts" or "home_assistant"/hassbridge) the exporting installation used;
+ * discoveryimport.go resolves that purely from fields already present on the cloud discovery
+ * payload itself. <capability> allows "/" (e.g. "sensor.cpu/load;") since a hosts-kind export's
+ * capability names are group-prefixed (integration_hosts_storage.go's AttributeNames).
+ *
+ * This grammar replaced an earlier, more verbose explicit form
+ * ("<local-capability>: <domain>.<remote-entity-local-part>;", requiring the DSL author to look up
+ * and copy the exporter's own local entity_id by hand) on 2026-09-07, once no real Physical.def
+ * still used it -- removed outright rather than kept alongside, per the user's own explicit
+ * instruction, since the shorthand form covers every case the explicit form did.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 05.09.2026
+ * Version of: 07.09.2026
  *
  */
 
@@ -37,27 +50,10 @@ import (
 )
 
 var importHeaderPattern = regexp.MustCompile(`^device\s+(\S+)\s+from\s+(\S+)\s+(\S+)\s+with:\s*$`)
-var importCapabilityPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_/]*):\s*(\S+)\s*;\s*$`)
 
-// importShorthandCapabilityPattern matches "<domain>.<capability>;" -- added 2026-09-07 for a
-// capability whose remote entity ref is fully predictable from (remote installation, remote
-// device id, capability name) alone, letting the DSL author skip spelling out the exporting
-// installation's own internal entity-naming convention by hand. Structurally unambiguous against
-// importCapabilityPattern: the explicit form always has a colon right after the capability name,
-// this form never does.
-//
-// The capability group allows "/" (e.g. "sensor.cpu/load;"), matching importCapabilityPattern's own
-// charset -- a hosts-kind export's capability names are group-prefixed (integration_hosts_storage.go's
-// AttributeNames), so the shorthand form has to accept that shape too, not just hassbridge's bare
-// names, for a hosts-kind import to ever be expressible without RemoteEntityRef.
-//
-// <domain> is captured but never stored -- it exists purely for readability/convention consistency
-// with hassbridge's own "domain always explicit" style. The LOCAL discovery config's own domain
-// always comes from wherever Spaces.def positions this capability's LocalEntity, independent of
-// both this declared domain and whatever domain the remote side actually used -- a deliberate
-// coercion (house_event_bus_coordinator/discoveryimport.go's own stable-id-based matching, which
-// never inspects the incoming payload's own domain at all).
-var importShorthandCapabilityPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s*;\s*$`)
+// importCapabilityPattern matches "<domain>.<capability>;" -- see this file's own header comment
+// for the full rationale.
+var importCapabilityPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s*;\s*$`)
 
 // parseImportIntegrationBody parses the body lines of an "integration import with: ... end;"
 // block. Lines that don't parse cleanly are reported as warnings rather than aborting the parse,
@@ -85,14 +81,6 @@ func parseImportIntegrationBody(bodyLines []string) ([]TImportedDevice, []string
 				continue
 			}
 			if matches := importCapabilityPattern.FindStringSubmatch(line); matches != nil {
-				current.Capabilities[matches[1]] = TImportedCapability{RemoteEntityRef: matches[2]}
-				continue
-			}
-			if matches := importShorthandCapabilityPattern.FindStringSubmatch(line); matches != nil {
-				// RemoteEntityRef left "" deliberately -- this is the shorthand form's own marker:
-				// house_event_bus_coordinator/discoveryimport.go derives the remote stable id itself
-				// from (device.RemoteInstallation, device.RemoteDeviceID, this capability's own map
-				// key) when it finds one empty, rather than matching against a declared ref.
 				current.Capabilities[matches[1]] = TImportedCapability{}
 				continue
 			}

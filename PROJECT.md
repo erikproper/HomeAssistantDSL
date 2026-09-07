@@ -7,12 +7,10 @@ Even though more and more entities will be pushed "under" the MQTT bus, we know 
 1b: See point about sources and their names.
 
 2. EP: Hardware migration in Vienna.
-- Tu 5 Pi3 as P-S-2 for Vienna
-    Copy photos back to P-S-2
 - We 6 Setup P-S-1 for Vienna:
-    { zigbee, samba | mqtt, smtpproxy, ... }
+    { samba, zigbee | mqtt,  ... }
 - ?? 7 Setup P-S-2 for Vienna:
-    { picture frame, HA, ... }
+    { picture frame | HA, ... }
 
 https://www.reichelt.at/at/de/shop/produkt/raspberry_pi_-_usb_3_0_256_gb-422300
 https://shop.funk24.net/Raspberry-Pi-Flash-Drive-USB-3.0-Stick-256-GB
@@ -397,8 +395,14 @@ Smaller pending items, not gating the above:
   + 3 hosts-kind) migrated to shorthand; regenerated + diffed clean (imported.yaml lost only its
   `remote_entity_ref:` lines, `local_entity:` and all `hass/` output byte-identical). Both
   coordinators redeployed and verified live (clean restart, no errors, normal traffic resumed).
-  The explicit `<capability>: <domain>.<ref>;` form still works and stays supported -- migrate it
-  away as it's noticed elsewhere, not a hard cutover.
+  Also added `pro-1` (a new device, positioned inside Junglinster's `space infrastructural:cloud as
+  area` block alongside `mqtt`) -- verified live end to end, including Vienna's own import
+  resolving it via the stable-id mechanism with no Vienna-side redeploy needed.
+  Same-day follow-up: the explicit `<capability>: <domain>.<ref>;` form was removed outright (not
+  kept alongside) once confirmed unused anywhere real -- `TImportedCapability.RemoteEntityRef`,
+  `matchImportedCapability` (content-based matching), and `remoteLocalEntityToLocalEntity` are all
+  gone; every import now resolves purely via `matchImportedCapabilityByStableID`. Pure refactor,
+  zero behaviour change -- both houses regenerated and diffed byte-identical before/after.
 - Logical-layer device combining ("aggregate" a new device vs "absorb" into an existing master
   device, e.g. smarty's Zigbee switch into host.smarty) -- gated on steps 3 and 4 both landing.
 - Logical-layer availability composition, noted 2026-08-31 once the physical-layer coordinator

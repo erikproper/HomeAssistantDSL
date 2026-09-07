@@ -5,7 +5,7 @@
  * Component: MQTTImportExistence
  *
  * Kind-4 (cross-house import) half of PROJECT.md item 1 (2026-09-07) -- reads the coordinator's own
- * three-state existence status for shorthand-declared import capabilities
+ * three-state existence status for declared import capabilities
  * (house_event_bus_coordinator/import_existence.go publishes it to
  * "import_existence/<remoteInstallation>/existence/state", retained, on both the local and cloud
  * broker unconditionally when a cloud one is configured), and turns a confirmed known-not-to-exist
@@ -13,12 +13,10 @@
  * checkDiscoveryKnownNotToExistErrors for kind-2, just keyed by (remote installation, stable id)
  * instead of (gateway, leaf).
  *
- * Scoped to shorthand-declared capabilities only (TImportedCapability.RemoteEntityRef == "") --
- * see import_existence.go's own header comment for why an explicit-ref capability is never tracked
- * at all. Like kind-2, this status is populated *passively* (the exporting installation's own
- * coordinator already self-announces via retained cloud discovery configs) -- a stable id can only
- * ever be not-known-to-exist or known-to-exist today; known-not-to-exist (retraction) is a
- * coordinator-side gap not yet built, matching kind-2's own.
+ * Like kind-2, this status is populated *passively* (the exporting installation's own coordinator
+ * already self-announces via retained cloud discovery configs) -- a stable id can only ever be
+ * not-known-to-exist or known-to-exist today; known-not-to-exist (retraction) is a coordinator-side
+ * gap not yet built, matching kind-2's own.
  *
  * Persisted local cache (Definitions/.cache/), same fetch-when-online/fall-back-to-cache pattern
  * every other existence mechanism already established.
@@ -171,20 +169,16 @@ func fetchImportExistenceFromBroker(secrets TMQTTBrokerSecrets, remoteInstallati
 }
 
 // checkImportKnownNotToExistErrors fetches (fetch-then-cache-fallback) existence status for every
-// distinct remote installation a shorthand-declared import capability references, and returns a
-// combined error listing every one the coordinator has confirmed known-not-to-exist -- the same
-// rule every other existence mechanism already follows: this is the *only* status that blocks
-// generation; not-known-to-exist and known-to-exist both generate optimistically. Soft-fails (a
-// warning) per installation when neither a fresh read nor a cache is available. Explicit-ref
-// capabilities are never checked here at all -- they predate this mechanism (see
-// TImportedCapability's own doc comment).
+// distinct remote installation a declared import capability references, and returns a combined
+// error listing every one the coordinator has confirmed known-not-to-exist -- the same rule every
+// other existence mechanism already follows: this is the *only* status that blocks generation;
+// not-known-to-exist and known-to-exist both generate optimistically. Soft-fails (a warning) per
+// installation when neither a fresh read nor a cache is available.
 func checkImportKnownNotToExistErrors(definitionDir string, importedDevices []TImportedDevice, ctx TPhysicalGenerationContext) error {
 	installations := map[string]bool{}
 	for _, device := range importedDevices {
-		for _, cap := range device.Capabilities {
-			if cap.RemoteEntityRef == "" && device.RemoteInstallation != "" {
-				installations[device.RemoteInstallation] = true
-			}
+		if len(device.Capabilities) > 0 && device.RemoteInstallation != "" {
+			installations[device.RemoteInstallation] = true
 		}
 	}
 	if len(installations) == 0 {
@@ -225,10 +219,6 @@ func checkImportKnownNotToExistErrors(definitionDir string, importedDevices []TI
 		}
 		sort.Strings(capNames)
 		for _, capability := range capNames {
-			cap := device.Capabilities[capability]
-			if cap.RemoteEntityRef != "" {
-				continue
-			}
 			stableID := exportStableIDGen(device.RemoteInstallation, device.RemoteDeviceID, capability)
 			if status[stableID] != existenceStatusKnownNotToExist {
 				continue

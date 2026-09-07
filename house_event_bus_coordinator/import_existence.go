@@ -9,17 +9,16 @@
  * the exporting installation's own coordinator already self-announces via retained MQTT discovery
  * configs on the shared cloud broker (discoveryhassbridge.go's own export cross-post), so no active
  * inquiry protocol is needed the way kind-3 needs one -- this coordinator just needs to track and
- * report each declared SHORTHAND import capability's (homeassistant/integration_import_parser.go's
+ * report each declared import capability's (homeassistant/integration_import_parser.go's
  * "<domain>.<capability>;" form) three-state status, populated passively as a byproduct of
  * discoveryimport.go's existing discovery-config subscription.
  *
- * Scoped to shorthand-declared capabilities only (TImportedCapability.RemoteEntityRef == ""):
- * an explicit-ref capability predates this mechanism and is matched by payload content, not a
- * stable id, so there is nothing meaningful to track its existence by here. This matters more for
- * shorthand than the explicit form ever needed it: a hand-typed RemoteEntityRef at least got a
- * human's eyes on it once; a purely derived stable id never does, so a typo in the DSL author's own
- * capability name (or a since-repositioned/retired remote capability) would otherwise surface as a
- * silently-never-populated local entity with no error anywhere pointing at the cause.
+ * A purely derived stable id (exportStableID, discoveryhassbridge.go) never gets a human's eyes on
+ * it the way a hand-typed reference would, so a typo in the DSL author's own capability name (or a
+ * since-repositioned/retired remote capability) would otherwise surface as a silently-never-
+ * populated local entity with no error anywhere pointing at the cause -- this tracker is what
+ * turns that into a generate-time error instead (mqtt_import_existence.go's
+ * checkImportKnownNotToExistErrors, generator side).
  *
  * Retraction (known-not-to-exist) is deliberately not built yet, matching kind-2's own retained
  * follow-up gap exactly (see that file's own header comment for why) -- every tracked stable id
@@ -95,12 +94,11 @@ func (t *TImportExistenceTracker) persist() {
 	}
 }
 
-// Seed registers every declared shorthand import capability's own stable id as not-known-to-exist
-// -- the generator's own "assumed to exist" list for kind-4, exactly like discovery_existence.go's
-// Seed reads discovery.yaml's EntityLinks for kind-2. An explicit-ref capability
-// (RemoteEntityRef != "") is skipped entirely -- see this file's own header comment. Already-tracked
-// stable ids are left untouched (status preserved as-is), so a coordinator restart never resets an
-// already-observed one back to unknown.
+// Seed registers every declared import capability's own stable id as not-known-to-exist -- the
+// generator's own "assumed to exist" list for kind-4, exactly like discovery_existence.go's Seed
+// reads discovery.yaml's EntityLinks for kind-2. Already-tracked stable ids are left untouched
+// (status preserved as-is), so a coordinator restart never resets an already-observed one back to
+// unknown.
 func (t *TImportExistenceTracker) Seed(importFile TImportedFile) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -109,10 +107,7 @@ func (t *TImportExistenceTracker) Seed(importFile TImportedFile) {
 		if device.RemoteInstallation == "" || device.RemoteDeviceID == "" {
 			continue
 		}
-		for capability, cap := range device.Capabilities {
-			if cap.RemoteEntityRef != "" {
-				continue
-			}
+		for capability := range device.Capabilities {
 			stableID := exportStableID(device.RemoteInstallation, device.RemoteDeviceID, capability)
 			if _, ok := t.entries[device.RemoteInstallation]; !ok {
 				t.entries[device.RemoteInstallation] = map[string]TEntityExistenceStatus{}

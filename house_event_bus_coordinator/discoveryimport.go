@@ -9,13 +9,15 @@
  * grammar unification that made this kind-agnostic) off the shared cloud broker, per Physical.def's
  * unified import declarations (coordinator/imported.yaml). Deliberately reuses discoverybridge.go's
  * own shape -- subscribe to a "<prefix>/+/+/+/config" filter, decode each incoming discovery-shaped
- * payload, match it against a declared reference, republish our own local discovery config pointing
- * at a local relay topic -- since both exporting kinds already publish this shape to the cloud
- * broker as their own "cloud catalogue" entry (house_event_bus_coordinator/mqtt.go's
- * publishDeviceDiscovery), indistinguishable, at the discovery-config layer, from a kind-2
- * gateway's own native self-description (see project_native_export_cloud_crosspost.md). The one
- * structural difference: discoverybridge.go's gateway is on the LOCAL broker; an import's source
- * device is on the CLOUD broker, under the exporting installation's own qualified topic prefix.
+ * payload, match it against a declared capability (matchImportedCapabilityByStableID -- purely from
+ * the topic's own stable-id segment, exportStableID, discoveryhassbridge.go; never the payload's own
+ * content), republish our own local discovery config pointing at a local relay topic -- since both
+ * exporting kinds already publish this shape to the cloud broker as their own "cloud catalogue"
+ * entry (house_event_bus_coordinator/mqtt.go's publishDeviceDiscovery), indistinguishable, at the
+ * discovery-config layer, from a kind-2 gateway's own native self-description (see
+ * project_native_export_cloud_crosspost.md). The one structural difference: discoverybridge.go's
+ * gateway is on the LOCAL broker; an import's source device is on the CLOUD broker, under the
+ * exporting installation's own qualified topic prefix.
  *
  * Kind-agnostic resolution (2026-09-05): the importing side never knows or asks which integration
  * kind the exporter used. It resolves two independent, structural facts purely from fields already
@@ -70,15 +72,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// TImportedCapability is one declared capability's reference into the exporting
-// installation's own local entity naming (RemoteEntityRef, matched against incoming payloads'
-// "default_entity_id") plus the resolved LOCAL entity id Spaces.def's own positioning gave it
-// (LocalEntity, generator-resolved -- empty would mean "never actually used," but
-// generateImportedDeviceFile already omits any capability that never resolved, so every entry
-// that reaches this file always has one).
+// TImportedCapability is one declared capability's resolved LOCAL entity id, the one Spaces.def's
+// own positioning gave it (LocalEntity, generator-resolved -- empty would mean "never actually
+// used," but generateImportedDeviceFile already omits any capability that never resolved, so every
+// entry that reaches this file always has one). The capability's own map key, combined with its
+// owning TImportedDevice's (RemoteInstallation, RemoteDeviceID), is everything
+// matchImportedCapabilityByStableID needs to recognise which incoming cloud discovery payload it
+// corresponds to (exportStableID, discoveryhassbridge.go) -- there was an earlier, more verbose
+// explicit form carrying a RemoteEntityRef string field (the exporter's own local entity_id,
+// matched against each incoming payload's "default_entity_id"), removed 2026-09-07 once no real
+// Physical.def still used it.
 type TImportedCapability struct {
-	RemoteEntityRef string `yaml:"remote_entity_ref"`
-	LocalEntity     string `yaml:"local_entity"`
+	LocalEntity string `yaml:"local_entity"`
 }
 
 // TImportedDevice is one declared import from coordinator/imported.yaml.
@@ -209,42 +214,22 @@ type importCapabilityMatch struct {
 	DisplayName   string
 }
 
-// matchImportedCapability finds which declared import (if any) remoteInstallation/payload
-// corresponds to: a device whose RemoteInstallation/RemoteDeviceID match the message's own origin
-// and decoded device identifier, and a capability whose declared RemoteEntityRef equals the
-// payload's own default_entity_id. Skips a capability with no resolved LocalEntity (shouldn't
-// happen -- generateImportedDeviceFile already omits those -- but defensive rather than
-// publishing something with no real local identity).
-func matchImportedCapability(importFile TImportedFile, remoteInstallation string, payload importedDiscoveryPayload) (importCapabilityMatch, bool) {
-	if payload.DefaultEntityID == "" || len(payload.Device.Identifiers) == 0 {
-		return importCapabilityMatch{}, false
-	}
-	remoteDeviceID := payload.Device.Identifiers[0]
-	for localDeviceID, device := range importFile.Devices {
-		if device.RemoteInstallation != remoteInstallation || device.RemoteDeviceID != remoteDeviceID {
-			continue
-		}
-		for capability, cap := range device.Capabilities {
-			if cap.RemoteEntityRef == payload.DefaultEntityID && cap.LocalEntity != "" {
-				return importCapabilityMatch{LocalDeviceID: localDeviceID, Capability: capability, LocalEntity: cap.LocalEntity, DisplayName: device.DisplayName}, true
-			}
-		}
-	}
-	return importCapabilityMatch{}, false
-}
-
-// matchImportedCapabilityByStableID is matchImportedCapability's counterpart for a
-// shorthand-declared capability (TImportedCapability.RemoteEntityRef == "", homeassistant/
-// integration_import_parser.go's "<domain>.<capability>;" form): rather than matching the
-// payload's own content, it recomputes the EXPORT side's own stable id (exportStableID,
-// discoveryhassbridge.go) from each such capability's already-declared (RemoteInstallation,
-// RemoteDeviceID, capability-name) and compares it against topic's own stable-id segment --
+// matchImportedCapabilityByStableID finds which declared import capability (if any) a topic
+// belongs to: it recomputes the EXPORT side's own stable id (exportStableID,
+// discoveryhassbridge.go) from each declared capability's (RemoteInstallation, RemoteDeviceID,
+// capability-name) and compares it against topic's own stable-id segment --
 // "<installation>/<prefix...>/<domain>/coordinator/<stableID>/config", indexed from the end so an
 // arbitrarily-shaped (possibly multi-segment) prefix never throws off the offsets. This never
 // inspects the payload's own domain or default_entity_id at all -- deliberate coercion: whatever
 // domain the exporter actually used is irrelevant, only the stable id (independent of any naming
-// on either side) has to match. Skips a capability with no resolved LocalEntity, same defensive
-// posture as matchImportedCapability.
+// on either side) has to match. Skips a capability with no resolved LocalEntity (shouldn't happen
+// -- generateImportedDeviceFile already omits those -- but defensive rather than publishing
+// something with no real local identity).
+//
+// An earlier version matched an explicit-form capability's declared RemoteEntityRef against the
+// payload's own default_entity_id instead (matchImportedCapability, content-based) -- removed
+// 2026-09-07 once the explicit form itself was removed (no real Physical.def still used it; see
+// homeassistant/integration_import_parser.go's own header comment).
 func matchImportedCapabilityByStableID(importFile TImportedFile, remoteInstallation, topic string) (importCapabilityMatch, bool) {
 	parts := strings.Split(topic, "/")
 	if len(parts) < 3 || parts[len(parts)-1] != "config" || parts[len(parts)-3] != "coordinator" {
@@ -256,7 +241,7 @@ func matchImportedCapabilityByStableID(importFile TImportedFile, remoteInstallat
 			continue
 		}
 		for capability, cap := range device.Capabilities {
-			if cap.RemoteEntityRef != "" || cap.LocalEntity == "" {
+			if cap.LocalEntity == "" {
 				continue
 			}
 			if exportStableID(device.RemoteInstallation, device.RemoteDeviceID, capability) != stableID {
@@ -375,36 +360,16 @@ func buildImportedDiscoveryBody(match importCapabilityMatch, payload importedDis
 	return body
 }
 
-// remoteLocalEntityToLocalEntity indexes importFile by each capability's already-resolved
-// RemoteEntityRef -- the exact local-entity segment the exporting installation's own reporting
-// automation publishes its bridge state topic under (hassBridgeEntityStateTopic,
-// discoveryhassbridge.go) -- onto this house's own resolved LocalEntity, so an incoming state
-// message can be relayed directly from a single static subscription, without needing to have
-// first decoded that capability's own discovery CONFIG payload.
-func remoteLocalEntityToLocalEntity(importFile TImportedFile) map[string]string {
-	byRemoteEntityRef := map[string]string{}
-	for _, device := range importFile.Devices {
-		for _, cap := range device.Capabilities {
-			if cap.RemoteEntityRef == "" || cap.LocalEntity == "" {
-				continue
-			}
-			byRemoteEntityRef[cap.RemoteEntityRef] = cap.LocalEntity
-		}
-	}
-	return byRemoteEntityRef
-}
-
-// TImportedHostsRelay is one "hosts"-kind capability's resolved relay target -- LocalEntity is
-// where to republish, ExtractionField is the JSON key to pull out of the raw incoming payload
-// first ("" means republish the raw payload verbatim, e.g. a "node" liveness boolean, which is
-// never JSON-wrapped -- see mqtt_relay.go's own doc comment on why a real value reaches this
-// topic at all: the exporting installation's own TCloudLivenessTracker cross-posts its computed
-// liveness to the cloud broker, so this side never needs to synthesize anything of its own).
-// Unlike a "home_assistant"-kind capability's self-qualifying topic shape
-// (remoteLocalEntityToLocalEntity, purely declaration-derived, needs no live data), a "hosts"-kind
-// raw topic and its extraction key are only knowable once the exporting installation's own
-// discovery CONFIG payload (StateTopic/ValueTemplate) has actually arrived -- see this file's own
-// header comment.
+// TImportedHostsRelay is one capability's resolved relay target -- LocalEntity is where to
+// republish, ExtractionField is the JSON key to pull out of the raw incoming payload first (""
+// means republish the raw payload verbatim, e.g. a "node" liveness boolean, which is never
+// JSON-wrapped -- see mqtt_relay.go's own doc comment on why a real value reaches this topic at
+// all: the exporting installation's own TCloudLivenessTracker cross-posts its computed liveness to
+// the cloud broker, so this side never needs to synthesize anything of its own). A capability's
+// raw source topic (and, for a "hosts"-kind one sharing a JSON-blob topic with others, its
+// extraction key) is only knowable once the exporting installation's own discovery CONFIG payload
+// (StateTopic/ValueTemplate) has actually arrived -- see this file's own header comment --
+// registered into TImportedHostsRelayIndex the moment configHandler sees it.
 type TImportedHostsRelay struct {
 	LocalEntity     string
 	ExtractionField string
@@ -445,8 +410,9 @@ func (idx *TImportedHostsRelayIndex) lookup(topic string) []TImportedHostsRelay 
 
 // subscribeImportedDevices subscribes on cloudClient to every distinct declared
 // RemoteInstallation's own "<installation>/<prefix>/+/+/+/config" filter, matches each incoming
-// exported discovery payload against importFile (matchImportedCapability), and publishes a local
-// discovery config (through publisher, to "main") whose state_topic is a new local relay topic.
+// exported discovery payload against importFile (matchImportedCapabilityByStableID), and publishes
+// a local discovery config (through publisher, to "main") whose state_topic is a new local relay
+// topic.
 // State itself is relayed through two SEPARATE static wildcard subscribes registered once per
 // remote installation (never per capability -- see the concurrency note below): one for
 // "home_assistant"-kind's self-qualifying topic shape
@@ -479,7 +445,7 @@ func (idx *TImportedHostsRelayIndex) lookup(topic string) []TImportedHostsRelay 
 // installation, registered once, removes the concurrent-spawn entirely -- the same "wildcard
 // covers every capability" shape subscribeHassBridge's own local-side subscribe already uses.
 // existenceTracker may be nil (tests, or a coordinator run before kind-4 tracking existed) -- when
-// set, every shorthand-matched capability's discovery config marks its own stable id known-to-exist
+// set, every matched capability's discovery config marks its own stable id known-to-exist
 // (import_existence.go's TImportExistenceTracker), republishing that installation's status
 // snapshot (qualified with ownInstallation on the cloud copy, same as every other kind's own
 // publishStatus) to both brokers on each new observation.
@@ -493,7 +459,6 @@ func subscribeImportedDevices(mainClient, cloudClient mqtt.Client, ownInstallati
 		remoteInstallations[device.RemoteInstallation] = true
 	}
 
-	byRemoteEntityRef := remoteLocalEntityToLocalEntity(importFile)
 	hostsRelayIndex := newImportedHostsRelayIndex()
 
 	for remoteInstallation := range remoteInstallations {
@@ -507,22 +472,11 @@ func subscribeImportedDevices(mainClient, cloudClient mqtt.Client, ownInstallati
 				fmt.Printf("[discovery-import] %s: cannot parse payload: %v\n", msg.Topic(), err)
 				return
 			}
-			match, matched := matchImportedCapability(importFile, remoteInstallation, payload)
-			viaShorthand := false
-			if !matched {
-				// Content-based matching only ever works for an explicit RemoteEntityRef
-				// declaration -- a shorthand-declared capability ("<domain>.<capability>;") has
-				// none to compare against, so it's matched purely from the topic's own stable-id
-				// segment instead (deliberately never checking the payload's own domain or
-				// default_entity_id -- coercion, see matchImportedCapabilityByStableID's own doc
-				// comment).
-				match, matched = matchImportedCapabilityByStableID(importFile, remoteInstallation, msg.Topic())
-				viaShorthand = matched
-			}
+			match, matched := matchImportedCapabilityByStableID(importFile, remoteInstallation, msg.Topic())
 			if !matched {
 				return
 			}
-			if viaShorthand && existenceTracker != nil {
+			if existenceTracker != nil {
 				parts := strings.Split(msg.Topic(), "/")
 				stableID := parts[len(parts)-2]
 				if existenceTracker.MarkKnown(remoteInstallation, stableID) {
@@ -548,15 +502,12 @@ func subscribeImportedDevices(mainClient, cloudClient mqtt.Client, ownInstallati
 				// capability) knows what to do with a message on that topic.
 				qualifiedTopic := qualifyHostsTopic(payload.StateTopic, remoteInstallation)
 				hostsRelayIndex.register(qualifiedTopic, TImportedHostsRelay{LocalEntity: match.LocalEntity, ExtractionField: extractionField})
-			case viaShorthand && payload.StateTopic != "":
-				// A shorthand match has no declared RemoteEntityRef, so it was never folded into
-				// byRemoteEntityRef (remoteLocalEntityToLocalEntity) -- stateHandler's own static
-				// lookup can never find it. Registering the exporter's own already-self-qualifying
-				// "home_assistant"-kind state topic here too lets stateHandler's fallback
-				// (below) relay it the same lazy, topic-learned way a "hosts"-kind capability
-				// already is -- the only mechanism that ever learns this mapping at all, since a
-				// shorthand declaration deliberately never states the remote's own local entity
-				// name up front.
+			case payload.StateTopic != "":
+				// A "home_assistant"-kind capability's own state topic is already self-qualifying
+				// (unlike "hosts"-kind's bare one above) -- registering it here lets stateHandler
+				// relay it the same lazy, topic-learned way, the only mechanism that ever learns
+				// this mapping at all, since a declaration never states the remote's own local
+				// entity name up front.
 				hostsRelayIndex.register(payload.StateTopic, TImportedHostsRelay{LocalEntity: match.LocalEntity, ExtractionField: extractionField})
 			}
 
@@ -588,38 +539,21 @@ func subscribeImportedDevices(mainClient, cloudClient mqtt.Client, ownInstallati
 		stateHandler := func(_ mqtt.Client, msg mqtt.Message) {
 			// "<installation>/homeassistant_instances/<instance>/bridge/<remoteLocalEntity>/state"
 			// -- the exact shape crossPostHassBridgeToCloud qualifies hassBridgeEntityStateTopic
-			// with, six segments.
+			// with, six segments. Relay target is resolved from whatever configHandler's own
+			// lazy-learned index resolved this exact topic to (registered the moment that
+			// capability's discovery config was first seen) -- a topic nothing has registered yet
+			// (or ever will) is a safe no-op, same as hostsStateHandler's own lookup below.
 			parts := strings.Split(msg.Topic(), "/")
 			if len(parts) != 6 || parts[1] != "homeassistant_instances" || parts[3] != "bridge" || parts[5] != "state" {
 				return
 			}
-			localEntity, known := byRemoteEntityRef[parts[4]]
-			if !known {
-				// A shorthand-declared capability has no static RemoteEntityRef to have been
-				// folded into byRemoteEntityRef -- fall back to whatever configHandler's own
-				// lazy-learned index resolved this exact topic to (registered the moment that
-				// capability's discovery config was first seen). A topic nothing has registered
-				// yet (or ever will) is a safe no-op, same as hostsStateHandler's own lookup below.
-				relays := hostsRelayIndex.lookup(msg.Topic())
-				if len(relays) == 0 {
-					return
-				}
-				for _, relay := range relays {
-					localStateTopic := importedStateTopic(relay.LocalEntity)
-					pubToken := mainClient.Publish(localStateTopic, 0, true, msg.Payload())
-					if !pubToken.WaitTimeout(10*time.Second) || pubToken.Error() != nil {
-						if err := pubToken.Error(); err != nil {
-							fmt.Printf("[discovery-import] relaying %s -> %s: %v\n", msg.Topic(), localStateTopic, err)
-						}
+			for _, relay := range hostsRelayIndex.lookup(msg.Topic()) {
+				localStateTopic := importedStateTopic(relay.LocalEntity)
+				pubToken := mainClient.Publish(localStateTopic, 0, true, msg.Payload())
+				if !pubToken.WaitTimeout(10*time.Second) || pubToken.Error() != nil {
+					if err := pubToken.Error(); err != nil {
+						fmt.Printf("[discovery-import] relaying %s -> %s: %v\n", msg.Topic(), localStateTopic, err)
 					}
-				}
-				return
-			}
-			localStateTopic := importedStateTopic(localEntity)
-			pubToken := mainClient.Publish(localStateTopic, 0, true, msg.Payload())
-			if !pubToken.WaitTimeout(10*time.Second) || pubToken.Error() != nil {
-				if err := pubToken.Error(); err != nil {
-					fmt.Printf("[discovery-import] relaying %s -> %s: %v\n", msg.Topic(), localStateTopic, err)
 				}
 			}
 		}

@@ -12,7 +12,7 @@ func TestGenerateImportedHassBridgeFile(t *testing.T) {
 		{
 			DeviceID: "hass.vienna_terrace", RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_terrace",
 			Capabilities: map[string]TImportedCapability{
-				"temperature": {RemoteEntityRef: "sensor.infrastructural_vienna_terrace_temperature"},
+				"temperature": {},
 			},
 		},
 	}
@@ -38,49 +38,14 @@ func TestGenerateImportedHassBridgeFile(t *testing.T) {
 		"remote_installation: \"junglinster\"",
 		"remote_device_id: \"hass.vienna_terrace\"",
 		"display_name: terrace/netatmo",
-		"remote_entity_ref: sensor.infrastructural_vienna_terrace_temperature",
 		"local_entity: sensor.infrastructural_terrace_netatmo_temperature",
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("generated file = %s, want it to contain %q", content, want)
 		}
 	}
-}
-
-// TestGenerateImportedHassBridgeFileOmitsRemoteEntityRefForShorthand confirms a shorthand-declared
-// capability (RemoteEntityRef == "") writes no "remote_entity_ref:" line at all -- its absence is
-// itself the signal house_event_bus_coordinator/discoveryimport.go uses to derive the remote
-// stable id from (remote_installation, remote_device_id, capability key) instead.
-func TestGenerateImportedHassBridgeFileOmitsRemoteEntityRefForShorthand(t *testing.T) {
-	devices := []TImportedDevice{
-		{
-			DeviceID: "hass.vienna_livingroom", RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_livingroom",
-			Capabilities: map[string]TImportedCapability{
-				"co2": {}, // shorthand: RemoteEntityRef left ""
-			},
-		},
-	}
-	admin := newAdministrationState()
-	admin.DeviceConceptualLinks["hass.vienna_livingroom"] = TDeviceConceptualLink{
-		AttributeEntityIDs: map[string]TDeviceAttributeLink{
-			"co2": {EntityID: "sensor.infrastructural_living_room_co2"},
-		},
-	}
-
-	outputRoot := t.TempDir()
-	if err := generateImportedDeviceFile(outputRoot, devices, admin); err != nil {
-		t.Fatalf("generateImportedDeviceFile error: %v", err)
-	}
-	data, err := os.ReadFile(filepath.Join(outputRoot, "coordinator", "imported.yaml"))
-	if err != nil {
-		t.Fatalf("reading generated file: %v", err)
-	}
-	content := string(data)
 	if strings.Contains(content, "remote_entity_ref") {
-		t.Errorf("generated file = %s, must not contain \"remote_entity_ref\" for a shorthand-declared capability", content)
-	}
-	if !strings.Contains(content, "local_entity: sensor.infrastructural_living_room_co2") {
-		t.Errorf("generated file = %s, want the resolved local_entity still written", content)
+		t.Errorf("generated file = %s, must never contain \"remote_entity_ref\" -- the explicit form was removed 2026-09-07", content)
 	}
 }
 
@@ -92,7 +57,7 @@ func TestGenerateImportedHassBridgeFileSkipsUnpositionedDevice(t *testing.T) {
 		{
 			DeviceID: "hass.vienna_terrace", RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_terrace",
 			Capabilities: map[string]TImportedCapability{
-				"temperature": {RemoteEntityRef: "sensor.infrastructural_vienna_terrace_temperature"},
+				"temperature": {},
 			},
 		},
 	}
@@ -116,8 +81,8 @@ func TestGenerateImportedHassBridgeFileSkipsUnusedCapability(t *testing.T) {
 		{
 			DeviceID: "hass.vienna_terrace", RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_terrace",
 			Capabilities: map[string]TImportedCapability{
-				"temperature": {RemoteEntityRef: "sensor.infrastructural_vienna_terrace_temperature"},
-				"humidity":    {RemoteEntityRef: "sensor.infrastructural_vienna_terrace_humidity"},
+				"temperature": {},
+				"humidity":    {},
 			},
 		},
 	}
@@ -150,7 +115,7 @@ func TestGenerateImportedHassBridgeFileOmitsDisplayNameWhenUnset(t *testing.T) {
 		{
 			DeviceID: "hass.vienna_terrace", RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_terrace",
 			Capabilities: map[string]TImportedCapability{
-				"temperature": {RemoteEntityRef: "sensor.infrastructural_vienna_terrace_temperature"},
+				"temperature": {},
 			},
 		},
 	}

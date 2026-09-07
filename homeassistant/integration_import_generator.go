@@ -79,13 +79,6 @@ func generateImportedDeviceFile(outputRoot string, devices []TImportedDevice, ad
 			}
 			anyResolved = true
 			capLines.WriteString("      " + name + ":\n")
-			// remote_entity_ref is omitted entirely for a shorthand-declared capability
-			// (TImportedCapability.RemoteEntityRef == "") -- its absence is itself the signal
-			// house_event_bus_coordinator/discoveryimport.go uses to derive the remote stable id
-			// from (remote_installation, remote_device_id, this capability's own key) instead.
-			if ref := device.Capabilities[name].RemoteEntityRef; ref != "" {
-				capLines.WriteString("        remote_entity_ref: " + ref + "\n")
-			}
 			capLines.WriteString("        local_entity: " + attr.EntityID + "\n")
 		}
 		if !anyResolved {

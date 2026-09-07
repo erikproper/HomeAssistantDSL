@@ -19,21 +19,13 @@ func fixtureImportFileForExistence() TImportedFile {
 		"import.vienna_livingroom": {
 			RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_livingroom",
 			Capabilities: map[string]TImportedCapability{
-				"co2": {LocalEntity: "sensor.infrastructural_living_room_co2"}, // shorthand
-			},
-		},
-		"import.vienna_terrace": {
-			RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_terrace",
-			Capabilities: map[string]TImportedCapability{
-				// Explicit-ref capability -- must never be tracked at all (see this file's own
-				// header comment for why).
-				"temperature": {RemoteEntityRef: "sensor.infrastructural_vienna_terrace_temperature", LocalEntity: "sensor.infrastructural_terrace_temperature"},
+				"co2": {LocalEntity: "sensor.infrastructural_living_room_co2"},
 			},
 		},
 	}}
 }
 
-func TestImportExistenceTrackerSeedStartsShorthandNotKnownToExist(t *testing.T) {
+func TestImportExistenceTrackerSeedStartsNotKnownToExist(t *testing.T) {
 	tracker := newImportExistenceTracker("")
 	tracker.Seed(fixtureImportFileForExistence())
 
@@ -41,20 +33,6 @@ func TestImportExistenceTrackerSeedStartsShorthandNotKnownToExist(t *testing.T) 
 	got := tracker.snapshot("junglinster")
 	if got[stableID] != StatusNotKnownToExist {
 		t.Errorf("snapshot = %+v, want %q not-known-to-exist", got, stableID)
-	}
-}
-
-// TestImportExistenceTrackerSeedNeverTracksExplicitRefCapabilities confirms an explicit-ref
-// capability contributes nothing to the tracked set at all -- it predates this mechanism and is
-// matched by payload content, not a stable id.
-func TestImportExistenceTrackerSeedNeverTracksExplicitRefCapabilities(t *testing.T) {
-	tracker := newImportExistenceTracker("")
-	tracker.Seed(fixtureImportFileForExistence())
-
-	explicitStableID := exportStableID("junglinster", "hass.vienna_terrace", "temperature")
-	got := tracker.snapshot("junglinster")
-	if _, tracked := got[explicitStableID]; tracked {
-		t.Errorf("snapshot = %+v, want the explicit-ref capability's stable id never tracked at all", got)
 	}
 }
 

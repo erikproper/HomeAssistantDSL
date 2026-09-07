@@ -22,10 +22,7 @@ func TestExpectedImportedHassBridgeTopics(t *testing.T) {
 		"hass.vienna_shower_room": {
 			RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_shower_room",
 			Capabilities: map[string]TImportedCapability{
-				"temperature": {
-					RemoteEntityRef: "sensor.infrastructural_vienna_shower_room_temperature",
-					LocalEntity:     "sensor.physical_shower_room_netatmo_temperature",
-				},
+				"temperature": {LocalEntity: "sensor.physical_shower_room_netatmo_temperature"},
 			},
 		},
 	}}
@@ -44,7 +41,7 @@ func TestExpectedImportedHassBridgeTopicsSkipsUnresolvedCapability(t *testing.T)
 		"hass.vienna_shower_room": {
 			RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_shower_room",
 			Capabilities: map[string]TImportedCapability{
-				"temperature": {RemoteEntityRef: "sensor.infrastructural_vienna_shower_room_temperature"},
+				"temperature": {},
 			},
 		},
 	}}
@@ -53,65 +50,10 @@ func TestExpectedImportedHassBridgeTopicsSkipsUnresolvedCapability(t *testing.T)
 	}
 }
 
-func TestMatchImportedCapability(t *testing.T) {
-	importFile := TImportedFile{Devices: map[string]TImportedDevice{
-		"hass.vienna_shower_room": {
-			RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_shower_room",
-			Capabilities: map[string]TImportedCapability{
-				"temperature": {
-					RemoteEntityRef: "sensor.infrastructural_vienna_shower_room_temperature",
-					LocalEntity:     "sensor.physical_shower_room_netatmo_temperature",
-				},
-			},
-		},
-	}}
-
-	payload := importedDiscoveryPayload{DefaultEntityID: "sensor.infrastructural_vienna_shower_room_temperature"}
-	payload.Device.Identifiers = []string{"hass.vienna_shower_room"}
-
-	match, matched := matchImportedCapability(importFile, "junglinster", payload)
-	if !matched {
-		t.Fatalf("expected a match")
-	}
-	if match.LocalDeviceID != "hass.vienna_shower_room" || match.Capability != "temperature" || match.LocalEntity != "sensor.physical_shower_room_netatmo_temperature" {
-		t.Errorf("match = %+v, want {hass.vienna_shower_room temperature sensor.physical_shower_room_netatmo_temperature}", match)
-	}
-
-	// Wrong installation must not match, even with an identical device id / entity id.
-	if _, matched := matchImportedCapability(importFile, "vienna", payload); matched {
-		t.Errorf("expected no match for a different remote installation")
-	}
-	// Unrelated device must not match.
-	otherPayload := importedDiscoveryPayload{DefaultEntityID: "sensor.infrastructural_vienna_shower_room_temperature"}
-	otherPayload.Device.Identifiers = []string{"hass.some_other_device"}
-	if _, matched := matchImportedCapability(importFile, "junglinster", otherPayload); matched {
-		t.Errorf("expected no match for a different remote device id")
-	}
-}
-
-// TestMatchImportedCapabilitySkipsUnresolvedCapability confirms a declared but never-positioned
-// capability (empty LocalEntity) never matches, even if its RemoteEntityRef would otherwise fit.
-func TestMatchImportedCapabilitySkipsUnresolvedCapability(t *testing.T) {
-	importFile := TImportedFile{Devices: map[string]TImportedDevice{
-		"hass.vienna_shower_room": {
-			RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_shower_room",
-			Capabilities: map[string]TImportedCapability{
-				"humidity": {RemoteEntityRef: "sensor.infrastructural_vienna_shower_room_humidity"},
-			},
-		},
-	}}
-	payload := importedDiscoveryPayload{DefaultEntityID: "sensor.infrastructural_vienna_shower_room_humidity"}
-	payload.Device.Identifiers = []string{"hass.vienna_shower_room"}
-	if _, matched := matchImportedCapability(importFile, "junglinster", payload); matched {
-		t.Errorf("expected no match for a capability with no resolved LocalEntity")
-	}
-}
-
-// TestMatchImportedCapabilityByStableID confirms a shorthand-declared capability (RemoteEntityRef
-// == "") is matched purely from the topic's own stable-id segment -- recomputed from
-// (RemoteInstallation, RemoteDeviceID, capability name) via exportStableID, matching the export
-// side's own scheme (discoveryhassbridge.go) exactly, matching the user's own worked example
-// (PROJECT.md item 1 discussion, 2026-09-07).
+// TestMatchImportedCapabilityByStableID confirms a declared capability is matched purely from the
+// topic's own stable-id segment -- recomputed from (RemoteInstallation, RemoteDeviceID, capability
+// name) via exportStableID, matching the export side's own scheme (discoveryhassbridge.go) exactly,
+// matching the user's own worked example (PROJECT.md item 1 discussion, 2026-09-07).
 func TestMatchImportedCapabilityByStableID(t *testing.T) {
 	importFile := TImportedFile{Devices: map[string]TImportedDevice{
 		"import.vienna_livingroom": {
@@ -135,28 +77,27 @@ func TestMatchImportedCapabilityByStableID(t *testing.T) {
 	if _, matched := matchImportedCapabilityByStableID(importFile, "vienna", topic); matched {
 		t.Errorf("expected no match for a different remote installation")
 	}
-	// A topic whose stable id doesn't correspond to any declared shorthand capability must not match.
+	// A topic whose stable id doesn't correspond to any declared capability must not match.
 	unrelatedTopic := "junglinster/homeassistant/sensor/coordinator/junglinster_hass_vienna_livingroom_humidity/config"
 	if _, matched := matchImportedCapabilityByStableID(importFile, "junglinster", unrelatedTopic); matched {
 		t.Errorf("expected no match for an unrelated stable id")
 	}
 }
 
-// TestMatchImportedCapabilityByStableIDIgnoresExplicitCapabilities confirms an explicit-ref
-// capability (RemoteEntityRef set) is never matched by this path, even if its own stable id would
-// happen to coincide -- shorthand and explicit-ref resolution stay fully separate.
-func TestMatchImportedCapabilityByStableIDIgnoresExplicitCapabilities(t *testing.T) {
+// TestMatchImportedCapabilityByStableIDSkipsUnresolvedCapability confirms a declared but
+// never-positioned capability (empty LocalEntity) never matches.
+func TestMatchImportedCapabilityByStableIDSkipsUnresolvedCapability(t *testing.T) {
 	importFile := TImportedFile{Devices: map[string]TImportedDevice{
-		"import.vienna_livingroom": {
-			RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_livingroom",
+		"import.vienna_shower_room": {
+			RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_shower_room",
 			Capabilities: map[string]TImportedCapability{
-				"co2": {RemoteEntityRef: "sensor.junglinster_own_local_name", LocalEntity: "sensor.infrastructural_living_room_co2"},
+				"humidity": {},
 			},
 		},
 	}}
-	topic := "junglinster/homeassistant/sensor/coordinator/junglinster_hass_vienna_livingroom_co2/config"
+	topic := "junglinster/homeassistant/sensor/coordinator/junglinster_hass_vienna_shower_room_humidity/config"
 	if _, matched := matchImportedCapabilityByStableID(importFile, "junglinster", topic); matched {
-		t.Errorf("expected no match -- this capability declared an explicit RemoteEntityRef, not the shorthand form")
+		t.Errorf("expected no match for a capability with no resolved LocalEntity")
 	}
 }
 
@@ -272,8 +213,8 @@ func TestImportedAvailabilityTopicPointsAtDevicesNode(t *testing.T) {
 		"hass.vienna_terrace": {
 			RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_terrace",
 			Capabilities: map[string]TImportedCapability{
-				"node":        {RemoteEntityRef: "binary_sensor.infrastructural_vienna_terrace_node", LocalEntity: "binary_sensor.infrastructural_terrace_netatmo_node"},
-				"temperature": {RemoteEntityRef: "sensor.infrastructural_vienna_terrace_temperature", LocalEntity: "sensor.physical_terrace_netatmo_temperature"},
+				"node":        {LocalEntity: "binary_sensor.infrastructural_terrace_netatmo_node"},
+				"temperature": {LocalEntity: "sensor.physical_terrace_netatmo_temperature"},
 			},
 		},
 	}}
@@ -292,7 +233,7 @@ func TestImportedAvailabilityTopicAvoidsCircularReferenceForNodeItself(t *testin
 	importFile := TImportedFile{Devices: map[string]TImportedDevice{
 		"hass.vienna_terrace": {
 			Capabilities: map[string]TImportedCapability{
-				"node": {RemoteEntityRef: "binary_sensor.infrastructural_vienna_terrace_node", LocalEntity: "binary_sensor.infrastructural_terrace_netatmo_node"},
+				"node": {LocalEntity: "binary_sensor.infrastructural_terrace_netatmo_node"},
 			},
 		},
 	}}
@@ -310,7 +251,7 @@ func TestImportedAvailabilityTopicEmptyWhenDeviceHasNoNodeCapability(t *testing.
 	importFile := TImportedFile{Devices: map[string]TImportedDevice{
 		"hass.vienna_terrace": {
 			Capabilities: map[string]TImportedCapability{
-				"temperature": {RemoteEntityRef: "sensor.infrastructural_vienna_terrace_temperature", LocalEntity: "sensor.physical_terrace_netatmo_temperature"},
+				"temperature": {LocalEntity: "sensor.physical_terrace_netatmo_temperature"},
 			},
 		},
 	}}
@@ -386,39 +327,40 @@ func TestBuildImportedDiscoveryBodyPreservesHostsKindPayloadOnOff(t *testing.T) 
 	}
 }
 
-// TestSubscribeImportedHassBridgeDevicesPublishesLocalDiscoveryAndRelaysValue is the end-to-end
-// path: a declared import (with an already-resolved LocalEntity, as generateImportedDeviceFile
-// would produce from a real Spaces.def positioning) + an incoming exported discovery payload on
-// the cloud broker must produce (1) a local discovery config on the main broker whose
-// default_entity_id/state_topic are built from that resolved LocalEntity, not any coordinator-
-// invented naming, and (2) a subscription that forward-publishes the remote's own state value onto
-// that same local relay topic.
-func TestSubscribeImportedHassBridgeDevicesPublishesLocalDiscoveryAndRelaysValue(t *testing.T) {
-	const localEntity = "sensor.physical_terrace_netatmo_temperature"
+// TestSubscribeImportedDevicesPublishesLocalDiscoveryAndRelaysValue is the end-to-end path: a
+// declared import (with an already-resolved LocalEntity, as generateImportedDeviceFile would
+// produce from a real Spaces.def positioning) + an incoming exported discovery payload on the
+// cloud broker, keyed by the export side's own stable id (junglinster_hass_vienna_livingroom_co2),
+// must produce (1) a local discovery config on the main broker whose default_entity_id/state_topic
+// are built from that resolved LocalEntity, not any coordinator-invented naming or anything from
+// the payload's own content, and (2) a subscription that forward-publishes the remote's own state
+// value onto that same local relay topic, learned lazily from the discovery config's own
+// state_topic (stateHandler's relay-index lookup).
+func TestSubscribeImportedDevicesPublishesLocalDiscoveryAndRelaysValue(t *testing.T) {
+	const localEntity = "sensor.infrastructural_living_room_co2"
 	importFile := TImportedFile{Devices: map[string]TImportedDevice{
-		"hass.vienna_terrace": {
-			RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_terrace",
+		"import.vienna_livingroom": {
+			RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_livingroom",
 			Capabilities: map[string]TImportedCapability{
-				"temperature": {
-					RemoteEntityRef: "sensor.infrastructural_vienna_terrace_temperature",
-					LocalEntity:     localEntity,
-				},
+				"co2": {LocalEntity: localEntity},
 			},
 		},
 	}}
 
-	remoteStateTopic := "junglinster/homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_vienna_terrace_temperature/state"
+	remoteStateTopic := "junglinster/homeassistant_instances/protocols-server-2/bridge/sensor.vienna_livingroom_co2/state"
 	discoveryPayload := map[string]interface{}{
-		"default_entity_id": "sensor.infrastructural_vienna_terrace_temperature",
+		// default_entity_id deliberately carries the REMOTE's own local name -- must be ignored by
+		// this resolution path entirely, since matching is purely stable-id based.
+		"default_entity_id": "sensor.vienna_livingroom_co2",
 		"state_topic":       remoteStateTopic,
-		"device_class":      "temperature",
-		"device":            map[string]interface{}{"identifiers": []string{"hass.vienna_terrace"}, "name": "vienna_terrace"},
+		"device":            map[string]interface{}{"identifiers": []string{"hass.vienna_livingroom"}, "name": "vienna_livingroom"},
 	}
 	discoveryData, err := json.Marshal(discoveryPayload)
 	if err != nil {
 		t.Fatalf("marshalling test payload: %v", err)
 	}
-	discoveryTopicIn := "junglinster/" + testPrefix + "/sensor/coordinator/hassbridge_sensor_infrastructural_vienna_terrace_temperature/config"
+	stableID := exportStableID("junglinster", "hass.vienna_livingroom", "co2")
+	discoveryTopicIn := "junglinster/" + testPrefix + "/sensor/coordinator/" + stableID + "/config"
 
 	cloudClient := &fakeClient{retained: []fakeMessage{{topic: discoveryTopicIn, payload: discoveryData}}}
 	mainClient := &fakeClient{}
@@ -443,7 +385,7 @@ func TestSubscribeImportedHassBridgeDevicesPublishesLocalDiscoveryAndRelaysValue
 		}
 	}
 	if !foundDiscovery {
-		t.Fatalf("expected local discovery config published to %q, got %v", wantDiscoveryTopic, mainClient.published)
+		t.Fatalf("expected local discovery config published to %q, got %v", wantDiscoveryTopic, mainClient.publishedSnapshot())
 	}
 	if discoveryPayloadGot["default_entity_id"] != localEntity {
 		t.Errorf("default_entity_id = %v, want the Spaces.def-resolved %q", discoveryPayloadGot["default_entity_id"], localEntity)
@@ -463,82 +405,6 @@ func TestSubscribeImportedHassBridgeDevicesPublishesLocalDiscoveryAndRelaysValue
 	// onto the local relay topic.
 	wantLocalStateTopic := importedStateTopic(localEntity)
 	for _, h := range handlers {
-		h(cloudClient, fakeMessage{topic: remoteStateTopic, payload: []byte("21.4")})
-	}
-	found := false
-	for _, p := range mainClient.publishedSnapshot() {
-		if p.topic == wantLocalStateTopic && string(p.payload) == "21.4" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("expected the remote value relayed onto %q, got %v", wantLocalStateTopic, mainClient.publishedSnapshot())
-	}
-}
-
-// TestSubscribeImportedDevicesShorthandPublishesLocalDiscoveryAndRelaysValue is the end-to-end
-// regression test for the shorthand import form (2026-09-07): the discovery CONFIG arrives keyed
-// by the export side's own stable id (junglinster_hass_vienna_livingroom_co2), matched with no
-// declared RemoteEntityRef at all, and the raw value relay is learned lazily from that same
-// config's own state_topic (stateHandler's fallback path) since byRemoteEntityRef has nothing for
-// a shorthand capability to have been folded into.
-func TestSubscribeImportedDevicesShorthandPublishesLocalDiscoveryAndRelaysValue(t *testing.T) {
-	const localEntity = "sensor.infrastructural_living_room_co2"
-	importFile := TImportedFile{Devices: map[string]TImportedDevice{
-		"import.vienna_livingroom": {
-			RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_livingroom",
-			Capabilities: map[string]TImportedCapability{
-				"co2": {LocalEntity: localEntity}, // shorthand: no RemoteEntityRef declared
-			},
-		},
-	}}
-
-	remoteStateTopic := "junglinster/homeassistant_instances/protocols-server-2/bridge/sensor.vienna_livingroom_co2/state"
-	discoveryPayload := map[string]interface{}{
-		// default_entity_id deliberately carries the REMOTE's own local name -- must be ignored by
-		// this resolution path entirely, since a shorthand declaration never states it.
-		"default_entity_id": "sensor.vienna_livingroom_co2",
-		"state_topic":       remoteStateTopic,
-		"device":            map[string]interface{}{"identifiers": []string{"hass.vienna_livingroom"}, "name": "vienna_livingroom"},
-	}
-	discoveryData, err := json.Marshal(discoveryPayload)
-	if err != nil {
-		t.Fatalf("marshalling test payload: %v", err)
-	}
-	stableID := exportStableID("junglinster", "hass.vienna_livingroom", "co2")
-	discoveryTopicIn := "junglinster/" + testPrefix + "/sensor/coordinator/" + stableID + "/config"
-
-	cloudClient := &fakeClient{retained: []fakeMessage{{topic: discoveryTopicIn, payload: discoveryData}}}
-	mainClient := &fakeClient{}
-	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
-
-	if err := subscribeImportedDevices(mainClient, cloudClient, "junglinster", importFile, publisher, testPrefix, nil); err != nil {
-		t.Fatalf("subscribeImportedDevices error: %v", err)
-	}
-
-	wantDiscoveryTopic := discoveryTopic(testPrefix, "sensor", importedUniqueID(localEntity))
-	foundDiscovery := false
-	var discoveryPayloadGot map[string]interface{}
-	for _, p := range mainClient.publishedSnapshot() {
-		if p.topic == wantDiscoveryTopic {
-			foundDiscovery = true
-			if err := json.Unmarshal(p.payload, &discoveryPayloadGot); err != nil {
-				t.Fatalf("unmarshalling published discovery payload: %v", err)
-			}
-		}
-	}
-	if !foundDiscovery {
-		t.Fatalf("expected local discovery config published to %q, got %v", wantDiscoveryTopic, mainClient.publishedSnapshot())
-	}
-	if discoveryPayloadGot["default_entity_id"] != localEntity {
-		t.Errorf("default_entity_id = %v, want the Spaces.def-resolved %q", discoveryPayloadGot["default_entity_id"], localEntity)
-	}
-
-	// Simulate the remote's own raw value arriving -- must be relayed via the lazy-learned fallback
-	// (byRemoteEntityRef has no entry at all for a shorthand capability).
-	handlers := cloudClient.subscribedHandlersSnapshot()
-	wantLocalStateTopic := importedStateTopic(localEntity)
-	for _, h := range handlers {
 		h(cloudClient, fakeMessage{topic: remoteStateTopic, payload: []byte("612")})
 	}
 	found := false
@@ -552,15 +418,15 @@ func TestSubscribeImportedDevicesShorthandPublishesLocalDiscoveryAndRelaysValue(
 	}
 }
 
-// TestSubscribeImportedHassBridgeDevicesRelaysManyCapabilitiesAfterConfigBurst is a regression
-// test for the real bug found live 2026-08-31: many capabilities' retained discovery CONFIG
-// messages arrive in one burst at startup (Vienna's own 25+), and the old design dynamically
-// spawned a separate cloudClient.Subscribe call per capability from within the config handler --
-// some of those concurrent subscriptions were silently lost, permanently killing the state relay
-// for the affected capabilities. With the new static-wildcard-subscribe design there is exactly
-// one state subscription per remote installation regardless of how many capabilities arrive in the
-// burst, so every one of them must still relay correctly.
-func TestSubscribeImportedHassBridgeDevicesRelaysManyCapabilitiesAfterConfigBurst(t *testing.T) {
+// TestSubscribeImportedDevicesRelaysManyCapabilitiesAfterConfigBurst is a regression test for the
+// real bug found live 2026-08-31: many capabilities' retained discovery CONFIG messages arrive in
+// one burst at startup (Vienna's own 25+), and the old design dynamically spawned a separate
+// cloudClient.Subscribe call per capability from within the config handler -- some of those
+// concurrent subscriptions were silently lost, permanently killing the state relay for the
+// affected capabilities. With the new static-wildcard-subscribe design there is exactly one state
+// subscription per remote installation regardless of how many capabilities arrive in the burst, so
+// every one of them must still relay correctly.
+func TestSubscribeImportedDevicesRelaysManyCapabilitiesAfterConfigBurst(t *testing.T) {
 	const n = 25
 	devices := map[string]TImportedDevice{}
 	retained := []fakeMessage{}
@@ -571,7 +437,7 @@ func TestSubscribeImportedHassBridgeDevicesRelaysManyCapabilitiesAfterConfigBurs
 		devices[deviceID] = TImportedDevice{
 			RemoteInstallation: "junglinster", RemoteDeviceID: deviceID,
 			Capabilities: map[string]TImportedCapability{
-				"value": {RemoteEntityRef: remoteLocal, LocalEntity: localEntity},
+				"value": {LocalEntity: localEntity},
 			},
 		}
 		payload, err := json.Marshal(map[string]interface{}{
@@ -582,7 +448,8 @@ func TestSubscribeImportedHassBridgeDevicesRelaysManyCapabilitiesAfterConfigBurs
 		if err != nil {
 			t.Fatalf("marshalling test payload %d: %v", i, err)
 		}
-		topic := fmt.Sprintf("junglinster/%s/sensor/coordinator/hassbridge_sensor_infrastructural_device_%d_value/config", testPrefix, i)
+		stableID := exportStableID("junglinster", deviceID, "value")
+		topic := "junglinster/" + testPrefix + "/sensor/coordinator/" + stableID + "/config"
 		retained = append(retained, fakeMessage{topic: topic, payload: payload})
 	}
 	importFile := TImportedFile{Devices: devices}
@@ -628,9 +495,9 @@ func TestSubscribeImportedHassBridgeDevicesRelaysManyCapabilitiesAfterConfigBurs
 }
 
 // TestSubscribeImportedDevicesHostsKindQualifiesTopicAndExtractsJSON is the "hosts"-kind
-// counterpart of TestSubscribeImportedHassBridgeDevicesPublishesLocalDiscoveryAndRelaysValue: two
-// capabilities ("load", "temperature") sharing one JSON-blob cloud discovery payload each with
-// their own "value_template" ("hosts"-kind's own shape, homeassistant/discovery.go's
+// counterpart of TestSubscribeImportedDevicesPublishesLocalDiscoveryAndRelaysValue: two
+// capabilities ("cpu/load", "cpu/temperature") sharing one JSON-blob cloud discovery payload each
+// with their own "value_template" ("hosts"-kind's own shape, homeassistant/discovery.go's
 // buildDiscoveryConfigs) and a bare "state_topic" ("hosts/smarty/cpu/state", not self-qualifying).
 // After their discovery configs arrive, a single incoming JSON-blob message on the real,
 // cross-house-qualified topic ("hosts/smarty/junglinster/cpu/state", exactly what
@@ -646,9 +513,9 @@ func TestSubscribeImportedDevicesHostsKindQualifiesTopicAndExtractsJSON(t *testi
 		"import.smarty": {
 			RemoteInstallation: "junglinster", RemoteDeviceID: "host.smarty",
 			Capabilities: map[string]TImportedCapability{
-				"load":        {RemoteEntityRef: "sensor.junglinster_smarty_cpu_load", LocalEntity: loadLocalEntity},
-				"temperature": {RemoteEntityRef: "sensor.junglinster_smarty_cpu_temperature", LocalEntity: temperatureLocalEntity},
-				"node":        {RemoteEntityRef: "binary_sensor.junglinster_smarty_node", LocalEntity: nodeLocalEntity},
+				"cpu/load":        {LocalEntity: loadLocalEntity},
+				"cpu/temperature": {LocalEntity: temperatureLocalEntity},
+				"node":            {LocalEntity: nodeLocalEntity},
 			},
 		},
 	}}
@@ -665,10 +532,13 @@ func TestSubscribeImportedDevicesHostsKindQualifiesTopicAndExtractsJSON(t *testi
 		}
 		return data
 	}
+	loadStableID := exportStableID("junglinster", "host.smarty", "cpu/load")
+	temperatureStableID := exportStableID("junglinster", "host.smarty", "cpu/temperature")
+	nodeStableID := exportStableID("junglinster", "host.smarty", "node")
 	retained := []fakeMessage{
-		{topic: "junglinster/" + testPrefix + "/sensor/coordinator/host_smarty_load/config", payload: makeConfigPayload("sensor.junglinster_smarty_cpu_load", "hosts/smarty/cpu/state", "{{ value_json.load }}")},
-		{topic: "junglinster/" + testPrefix + "/sensor/coordinator/host_smarty_temperature/config", payload: makeConfigPayload("sensor.junglinster_smarty_cpu_temperature", "hosts/smarty/cpu/state", "{{ value_json.temperature }}")},
-		{topic: "junglinster/" + testPrefix + "/binary_sensor/coordinator/host_smarty_node/config", payload: makeConfigPayload("binary_sensor.junglinster_smarty_node", "hosts/smarty/node/state", "")},
+		{topic: "junglinster/" + testPrefix + "/sensor/coordinator/" + loadStableID + "/config", payload: makeConfigPayload("sensor.junglinster_smarty_cpu_load", "hosts/smarty/cpu/state", "{{ value_json.load }}")},
+		{topic: "junglinster/" + testPrefix + "/sensor/coordinator/" + temperatureStableID + "/config", payload: makeConfigPayload("sensor.junglinster_smarty_cpu_temperature", "hosts/smarty/cpu/state", "{{ value_json.temperature }}")},
+		{topic: "junglinster/" + testPrefix + "/binary_sensor/coordinator/" + nodeStableID + "/config", payload: makeConfigPayload("binary_sensor.junglinster_smarty_node", "hosts/smarty/node/state", "")},
 	}
 
 	cloudClient := &fakeClient{retained: retained}
@@ -739,7 +609,7 @@ func TestSubscribeImportedDevicesHostsKindRelaysNonJSONPayloadVerbatim(t *testin
 		"import.smarty": {
 			RemoteInstallation: "junglinster", RemoteDeviceID: "host.smarty",
 			Capabilities: map[string]TImportedCapability{
-				"node": {RemoteEntityRef: "binary_sensor.junglinster_smarty_node", LocalEntity: nodeLocalEntity},
+				"node": {LocalEntity: nodeLocalEntity},
 			},
 		},
 	}}
@@ -752,7 +622,8 @@ func TestSubscribeImportedDevicesHostsKindRelaysNonJSONPayloadVerbatim(t *testin
 	if err != nil {
 		t.Fatalf("marshalling test payload: %v", err)
 	}
-	retained := []fakeMessage{{topic: "junglinster/" + testPrefix + "/binary_sensor/coordinator/host_smarty_node/config", payload: configPayload}}
+	nodeStableID := exportStableID("junglinster", "host.smarty", "node")
+	retained := []fakeMessage{{topic: "junglinster/" + testPrefix + "/binary_sensor/coordinator/" + nodeStableID + "/config", payload: configPayload}}
 
 	cloudClient := &fakeClient{retained: retained}
 	mainClient := &fakeClient{}
@@ -784,7 +655,7 @@ func TestSubscribeImportedHassBridgeDevicesNoopWithNoCloudClient(t *testing.T) {
 		"hass.vienna_terrace": {
 			RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_terrace",
 			Capabilities: map[string]TImportedCapability{
-				"temperature": {RemoteEntityRef: "sensor.infrastructural_vienna_terrace_temperature", LocalEntity: "sensor.physical_terrace_netatmo_temperature"},
+				"temperature": {LocalEntity: "sensor.physical_terrace_netatmo_temperature"},
 			},
 		},
 	}}

@@ -22,9 +22,9 @@ end;`
 		"hass.vienna_shower_room": {
 			DeviceID: "hass.vienna_shower_room", RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_shower_room",
 			Capabilities: map[string]TImportedCapability{
-				"node":        {RemoteEntityRef: "binary_sensor.infrastructural_vienna_shower_room_node"},
-				"temperature": {RemoteEntityRef: "sensor.infrastructural_vienna_shower_room_temperature"},
-				"co2":         {RemoteEntityRef: "sensor.infrastructural_vienna_shower_room_co2"},
+				"node":        {},
+				"temperature": {},
+				"co2":         {},
 			},
 		},
 	}
@@ -66,7 +66,7 @@ func TestRegisterDeviceCapabilityEntityLinkWarnsOnUndeclaredImportedCapability(t
 		"hass.vienna_shower_room": {
 			DeviceID: "hass.vienna_shower_room", RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_shower_room",
 			Capabilities: map[string]TImportedCapability{
-				"node": {RemoteEntityRef: "binary_sensor.infrastructural_vienna_shower_room_node"},
+				"node": {},
 			},
 		},
 	}
@@ -89,7 +89,7 @@ func TestRegisterImportedDevicePositioningWarnsWhenNoNodeCapabilityDeclared(t *t
 		"hass.no_node": {
 			DeviceID: "hass.no_node", RemoteInstallation: "junglinster", RemoteDeviceID: "hass.no_node",
 			Capabilities: map[string]TImportedCapability{
-				"temperature": {RemoteEntityRef: "sensor.infrastructural_no_node_temperature"},
+				"temperature": {},
 			},
 		},
 	}
