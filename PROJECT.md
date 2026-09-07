@@ -1,139 +1,10 @@
-** TODO (as of 2026-09-02)
+** TODO 
 
-1. Control of picture frame via MQTT (commandline integration) --
-   design finalized 2026-09-06 (all three open questions from the initial sketch resolved below).
-   Build progress (2026-09-06): steps 1-5 of the build plan below are DONE and unit-tested --
-   generator (integration_commandline_{storage,parser,generator}.go, writing commandline/<host>.yaml
-   + commandline/secrets.<host> + coordinator/commandline.yaml), coordinator
-   (house_event_bus_coordinator/discoverycommandline.go, publishing discovery for a node
-   binary_sensor + switch/sensor/button entities, gated on commandline/<host>/node/state, wired into
-   main.go), and the daemon itself (homeassistant/mqtt_commandline/, a new sibling Go package in
-   this same module, built/deployed exactly like house_event_bus_coordinator/) plus its deploy
-   scaffolding (SmartLiving/Integrations/mqtt_commandline/{mqtt_commandline.service,deploy.frame},
-   mirroring Integrations/coordinator/'s own two files). Switch on/off wire values are "1"/"0",
-   chosen to match check_slideshow's own already-deployed convention verbatim -- no existing script
-   needs rewriting. Status/sensor values are polled/republished every 60s (a daemon-level choice,
-   no interval was specified in the original design) in addition to right after every switch
-   command. All three Go packages (homeassistant, house_event_bus_coordinator, mqtt_commandline)
-   build/vet/test clean together from the one shared go.mod.
-   DONE + VERIFIED LIVE (2026-09-06): deployed to frame (Vienna's own host.frame, already a
-   "hosts"-kind cpu device too) -- Vienna/deploy.d/04_deploy.commandline added (pushes
-   Integrations/mqtt_commandline/ + generated commandline/ to pi@frame, runs deploy.frame there);
-   Vienna/Definitions/Physical.def's "integration commandline with: device host.frame frame with:
-   switch.slideshow: ...; end; end;" declared, using check_slideshow/start_slideshow/stop_slideshow's
-   own real /home/pi/bin/ paths (systemd services don't get an interactive shell's PATH). Both
-   mqtt_commandline.service and coordinator (redeployed with the new commandline.yaml) are enabled
-   and running on frame; the switch's discovery config, state, and node-liveness topics all confirmed
-   correct via direct broker inspection. Not yet tested: actually toggling the switch (on/off) --
-   deliberately left for the user to try via HA's own UI, since it visibly changes the real display.
-
-   Two real bugs found and fixed during this rollout:
-   - runScript originally treated a status script's non-zero exit as an execution failure and
-     dropped its output -- but the already-deployed check_slideshow prints "1" AND exits 1 to
-     signal "not running" (a predicate-script convention, not a failure). Fixed: a non-zero exit is
-     no longer treated as an error; only a genuine failure to execute the shell at all is.
-   - buildCommandlineDiscoveryConfigs originally gave its own liveness entity the SAME unique_id
-     ("<deviceID>_node") a "hosts"-kind declaration of the same deviceID already uses for its own
-     ping-based liveness -- host.frame has both (cpu + commandline), so the two integrations'
-     periodic republishes kept clobbering each other's payload on one shared HA entity. Fixed: the
-     commandline liveness entity now uses "<deviceID>_commandline_node", its own separate HA entity,
-     while still sharing Device.Identifiers so both show up grouped under one device.
-
-   Decisions (were open questions, now settled):
-   - Liveness: service-wide MQTT LWT on commandline/<host>/node/state, NOT ping-style staleness.
-     The new service holds its own persistent broker connection (unlike cpu/report's fire-and-exit
-     cron shape), so a broker-native Last Will detects the SERVICE dying immediately -- crash,
-     network partition, clean shutdown -- the moment its TCP connection drops. Ping-based staleness
-     only tells you the HOST machine is reachable, which says nothing about whether this specific
-     service is still alive if it crashed independently of its host. Architecturally this daemon is
-     closer to the coordinator (its own persistent connection) than to cpu/report, so it gets the
-     coordinator's own class of liveness mechanism, not hosts' ping-based one.
-   - DSL keyword: "commandline" confirmed -- deliberately matches HA's own built-in "command_line"
-     integration's name, no reason to diverge.
-   - Implementation language: Go confirmed -- reuses paho.mqtt.golang plus the same systemd-service
-     deploy pattern the coordinator already establishes, rather than working around bash's lack of
-     a real persistent-subscribe primitive.
-
-   Design recap (unchanged from the 2026-09-06 sketch):
-   - A new, generic "mqtt_commandline" service -- a THIRD long-running Go daemon alongside the
-     generator and coordinator -- deployed onto any host that needs local script-backed entities,
-     reading a generator-authored YAML config describing three entity kinds:
-        switch <name>: status_script, on_script, off_script
-        sensor <name>: status_script
-        button <name>: press_script
-     Scripts are captured as one opaque quoted command-line string each (path + args), with the
-     service doing ordinary shell-word-splitting at invocation time -- lets a single generic
-     script be reused parametrically rather than needing one bespoke script per entity.
-   - Core architectural principle (carried over from cpu/ping/hassbridge): the new service NEVER
-     publishes HA MQTT discovery itself, only raw state + command subscriptions -- the coordinator
-     stays the sole discovery author, same as every other integration kind. For switch/button, the
-     discovery config's own command_topic can point DIRECTLY at the frame's own topic (HA publishes
-     there straight from the UI) -- no coordinator-side command relay needed, exactly like a
-     hosts-kind sensor's state_topic already points straight at the reporting host with no relay
-     for reads either.
-   - Wire shape (mirrors hosts/<host>/...): commandline/<host>/<entity>/state (retained,
-     status_script's trimmed stdout); commandline/<host>/<entity>/set (switch command -- runs
-     on_script/off_script, then immediately re-runs status_script and republishes state, same
-     "state reflects reality, never assumed" principle used elsewhere); commandline/<host>/<entity>/press
-     (button command, no state at all, matching MQTT button semantics).
-   - Physical.def grammar, a fourth integration kind alongside hosts/home_assistant/discovery:
-        integration commandline with:
-          device host.frame frame with:
-            switch.slideshow: "check_slideshow" "start_slideshow" "stop_slideshow";
-            button.reboot:    "reboot_frame";
-          end;
-        end;
-
-   Build plan (files, in dependency order -- mirrors integration_hassbridge_*.go's own
-   file-per-concern split, chosen over extending integration_hosts_*.go: a commandline capability's
-   source is a local SCRIPT, not another entity's own state, closer in shape to hassbridge's
-   "bespoke per-kind data model" than to hosts' "reference another entity" one):
-   1. homeassistant/integration_commandline_storage.go -- TCommandlineCapability{Kind (switch/
-      sensor/button), StatusScript, OnScript, OffScript, PressScript string},
-      TCommandlineDevice{DeviceID, Host string, Capabilities map[string]TCommandlineCapability}.
-   2. homeassistant/integration_commandline_parser.go -- Physical.def "integration commandline
-      with: device <id> <host> with: <kind>.<name>: <quoted-scripts>; ...; end; end;" grammar,
-      mirroring integration_hassbridge_parser.go's own block-scanning shape.
-   3. homeassistant/integration_commandline_generator.go -- two outputs: (a) the target host's own
-      YAML entity config (script paths/args only, no MQTT-shape knowledge needed there since the
-      new service only knows "run this on set/press, publish that on state"), deployed the same
-      way cpu/secrets.* already is; (b) coordinator-consumable metadata -- own dedicated
-      coordinator/commandline.yaml file (not folded into devices.yaml: switch/button's
-      command_topic/payload_on/off/payload_press shape doesn't fit devices.yaml's existing
-      read-only-sensor-plus-node model without distorting it).
-   4. house_event_bus_coordinator/discoverycommandline.go -- loads commandline.yaml, builds
-      discovery configs: reuses TSensorDiscoveryPayload/TBinarySensorDiscoveryPayload for the
-      "sensor" kind (no change needed there), adds two genuinely new payload shapes for "switch"
-      (command_topic, payload_on/off, state_on/off) and "button" (command_topic, payload_press, no
-      state at all) -- the one real new piece of discovery.go work this item needs. Also
-      subscribes to commandline/<host>/node/state (the new service's own LWT-backed liveness) as
-      the availability gate for every entity on that host, same buildAvailabilityFields two-factor
-      pattern already used elsewhere.
-   5. Integrations/mqtt_commandline/ (new Go module, own go.mod like house_event_bus_coordinator/)
-      -- the actual daemon: reads its YAML config, connects with an LWT set on
-      commandline/<host>/node/state, publishes "true" once connected, subscribes to every declared
-      switch's .../set and button's .../press topics, runs the corresponding script via
-      os/exec with normal shell-word-splitting, and for switch, re-runs status_script and
-      republishes .../state immediately after on/off completes. Deployed via a new deploy.d step
-      (Integrations/mqtt_commandline/deploy.<host>, mirroring cpu's own deploy.junglinster/
-      deploy.frame convention) + a systemd unit, since it needs to run continuously like the
-      coordinator does, not fire-and-exit like cpu/report.
-
-   Verification plan once built: unit tests for the parser/generator/discovery-payload-building
-   (mirroring existing per-kind test coverage), then a real end-to-end rollout against frame.vienna
-   specifically (the only host that needs this today) -- declare host.frame's three slideshow
-   scripts in Vienna's Physical.def, generate, deploy the new daemon + its config to frame, confirm
-   the resulting switch entity in Vienna's main HA correctly reflects check_slideshow's own state
-   and correctly triggers start_slideshow/stop_slideshow on toggle, before considering this item
-   done.
-
-1b. Test in vienna first. Then also roll out to JL.
-
-2. Existence checking again. Entities that are provided on the main instance. Do we check their existence as well? And make suggestions based on their device assignments?
+1. Existence checking again. Entities that are provided on the main instance. Do we check their existence as well? And make suggestions based on their device assignments?
 Basically treat these as kind 3 ones, but always originating from the main HA instance.
 Even though more and more entities will be pushed "under" the MQTT bus, we know that certain domains (media_player, weather, etc) cannot move there yet. So, we will need to rely on integrations that are directly linked to the conceptual layer within the main HA instance (like all entities used to be).
 
-3. EP: Hardware migration in Vienna.
+2. EP: Hardware migration in Vienna.
 - Mo 1 HASS backup; copy backup to MacMini
 - Mo 2 HASS on green
 - Mo 3 Backup Samsung + photos/frame to AppleSSD on frame
@@ -146,11 +17,24 @@ Even though more and more entities will be pushed "under" the MQTT bus, we know 
 - ?? 7 Setup P-S-2 for Vienna:
     { picture frame, HA,... }
 
+https://www.reichelt.at/at/de/shop/produkt/raspberry_pi_-_usb_3_0_256_gb-422300
+https://shop.funk24.net/Raspberry-Pi-Flash-Drive-USB-3.0-Stick-256-GB
+https://shop.funk24.net/Raspberry-Pi-Flash-Drive-USB-3.0-Stick-128-GB
+
+3. Stick migration for Pi3 and PiB:
+- Use stick on Pi3 in Vienna
+- If this works, order three Raspberry sticks
+- Copy the pi3 stick in vienna to one of these sticks
+- Migrate frame.junglinster to one of these sticks on fedora
+- Migrate protocol-server-2.junglinster to one of these sticks (see below!!)
+
 4. EP: Fritz's have CPU temperature, plus other things + fix compute tabs + check suggestions.
 Vienna: Open. Blocked until we have the new hardware deployment
 
 5. EP to rename device names, hiding the integration part of the name.
 Also revisit the names of integrations.
+EP will provide name mappings
+Claude to execute this on the current def files
 
 6. 
   device infrastructural:eriks-macbook-pro-2 from import.eriks-macbook-pro-2 with:
@@ -323,7 +207,173 @@ Then also re-enable the checking of locally (on main HA) assumed entities via th
 21. CHeck for more of the existing integrations, like fritzbox, ems-esp, etc.
 
 ---------------
+
+# Raspberry Pi fleet storage migration strategy
+
+Covers: the storage medium decision for the Pi 3 fleet (2x Junglinster, 1x Vienna), the
+original Model B+ ("the old Pi 2"), and the specific plan for migrating `protocols-server-2`
+off its microSD + external SSD "bunny hop" onto a single USB flash stick.
+
+## 1. Storage medium decision (Pi 3 fleet)
+
+- **Chosen medium: the official Raspberry Pi USB flash drive** (128GB), one per board.
+- **Why not an SSD:** Pi 3B/3B+ only has USB 2.0, and on the 3B+ it's shared internally
+  with onboard Ethernet through one controller — realistic throughput tops out around
+  35–40MB/s regardless of what's attached. An SSD's main selling point (speed) is wasted;
+  it only adds cost, bulk, an enclosure/cable, and potential power-draw issues on the Pi's
+  modest 5V rail.
+- **Why not plain/cheap microSD:** weakest option for a server-type role — prone to
+  corruption from unclean power loss and wear from sustained small writes (logs, journal,
+  container state).
+- **Why the official RPi stick specifically:** genuinely USB 3.0 internally (wasted on a
+  Pi 3's USB2 port, but indicates a decent controller/NAND), advertises resilience to
+  power-loss events and SMART health reporting, and draws modest power — good fit for
+  boxes that are hard to reach physically (especially the Vienna unit).
+- A spare USB3 stick already on hand is a reasonable pilot/test unit before ordering the
+  fleet: a USB3-generation drive, even bottlenecked to USB2 speeds, generally still has a
+  meaningfully better controller/NAND than genuine USB2-era sticks, because small-file
+  random I/O (what actually matters for rootfs duty) is dominated by controller quality,
+  not the interface's rated sequential speed.
+- A short "does it boot and run" pilot confirms functionality, not long-term endurance —
+  wear-related failures typically only show up after months of sustained writes.
+
+## 2. USB-boot capability varies by board — check before assuming
+
+| Board | Native USB boot? | Notes |
+|---|---|---|
+| Pi 3B / 3B+ | Yes, via one-time OTP bit or EEPROM `BOOT_ORDER` | Confirmed already **enabled** on `protocols-server-2`. |
+| Pi 2 (v1.1, BCM2836) | No | Boot ROM predates USB-MSD boot support entirely. |
+| Pi 2 (v1.2, BCM2837) | Yes | Same silicon as Pi 3B — check via `cat /proc/cpuinfo` (`Hardware` line: BCM2836 vs BCM2837). |
+| Original Model B/B+, Pi Zero (BCM2835, ARMv6) | **No, ever** | No OTP/EEPROM workaround exists — boot ROM code simply doesn't support it. Confirmed this is what "the old Pi 2" actually is (`cat /proc/cpuinfo` → `Hardware: BCM2835`, `Model: Raspberry Pi Model B Plus Rev 1.2`, single core). |
+
+## 3. The old "Pi 2" is actually an original Model B+ — separate plan
+
+- **Role:** FS20 protocol experiments, running one radio. Light workload.
+- **OS:** Raspberry Pi OS — but must be the **Legacy, 32-bit** image, not the current
+  default. Fedora is not an option at all (Fedora's 32-bit ARM support always required
+  ARMv7+, excluding this ARMv6 chip from day one; Fedora dropped 32-bit ARM entirely after
+  Fedora 36, and the chip can't run 64-bit Fedora either since it's 32-bit-only silicon).
+  Mainline Raspberry Pi OS has also since narrowed to Zero W/2B onward, hence Legacy.
+- **Storage:** a regular flash stick for rootfs is fine for this workload.
+- **Permanent constraint:** this board can never boot purely from USB — a small SD card
+  carrying the boot partition (`bootcode.bin`/`start.elf`/kernel/`cmdline.txt` with
+  `root=` pointing at the stick) is required forever, not as a stepping stone. Same shape
+  of hybrid as `protocols-server-2`, but for a hardware reason rather than a device/
+  enclosure quirk.
+
+## 4. `protocols-server-2`: current setup and diagnosis
+
+**Current boot chain** (confirmed via `df` and `lsusb`):
+
+- microSD `mmcblk0p1` → EFI System Partition (`/boot/efi`, FAT)
+- microSD `mmcblk0p2` → `/boot` (kernel, initramfs, GRUB)
+- External 1TB Samsung Portable SSD T3 → root filesystem, inside LVM
+  (`/dev/mapper/systemVG-LVRoot`)
+
+This is a full **U-Boot → UEFI → GRUB** chain, not the traditional Raspberry Pi
+firmware-loads-kernel-directly process — meaning *all* boot-critical pieces (RPi
+firmware, U-Boot, ESP, `/boot`) currently live on the SD card; the SSD only ever holds
+root.
+
+**Diagnosis so far:**
+
+- USB boot mode is already enabled on this board.
+- The SSD previously had its own boot partition; it didn't work, and the space was
+  reclaimed for cache. This rules out "never attempted."
+- `lsusb -t` shows the SSD bound to `usb-storage`, **not** `uas` — rules out the common
+  UAS/boot-ROM-incompatibility explanation.
+- Remaining live hypotheses: stale EEPROM/bootloader firmware (fixable via
+  `rpi-eeprom-update`, needs a temporary Raspberry Pi OS boot since Fedora doesn't ship
+  the tool), or something specific to the SSD/enclosure's own power-up/init timing that a
+  bare flash stick simply won't exhibit.
+- **Actual data footprint is tiny:** ~31GB used (30G root + 644M `/boot` + 45M ESP) out of
+  929G — comfortably fits a 128GB stick with room to spare. Rules out a raw block-level
+  `dd` of the SSD (1TB source won't fit on a 128GB destination) — migration must be a
+  proper rebuild/copy, not a block clone.
+
+## 5. Migration plan for `protocols-server-2`
+
+### Step 1 — Build and validate a test stick
+
+1. On a spare/other Pi 3, write a fresh Fedora image to a 128GB Raspberry Pi stick with
+   the full self-contained layout (ESP + `/boot` + LVM root all on the one device).
+2. Grow the root filesystem to fill the stick.
+3. Move that stick to `protocols-server-2`'s actual hardware. Remove the microSD **and**
+   the SSD entirely. Attempt to boot from the stick alone.
+
+This isolates the real question — can *this specific board* natively boot a bare USB
+stick — from anything about the existing SSD/enclosure. If it boots, the SSD's original
+problem was device-specific, and the EEPROM-update path can be skipped entirely.
+
+### Step 2 — Do **not** transplant the old root filesystem onto the stick
+
+Initially considered: boot back on the old microSD+SSD pair, mount the new stick, and
+`rsync -aAX` the SSD's root across (excluding `/etc/fstab`, `/boot`, `/boot/efi`).
+**Rejected in favour of the approach below** — a straight rootfs transplant risks kernel/
+initramfs version mismatches, stale BLS boot entries (keyed by machine-id + kernel
+version), and GRUB/UUID references tied to the old device layout — all fixable, but fiddly
+and easy to get subtly wrong.
+
+### Step 3 — Selective migration onto the clean, already-tested install (preferred)
+
+Keep the stick's own working OS/boot layer untouched. Boot the old pair, mount the stick's
+root partition only (not its `/boot`/`/boot/efi`), and copy across just the things that
+are actually stateful/customised:
+
+- [ ] Hostname
+- [ ] Go toolchain (if manually installed, e.g. `/usr/local/go`)
+- [ ] Podman/Quadlet unit files (`/etc/containers/systemd/` or equivalent)
+- [ ] Container **persistent data**, not just the unit files (e.g.
+      `/var/lib/home-automation/zigbee` — the zigbee2mqtt config/state/database)
+- [ ] crontab / systemd timers (`/var/spool/cron/*`, `/etc/cron.d/*`)
+- [ ] Network configuration — static IP / NetworkManager profiles (check **before** the
+      swap; a fresh image defaulting to DHCP on a box you can't easily reach is the
+      classic way this goes wrong)
+- [ ] udev rules (`/etc/udev/rules.d/` — e.g. the stable `/dev/zigbee`-style symlink used
+      by the container's device passthrough)
+- [ ] SSH host keys (`/etc/ssh/ssh_host_*_key*`) — judgement call: keep for continuity, or
+      let it regenerate and clear the resulting `known_hosts` warnings elsewhere
+- [ ] `/etc/systemd/system/*.d/` overrides, `sysctl.d` tuning
+- [ ] **firewalld** — check `firewall-cmd --list-all-zones` on the old box for open
+      ports/services (MQTT, zigbee2mqtt frontend, etc.), then re-apply the equivalent
+      `firewall-cmd --permanent --add-port=...` / `--add-service=...` commands on the new
+      system rather than copying `/etc/firewalld/zones/*.xml` directly — zones can be
+      bound to a specific interface name, which may differ on the new install and cause
+      the copied rule to silently do nothing
+- [ ] SELinux customisations, if any
+- [ ] Any additional local users/groups and their `authorized_keys`
+
+**Finding what's actually been customised**, rather than relying on memory:
+
+```bash
+rpm -Va                                   # files differing from package defaults
+find /etc -newer /etc/os-release -type f  # rough view of what's been touched since install
+```
+
+Neither is exhaustive, but together they're a useful cross-check against the list above.
+
+### Step 4 — Cut over
+
+Once the checklist items are copied and verified, boot `protocols-server-2` from the
+stick alone. Keep the old microSD + SSD pair as a fallback until the new setup has proven
+itself in normal operation for a while.
+
+---------------
 Smaller pending items, not gating the above:
+- Real bug found live 2026-09-07, worked around not fixed: the "entity <spec> from <device-id>
+  entity <capability>;" construct's deferred-retry path (parser.go's pendingCapabilityLinks, for a
+  reference reached before its device's own "device <spec> from <device-id>;" positioning) doesn't
+  capture administration.SpacePath at defer time -- the retry (after the whole file is read)
+  resolves localSpec's intensional "sphere:path" form against whatever SpacePath happens to be
+  current then (typically root), not the space the reference line actually sits in. Confirmed live:
+  Vienna's "entity switch.social:picture_frame from host.frame entity slideshow;", positioned
+  before host.frame's own positioning line, resolved to "switch.social_picture_frame" instead of
+  "switch.social_apartment_living_room_picture_frame". Affects every device kind using this
+  construct (hosts/hassbridge/imported/commandline alike), not just commandline -- just never
+  hit before since every existing real Spaces.def happened to position a device before referencing
+  its capabilities. Worked around for Vienna by reordering (the reference now sits after its
+  device's positioning); the real fix is capturing SpacePath in pendingCapabilityLink/
+  pendingSourceLink and restoring it before each deferred retry call.
 - Logical-layer device combining ("aggregate" a new device vs "absorb" into an existing master
   device, e.g. smarty's Zigbee switch into host.smarty) -- gated on steps 3 and 4 both landing.
 - Logical-layer availability composition, noted 2026-08-31 once the physical-layer coordinator
@@ -522,8 +572,8 @@ Phase 3 — New architecture, incremental learning steps
      `${junglinster_api_token}` Settings.def variables deleted from Vienna's real
      Definitions/ (2026-08-31), the only house that ever used them.
 
-  2. EMS heater device + control of picture frame via MQTT (as a commandline
-     integration). Not started -- design/syntax not yet worked out.
+  2. EMS heater device. Not started -- design/syntax not yet worked out. Control of picture frame
+     via MQTT (the commandline integration) is DONE -- see the "** TODO" list's item 1 above.
 
   3. Zigbee2MQTT. Exercises the legacy-to-conceptual passthrough capability described in
      Architecture.md §6.4, so entities can be switched over to the new architecture

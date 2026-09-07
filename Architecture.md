@@ -732,13 +732,14 @@ Conceptually these are identical; only the deployment topology differs. This dec
 
 ---
 
-## 8. System components ("two apps")
+## 8. System components
 
 - **coordinator** — the runtime component described in §6: connects to the local MQTT broker and any bridged external brokers, performs refinement/aggregation/federation continuously.
 - **generator** — compiles the high-level DSL specification into:
   - YAML for the main Home Assistant instance(s)
   - definitions (YAML) for the coordinator
   - definitions/specifications per integration (e.g. FHEM's MQTT connection config, a host-ping table, a second HA instance used purely to bridge a cloud service)
+- **mqtt_commandline** — a third long-running Go daemon (`mqtt_commandline/`, PROJECT.md item 1), deployed onto any host that needs local script-backed entities with no MQTT integration of their own (e.g. a picture frame's slideshow control). Reads a generator-authored per-host YAML config (script paths only), connects with its own MQTT Last Will on `commandline/<host>/node/state` (detects the *service* dying, not just the host — the coordinator's own class of liveness mechanism, not `hosts`' ping-based one, since this daemon holds its own persistent broker connection the way `hosts`' fire-and-exit `cpu/report` never does), and relays raw state/command topics for switch/sensor/button capabilities. Never publishes HA MQTT discovery itself — the coordinator stays the sole discovery author, same as every other integration kind; a switch/button's `command_topic` points directly at this daemon's own topic, HA publishes there straight from the UI, no coordinator-side relay needed. See README.md's "Devices (the `commandline` integration)" for the DSL grammar and wire shape.
 
 The main HA instance can simultaneously act as an integration too (again, chiefly for media players) — the generator needs to account for that dual role rather than assuming a clean split always exists.
 
@@ -865,7 +866,38 @@ Other Raspberry Pis
 
 **Planned, post-MQTT-migration:** the MQTT broker and the coordinator will co-locate on a dedicated Fedora-based Raspberry Pi 4, once the broader move to MQTT-as-integrator is finished — separating both from Home Assistant Green (today's MQTT broker host) and FHEM Pi (the coordinator's placeholder host in the diagram above). Not yet built; the diagram above still reflects the current/interim topology, and this note is what should update it once the migration lands.
 
-### 11.1 Container strategy: appliance vs workbench
+### 11.1 Why compute nodes are split, not consolidated
+
+The topology above is deliberately not "one powerful box running everything": `protocols-server-1`
+carries the Zigbee/Z-Wave radios, `protocols-server-2` hosts the Netatmo-adapter HA instance, Home
+Assistant Green runs the main automation/dashboard instance, and so on — each its own machine, not
+a role inside a shared process. Four independent reasons converge on that answer, not just one:
+
+1. **Hardware constraints are real, not a design choice.** A USB Zigbee coordinator, a Z-Wave
+   controller, and a picture frame's own HDMI output are each physically attached to one specific
+   machine; they cannot float to wherever would be architecturally tidiest. Some placement
+   decisions are made before any preference gets a say.
+2. **Blast radius.** Zigbee2MQTT crashing, needing a firmware update, or being restarted for a
+   config change should never take down the main HA instance's own automations, and vice versa.
+   Each compute node's own failure mode stays contained to whatever it alone is responsible for.
+3. **Independent maintenance and upgrade cadence.** `protocols-server-2`'s own HA instance (whose
+   only job is bridging Netatmo) can be rebooted, backed up, or reinstalled entirely on its own
+   schedule, with zero coordination needed against the main instance's own release cycle.
+4. **Incremental migration.** §6.4's legacy-to-conceptual passthrough — and PROJECT.md's own Phase
+   3 roadmap, one integration migrated onto the new architecture at a time (cpu/ping, then Netatmo,
+   then Zigbee2MQTT, then Z-Wave) — is only possible because each integration already lives on its
+   own compute node. Moving one integration onto the new architecture never risks the others, since
+   they were never sharing a process or a failure domain to begin with.
+
+None of these four reasons is really about home automation specifically — they're the ordinary
+reasons any distributed system decomposes into independently-deployable units instead of one
+monolith. The event bus (§5) is what lets that decomposition stay invisible to the conceptual
+layer: a `social/apartment/living_room/temperature` entity looks identical to Home Assistant
+regardless of whether it's reported by a Zigbee radio on `protocols-server-1`, a Netatmo cloud
+bridge on `protocols-server-2`, or a picture frame's own `mqtt_commandline` daemon (PROJECT.md item
+1) — the compute-node boundary is a physical-layer/deployment concern, never a conceptual-layer one.
+
+### 11.2 Container strategy: appliance vs workbench
 
 Not everything needs Docker/Podman — the decision is whether a service is an *appliance* (stable, should be trivially replaceable) or a *workbench* (actively extended/experimented with):
 
@@ -875,6 +907,24 @@ Not everything needs Docker/Podman — the decision is whether a service is an *
 ---
 
 ## 12. Multi-house federation
+
+§11.1's reasons for splitting compute nodes *within* a house — hardware locality, blast radius,
+independent maintenance, incremental migration — apply again, unchanged, one level up. From the
+other house's point of view, a whole house is just a much bigger compute node: its own physical
+failure domain (a power cut, a router reboot, a WAN outage), its own maintenance schedule, its own
+hardware, its own incremental adoption of whatever this project builds next. Treating "Junglinster"
+and "Vienna" as two independent installations that *cooperate*, rather than two wings of one
+bigger system under a single point of control, is the same instinct as §11.1's compute-node split —
+just applied recursively at a larger scale, which is exactly what "**Federated** Home Assistant"
+(this document's own title, §1) names.
+
+The concrete consequence: the shared cloud broker must never become a hub either house *depends on*
+to function. Each house's own MQTT broker, coordinator, and HA instance keep working exactly as
+well with the cloud broker completely unreachable as with it up — the cloud broker exists to *share*
+selected information between houses, never to coordinate either house's own core operation. A house
+that stopped working the moment its WAN link dropped wouldn't be a federation member, it would be a
+thin client of the other house (or of the cloud broker itself) — precisely the hub-and-spoke shape
+this architecture deliberately avoids.
 
 Each house (Junglinster, Vienna) remains autonomous; only selected information crosses the boundary, over MQTT, as **semantic** information rather than implementation detail:
 

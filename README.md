@@ -177,6 +177,53 @@ This implies a node (availability) entity plus one entity per grouped capability
 `Architecture.md` §6 for the coordinator's role and §6.6 for the constant/variable attribute
 distinction.
 
+### Devices (the `commandline` integration)
+
+`Physical.def`'s `integration commandline with: ... end;` block declares script-backed entities on
+a host running the `mqtt_commandline` daemon (`mqtt_commandline/`) — a third long-running Go
+service, alongside the generator and coordinator, for devices with no MQTT integration of their
+own (e.g. a picture frame's slideshow control):
+
+```
+integration commandline with:
+  device host.frame frame with:
+    switch.slideshow: "/home/pi/bin/check_slideshow" "/home/pi/bin/start_slideshow" "/home/pi/bin/stop_slideshow";
+    button.reboot:    "/home/pi/bin/reboot_frame";
+  end;
+end;
+```
+
+Three capability kinds, each capturing one quoted command-line string per script (path + args —
+the daemon does ordinary shell word-splitting at invocation time, so a single generic script can
+be reused parametrically):
+
+| Kind | Scripts |
+|---|---|
+| `switch.<name>` | `status_script` `on_script` `off_script` |
+| `sensor.<name>` | `status_script` |
+| `button.<name>` | `press_script` |
+
+Use absolute script paths — the daemon runs as a systemd service, which doesn't get an interactive
+shell's `PATH`. A device commonly also carries a `hosts`-kind declaration for the same physical
+machine (e.g. `host.frame` also reporting cpu/ping) — both share one HA device entry (identical
+`identifiers`), each declaring only the capabilities its own kind actually has.
+
+Wire shape (mirrors `hosts/<host>/...`): `commandline/<host>/node/state` (the daemon's own MQTT
+Last Will — `"true"` once connected, `"false"` on any disconnect, clean or not — gates every
+entity's availability); `commandline/<host>/<entity>/state` (retained, a `status_script`'s trimmed
+stdout verbatim, polled every 60s and republished immediately after any switch command);
+`commandline/<host>/<entity>/set` (switch command, `"1"`/`"0"`); `commandline/<host>/<entity>/press`
+(button command, no state). The coordinator only ever authors HA MQTT Discovery for these — a
+switch/button's `command_topic` points directly at the daemon's own topic, HA publishes there
+straight from the UI, no coordinator-side relay needed.
+
+`Spaces.def` can position a specific capability under a chosen conceptual entity, the same way a
+`hosts` device's own attributes are:
+
+```
+entity switch.social:picture_frame from host.frame entity slideshow;
+```
+
 ### Macros
 
 Macros expand into one or more entity declarations. They are defined in `Macros.def` and invoked from `Entities.def`:

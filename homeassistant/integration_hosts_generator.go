@@ -219,13 +219,33 @@ func generateCoordinatorDevicesFile(outputRoot string, devices []THostDevice, ad
 						}
 					}
 				}
-				if len(link.AttributeEntityIDs) > 0 {
-					sb.WriteString("      attribute_entities:\n")
-					attrNames := make([]string, 0, len(link.AttributeEntityIDs))
-					for name := range link.AttributeEntityIDs {
-						attrNames = append(attrNames, name)
+				// Filtered to this device's own known hosts-kind attribute names -- a real bug
+				// found live 2026-09-07: AttributeEntityIDs is shared with OTHER integration
+				// kinds positioned on the SAME deviceID (e.g. host.frame is both a "hosts" cpu
+				// device and a "commandline" device, discoverycommandline.go's own doc comment),
+				// so blindly writing every key here leaked a commandline capability ("slideshow")
+				// into devices.yaml as if it were a hosts-kind variable attribute, producing a
+				// bogus "sensor" discovery config (buildDiscoveryConfigs, discovery.go) reading a
+				// JSON field ("value_json.slideshow") that hosts/frame/cpu/state's payload never
+				// has -- alongside the correct "switch" discovery config commandline.yaml's own
+				// entry_id produces for the same capability.
+				// AttributeEntityIDs is keyed by bare leaf name ("load"), but AttributeNames
+				// returns the full "<group>/<leaf>" form ("cpu/load") -- splitCapabilityName
+				// bridges the two, same as registerHostAttributeEntity's own leaf/group split.
+				var hostsAttrNames []string
+				if mat, known := MaterializationForIntegrationType(d.IntegrationType); known {
+					hostsAttrNames = mat.AttributeNames(d)
+				}
+				attrNames := make([]string, 0, len(hostsAttrNames))
+				for _, fullName := range hostsAttrNames {
+					_, leaf := splitCapabilityName(fullName)
+					if _, known := link.AttributeEntityIDs[leaf]; known {
+						attrNames = append(attrNames, leaf)
 					}
-					sort.Strings(attrNames)
+				}
+				sort.Strings(attrNames)
+				if len(attrNames) > 0 {
+					sb.WriteString("      attribute_entities:\n")
 					for _, name := range attrNames {
 						attr := link.AttributeEntityIDs[name]
 						sb.WriteString("        " + name + ":\n")
