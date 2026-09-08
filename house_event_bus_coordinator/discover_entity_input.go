@@ -74,6 +74,7 @@ func publishDiscoverEntityInput(client mqtt.Client, conceptualPrefix string) err
 		"command_topic":   discoverEntityCommandTopic(),
 		"optimistic":      true,
 		"entity_category": "config",
+		"origin":          coordinatorOriginMap(),
 	}
 	data, err := json.Marshal(body)
 	if err != nil {

@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 const testPrefix = "homeassistant"
 
@@ -181,6 +184,26 @@ func TestBuildDiscoveryConfigsForDeviceWithConceptualLink(t *testing.T) {
 	}
 	if tempPayload.Name != "infrastructural/garage/smarty/temperature" {
 		t.Errorf("temperature payload Name = %q, want %q", tempPayload.Name, "infrastructural/garage/smarty/temperature")
+	}
+	if nodePayload.Origin != coordinatorOrigin() || loadPayload.Origin != coordinatorOrigin() {
+		t.Errorf("node/load Origin = %+v / %+v, want %+v on both", nodePayload.Origin, loadPayload.Origin, coordinatorOrigin())
+	}
+}
+
+// TestCoordinatorOriginMapMatchesStructShape is a regression test for coordinatorOriginMap's own
+// doc comment warning: its map[string]interface{} shape must stay in exact sync with
+// TDiscoveryOrigin's JSON shape by hand, since the two can't be unified through json.Marshal.
+func TestCoordinatorOriginMapMatchesStructShape(t *testing.T) {
+	structJSON, err := json.Marshal(coordinatorOrigin())
+	if err != nil {
+		t.Fatalf("marshalling coordinatorOrigin(): %v", err)
+	}
+	mapJSON, err := json.Marshal(coordinatorOriginMap())
+	if err != nil {
+		t.Fatalf("marshalling coordinatorOriginMap(): %v", err)
+	}
+	if string(structJSON) != string(mapJSON) {
+		t.Errorf("coordinatorOrigin() marshals to %s, coordinatorOriginMap() marshals to %s -- want identical", structJSON, mapJSON)
 	}
 }
 

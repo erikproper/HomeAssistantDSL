@@ -132,6 +132,62 @@ func TestEntityExistenceTrackerSeedPrunesConfirmedDeadOrphans(t *testing.T) {
 // capability that's STILL declared must keep its known-not-to-exist status across re-seeding --
 // this is the exact status checkKnownNotToExistErrors (generator side) depends on to keep flagging
 // a genuinely still-broken declaration, so it must never be silently pruned away.
+// TestEntityExistenceTrackerSeedCorrectsSyntheticDeviceIDToRealOwner is a regression test for a
+// real bug found live 2026-09-08: DiscoverSiblings mints a synthetic "hass.discovered_..."
+// grouping for an entity whose DeviceID is still "" at that moment -- which can happen for an
+// entity that's genuinely Physical.def-declared but whose very first sighting (a manual "Discover
+// entity" request, or a coordinator restart racing Seed) happens before Seed itself gets to it.
+// Once wrongly synthetic, Seed's own "if already seen, skip" check meant it could NEVER
+// self-correct on any later restart, since the wrong persisted value always won -- confirmed live:
+// Junglinster's own "hass.office_bathroom" (a real, already-positioned Netatmo device) stayed
+// grouped under "hass.discovered_office_bathroom" across a fresh coordinator restart. Seed must
+// correct a synthetic (or empty) DeviceID to the real declared owner without resetting the
+// entry's own Status/State/typing.
+func TestEntityExistenceTrackerSeedCorrectsSyntheticDeviceIDToRealOwner(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
+		"hass.office_bathroom": {
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"co2":         {SourceEntities: map[string]string{"protocols-server-2": "sensor.office_bathroom_carbon_dioxide"}},
+				"temperature": {SourceEntities: map[string]string{"protocols-server-2": "sensor.office_bathroom_temperature"}},
+			},
+		},
+	}}
+
+	// Simulate the bug: a manual discovery request reached this entity before Seed ever ran,
+	// wrongly grouping it (and a sibling) under a synthetic device.
+	tracker.SeedManualEntity("protocols-server-2", "sensor.office_bathroom_carbon_dioxide")
+	tracker.Record("protocols-server-2", "sensor.office_bathroom_carbon_dioxide", true, "412", "", "")
+	tracker.DiscoverSiblings("protocols-server-2", "sensor.office_bathroom_carbon_dioxide", "remote-device-1", "Office Bathroom", []string{"sensor.office_bathroom_temperature"})
+
+	byDevice := tracker.snapshotByDevice("protocols-server-2")
+	if _, found := byDevice["hass.discovered_office_bathroom"]; !found {
+		t.Fatalf("test fixture didn't reproduce the bug -- expected a synthetic grouping before Seed runs, got %+v", byDevice)
+	}
+
+	// The real Seed call (as would happen on a coordinator restart, or the periodic reseed after a
+	// ./generate + redeploy) must now correct both entities back to their real declared device --
+	// without losing co2's own confirmed state.
+	tracker.Seed(bridgeFile)
+
+	byDevice = tracker.snapshotByDevice("protocols-server-2")
+	if _, stillSynthetic := byDevice["hass.discovered_office_bathroom"]; stillSynthetic {
+		t.Errorf("synthetic grouping survived Seed, want it corrected away entirely: %+v", byDevice)
+	}
+	real, ok := byDevice["hass.office_bathroom"]
+	if !ok {
+		t.Fatalf("expected entries corrected under the real device %q, got %+v", "hass.office_bathroom", byDevice)
+	}
+	co2, ok := real["sensor.office_bathroom_carbon_dioxide"]
+	if !ok || co2.Status != StatusKnownToExist || co2.State != "412" {
+		t.Errorf("co2 entry = %+v (ok=%v), want its confirmed state preserved after correction", co2, ok)
+	}
+	if _, ok := real["sensor.office_bathroom_temperature"]; !ok {
+		t.Errorf("expected the sibling also corrected under the real device, got %+v", real)
+	}
+}
+
 func TestEntityExistenceTrackerSeedNeverPrunesStillDeclaredEntries(t *testing.T) {
 	tracker := newEntityExistenceTracker("")
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
@@ -588,7 +644,7 @@ func TestSubscribeExistenceReplyRecordsAndPublishesStatus(t *testing.T) {
 	tracker.Seed(fixtureBridgeFileForExistence())
 
 	client := &fakeClient{}
-	if err := tracker.subscribeExistenceReply(client, nil, "junglinster", "protocols-server-2"); err != nil {
+	if err := tracker.subscribeExistenceReply(client, nil, "junglinster", "protocols-server-2", nil); err != nil {
 		t.Fatalf("subscribeExistenceReply error: %v", err)
 	}
 	if len(client.subscribedHandlers) != 1 {
@@ -614,6 +670,80 @@ func TestSubscribeExistenceReplyRecordsAndPublishesStatus(t *testing.T) {
 	}
 }
 
+// TestSubscribeExistenceReplyFeedsLiveDeviceInfoStore is a regression test for a real gap found
+// live 2026-09-08: a hassbridge device's own manufacturer/model, genuinely known to the remote
+// instance's device registry (e.g. sensor.davids_bedroom_atmospheric_pressure's owning device on
+// protocols-server-2), never reached the coordinator's discovery config unless hand-declared via
+// DeviceInfoCapabilities. Asserts a confirmed-existing reply's device-info fields land in the
+// shared TLiveDeviceInfoStore under the entity's own tracked DeviceID, the same store
+// buildHassBridgeDeviceBlock already reads for its forced-DSL > live > DSL precedence.
+func TestSubscribeExistenceReplyFeedsLiveDeviceInfoStore(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.Seed(fixtureBridgeFileForExistence())
+	store := NewLiveDeviceInfoStore("", nil)
+
+	client := &fakeClient{}
+	if err := tracker.subscribeExistenceReply(client, nil, "junglinster", "protocols-server-2", store); err != nil {
+		t.Fatalf("subscribeExistenceReply error: %v", err)
+	}
+
+	reply := existenceInquiryReply{
+		EntityID: "sensor.davids_bedroom_carbon_dioxide", Exists: true, State: "412.3",
+		Manufacturer: "Netatmo", Model: "Indoor Module", SwVersion: "182",
+	}
+	payload, _ := json.Marshal(reply)
+	client.subscribedHandlers[0](client, fakeMessage{topic: existenceReplyTopic("protocols-server-2"), payload: payload})
+
+	got := store.Snapshot("hass.davids_bedroom")
+	want := map[string]string{"manufacturer": "Netatmo", "model": "Indoor Module", "sw_version": "182"}
+	if len(got) != len(want) {
+		t.Fatalf("store.Snapshot(\"hass.davids_bedroom\") = %+v, want %+v", got, want)
+	}
+	for name, value := range want {
+		if got[name] != value {
+			t.Errorf("store field %q = %q, want %q", name, got[name], value)
+		}
+	}
+}
+
+// TestSubscribeExistenceReplyTriggersStoreOnChange confirms an inquiry reply's device-info fields
+// flow all the way through to the store's own onChange callback -- the "change in store => change
+// in config" contract (liveinfo.go), exercised end-to-end from the reply handler's own side rather
+// than liveinfo_test.go's direct Update() calls.
+func TestSubscribeExistenceReplyTriggersStoreOnChange(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.Seed(fixtureBridgeFileForExistence())
+	var notified string
+	store := NewLiveDeviceInfoStore("", func(deviceID string) { notified = deviceID })
+
+	client := &fakeClient{}
+	if err := tracker.subscribeExistenceReply(client, nil, "junglinster", "protocols-server-2", store); err != nil {
+		t.Fatalf("subscribeExistenceReply error: %v", err)
+	}
+	reply := existenceInquiryReply{EntityID: "sensor.davids_bedroom_carbon_dioxide", Exists: true, Manufacturer: "Netatmo"}
+	payload, _ := json.Marshal(reply)
+	client.subscribedHandlers[0](client, fakeMessage{topic: existenceReplyTopic("protocols-server-2"), payload: payload})
+
+	if notified != "hass.davids_bedroom" {
+		t.Errorf("onChange notified = %q, want %q", notified, "hass.davids_bedroom")
+	}
+}
+
+// TestSubscribeExistenceReplyNilStoreIsSafe confirms a nil store (every caller that doesn't care
+// about device-info propagation -- most existing tests) never panics.
+func TestSubscribeExistenceReplyNilStoreIsSafe(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.Seed(fixtureBridgeFileForExistence())
+
+	client := &fakeClient{}
+	if err := tracker.subscribeExistenceReply(client, nil, "junglinster", "protocols-server-2", nil); err != nil {
+		t.Fatalf("subscribeExistenceReply error: %v", err)
+	}
+	reply := existenceInquiryReply{EntityID: "sensor.davids_bedroom_carbon_dioxide", Exists: true, Manufacturer: "Netatmo"}
+	payload, _ := json.Marshal(reply)
+	client.subscribedHandlers[0](client, fakeMessage{topic: existenceReplyTopic("protocols-server-2"), payload: payload})
+}
+
 // TestSubscribeExistenceReplyRelaysStatusToCloudUnconditionally mirrors entity_catalogue.go's own
 // "relay to local and cloud unconditionally" test for the manifest topic -- the coordinator's
 // entity-existence status must follow the exact same policy so the generator can read it from
@@ -626,7 +756,7 @@ func TestSubscribeExistenceReplyRelaysStatusToCloudUnconditionally(t *testing.T)
 
 	mainClient := &fakeClient{}
 	cloudClient := &fakeClient{}
-	if err := tracker.subscribeExistenceReply(mainClient, cloudClient, "junglinster", "protocols-server-2"); err != nil {
+	if err := tracker.subscribeExistenceReply(mainClient, cloudClient, "junglinster", "protocols-server-2", nil); err != nil {
 		t.Fatalf("subscribeExistenceReply error: %v", err)
 	}
 
@@ -653,7 +783,7 @@ func TestSubscribeExistenceReplySkipsCloudWhenNil(t *testing.T) {
 	tracker.Seed(fixtureBridgeFileForExistence())
 
 	mainClient := &fakeClient{}
-	if err := tracker.subscribeExistenceReply(mainClient, nil, "junglinster", "protocols-server-2"); err != nil {
+	if err := tracker.subscribeExistenceReply(mainClient, nil, "junglinster", "protocols-server-2", nil); err != nil {
 		t.Fatalf("subscribeExistenceReply error: %v", err)
 	}
 	reply := existenceInquiryReply{EntityID: "sensor.davids_bedroom_carbon_dioxide", Exists: true, State: "412.3"}
@@ -708,7 +838,7 @@ func TestStartEntityExistenceInquiriesPublishesImmediately(t *testing.T) {
 
 	mainClient := &fakeClient{}
 	cloudClient := &fakeClient{}
-	if err := tracker.StartEntityExistenceInquiries(mainClient, cloudClient, "junglinster", []string{"protocols-server-2"}); err != nil {
+	if err := tracker.StartEntityExistenceInquiries(mainClient, cloudClient, "junglinster", []string{"protocols-server-2"}, nil); err != nil {
 		t.Fatalf("StartEntityExistenceInquiries error: %v", err)
 	}
 
@@ -724,7 +854,7 @@ func TestStartEntityExistenceInquiriesPublishesImmediately(t *testing.T) {
 func TestStartEntityExistenceInquiriesNoInstancesIsNoop(t *testing.T) {
 	tracker := newEntityExistenceTracker("")
 	client := &fakeClient{}
-	if err := tracker.StartEntityExistenceInquiries(client, nil, "junglinster", nil); err != nil {
+	if err := tracker.StartEntityExistenceInquiries(client, nil, "junglinster", nil, nil); err != nil {
 		t.Fatalf("StartEntityExistenceInquiries error: %v", err)
 	}
 	if len(client.subscribedHandlers) != 0 {
@@ -741,10 +871,10 @@ func TestSubscribeExistenceReplyQualifiesCloudByInstallation(t *testing.T) {
 
 	mainClient := &fakeClient{}
 	cloudClient := &fakeClient{}
-	if err := tracker.subscribeExistenceReply(mainClient, cloudClient, "junglinster", "main"); err != nil {
+	if err := tracker.subscribeExistenceReply(mainClient, cloudClient, "junglinster", "main", nil); err != nil {
 		t.Fatalf("subscribeExistenceReply error: %v", err)
 	}
-	if err := tracker.subscribeExistenceReply(mainClient, cloudClient, "vienna", "main"); err != nil {
+	if err := tracker.subscribeExistenceReply(mainClient, cloudClient, "vienna", "main", nil); err != nil {
 		t.Fatalf("subscribeExistenceReply error: %v", err)
 	}
 

@@ -339,6 +339,53 @@ func TestGenerateHassBridgeFileWritesExportFlag(t *testing.T) {
 	}
 }
 
+// TestGenerateHassBridgeFileWritesSuggestedAreaFromEnclosingSpace is a regression test for a real
+// bug found live 2026-09-08: registerDevicePositioning's own "as area" suggested_area default
+// (Conceptual_DevicePositioning.go) is only ever injected into administration's own
+// DeviceConceptualLinks copy, never written back into hassBridgeDevicesByID itself --
+// generateHassBridgeFile used to read device.ConstantAttributes (the raw, unmerged struct) instead
+// of link.ConstantAttributes (the administration-computed one), silently dropping it from the
+// generated YAML even though an explicit Physical.def-declared attribute (e.g. "model:") happened
+// to still show up correctly, since that one genuinely lives on both. Confirmed live: Junglinster's
+// own "hass.living_room_terrace" (nested under "space social:terrace as area with: ... space
+// social:front with: device infrastructural:netatmo from hass.living_room_terrace with: ...;")
+// never got a suggested_area at all until this was fixed.
+func TestGenerateHassBridgeFileWritesSuggestedAreaFromEnclosingSpace(t *testing.T) {
+	admin := newAdministrationState()
+	admin.OpenSpace(SpaceKindRegular, "social:terrace", true) // "as area"
+	admin.OpenSpace(SpaceKindRegular, "social:front", false)  // nested, not its own area
+
+	hassBridgeDevicesByID := map[string]THassBridgeDevice{
+		"hass.living_room_terrace": {
+			DeviceID: "hass.living_room_terrace", Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"node":     {Domain: "binary_sensor", Sources: map[string]string{"protocols-server-2": "sensor.terrace_temperature is available"}},
+				"humidity": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.terrace_humidity"}},
+			},
+		},
+	}
+	positioningDecl := TDevicePositioningDeclaration{Spec: "infrastructural:netatmo", DeviceID: "hass.living_room_terrace"}
+	if warnings := registerDevicePositioning(admin, positioningDecl, nil, hassBridgeDevicesByID, nil, "Spaces.def", 1); len(warnings) != 0 {
+		t.Fatalf("unexpected warnings positioning the fixture device: %v", warnings)
+	}
+	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.physical:netatmo/humidity", DeviceID: "hass.living_room_terrace", Capability: "humidity"}
+	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, "Spaces.def", 1, true); len(warnings) != 0 || deferred {
+		t.Fatalf("unexpected warnings/deferred: warnings=%v deferred=%v", warnings, deferred)
+	}
+
+	outputRoot := t.TempDir()
+	if err := generateHassBridgeFile(outputRoot, hassBridgeDevicesByID, admin); err != nil {
+		t.Fatalf("generateHassBridgeFile error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(outputRoot, "coordinator", "homeassistant_bridge.yaml"))
+	if err != nil {
+		t.Fatalf("reading generated file: %v", err)
+	}
+	if !strings.Contains(string(data), "suggested_area") {
+		t.Errorf("generated homeassistant_bridge.yaml = %s, want it to contain \"suggested_area\" inherited from the enclosing \"as area\" space", data)
+	}
+}
+
 // TestGenerateHassBridgeFileWritesExportAsAndSelfImportFrom covers the 2026-09-02 "roaming"
 // addition's generator half: ExportAs/SelfImportFrom must carry through into
 // coordinator/homeassistant_bridge.yaml, for the coordinator to resolve a per-device cross-post

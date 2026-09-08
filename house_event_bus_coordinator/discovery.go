@@ -53,6 +53,34 @@ type TDiscoveryDevice struct {
 	ViaDevice        string   `json:"via_device,omitempty"`
 }
 
+// TDiscoveryOrigin identifies this coordinator as the software that published a discovery config
+// -- HA's own MQTT discovery schema has recommended an "origin" block (sibling of "device", not
+// nested inside it) since 2023.11; every well-behaved MQTT integration includes one (confirmed
+// live 2026-09-08: every Zigbee2MQTT-published config on this same broker carries
+// "origin":{"name":"Zigbee2MQTT","sw":"2.14.1","url":"..."}). This coordinator never included one
+// anywhere -- found live while chasing why a commandline-authored switch behaved slightly
+// differently on HA's own "MQTT" integration page than a Zigbee2MQTT-discovered entity does. Not
+// device-specific -- one shared identity for every kind this coordinator authors (hosts,
+// discovery, hassbridge, import, commandline, meta), matching how a single real integration uses
+// one origin identity for everything it publishes.
+type TDiscoveryOrigin struct {
+	Name string `json:"name"`
+}
+
+// coordinatorOrigin returns the shared origin block every discovery config in this coordinator
+// uses -- see TDiscoveryOrigin's own doc comment.
+func coordinatorOrigin() TDiscoveryOrigin {
+	return TDiscoveryOrigin{Name: "House Event Bus Coordinator"}
+}
+
+// coordinatorOriginMap is coordinatorOrigin's shape for a map[string]interface{}-built discovery
+// body (most discovery-authoring files in this package build their payload this way rather than
+// via a named struct) -- kept in exact sync with TDiscoveryOrigin's own JSON shape by hand, since
+// json.Marshal can't unify a struct and a map literal.
+func coordinatorOriginMap() map[string]interface{} {
+	return map[string]interface{}{"name": "House Event Bus Coordinator"}
+}
+
 // applyConstantAttribute sets dev's field for one HA device-map attribute name, matching
 // integration_hosts_storage.go's knownConstantDeviceAttributes exactly. Unrecognised names are
 // silently ignored here -- the generator already validates and warns on these at generation
@@ -133,6 +161,7 @@ type TBinarySensorDiscoveryPayload struct {
 	DeviceClass     string           `json:"device_class,omitempty"`
 	Icon            string           `json:"icon,omitempty"`
 	Device          TDiscoveryDevice `json:"device"`
+	Origin          TDiscoveryOrigin `json:"origin"`
 }
 
 // TSensorDiscoveryPayload is the HA MQTT Discovery config for one of a device's variable
@@ -159,6 +188,7 @@ type TSensorDiscoveryPayload struct {
 	StateClass          string           `json:"state_class,omitempty"`
 	Icon                string           `json:"icon,omitempty"`
 	Device              TDiscoveryDevice `json:"device"`
+	Origin              TDiscoveryOrigin `json:"origin"`
 }
 
 // TDiscoveryConfig bundles one discovery config topic with its (not-yet-serialised) payload.
@@ -329,6 +359,7 @@ func buildDiscoveryConfigs(deviceID string, device TDevice, live map[string]stri
 				DeviceClass:     device.Conceptual.NodeDeviceClass,
 				Icon:            device.Conceptual.NodeIcon,
 				Device:          devBlock,
+				Origin:          coordinatorOrigin(),
 			},
 		})
 	}
@@ -368,6 +399,7 @@ func buildDiscoveryConfigs(deviceID string, device TDevice, live map[string]stri
 				StateClass:          link.StateClass,
 				Icon:                link.Icon,
 				Device:              devBlock,
+				Origin:              coordinatorOrigin(),
 			},
 		})
 	}

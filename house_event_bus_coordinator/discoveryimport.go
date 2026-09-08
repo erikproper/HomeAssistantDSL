@@ -329,6 +329,7 @@ func buildImportedDiscoveryBody(match importCapabilityMatch, payload importedDis
 		"name":              deviceName + "/" + match.Capability,
 		"state_topic":       stateTopic,
 		"device":            deviceBlock,
+		"origin":            coordinatorOriginMap(),
 	}
 	if payload.DeviceClass != "" {
 		body["device_class"] = payload.DeviceClass

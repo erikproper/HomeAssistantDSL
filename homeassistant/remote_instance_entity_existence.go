@@ -38,7 +38,20 @@ import "strings"
 // the topic, so no per-entity automation/trigger is ever needed), replies on
 // "homeassistant_instances/<name>/inquire/reply" with
 // {"entity_id", "exists", "state", "unit_of_measurement", "device_class", "device_id",
-// "device_name", "sibling_entities"} as JSON.
+// "device_name", "manufacturer", "model", "model_id", "sw_version", "hw_version",
+// "serial_number", "sibling_entities"} as JSON.
+//
+// manufacturer/model/model_id/sw_version/hw_version/serial_number (added 2026-09-08) piggyback on
+// the same device_attr(did, ...) lookup device_name already uses -- real gap found live: a
+// hassbridge device's own manufacturer/model, genuinely known to the remote instance's device
+// registry (e.g. sensor.davids_bedroom_atmospheric_pressure's owning device on
+// protocols-server-2), never reached the coordinator's discovery config at all unless the DSL
+// author hand-declared it as a DeviceInfoCapabilities field (remote_instance_automations.go's
+// "coordinator_bridge_report" automation) -- redundant work the remote HA's own device registry
+// already did for free. Feeds the same TLiveDeviceInfoStore/forced-DSL > live > DSL precedence a
+// hosts device's own dynamic fields already use (house_event_bus_coordinator/entity_existence.go's
+// subscribeExistenceReply, discoveryhassbridge.go's buildHassBridgeDeviceBlock) -- a Physical.def
+// "forced" declaration still wins outright, this is only ever a fallback source.
 // states[...] returns None for an entity_id HA has never heard of at all (as opposed to one that
 // exists with state "unknown") -- exactly the existence signal this needs, and a single dict
 // lookup regardless of how many entities the instance has. device_entities(device_id) is likewise
@@ -78,6 +91,6 @@ func entityExistenceInquiryAutomationBody(name string) string {
 	sb.WriteString("    data:\n")
 	sb.WriteString("      topic: \"homeassistant_instances/" + name + "/inquire/reply\"\n")
 	sb.WriteString("      payload: >-\n")
-	sb.WriteString("        {% set s = states[trigger.payload] %}{% set did = device_id(trigger.payload) if s else none %}{{ {'entity_id': trigger.payload, 'exists': s is not none, 'state': (s.state if s else none), 'unit_of_measurement': (s.attributes.get('unit_of_measurement') if s else none), 'device_class': (s.attributes.get('device_class') if s else none), 'device_id': did, 'device_name': (device_attr(did, 'name') if did else none), 'sibling_entities': (device_entities(did) if did else [])} | tojson }}\n")
+	sb.WriteString("        {% set s = states[trigger.payload] %}{% set did = device_id(trigger.payload) if s else none %}{{ {'entity_id': trigger.payload, 'exists': s is not none, 'state': (s.state if s else none), 'unit_of_measurement': (s.attributes.get('unit_of_measurement') if s else none), 'device_class': (s.attributes.get('device_class') if s else none), 'device_id': did, 'device_name': (device_attr(did, 'name') if did else none), 'manufacturer': (device_attr(did, 'manufacturer') if did else none), 'model': (device_attr(did, 'model') if did else none), 'model_id': (device_attr(did, 'model_id') if did else none), 'sw_version': (device_attr(did, 'sw_version') if did else none), 'hw_version': (device_attr(did, 'hw_version') if did else none), 'serial_number': (device_attr(did, 'serial_number') if did else none), 'sibling_entities': (device_entities(did) if did else [])} | tojson }}\n")
 	return sb.String()
 }

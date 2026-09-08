@@ -55,6 +55,48 @@ end;`
 	}
 }
 
+// TestImportedDevicePositioningInheritsEnclosingAreaFromNestedSpace is a regression test for a
+// real gap found live 2026-09-08, mirroring the native hassbridge path's identical bug
+// (Conceptual_DevicePositioning_test.go's TestRegisterDevicePositioningInheritsEnclosingAreaFromNestedSpace):
+// an imported device positioned inside a space nested under an "as area" ancestor -- Junglinster's
+// own "space social:front with: ...;" nested under "space social:terrace as area with: ...;" --
+// never picked up the enclosing area as its own suggested_area.
+func TestImportedDevicePositioningInheritsEnclosingAreaFromNestedSpace(t *testing.T) {
+	const miniDSL = `space social:terrace as area with:
+  space social:front with:
+    device infrastructural:netatmo from hass.vienna_shower_room with:
+      entity sensor.physical:netatmo/temperature from entity temperature;
+    end;
+  end;
+end;`
+
+	importedDevicesByID := map[string]TImportedDevice{
+		"hass.vienna_shower_room": {
+			DeviceID: "hass.vienna_shower_room", RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_shower_room",
+			Capabilities: map[string]TImportedCapability{
+				"node":        {},
+				"temperature": {},
+			},
+		},
+	}
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, importedDevicesByID, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	admin := result.Administration
+
+	link, ok := admin.DeviceConceptualLinks["hass.vienna_shower_room"]
+	if !ok {
+		t.Fatalf("expected DeviceConceptualLinks[hass.vienna_shower_room] to be populated")
+	}
+	attr, ok := link.ConstantAttributes["suggested_area"]
+	if !ok || attr.Value == "" {
+		t.Errorf("suggested_area = %+v (ok=%v), want it inherited from the enclosing \"social:terrace as area\" space", attr, ok)
+	}
+}
+
 // TestRegisterDeviceCapabilityEntityLinkWarnsOnUndeclaredImportedCapability confirms referencing
 // a capability the Physical.def import never declared is a clear, reported warning, not a silent
 // no-op -- via registerDeviceCapabilityEntityLink directly (the "for <device-id>: entity ... from

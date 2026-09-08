@@ -289,7 +289,8 @@ func main() {
 		fmt.Printf("[main] %d coordinator-only broker profiles declared; only one secondary broker is supported today, connecting to none of them\n", len(secrets.Brokers))
 	}
 
-	store := NewLiveDeviceInfoStore()
+	// onChange wired below, once every dependency it needs is available.
+	store := NewLiveDeviceInfoStore(filepath.Join(coordinatorDir, "live_device_info.json"), nil)
 	topicToDeviceID, hostNameToDeviceID := buildDeviceLookups(devicesFile)
 
 	conceptualPrefix := devicesFile.conceptualPrefix()
@@ -437,6 +438,31 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+	// "Change in store => change in config", irrespective of which of store's several callers
+	// (a hosts device's own device-info topic, a hassbridge device-info topic, or an
+	// entity-existence inquiry reply carrying manufacturer/model) actually made the change --
+	// liveinfo.go's own doc comment. deviceID is checked against both devicesFile and
+	// hassBridgeFile since either kind can own it (never both -- device ids are namespaced by
+	// kind, "host.X" vs "hass.X").
+	store.SetOnChange(func(deviceID string) {
+		if device, known := devicesFile.Devices[deviceID]; known {
+			if _, err := publishDeviceDiscovery(client, cloudClient, devicesFile.Installation, deviceID, device, store, hostNameToDeviceID, publisher, conceptualPrefix); err != nil {
+				fmt.Printf("[device-info] %s: republishing discovery: %v\n", deviceID, err)
+			}
+			return
+		}
+		if device, known := hassBridgeFile.Devices[deviceID]; known {
+			// reportingInstance "" (rather than whichever instance actually triggered this change)
+			// deliberately makes republishHassBridgeDeviceCapabilities' own exportToCloud guard
+			// false here -- this generic callback doesn't know which instance made the change (the
+			// store only ever hands back deviceID), so an exported device's cloud cross-post of
+			// THIS specific change is skipped, not risked with a wrong instance. Its local
+			// discovery config still gets the fresh data either way; the cloud copy catches up on
+			// that same exported device's own next dedicated device-info report (still handled,
+			// unaffected, by subscribeHassBridgeDeviceInfo above).
+			republishHassBridgeDeviceCapabilities(client, cloudClient, devicesFile.Installation, "", deviceID, device, store, publisher, conceptualPrefix, existenceTracker)
+		}
+	})
 	// PROJECT.md item 1 (2026-09-07): kind-4 existence tracking for shorthand-declared import
 	// capabilities -- same "seed, publish current status immediately, let the coordinator's own
 	// discovery-config subscription passively confirm the rest" shape as kind-2's own tracker.
@@ -452,7 +478,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := existenceTracker.StartEntityExistenceInquiries(client, cloudClient, devicesFile.Installation, homeAssistantInstancesFile.Instances); err != nil {
+	if err := existenceTracker.StartEntityExistenceInquiries(client, cloudClient, devicesFile.Installation, homeAssistantInstancesFile.Instances, store); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}

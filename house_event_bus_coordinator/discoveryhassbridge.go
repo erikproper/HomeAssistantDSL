@@ -319,6 +319,7 @@ func buildHassBridgeEntityDiscoveryBody(stableID, localEntity string, found hass
 		"name":              devBlock.Name + "/" + found.Capability,
 		"state_topic":       stateTopic,
 		"device":            devBlock,
+		"origin":            coordinatorOriginMap(),
 	}
 	deviceClass := found.DeviceClass
 	if deviceClass == "" {
@@ -599,6 +600,68 @@ func subscribeHassBridge(client, cloudClient mqtt.Client, ownInstallation string
 // discovery config republished there too, as a separate cloud-qualified-state_topic payload plus
 // an "installation" field -- same reasoning as subscribeHassBridge's own Export handling. No-op
 // when cloudClient is nil.
+// republishHassBridgeDeviceCapabilities rebuilds and republishes discovery configs for every one
+// of device's known capabilities, picking up store's CURRENT snapshot for deviceID -- the
+// "change in store => change in config" half of the device-info propagation contract (liveinfo.go's
+// own doc comment), shared by subscribeHassBridgeDeviceInfo's own device-info topic handler and,
+// via store's onChange callback (main.go), any other caller of store.Update for a hassbridge
+// device -- entity_existence.go's subscribeExistenceReply, today, for manufacturer/model learned
+// from an inquiry reply rather than a dedicated device-info report. reportingInstance is the
+// instance segment the update came from ("main"/"protocols-server-2"/...), used only for the
+// self-import export loop-guard (subscribeHassBridge's own doc comment) -- never ownInstallation
+// itself.
+func republishHassBridgeDeviceCapabilities(client, cloudClient mqtt.Client, ownInstallation, reportingInstance, deviceID string, device THassBridgeDevice, store *TLiveDeviceInfoStore, publisher *TDiscoveryPublisher, conceptualPrefix string, existenceTracker *TEntityExistenceTracker) {
+	exportToCloud := cloudClient != nil && device.Export && containsString(device.Instances, reportingInstance)
+	qualifier := exportQualifier(device, ownInstallation)
+
+	devBlock := buildHassBridgeDeviceBlock(deviceID, device, store.Snapshot(deviceID))
+	for capability, cap := range device.Capabilities {
+		topic, ok := hassBridgeDiscoveryTopic(cap.LocalEntity, conceptualPrefix)
+		if !ok {
+			continue
+		}
+		found := hassBridgeMatch{Capability: capability, DeviceID: deviceID, THassBridgeCapability: cap}
+		availabilityTopic := hassBridgeAvailabilityTopic(device, capability)
+		liveUnit, liveDeviceClass := "", ""
+		if existenceTracker != nil {
+			if source, ok := cap.SourceEntities[hassBridgeDefaultInstance(device)]; ok {
+				liveUnit, liveDeviceClass = existenceTracker.LiveTyping(hassBridgeDefaultInstance(device), source)
+			}
+		}
+		body := buildHassBridgeEntityDiscoveryBody(hassBridgeUniqueID(cap.LocalEntity), cap.LocalEntity, found, hassBridgeEntityStateTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), devBlock, availabilityTopic, liveUnit, liveDeviceClass)
+		data, err := json.Marshal(body)
+		if err != nil {
+			fmt.Printf("[hass-bridge] marshalling discovery payload for %s: %v\n", cap.LocalEntity, err)
+			continue
+		}
+		if err := publisher.Publish(client, "main", topic, data); err != nil {
+			fmt.Printf("[hass-bridge] publishing %s: %v\n", topic, err)
+		}
+		if exportToCloud {
+			cloudStateTopic := qualifier + "/" + canonicalizeRoamingBridgeTopic(hassBridgeEntityStateTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), device)
+			cloudAvailabilityTopic := ""
+			if availabilityTopic != "" {
+				cloudAvailabilityTopic = qualifier + "/" + canonicalizeRoamingBridgeTopic(availabilityTopic, device)
+			}
+			stableID := exportStableID(qualifier, deviceID, capability)
+			cloudBody := buildHassBridgeEntityDiscoveryBody(stableID, cap.LocalEntity, found, cloudStateTopic, devBlock, cloudAvailabilityTopic, liveUnit, liveDeviceClass)
+			cloudBody["installation"] = qualifier
+			cloudData, err := json.Marshal(cloudBody)
+			if err != nil {
+				fmt.Printf("[hass-bridge:export] marshalling cloud discovery payload for %s: %v\n", cap.LocalEntity, err)
+				continue
+			}
+			cloudTopic, ok := hassBridgeCloudDiscoveryTopic(cap.LocalEntity, stableID, conceptualPrefix)
+			if !ok {
+				continue
+			}
+			if err := publisher.Publish(cloudClient, "cloud_coordinator", qualifier+"/"+cloudTopic, cloudData); err != nil {
+				fmt.Printf("[hass-bridge:export] publishing %s: %v\n", cloudTopic, err)
+			}
+		}
+	}
+}
+
 func subscribeHassBridgeDeviceInfo(client, cloudClient mqtt.Client, ownInstallation string, bridgeFile THassBridgeFile, store *TLiveDeviceInfoStore, publisher *TDiscoveryPublisher, conceptualPrefix string, existenceTracker *TEntityExistenceTracker) error {
 	if len(bridgeFile.Devices) == 0 {
 		return nil
@@ -620,6 +683,12 @@ func subscribeHassBridgeDeviceInfo(client, cloudClient mqtt.Client, ownInstallat
 			fmt.Printf("[hass-bridge] %s: cannot parse device-info payload: %v\n", msg.Topic(), err)
 			return
 		}
+		// store.Update's own onChange callback (liveinfo.go, wired in main.go) already republishes
+		// this device's capabilities on any actual change -- republishHassBridgeDeviceCapabilities
+		// below runs unconditionally anyway (matching this handler's own pre-2026-09-08 behaviour,
+		// before the store became reactive), since a device-info report can also mean "still the
+		// same values, still alive," which is worth a republish in its own right here (unlike a
+		// bare inquiry reply, this handler exists specifically because something was reported).
 		store.Update(deviceID, fields)
 
 		// Same self-import feedback-loop guard as subscribeHassBridge's own handler -- see its
@@ -628,52 +697,7 @@ func subscribeHassBridgeDeviceInfo(client, cloudClient mqtt.Client, ownInstallat
 		exportToCloud := cloudClient != nil && device.Export && containsString(device.Instances, parts[1])
 		qualifier := exportQualifier(device, ownInstallation)
 
-		devBlock := buildHassBridgeDeviceBlock(deviceID, device, store.Snapshot(deviceID))
-		for capability, cap := range device.Capabilities {
-			topic, ok := hassBridgeDiscoveryTopic(cap.LocalEntity, conceptualPrefix)
-			if !ok {
-				continue
-			}
-			found := hassBridgeMatch{Capability: capability, DeviceID: deviceID, THassBridgeCapability: cap}
-			availabilityTopic := hassBridgeAvailabilityTopic(device, capability)
-			liveUnit, liveDeviceClass := "", ""
-			if existenceTracker != nil {
-				if source, ok := cap.SourceEntities[hassBridgeDefaultInstance(device)]; ok {
-					liveUnit, liveDeviceClass = existenceTracker.LiveTyping(hassBridgeDefaultInstance(device), source)
-				}
-			}
-			body := buildHassBridgeEntityDiscoveryBody(hassBridgeUniqueID(cap.LocalEntity), cap.LocalEntity, found, hassBridgeEntityStateTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), devBlock, availabilityTopic, liveUnit, liveDeviceClass)
-			data, err := json.Marshal(body)
-			if err != nil {
-				fmt.Printf("[hass-bridge] marshalling discovery payload for %s: %v\n", cap.LocalEntity, err)
-				continue
-			}
-			if err := publisher.Publish(client, "main", topic, data); err != nil {
-				fmt.Printf("[hass-bridge] publishing %s: %v\n", topic, err)
-			}
-			if exportToCloud {
-				cloudStateTopic := qualifier + "/" + canonicalizeRoamingBridgeTopic(hassBridgeEntityStateTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), device)
-				cloudAvailabilityTopic := ""
-				if availabilityTopic != "" {
-					cloudAvailabilityTopic = qualifier + "/" + canonicalizeRoamingBridgeTopic(availabilityTopic, device)
-				}
-				stableID := exportStableID(qualifier, deviceID, capability)
-				cloudBody := buildHassBridgeEntityDiscoveryBody(stableID, cap.LocalEntity, found, cloudStateTopic, devBlock, cloudAvailabilityTopic, liveUnit, liveDeviceClass)
-				cloudBody["installation"] = qualifier
-				cloudData, err := json.Marshal(cloudBody)
-				if err != nil {
-					fmt.Printf("[hass-bridge:export] marshalling cloud discovery payload for %s: %v\n", cap.LocalEntity, err)
-					continue
-				}
-				cloudTopic, ok := hassBridgeCloudDiscoveryTopic(cap.LocalEntity, stableID, conceptualPrefix)
-				if !ok {
-					continue
-				}
-				if err := publisher.Publish(cloudClient, "cloud_coordinator", qualifier+"/"+cloudTopic, cloudData); err != nil {
-					fmt.Printf("[hass-bridge:export] publishing %s: %v\n", cloudTopic, err)
-				}
-			}
-		}
+		republishHassBridgeDeviceCapabilities(client, cloudClient, ownInstallation, parts[1], deviceID, device, store, publisher, conceptualPrefix, existenceTracker)
 
 		if exportToCloud {
 			crossPostHassBridgeToCloud(cloudClient, qualifier, canonicalizeRoamingBridgeTopic(msg.Topic(), device), msg.Payload())

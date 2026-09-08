@@ -137,6 +137,18 @@ func registerDevicePositioning(administration *TAdministrationState, decl TDevic
 	for name, attr := range device.ConstantAttributes {
 		constantAttrs[name] = TDeviceAttributeConstant{Value: attr.Value, Forced: attr.Forced}
 	}
+	// A device positioned inside an "as area" space gets that area as its suggested_area default --
+	// unless the device already has its own explicit override (device always wins). Mirrors
+	// registerHostNodeEntity's identical precedence (Conceptual_DeviceEntities.go) -- real gap found
+	// live 2026-09-08: this hassbridge path never called CurrentArea() at all, so a hassbridge
+	// device nested under a "space ... as area with:" (e.g. Junglinster's "social:front" nested
+	// under "social:terrace as area") never picked up the enclosing area, unlike a "hosts" device in
+	// the exact same position.
+	if _, hasExplicit := constantAttrs["suggested_area"]; !hasExplicit {
+		if area := administration.CurrentArea(); area != "" {
+			constantAttrs["suggested_area"] = TDeviceAttributeConstant{Value: area}
+		}
+	}
 	administration.DeviceConceptualLinks[decl.DeviceID] = TDeviceConceptualLink{
 		DisplayName:        displayName,
 		ConstantAttributes: constantAttrs,
@@ -188,17 +200,27 @@ func registerHostDevicePositioning(administration *TAdministrationState, decl TD
 
 // registerImportedDevicePositioning is registerDevicePositioning's counterpart for a
 // "hassbridge"-form import (PROJECT.md 1.2d) -- same shape as the native path (shared "device:"
-// block + auto-registered "node" liveness entity, if declared), except ConstantAttributes is
-// always empty (an import carries no Physical.def-declared device-info fields of its own; the
-// coordinator learns them live from the exporting installation's own report, same principle as
-// registerImportedDeviceSourceEntityLink's typing-metadata deferral) and node resolution goes
-// through that function (capabilityKey "node") instead of the native path's inline
-// registerDeviceSourceEntityLink call.
+// block + auto-registered "node" liveness entity, if declared), except device-info fields
+// (manufacturer/model/...) are always left empty (an import carries no Physical.def-declared
+// device-info fields of its own; the coordinator learns them live from the exporting
+// installation's own report, same principle as registerImportedDeviceSourceEntityLink's typing-
+// metadata deferral) and node resolution goes through that function (capabilityKey "node") instead
+// of the native path's inline registerDeviceSourceEntityLink call.
+//
+// suggested_area is the one exception to "device-info fields stay empty" -- it's a purely local
+// Spaces.def positioning concept (which area a device sits in on THIS house's own conceptual
+// layer), unrelated to the remote device's own hardware info the exporter reports live. Mirrors
+// registerHostNodeEntity/the native hassbridge path's identical "as area" precedence -- real gap
+// found live 2026-09-08 alongside the native path's own identical bug.
 func registerImportedDevicePositioning(administration *TAdministrationState, decl TDevicePositioningDeclaration, importedDevice TImportedDevice, deviceIdentity TEntityIdentity, displayName, entitiesPath string, lineNum int, provenance string) []string {
-	administration.DeviceConceptualLinks[decl.DeviceID] = TDeviceConceptualLink{
+	link := TDeviceConceptualLink{
 		DisplayName:        displayName,
 		AttributeEntityIDs: map[string]TDeviceAttributeLink{},
 	}
+	if area := administration.CurrentArea(); area != "" {
+		link.ConstantAttributes = map[string]TDeviceAttributeConstant{"suggested_area": {Value: area}}
+	}
+	administration.DeviceConceptualLinks[decl.DeviceID] = link
 
 	if _, hasNode := importedDevice.Capabilities["node"]; !hasNode {
 		return []string{fmt.Sprintf("%s: imported device %q declares no \"node\" capability -- its own liveness/connectivity entity won't be registered; add one (e.g. \"node: binary_sensor.<some-already-exported-entity>;\") to its Physical.def import declaration if that's not intentional", provenance, decl.DeviceID)}

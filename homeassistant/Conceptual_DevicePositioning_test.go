@@ -210,6 +210,79 @@ func TestRegisterDevicePositioningWarnsWhenNoNodeCapabilityDeclared(t *testing.T
 
 // TestRegisterDevicePositioningNoWarningWhenNodeCapabilityDeclared confirms the warning is scoped
 // precisely to the missing-node case, not raised for a normal, correctly-declared device.
+// TestRegisterDevicePositioningInheritsEnclosingAreaFromNestedSpace is a regression test for a
+// real gap found live 2026-09-08: a hassbridge device positioned inside a space nested under an
+// "as area" ancestor (e.g. Junglinster's "space social:front with: ...;" nested under "space
+// social:terrace as area with: ...;") never picked up the enclosing area as its own
+// suggested_area, unlike a "hosts" device in the exact same position -- registerHostNodeEntity
+// (Conceptual_DeviceEntities.go) already called CurrentArea(), this hassbridge path never did.
+func TestRegisterDevicePositioningInheritsEnclosingAreaFromNestedSpace(t *testing.T) {
+	administration := newAdministrationState()
+	administration.OpenSpace(SpaceKindRegular, "social:terrace", true) // "as area"
+	wantArea := administration.CurrentArea()
+	if wantArea == "" {
+		t.Fatalf("CurrentArea() empty right after entering an \"as area\" space -- test fixture is broken")
+	}
+	administration.OpenSpace(SpaceKindRegular, "social:front", false) // nested, not its own area
+	if got := administration.CurrentArea(); got != wantArea {
+		t.Fatalf("CurrentArea() = %q after entering a non-area nested space, want it to still inherit %q", got, wantArea)
+	}
+
+	hassBridgeDevicesByID := map[string]THassBridgeDevice{
+		"hass.living_room_terrace": {
+			DeviceID:  "hass.living_room_terrace",
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"node": {Domain: "binary_sensor", Sources: map[string]string{"protocols-server-2": "sensor.terrace_netatmo_temperature is available"}},
+			},
+		},
+	}
+	decl := TDevicePositioningDeclaration{Spec: "infrastructural:netatmo", DeviceID: "hass.living_room_terrace"}
+
+	warnings := registerDevicePositioning(administration, decl, nil, hassBridgeDevicesByID, nil, "test.def", 1)
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+
+	link := administration.DeviceConceptualLinks["hass.living_room_terrace"]
+	attr, ok := link.ConstantAttributes["suggested_area"]
+	if !ok || attr.Value != wantArea {
+		t.Errorf("suggested_area = %+v (ok=%v), want %q inherited from the enclosing \"as area\" space", attr, ok, wantArea)
+	}
+}
+
+// TestRegisterDevicePositioningExplicitSuggestedAreaWinsOverEnclosingArea confirms a device's own
+// explicit suggested_area declaration still wins over an enclosing "as area" space -- the same
+// "device always wins" precedence registerHostNodeEntity's own doc comment states.
+func TestRegisterDevicePositioningExplicitSuggestedAreaWinsOverEnclosingArea(t *testing.T) {
+	administration := newAdministrationState()
+	administration.OpenSpace(SpaceKindRegular, "social:terrace", true) // "as area"
+
+	hassBridgeDevicesByID := map[string]THassBridgeDevice{
+		"hass.living_room_terrace": {
+			DeviceID: "hass.living_room_terrace",
+			ConstantAttributes: map[string]THostConstantAttribute{
+				"suggested_area": {Value: "Explicit Area"},
+			},
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"node": {Domain: "binary_sensor", Sources: map[string]string{"protocols-server-2": "sensor.terrace_netatmo_temperature is available"}},
+			},
+		},
+	}
+	decl := TDevicePositioningDeclaration{Spec: "infrastructural:netatmo", DeviceID: "hass.living_room_terrace"}
+
+	warnings := registerDevicePositioning(administration, decl, nil, hassBridgeDevicesByID, nil, "test.def", 1)
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+
+	link := administration.DeviceConceptualLinks["hass.living_room_terrace"]
+	if got := link.ConstantAttributes["suggested_area"].Value; got != "Explicit Area" {
+		t.Errorf("suggested_area = %q, want the device's own explicit \"Explicit Area\" to win over the enclosing \"as area\" space", got)
+	}
+}
+
 func TestRegisterDevicePositioningNoWarningWhenNodeCapabilityDeclared(t *testing.T) {
 	administration := newAdministrationState()
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{

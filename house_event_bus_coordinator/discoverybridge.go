@@ -200,6 +200,7 @@ func buildRelayedDiscoveryConfig(entityID, gatewayID string, payload tDecodedDis
 		"default_entity_id": domain + "." + objectID,
 		"name":              objectID,
 		"state_topic":       payload.StateTopic,
+		"origin":            coordinatorOriginMap(),
 	}
 	if payload.ValueTemplate != "" {
 		body["value_template"] = payload.ValueTemplate

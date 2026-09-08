@@ -237,7 +237,25 @@ func (t *TEntityExistenceTracker) Seed(bridgeFile THassBridgeFile) {
 				}
 				entity := bareEntityFromSource(source)
 				declared[instance][entity] = true
-				if _, seen := t.entries[instance][entity]; seen {
+				if existing, seen := t.entries[instance][entity]; seen {
+					// A real, Physical.def-declared owner always corrects a synthetic (or missing)
+					// DeviceID -- real bug found live 2026-09-08: DiscoverSiblings only mints a
+					// synthetic "hass.discovered_..." grouping when an anchor's DeviceID is still ""
+					// at that moment, which can happen for an entity that's genuinely declared here
+					// but whose very first sighting (a manual "Discover entity" request, or a
+					// coordinator restart racing a Seed call) happened before Seed ever got to it.
+					// Once wrongly synthetic, it was persisted that way forever after -- this exact
+					// "if seen, skip" check meant a later, correctly-ordered Seed call could never
+					// self-heal it, since the wrong persisted value always won. Status/State/Unit/
+					// DeviceClass are deliberately left untouched -- only DeviceID/RemoteDeviceID,
+					// so a confirmed-known status never gets reset by this correction.
+					if existing.DeviceID == "" || isSyntheticDeviceID(existing.DeviceID) {
+						if existing.DeviceID != deviceID {
+							fmt.Printf("[existence] %s: %s was grouped under %q, correcting to its real declared device %q\n", instance, entity, existing.DeviceID, deviceID)
+						}
+						existing.DeviceID = deviceID
+						existing.RemoteDeviceID = ""
+					}
 					continue
 				}
 				t.entries[instance][entity] = &TEntityExistenceEntry{
@@ -379,18 +397,21 @@ func (t *TEntityExistenceTracker) nextToInquire(instance string) string {
 	return order[idx]
 }
 
-// Record applies one inquiry reply to instance's tracked status for sourceEntity. A reply about an
-// entity this tracker never asked about (stale/unexpected) is ignored, not an error.
-func (t *TEntityExistenceTracker) Record(instance, sourceEntity string, exists bool, state, unit, deviceClass string) {
+// Record applies one inquiry reply to instance's tracked status for sourceEntity, and returns the
+// entry's own owning DeviceID ("" if untracked or the entity has no owning device) so the caller
+// (subscribeExistenceReply) can feed reply's own device-info fields into TLiveDeviceInfoStore under
+// the right key without a second, separately-locked lookup. A reply about an entity this tracker
+// never asked about (stale/unexpected) is ignored, not an error.
+func (t *TEntityExistenceTracker) Record(instance, sourceEntity string, exists bool, state, unit, deviceClass string) (deviceID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	byEntity, ok := t.entries[instance]
 	if !ok {
-		return
+		return ""
 	}
 	entry, ok := byEntity[sourceEntity]
 	if !ok {
-		return
+		return ""
 	}
 	if exists {
 		entry.Status = StatusKnownToExist
@@ -404,6 +425,7 @@ func (t *TEntityExistenceTracker) Record(instance, sourceEntity string, exists b
 		entry.DeviceClass = ""
 	}
 	t.persist()
+	return entry.DeviceID
 }
 
 // LiveTyping returns instance's own last-reported unit_of_measurement/device_class for
@@ -477,6 +499,14 @@ func syntheticDeviceID(deviceName, fallback string) string {
 		source = fallback
 	}
 	return "hass.discovered_" + slugify(source)
+}
+
+// isSyntheticDeviceID reports whether id is one of syntheticDeviceID's own placeholder ids --
+// used by Seed's own reconciliation pass (see its doc comment) to recognise an entry that needs
+// correcting to its real, Physical.def-declared owner, never a genuinely-declared device id that
+// simply happens to also start "hass.".
+func isSyntheticDeviceID(id string) bool {
+	return strings.HasPrefix(id, "hass.discovered_")
 }
 
 // resolveSyntheticDeviceID returns the synthetic local device id for remoteDeviceID within
@@ -575,7 +605,35 @@ type existenceInquiryReply struct {
 	DeviceClass     string   `json:"device_class"`
 	DeviceID        string   `json:"device_id"`
 	DeviceName      string   `json:"device_name"`
+	Manufacturer    string   `json:"manufacturer"`
+	Model           string   `json:"model"`
+	ModelID         string   `json:"model_id"`
+	SwVersion       string   `json:"sw_version"`
+	HwVersion       string   `json:"hw_version"`
+	SerialNumber    string   `json:"serial_number"`
 	SiblingEntities []string `json:"sibling_entities"`
+}
+
+// deviceInfoFields returns reply's own manufacturer/model/... fields as a knownLiveDeviceInfoFields-
+// keyed map (discovery.go), omitting anything empty -- the shape TLiveDeviceInfoStore.Update and
+// buildHassBridgeDeviceBlock's forced-DSL > live > DSL precedence already expect. Returns an empty,
+// non-nil map if reply carries none of these (a remote entity with no owning device, or an older
+// remote automation that predates this reply shape).
+func (reply existenceInquiryReply) deviceInfoFields() map[string]string {
+	fields := map[string]string{}
+	for name, value := range map[string]string{
+		"manufacturer":  reply.Manufacturer,
+		"model":         reply.Model,
+		"model_id":      reply.ModelID,
+		"sw_version":    reply.SwVersion,
+		"hw_version":    reply.HwVersion,
+		"serial_number": reply.SerialNumber,
+	} {
+		if value != "" {
+			fields[name] = value
+		}
+	}
+	return fields
 }
 
 // existenceStatusDevicePayload/publishStatus are the JSON shape published to
@@ -642,17 +700,26 @@ func existenceStatusTopic(instance string) string {
 // subscribeExistenceReply subscribes to instance's own inquiry-reply topic (local broker only --
 // that's where the instance's own inquiry automation actually publishes), recording each reply and
 // republishing the updated status snapshot to both mainClient and cloudClient (publishStatus).
-func (t *TEntityExistenceTracker) subscribeExistenceReply(mainClient, cloudClient mqtt.Client, ownInstallation, instance string) error {
+// store is nil-safe (tests exercising this without a store) -- a confirmed-existing reply carrying
+// any manufacturer/model/... fields feeds them into store under the entity's own tracked DeviceID,
+// so discoveryhassbridge.go's buildHassBridgeDeviceBlock picks them up through the same
+// forced-DSL > live > DSL precedence a hosts device's own dynamic fields already use.
+func (t *TEntityExistenceTracker) subscribeExistenceReply(mainClient, cloudClient mqtt.Client, ownInstallation, instance string, store *TLiveDeviceInfoStore) error {
 	handler := func(_ mqtt.Client, msg mqtt.Message) {
 		var reply existenceInquiryReply
 		if err := json.Unmarshal(msg.Payload(), &reply); err != nil {
 			fmt.Printf("[existence] %s: cannot parse inquiry reply: %v\n", instance, err)
 			return
 		}
-		t.Record(instance, reply.EntityID, reply.Exists, reply.State, reply.Unit, reply.DeviceClass)
+		deviceID := t.Record(instance, reply.EntityID, reply.Exists, reply.State, reply.Unit, reply.DeviceClass)
 		fmt.Printf("[existence] %s: %s -> exists=%v\n", instance, reply.EntityID, reply.Exists)
 		if reply.Exists && len(reply.SiblingEntities) > 0 {
 			t.DiscoverSiblings(instance, reply.EntityID, reply.DeviceID, reply.DeviceName, reply.SiblingEntities)
+		}
+		if store != nil && deviceID != "" {
+			if fields := reply.deviceInfoFields(); len(fields) > 0 {
+				store.Update(deviceID, fields)
+			}
 		}
 		if err := t.publishStatus(mainClient, cloudClient, ownInstallation, instance); err != nil {
 			fmt.Printf("[existence] %v\n", err)
@@ -745,12 +812,12 @@ func (t *TEntityExistenceTracker) SeedManualEntity(instance, entityID string) {
 // exposed this) a topic-naming change like §12's cloud installation-qualification fix, which left
 // the newly-qualified cloud topic with no retained value at all until the next real inquiry reply,
 // causing every ./generate run's cloud fetch to time out in the meantime.
-func (t *TEntityExistenceTracker) StartEntityExistenceInquiries(mainClient, cloudClient mqtt.Client, ownInstallation string, instances []string) error {
+func (t *TEntityExistenceTracker) StartEntityExistenceInquiries(mainClient, cloudClient mqtt.Client, ownInstallation string, instances []string, store *TLiveDeviceInfoStore) error {
 	if len(instances) == 0 {
 		return nil
 	}
 	for _, instance := range instances {
-		if err := t.subscribeExistenceReply(mainClient, cloudClient, ownInstallation, instance); err != nil {
+		if err := t.subscribeExistenceReply(mainClient, cloudClient, ownInstallation, instance, store); err != nil {
 			return err
 		}
 	}

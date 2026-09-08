@@ -1,13 +1,18 @@
 ** TODO 
 
 1 Fixes:
-- picture
-- fritz boxes
+- meta data + area
 - loads/temps + complete
 - mac mini
+- protocols-server-2 @ Junglinster: automation.coordinator_meta_reload crashes there (asyncio
+  CancelledError/InvalidStateError, likely reloading "automation.reload" on itself mid-run,
+  cancelling its own execution) -- reload/inquiry pipeline silently dead on that instance, found
+  2026-09-08 while verifying the manufacturer/model propagation fix (confirmed unrelated: main's
+  own reload/inquiry works fine, only protocols-server-2 affected, and its own container hasn't
+  restarted in 44h so this may predate today entirely)
+- fritz box @ Vienna (temp, ++)
+- fritz box @ Junglinster (temp, ++)
 
-EP: Fritz's have CPU temperature, plus other things + fix compute tabs + check suggestions.
-Vienna: Open. Blocked until we have the new hardware deployment
 
 2. EP: Hardware migration in Vienna.
 - Tu 6 Setup P-S-1 for Vienna:
@@ -15,7 +20,6 @@ Vienna: Open. Blocked until we have the new hardware deployment
    MQTT (local) broker in container on p-s-1 @VIE
 - Tu 7 Setup P-S-2 for Vienna:
     { HA container, ... }
-
 
 3. Stick migration for Pi3 and PiB:
 - [x] Use stick on Pi3 in Vienna

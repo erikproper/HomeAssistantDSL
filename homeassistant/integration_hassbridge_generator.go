@@ -127,15 +127,23 @@ func generateHassBridgeFile(outputRoot string, hassBridgeDevicesByID map[string]
 		sb.WriteString("    capabilities:\n")
 		sb.WriteString(capLines.String())
 
-		if len(device.ConstantAttributes) > 0 {
+		// Reads link.ConstantAttributes (the administration-computed conceptual link), not
+		// device.ConstantAttributes (the raw, unmerged Physical.def struct) -- real bug found live
+		// 2026-09-08: registerDevicePositioning's own "as area" suggested_area default
+		// (Conceptual_DevicePositioning.go) is only ever injected into the link's own copy, never
+		// written back into hassBridgeDevicesByID itself, so reading device.ConstantAttributes here
+		// silently dropped it -- an explicit Physical.def-declared attribute (e.g. "model:") still
+		// happened to show up correctly, since that one genuinely lives on device.ConstantAttributes
+		// too, which is what made this so easy to miss.
+		if len(link.ConstantAttributes) > 0 {
 			sb.WriteString("    constant_attributes:\n")
-			names := make([]string, 0, len(device.ConstantAttributes))
-			for name := range device.ConstantAttributes {
+			names := make([]string, 0, len(link.ConstantAttributes))
+			for name := range link.ConstantAttributes {
 				names = append(names, name)
 			}
 			sort.Strings(names)
 			for _, name := range names {
-				attr := device.ConstantAttributes[name]
+				attr := link.ConstantAttributes[name]
 				sb.WriteString("      " + name + ":\n")
 				sb.WriteString("        value: \"" + attr.Value + "\"\n")
 				if attr.Forced {

@@ -180,6 +180,7 @@ func buildCommandlineDiscoveryConfigs(deviceID string, device TCommandlineDevice
 			PayloadOff:      "false",
 			DeviceClass:     "connectivity",
 			Device:          devBlock,
+			Origin:          coordinatorOrigin(),
 		},
 	})
 
@@ -203,6 +204,7 @@ func buildCommandlineDiscoveryConfigs(deviceID string, device TCommandlineDevice
 				PayloadAvailable:  "true",
 				PayloadNotAvail:   "false",
 				Device:            devBlock,
+				Origin:            coordinatorOrigin(),
 			},
 		})
 	}
@@ -222,6 +224,7 @@ func buildCommandlineDiscoveryConfigs(deviceID string, device TCommandlineDevice
 				PayloadAvailable:    "true",
 				PayloadNotAvailable: "false",
 				Device:              devBlock,
+				Origin:              coordinatorOrigin(),
 			},
 		})
 	}
@@ -242,6 +245,7 @@ func buildCommandlineDiscoveryConfigs(deviceID string, device TCommandlineDevice
 				PayloadAvailable:  "true",
 				PayloadNotAvail:   "false",
 				Device:            devBlock,
+				Origin:            coordinatorOrigin(),
 			},
 		})
 	}
@@ -267,6 +271,7 @@ type TCommandlineSwitchDiscoveryPayload struct {
 	PayloadAvailable  string           `json:"payload_available,omitempty"`
 	PayloadNotAvail   string           `json:"payload_not_available,omitempty"`
 	Device            TDiscoveryDevice `json:"device"`
+	Origin            TDiscoveryOrigin `json:"origin"`
 }
 
 // TCommandlineButtonDiscoveryPayload is the HA MQTT Discovery config for a commandline button
@@ -281,6 +286,7 @@ type TCommandlineButtonDiscoveryPayload struct {
 	PayloadAvailable  string           `json:"payload_available,omitempty"`
 	PayloadNotAvail   string           `json:"payload_not_available,omitempty"`
 	Device            TDiscoveryDevice `json:"device"`
+	Origin            TDiscoveryOrigin `json:"origin"`
 }
 
 // publishCommandlineDiscovery publishes every commandline.yaml device's discovery configs once,

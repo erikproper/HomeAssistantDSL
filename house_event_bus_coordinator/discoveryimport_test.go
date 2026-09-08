@@ -186,6 +186,10 @@ func TestBuildImportedDiscoveryBody(t *testing.T) {
 	if device["name"] != "apartment/shower_room/netatmo" {
 		t.Errorf("device.name = %v, want the Spaces.def-resolved display name, not anything from the remote", device["name"])
 	}
+	origin, ok := body["origin"].(map[string]interface{})
+	if !ok || origin["name"] != "House Event Bus Coordinator" {
+		t.Errorf("origin = %v, want {\"name\": \"House Event Bus Coordinator\"}", body["origin"])
+	}
 }
 
 // TestBuildImportedDiscoveryBodyDeviceNameFallsBackToLocalDeviceID confirms a device with no

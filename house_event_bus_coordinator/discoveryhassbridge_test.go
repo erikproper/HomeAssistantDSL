@@ -37,7 +37,7 @@ func TestSubscribeHassBridgePublishesDiscoveryAndState(t *testing.T) {
 	localTopic := "homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_house_downward_hallway_laserjet_status/state"
 	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte("idle")}}}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
-	store := NewLiveDeviceInfoStore()
+	store := NewLiveDeviceInfoStore("", nil)
 
 	if err := subscribeHassBridge(client, nil, "", bridgeFile, store, publisher, testPrefix, nil); err != nil {
 		t.Fatalf("subscribeHassBridge error: %v", err)
@@ -111,7 +111,7 @@ func TestSubscribeHassBridgeFallsBackToLiveTypingWhenDeclaredEmpty(t *testing.T)
 	localTopic := "homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_fritz_box_gb_received/state"
 	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte("1234")}}}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
-	store := NewLiveDeviceInfoStore()
+	store := NewLiveDeviceInfoStore("", nil)
 
 	if err := subscribeHassBridge(client, nil, "", bridgeFile, store, publisher, testPrefix, existenceTracker); err != nil {
 		t.Fatalf("subscribeHassBridge error: %v", err)
@@ -169,7 +169,7 @@ func TestSubscribeHassBridgePublishesTypingMetadata(t *testing.T) {
 		{topic: "homeassistant_instances/main/bridge/sensor.infrastructural_junglinster_cpu_load/state", payload: []byte("12.3")},
 	}}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
-	store := NewLiveDeviceInfoStore()
+	store := NewLiveDeviceInfoStore("", nil)
 
 	if err := subscribeHassBridge(client, nil, "", bridgeFile, store, publisher, testPrefix, nil); err != nil {
 		t.Fatalf("subscribeHassBridge error: %v", err)
@@ -246,7 +246,7 @@ func TestSubscribeHassBridgePublishesTypingMetadata(t *testing.T) {
 func TestSubscribeHassBridgeNoDevicesIsNoop(t *testing.T) {
 	client := &fakeClient{}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
-	if err := subscribeHassBridge(client, nil, "", THassBridgeFile{}, NewLiveDeviceInfoStore(), publisher, testPrefix, nil); err != nil {
+	if err := subscribeHassBridge(client, nil, "", THassBridgeFile{}, NewLiveDeviceInfoStore("", nil), publisher, testPrefix, nil); err != nil {
 		t.Fatalf("subscribeHassBridge error: %v", err)
 	}
 	if len(client.published) != 0 || len(client.subscribedHandlers) != 0 {
@@ -271,7 +271,7 @@ func TestSubscribeHassBridgeDeviceInfoUpdatesStoreAndRepublishesCapabilities(t *
 	deviceInfoPayload := []byte(`{"sw_version": "Home Assistant Operating System 2025.1.0"}`)
 	client := &fakeClient{retained: []fakeMessage{{topic: deviceInfoTopic, payload: deviceInfoPayload}}}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
-	store := NewLiveDeviceInfoStore()
+	store := NewLiveDeviceInfoStore("", nil)
 
 	if err := subscribeHassBridgeDeviceInfo(client, nil, "", bridgeFile, store, publisher, testPrefix, nil); err != nil {
 		t.Fatalf("subscribeHassBridgeDeviceInfo error: %v", err)
@@ -331,7 +331,7 @@ func TestSubscribeHassBridgeDeviceInfoSkipsCrossPostForSelfImportEcho(t *testing
 	client := &fakeClient{retained: []fakeMessage{{topic: echoTopic, payload: []byte(`{"manufacturer": "Apple"}`)}}}
 	cloudClient := &fakeClient{}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
-	store := NewLiveDeviceInfoStore()
+	store := NewLiveDeviceInfoStore("", nil)
 
 	if err := subscribeHassBridgeDeviceInfo(client, cloudClient, "junglinster", bridgeFile, store, publisher, testPrefix, nil); err != nil {
 		t.Fatalf("subscribeHassBridgeDeviceInfo error: %v", err)
@@ -360,7 +360,7 @@ func TestSubscribeHassBridgeExportCrossPostsToCloud(t *testing.T) {
 	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte("21.4")}}}
 	cloudClient := &fakeClient{}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
-	store := NewLiveDeviceInfoStore()
+	store := NewLiveDeviceInfoStore("", nil)
 
 	if err := subscribeHassBridge(client, cloudClient, "junglinster", bridgeFile, store, publisher, testPrefix, nil); err != nil {
 		t.Fatalf("subscribeHassBridge error: %v", err)
@@ -442,7 +442,7 @@ func TestSubscribeHassBridgeSkipsCrossPostForSelfImportEcho(t *testing.T) {
 	client := &fakeClient{retained: []fakeMessage{{topic: echoTopic, payload: []byte("87")}}}
 	cloudClient := &fakeClient{}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
-	store := NewLiveDeviceInfoStore()
+	store := NewLiveDeviceInfoStore("", nil)
 
 	if err := subscribeHassBridge(client, cloudClient, "junglinster", bridgeFile, store, publisher, testPrefix, nil); err != nil {
 		t.Fatalf("subscribeHassBridge error: %v", err)
@@ -485,7 +485,7 @@ func TestSubscribeHassBridgeCanonicalizesRoamingCloudTopic(t *testing.T) {
 	client := &fakeClient{retained: []fakeMessage{{topic: realTopic, payload: []byte("87")}}}
 	cloudClient := &fakeClient{}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
-	store := NewLiveDeviceInfoStore()
+	store := NewLiveDeviceInfoStore("", nil)
 
 	if err := subscribeHassBridge(client, cloudClient, "junglinster", bridgeFile, store, publisher, testPrefix, nil); err != nil {
 		t.Fatalf("subscribeHassBridge error: %v", err)
@@ -550,7 +550,7 @@ func TestSubscribeHassBridgeDeviceInfoCanonicalizesRoamingCloudTopic(t *testing.
 	client := &fakeClient{retained: []fakeMessage{{topic: deviceInfoTopic, payload: deviceInfoPayload}}}
 	cloudClient := &fakeClient{}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
-	store := NewLiveDeviceInfoStore()
+	store := NewLiveDeviceInfoStore("", nil)
 
 	if err := subscribeHassBridgeDeviceInfo(client, cloudClient, "junglinster", bridgeFile, store, publisher, testPrefix, nil); err != nil {
 		t.Fatalf("subscribeHassBridgeDeviceInfo error: %v", err)
@@ -603,7 +603,7 @@ func TestSubscribeHassBridgeExportCloudAvailabilityTopicIsInstallationQualified(
 	client := &fakeClient{retained: []fakeMessage{{topic: localTemperatureTopic, payload: []byte("21.4")}}}
 	cloudClient := &fakeClient{}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
-	store := NewLiveDeviceInfoStore()
+	store := NewLiveDeviceInfoStore("", nil)
 
 	if err := subscribeHassBridge(client, cloudClient, "junglinster", bridgeFile, store, publisher, testPrefix, nil); err != nil {
 		t.Fatalf("subscribeHassBridge error: %v", err)
@@ -657,7 +657,7 @@ func TestSubscribeHassBridgeNonExportDeviceNeverPublishesToCloud(t *testing.T) {
 	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte("idle")}}}
 	cloudClient := &fakeClient{}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
-	store := NewLiveDeviceInfoStore()
+	store := NewLiveDeviceInfoStore("", nil)
 
 	if err := subscribeHassBridge(client, cloudClient, "junglinster", bridgeFile, store, publisher, testPrefix, nil); err != nil {
 		t.Fatalf("subscribeHassBridge error: %v", err)
