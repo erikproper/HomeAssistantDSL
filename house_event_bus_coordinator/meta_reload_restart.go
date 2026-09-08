@@ -194,6 +194,41 @@ func subscribeMetaFanOut(client, cloudClient mqtt.Client, installation string, i
 	return nil
 }
 
+// subscribeMetaInstanceCloudRelay lets a deploy running off this house's own LAN (no route to the
+// local broker's bare hostname -- confirmed live 2026-09-08, PublishMetaReload's direct-to-local
+// approach fails with a DNS lookup error from off-LAN) trigger a single real instance's own reload/
+// restart via the cloud broker instead. The per-instance topic itself
+// (metaActionTopic(action, instance), e.g. "meta/reload/main/request") is deliberately
+// LOCAL-broker-only everywhere else in this codebase -- that instance's own generator-authored
+// automation subscribes to it directly, with no coordinator involvement at all (this file's own
+// top doc comment). Reusing that same bare topic name on the cloud broker would collide across
+// every house sharing it (every house has an instance named "main"), so the cloud-side topic is
+// qualified with this house's own installation name, matching the whole-topic-prefix convention
+// already used everywhere else a topic crosses onto the shared cloud broker (Architecture.md
+// §6.10's cloud topic-collision fix). On arrival, this relays to the plain local topic --
+// publishMetaAction -- exactly as if that instance's own topic had been published locally; never
+// republished anywhere else, so this carries no risk of the "all" scope's own cross-house fan-out.
+func subscribeMetaInstanceCloudRelay(client, cloudClient mqtt.Client, installation string, instances []string) error {
+	if cloudClient == nil || installation == "" {
+		return nil
+	}
+	for _, action := range metaActions {
+		action := action // capture for the closures below
+		for _, instance := range instances {
+			instance := instance
+			cloudTopic := installation + "/" + metaActionTopic(action, instance)
+			handler := func(_ mqtt.Client, _ mqtt.Message) {
+				fmt.Printf("[meta] %s: %q requested via cloud, relaying to local instance topic\n", action, instance)
+				publishMetaAction(client, action, instance)
+			}
+			if err := subscribeMetaTopic(cloudClient, cloudTopic, handler); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // subscribeMetaTopic is the shared subscribe-with-timeout boilerplate every handler above uses.
 func subscribeMetaTopic(client mqtt.Client, topic string, handler mqtt.MessageHandler) error {
 	token := client.Subscribe(topic, 0, handler)

@@ -480,6 +480,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+	if err := subscribeMetaInstanceCloudRelay(client, cloudClient, devicesFile.Installation, homeAssistantInstancesFile.Instances); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
 
 	fmt.Println("coordinator running -- Ctrl-C to stop")
 	stop := make(chan os.Signal, 1)

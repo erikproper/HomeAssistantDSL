@@ -74,6 +74,7 @@ var metaOptionalReloadServices = []string{
 	"input_number.reload",
 	"input_select.reload",
 	"input_text.reload",
+	"command_line.reload",
 }
 
 // metaReloadAutomationBody returns the "reload every YAML-backed domain" automation for a named

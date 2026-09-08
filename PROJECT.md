@@ -1,20 +1,25 @@
 ** TODO 
 
-1. Existence checking again. Entities that are provided on the main instance. Do we check their existence as well? And make suggestions based on their device assignments?
-Basically treat these as kind 3 ones, but always originating from the main HA instance.
-Even though more and more entities will be pushed "under" the MQTT bus, we know that certain domains (media_player, weather, etc) cannot move there yet. So, we will need to rely on integrations that are directly linked to the conceptual layer within the main HA instance (like all entities used to be).
+1 Fixes:
+- picture
+- fritz boxes
+- loads/temps + complete
+- mac mini
 
-1b: See point about sources and their names.
+EP: Fritz's have CPU temperature, plus other things + fix compute tabs + check suggestions.
+Vienna: Open. Blocked until we have the new hardware deployment
 
 2. EP: Hardware migration in Vienna.
-- We 6 Setup P-S-1 for Vienna:
-    { samba, zigbee | mqtt,  ... }
-- ?? 7 Setup P-S-2 for Vienna:
-    { picture frame | HA, ... }
+- Tu 6 Setup P-S-1 for Vienna:
+    { zigbee2mqtt in container | mqtt container }
+   MQTT (local) broker in container on p-s-1 @VIE
+- Tu 7 Setup P-S-2 for Vienna:
+    { HA container, ... }
+
 
 3. Stick migration for Pi3 and PiB:
-- Use stick on Pi3 in Vienna
-- If this works, order three Raspberry sticks
+- [x] Use stick on Pi3 in Vienna
+- If this works (with HA container), order three Raspberry sticks
 - Copy the pi3 stick in vienna to one of these sticks
 - Migrate frame.junglinster to one of these sticks on fedora
 - Migrate protocol-server-2.junglinster to one of these sticks (see below!!)
@@ -22,8 +27,6 @@ Even though more and more entities will be pushed "under" the MQTT bus, we know 
     https://shop.funk24.net/Raspberry-Pi-Flash-Drive-USB-3.0-Stick-256-GB
     https://shop.funk24.net/Raspberry-Pi-Flash-Drive-USB-3.0-Stick-128-GB
 
-4. EP: Fritz's have CPU temperature, plus other things + fix compute tabs + check suggestions.
-Vienna: Open. Blocked until we have the new hardware deployment
 
 5. EP to rename device names, hiding the integration part of the name.
 Also revisit the names of integrations.
@@ -69,9 +72,9 @@ should become:
       end;
 
 
-8. MQTT (local) broker in container on p-s-1 @JL and frame @VIE
-
 9. Zigbee2MQTT (legacy-to-conceptual passthrough, so entities migrate gradually) first @VIE 
+
+9. MQTT (local) broker in container on p-s-1 @JL
 
 10. Also make the adjustments and battery_alert values something for the device level. Check of discovery messages can handle such functions. 
 
@@ -79,7 +82,7 @@ should become:
 Well. Potentially we can do this one after Zigbee2MQTT @ Vie,
 as it contains e.g. blinds as well.
 
-12. Zigbee2MQTT (legacy-to-conceptual passthrough, so entities migrate gradually) first @JL
+12. Zigbee2MQTT (legacy-to-conceptual passthrough, so entities migrate gradually) @JL
 
    1.8. Overkiz-based SOMFY cover control: homeassistant@protocols-server-2 -> MQTT.
       Note (2026-08-28): this is also where 1.1's command-automation half

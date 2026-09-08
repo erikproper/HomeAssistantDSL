@@ -498,6 +498,36 @@ reading via the cloud broker, using `ctx.Installation` (this house's own name) �
 house's, since every instance/gateway a house's own Physical.def declares is, by construction, that
 same house's own.
 
+**Kind 5 (bare "main instance" entities) built and deployed live, 2026-09-07/08** (PROJECT.md
+items 1/1b) — the last of the three conceptual-layer cases from this section's own layering
+principle: a `Spaces.def` entity declared bare (`entity sensor.physical:door/aqara_multi/temperature;`
+— no `value`/`condition`/`from ... entity ...`), assumed to already exist as a native entity on the
+house's own main HA instance directly, predating all device/MQTT machinery. Reuses kind-3's own
+`TEntityExistenceTracker` engine (active inquiry, sibling discovery, retained status publish)
+almost entirely as-is, seeded under instance `"main"` — no new coordinator machinery, no new
+DSL/Spaces.def grammar. Generator side: `collectMainEntityIDs` (`main_entities.go`) filters
+`EntityRecordsBySpace` on `!HasDefinitionOrImport && !DiscoveryImplied` and converts each via the
+same `toHomeAssistantEntityID` conversion used everywhere else in the generator — honouring this
+section's own "always the declared source, never the conceptual name" rule even though, for a bare
+entity, the two happen to be spelled the same way. `checkMainEntityKnownNotToExistErrors`
+(`mqtt_entity_existence.go`) mirrors `checkKnownNotToExistErrors`'s hard-fail-on-confirmed-absence
+shape; `generateEntityCatalogueSuggestions` folds `mainEntityIDs` into its own `used` set for
+instance `"main"` so an already-declared bare entity is never suggested back as unclaimed.
+Confirmed live: Junglinster's first hard-fail run under kind-5 flagged 21 genuinely-absent bare
+entities.
+
+**Starvation bug found and fixed live, 2026-09-07/08**: `nextToInquire` always rescanned the
+not-known-to-exist backlog from index 0, so a single entry whose reply never arrives (confirmed
+live case: a typo'd entity name, `sensor.social_terra_sun_solar_elevation` for the real
+`sensor.social_terrace_sun_solar_elevation`) permanently starved every entity registered after it
+— no false hard-fail was ever raised for it across multiple `./generate` runs over several hours,
+which is what surfaced the bug. Not specific to kind-5 (the same tracker backs kind-3 too), just
+first exposed by kind-5's one-time bulk seed of ~144/~28 bare entities per house. Fixed via a
+`backlogCursor map[string]int` that rotates the scan's starting point on each call instead of
+always restarting from index 0. Deployed to both houses; confirmed live that each house's full
+backlog drained to completion (Vienna 395/395, Junglinster 1242/1242, 22 confirmed-absent) with no
+entries left stuck.
+
 ### 6.11 The coordinator's own runtime state must survive a deploy, not just a restart
 
 The coordinator persists three files into its own working directory (`coordinatorDir`, the CLI

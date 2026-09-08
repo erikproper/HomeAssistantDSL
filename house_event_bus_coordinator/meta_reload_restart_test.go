@@ -189,6 +189,49 @@ func TestSubscribeMetaFanOutNoOpWithNoInstancesOrInstallation(t *testing.T) {
 	}
 }
 
+// TestSubscribeMetaInstanceCloudRelayRelaysToLocalTopic is a regression test for a real gap found
+// live 2026-09-08: PublishMetaReload (the deploy scripts' own reload trigger) connects directly to
+// the local broker by bare hostname, which fails with a DNS lookup error when run from off this
+// house's own LAN. This asserts a cloud-arriving, installation-qualified per-instance topic relays
+// to the plain local instance topic, and never touches any other topic.
+func TestSubscribeMetaInstanceCloudRelayRelaysToLocalTopic(t *testing.T) {
+	client := &fakeClient{}
+	cloudClient := &fakeClient{}
+	if err := subscribeMetaInstanceCloudRelay(client, cloudClient, "vienna", []string{"main", "protocols-server-2"}); err != nil {
+		t.Fatalf("subscribeMetaInstanceCloudRelay error: %v", err)
+	}
+
+	handlers := cloudClient.subscribedHandlersSnapshot()
+	// 2 instances * 2 actions (reload, restart) = 4 cloud subscriptions.
+	if len(handlers) != 4 {
+		t.Fatalf("got %d cloud handlers, want 4: %v", len(handlers), handlers)
+	}
+	reloadMainHandler := handlers[0]
+	reloadMainHandler(cloudClient, fakeMessage{topic: "vienna/meta/reload/main/request", payload: []byte("PRESS")})
+
+	published := client.publishedSnapshot()
+	if len(published) != 1 || published[0].topic != "meta/reload/main/request" {
+		t.Errorf("expected exactly one publish to %q, got %+v", "meta/reload/main/request", published)
+	}
+	if len(cloudClient.publishedSnapshot()) != 0 {
+		t.Errorf("must never republish anything back onto the cloud broker, got %+v", cloudClient.publishedSnapshot())
+	}
+}
+
+func TestSubscribeMetaInstanceCloudRelayNoOpWithoutCloudOrInstallation(t *testing.T) {
+	client := &fakeClient{}
+	if err := subscribeMetaInstanceCloudRelay(client, nil, "vienna", []string{"main"}); err != nil {
+		t.Fatalf("subscribeMetaInstanceCloudRelay error: %v", err)
+	}
+	cloudClient := &fakeClient{}
+	if err := subscribeMetaInstanceCloudRelay(client, cloudClient, "", []string{"main"}); err != nil {
+		t.Fatalf("subscribeMetaInstanceCloudRelay error: %v", err)
+	}
+	if len(cloudClient.subscribedHandlersSnapshot()) != 0 {
+		t.Errorf("expected no subscriptions with an empty installation name, got %d", len(cloudClient.subscribedHandlersSnapshot()))
+	}
+}
+
 func TestPublishMetaReloadRestartButtonsNoOpWithNoInstallation(t *testing.T) {
 	client := &fakeClient{}
 	if err := publishMetaReloadRestartButtons(client, testPrefix, "", []string{"main"}); err != nil {
