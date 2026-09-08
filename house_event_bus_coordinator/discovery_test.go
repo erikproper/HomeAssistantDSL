@@ -58,6 +58,33 @@ func findAvailabilityEntry(body map[string]interface{}, topic string) map[string
 	return nil
 }
 
+// TestBuildAvailabilityFieldsNodeFactorAcceptsBothOnOffConventions is a regression test for a
+// real bug found live 2026-09-08: buildAvailabilityFields is shared by both the hassbridge
+// entity-availability path (whose own node topic relays a real HA entity's lowercase "on"/"off")
+// and the cross-house import path, which can wrap a hosts-kind device instead -- and a hosts-kind
+// node topic always publishes the coordinator's own "true"/"false" convention
+// (discovery.go's TBinarySensorDiscoveryPayload, unconditional for every hosts device). Hardcoding
+// "on"/"off" as the node factor's own payload_available/payload_not_available silently broke
+// availability for an imported hosts-kind device's own node topic: "true" never matched "on", so
+// every one of that device's OTHER capabilities (e.g. cpu/load) showed permanently unavailable.
+// The value_template must normalise both conventions to the same "on"/"off" pair.
+func TestBuildAvailabilityFieldsNodeFactorAcceptsBothOnOffConventions(t *testing.T) {
+	body := map[string]interface{}{}
+	buildAvailabilityFields(body, "state/topic", "node/topic")
+
+	entry := findAvailabilityEntry(body, "node/topic")
+	if entry == nil {
+		t.Fatalf("expected a node-topic availability entry, got %+v", body["availability"])
+	}
+	tmpl, ok := entry["value_template"].(string)
+	if !ok || tmpl == "" {
+		t.Fatalf("expected a value_template on the node-topic entry to normalise both conventions, got %+v", entry)
+	}
+	if entry["payload_available"] != "on" || entry["payload_not_available"] != "off" {
+		t.Errorf("payload_available/payload_not_available = %v/%v, want \"on\"/\"off\" (the template's own normalised output)", entry["payload_available"], entry["payload_not_available"])
+	}
+}
+
 // TestAvailabilityTopicForGatesOnNodeCapability covers the shared rule every device kind with a
 // node/connectivity entity follows (generalised live 2026-08-31 from what started as hosts-only
 // duplicated logic): every other capability's availability_topic points at the node topic, the

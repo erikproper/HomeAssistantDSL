@@ -199,12 +199,12 @@ func (t *TCloudLivenessTracker) Touch(mainClient, cloudClient mqtt.Client, devic
 	if nodeTopic == "" {
 		return
 	}
-	if err := publishRetained(mainClient, nodeTopic, []byte("true")); err != nil {
+	if err := publishRetained(mainClient, nodeTopic, []byte(mqttBoolPayloadTrue)); err != nil {
 		fmt.Printf("[liveness] %s: publishing %s: %v\n", deviceID, nodeTopic, err)
 	}
 	if cloudClient != nil && qualifier != "" {
 		cloudTopic := qualifyHostsTopic(nodeTopic, qualifier)
-		if err := publishRetained(cloudClient, cloudTopic, []byte("true")); err != nil {
+		if err := publishRetained(cloudClient, cloudTopic, []byte(mqttBoolPayloadTrue)); err != nil {
 			fmt.Printf("[liveness] %s: publishing %s: %v\n", deviceID, cloudTopic, err)
 		}
 	}
@@ -253,14 +253,14 @@ func (t *TCloudLivenessTracker) sweepOnce(mainClient, cloudClient mqtt.Client, d
 		if !known || device.NodeTopic == "" {
 			continue
 		}
-		if err := publishRetained(mainClient, device.NodeTopic, []byte("false")); err != nil {
+		if err := publishRetained(mainClient, device.NodeTopic, []byte(mqttBoolPayloadFalse)); err != nil {
 			fmt.Printf("[liveness] %s: publishing %s: %v\n", deviceID, device.NodeTopic, err)
 			continue
 		}
 		fmt.Printf("[liveness] %s: no traffic for over %s, marked unavailable\n", deviceID, cloudDeviceStaleAfter)
 		if cloudClient != nil && device.ImportedFrom != "" {
 			cloudTopic := qualifyHostsTopic(device.NodeTopic, device.ImportedFrom)
-			if err := publishRetained(cloudClient, cloudTopic, []byte("false")); err != nil {
+			if err := publishRetained(cloudClient, cloudTopic, []byte(mqttBoolPayloadFalse)); err != nil {
 				fmt.Printf("[liveness] %s: publishing %s: %v\n", deviceID, cloudTopic, err)
 			}
 		}

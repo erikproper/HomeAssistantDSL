@@ -29,6 +29,38 @@ import (
 	"strings"
 )
 
+// This coordinator's three distinct MQTT payload conventions for on/off-shaped state, named once
+// here rather than repeated as bare string literals at every PayloadOn/PayloadOff/PayloadAvailable/
+// PayloadNotAvailable call site across this package. Added 2026-09-08 directly because of a real
+// bug this same drift caused: buildAvailabilityFields' own node-topic factor hardcoded
+// mqttStateOn/mqttStateOff without knowing a hosts-kind node topic actually publishes
+// mqttBoolPayloadTrue/False instead, silently breaking availability for any hosts-kind device
+// relayed through cross-house import. Naming each convention explicitly at least makes a future
+// mismatch a visible choice between the wrong constant, not a silent, easy-to-miss literal typo.
+const (
+	// mqttBoolPayloadTrue/False is a plain Go-boolean-string -- this coordinator's own convention
+	// for a "hosts"-kind device's node/switch entities (discovery.go's TBinarySensorDiscoveryPayload,
+	// unconditional for every hosts device) and the "commandline" integration's own node/
+	// availability topics (discoverycommandline.go) -- never HA's own native on/off spelling.
+	mqttBoolPayloadTrue  = "true"
+	mqttBoolPayloadFalse = "false"
+
+	// mqttStateOn/Off is Home Assistant's own native lowercase binary_sensor state convention --
+	// used when this coordinator proxies a REAL HA entity's own on/off state verbatim (a
+	// hassbridge-kind binary_sensor, applyProxiedBinarySensorPayload) and by
+	// buildAvailabilityFields' own node-topic availability factor (which normalises either
+	// mqttStateOn/Off or mqttBoolPayloadTrue/False, via its own value_template, to this pair).
+	mqttStateOn  = "on"
+	mqttStateOff = "off"
+
+	// mqttStateAvailable/Unavailable is buildAvailabilityFields' own state-topic availability
+	// factor's normalised pair -- mqttStateUnavailable also doubles as the literal string a proxied
+	// HA entity's own last-reported state naturally becomes when its upstream integration can't
+	// read it (never a value this coordinator invents itself).
+	mqttStateAvailable   = "available"
+	mqttStateUnavailable = "unavailable"
+)
+
 // TDiscoveryDevice is the shared HA discovery "device:" block grouping a device's node and
 // attribute entities under one HA device (Architecture.md §6.6). Name is the location-aware
 // TDeviceConceptual.DisplayName when available ("infrastructural/garage/smarty"), falling
@@ -313,16 +345,28 @@ func buildAvailabilityFields(body map[string]interface{}, stateTopic, nodeTopic 
 	entries := []map[string]interface{}{
 		{
 			"topic":                 stateTopic,
-			"value_template":        "{{ 'unavailable' if value == 'unavailable' else 'available' }}",
-			"payload_available":     "available",
-			"payload_not_available": "unavailable",
+			"value_template":        fmt.Sprintf("{{ '%s' if value == '%s' else '%s' }}", mqttStateUnavailable, mqttStateUnavailable, mqttStateAvailable),
+			"payload_available":     mqttStateAvailable,
+			"payload_not_available": mqttStateUnavailable,
 		},
 	}
 	if nodeTopic != "" {
+		// value_template normalises BOTH conventions a node topic can carry, rather than assuming
+		// one -- a hassbridge-kind node relays a real HA entity's own lowercase mqttStateOn/Off
+		// (applyProxiedBinarySensorPayload), but a hosts-kind node topic publishes the coordinator's
+		// own mqttBoolPayloadTrue/False (discovery.go's TBinarySensorDiscoveryPayload{PayloadOn:
+		// mqttBoolPayloadTrue, ...}, unconditional for every hosts device). This function is shared
+		// by both the hassbridge entity-availability path AND the cross-house import path -- and an
+		// import can wrap EITHER kind (kind-agnostic since 2026-09-05), so hardcoding one literal
+		// here silently broke availability for an imported hosts-kind device's own node topic
+		// specifically (real bug found live 2026-09-08: an imported host's cpu/load sensor showed
+		// unavailable forever, since its own node topic's "true"/"false" never matched a hardcoded
+		// "on"/"off" check).
 		entries = append(entries, map[string]interface{}{
 			"topic":                 nodeTopic,
-			"payload_available":     "on",
-			"payload_not_available": "off",
+			"value_template":        fmt.Sprintf("{{ '%s' if value in ['%s', '%s'] else '%s' }}", mqttStateOn, mqttStateOn, mqttBoolPayloadTrue, mqttStateOff),
+			"payload_available":     mqttStateOn,
+			"payload_not_available": mqttStateOff,
 		})
 	}
 	body["availability"] = entries
@@ -342,8 +386,8 @@ func applyProxiedBinarySensorPayload(body map[string]interface{}, localEntity st
 	if !strings.HasPrefix(localEntity, "binary_sensor.") {
 		return
 	}
-	body["payload_on"] = "on"
-	body["payload_off"] = "off"
+	body["payload_on"] = mqttStateOn
+	body["payload_off"] = mqttStateOff
 }
 
 // buildDiscoveryConfigs returns every HA MQTT Discovery config implied by one devices.yaml
@@ -394,8 +438,8 @@ func buildDiscoveryConfigs(deviceID string, device TDevice, live map[string]stri
 				DefaultEntityID: device.Conceptual.NodeEntity,
 				Name:            nil, // device.name alone -- the node entity IS the device, no distinguishing name needed
 				StateTopic:      device.NodeTopic,
-				PayloadOn:       "true",
-				PayloadOff:      "false",
+				PayloadOn:       mqttBoolPayloadTrue,
+				PayloadOff:      mqttBoolPayloadFalse,
 				DeviceClass:     device.Conceptual.NodeDeviceClass,
 				Icon:            device.Conceptual.NodeIcon,
 				Device:          devBlock,
@@ -432,8 +476,8 @@ func buildDiscoveryConfigs(deviceID string, device TDevice, live map[string]stri
 				StateTopic:          device.Topic,
 				ValueTemplate:       "{{ value_json." + attr + " }}",
 				AvailabilityTopic:   availabilityTopicFor(device.NodeTopic, attr),
-				PayloadAvailable:    "true",
-				PayloadNotAvailable: "false",
+				PayloadAvailable:    mqttBoolPayloadTrue,
+				PayloadNotAvailable: mqttBoolPayloadFalse,
 				DeviceClass:         link.DeviceClass,
 				UnitOfMeasurement:   link.Unit,
 				StateClass:          link.StateClass,
