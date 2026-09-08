@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -94,6 +96,23 @@ end;`
 	attr, ok := link.ConstantAttributes["suggested_area"]
 	if !ok || attr.Value == "" {
 		t.Errorf("suggested_area = %+v (ok=%v), want it inherited from the enclosing \"social:terrace as area\" space", attr, ok)
+	}
+
+	// Administration state alone isn't enough -- confirm it actually reaches the generated file
+	// the coordinator reads. Real bug found live 2026-09-08: this exact value was correctly
+	// computed above, but generateImportedDeviceFile never serialized ConstantAttributes at all,
+	// so it silently never left the generator.
+	devices := []TImportedDevice{{DeviceID: "hass.vienna_shower_room", RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_shower_room", Capabilities: importedDevicesByID["hass.vienna_shower_room"].Capabilities}}
+	outputRoot := t.TempDir()
+	if err := generateImportedDeviceFile(outputRoot, devices, admin); err != nil {
+		t.Fatalf("generateImportedDeviceFile error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(outputRoot, "coordinator", "imported.yaml"))
+	if err != nil {
+		t.Fatalf("reading generated file: %v", err)
+	}
+	if !strings.Contains(string(data), "suggested_area") {
+		t.Errorf("generated imported.yaml = %s, want it to contain \"suggested_area\"", data)
 	}
 }
 

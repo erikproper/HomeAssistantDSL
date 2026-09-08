@@ -207,6 +207,46 @@ func TestBuildImportedDiscoveryBodyDeviceNameFallsBackToLocalDeviceID(t *testing
 	}
 }
 
+// TestBuildImportedDiscoveryBodyAppliesLocalSuggestedArea is a regression test for a real gap
+// found live 2026-09-08: an imported device positioned inside a local "as area" space had its
+// suggested_area correctly computed generator-side (registerImportedDevicePositioning,
+// Conceptual_DevicePositioning.go), but nothing ever serialized it into imported.yaml, so it never
+// reached the coordinator at all. Confirms it flows device.ConstantAttributes ->
+// importCapabilityMatch.SuggestedArea -> the discovery body's own device block -- deliberately
+// local, never read from the exporter's own payload (unlike manufacturer/model).
+func TestBuildImportedDiscoveryBodyAppliesLocalSuggestedArea(t *testing.T) {
+	importFile := TImportedFile{Devices: map[string]TImportedDevice{
+		"hass.vienna_livingroom": {
+			RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_livingroom",
+			Capabilities: map[string]TImportedCapability{
+				"co2": {LocalEntity: "sensor.physical_apartment_living_room_netatmo_co2"},
+			},
+			ConstantAttributes: map[string]TConceptualConstant{"suggested_area": {Value: "social/living_room"}},
+		},
+	}}
+	stableID := exportStableID("junglinster", "hass.vienna_livingroom", "co2")
+	match, ok := matchImportedCapabilityByStableID(importFile, "junglinster", "homeassistant/sensor/coordinator/"+stableID+"/config")
+	if !ok {
+		t.Fatalf("expected a match")
+	}
+	if match.SuggestedArea != "social/living_room" {
+		t.Fatalf("match.SuggestedArea = %q, want %q", match.SuggestedArea, "social/living_room")
+	}
+
+	payload := importedDiscoveryPayload{DefaultEntityID: "sensor.vienna_carbon_dioxide"}
+	payload.Device.Identifiers = []string{"hass.vienna_livingroom"}
+	payload.Device.Manufacturer = "Netatmo" // exporter-learned, must coexist with the local area
+
+	body := buildImportedDiscoveryBody(match, payload, "")
+	device := body["device"].(map[string]interface{})
+	if device["suggested_area"] != "social/living_room" {
+		t.Errorf("device.suggested_area = %v, want %q", device["suggested_area"], "social/living_room")
+	}
+	if device["manufacturer"] != "Netatmo" {
+		t.Errorf("device.manufacturer = %v, want it preserved alongside the local area", device["manufacturer"])
+	}
+}
+
 // TestImportedAvailabilityTopicPointsAtDevicesNode covers the real gap found live 2026-08-31: a
 // device's upstream integration may correctly track connectivity on its own native entity while
 // leaving every other imported entity frozen at its last value with no "unavailable" signal at

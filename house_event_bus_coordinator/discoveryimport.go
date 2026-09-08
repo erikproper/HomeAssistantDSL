@@ -90,11 +90,19 @@ type TImportedCapability struct {
 // DisplayName is THIS house's own space-positioning-derived name for the device
 // (deviceDisplayName, generator-side) -- never the exporting installation's own name for it, same
 // principle as every other device kind's own "device:" block name.
+// ConstantAttributes (added 2026-09-08) only ever carries "suggested_area" today -- a purely
+// local Spaces.def positioning concept (which area THIS house's own "as area" space put the
+// device under), never something the exporting installation should dictate. Unlike
+// manufacturer/model/..., which genuinely belong to the remote device and are instead learned
+// live from the exporter's own cloud-crossed discovery config (buildImportedDiscoveryBody's own
+// payload.Device fields) -- reuses the same shared TConceptualConstant shape every other device
+// kind's own constant attributes already use, not a hassbridge-specific concept.
 type TImportedDevice struct {
 	RemoteInstallation string                         `yaml:"remote_installation"`
 	RemoteDeviceID     string                         `yaml:"remote_device_id"`
 	DisplayName        string                         `yaml:"display_name"`
 	Capabilities       map[string]TImportedCapability `yaml:"capabilities"`
+	ConstantAttributes map[string]TConceptualConstant `yaml:"constant_attributes"`
 }
 
 // TImportedFile is the top-level shape of a generated coordinator/imported.yaml.
@@ -212,6 +220,10 @@ type importCapabilityMatch struct {
 	Capability    string
 	LocalEntity   string
 	DisplayName   string
+	// SuggestedArea is TImportedDevice.ConstantAttributes' own "suggested_area" value, if declared
+	// -- see TImportedDevice's own doc comment for why this is the one constant attribute an
+	// import carries locally, rather than learning it from the exporter like manufacturer/model.
+	SuggestedArea string
 }
 
 // matchImportedCapabilityByStableID finds which declared import capability (if any) a topic
@@ -247,7 +259,7 @@ func matchImportedCapabilityByStableID(importFile TImportedFile, remoteInstallat
 			if exportStableID(device.RemoteInstallation, device.RemoteDeviceID, capability) != stableID {
 				continue
 			}
-			return importCapabilityMatch{LocalDeviceID: localDeviceID, Capability: capability, LocalEntity: cap.LocalEntity, DisplayName: device.DisplayName}, true
+			return importCapabilityMatch{LocalDeviceID: localDeviceID, Capability: capability, LocalEntity: cap.LocalEntity, DisplayName: device.DisplayName, SuggestedArea: device.ConstantAttributes["suggested_area"].Value}, true
 		}
 	}
 	return importCapabilityMatch{}, false
@@ -322,6 +334,11 @@ func buildImportedDiscoveryBody(match importCapabilityMatch, payload importedDis
 	}
 	if payload.Device.SerialNumber != "" {
 		deviceBlock["serial_number"] = payload.Device.SerialNumber
+	}
+	// suggested_area is local (match.SuggestedArea, from imported.yaml's own constant_attributes),
+	// never learned from the remote payload -- see importCapabilityMatch's own doc comment.
+	if match.SuggestedArea != "" {
+		deviceBlock["suggested_area"] = match.SuggestedArea
 	}
 	body := map[string]interface{}{
 		"unique_id":         importedUniqueID(match.LocalEntity),

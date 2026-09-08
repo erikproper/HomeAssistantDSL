@@ -452,15 +452,23 @@ func main() {
 			return
 		}
 		if device, known := hassBridgeFile.Devices[deviceID]; known {
-			// reportingInstance "" (rather than whichever instance actually triggered this change)
-			// deliberately makes republishHassBridgeDeviceCapabilities' own exportToCloud guard
-			// false here -- this generic callback doesn't know which instance made the change (the
-			// store only ever hands back deviceID), so an exported device's cloud cross-post of
-			// THIS specific change is skipped, not risked with a wrong instance. Its local
-			// discovery config still gets the fresh data either way; the cloud copy catches up on
-			// that same exported device's own next dedicated device-info report (still handled,
-			// unaffected, by subscribeHassBridgeDeviceInfo above).
-			republishHassBridgeDeviceCapabilities(client, cloudClient, devicesFile.Installation, "", deviceID, device, store, publisher, conceptualPrefix, existenceTracker)
+			// This generic callback only ever hands back deviceID, not which instance made the
+			// change -- but republishHassBridgeDeviceCapabilities' exportToCloud guard only exists
+			// to rule out a self-import feedback loop (subscribeHassBridge's own doc comment), and
+			// that risk doesn't apply here: subscribeHassBridgeSelfImport never touches this store
+			// at all (it only relays entity *values*, never device-info), and every OTHER path that
+			// feeds this store for a hassbridge device (entity-existence inquiry replies) only ever
+			// runs against instances this exact device itself declares (Seed's own scoping). So any
+			// of device.Instances is a legitimate stand-in here -- picking the first is enough to
+			// satisfy the guard correctly, letting an exported device's manufacturer/model actually
+			// cross the cloud broker for an importing house to pick up, not just update locally
+			// (found live 2026-09-08: Vienna's own imported copy of a Junglinster-exported Netatmo
+			// device never got manufacturer/model, even though Junglinster's own local copy did).
+			reportingInstance := ""
+			if len(device.Instances) > 0 {
+				reportingInstance = device.Instances[0]
+			}
+			republishHassBridgeDeviceCapabilities(client, cloudClient, devicesFile.Installation, reportingInstance, deviceID, device, store, publisher, conceptualPrefix, existenceTracker)
 		}
 	})
 	// PROJECT.md item 1 (2026-09-07): kind-4 existence tracking for shorthand-declared import

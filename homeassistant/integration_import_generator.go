@@ -102,6 +102,21 @@ func generateImportedDeviceFile(outputRoot string, devices []TImportedDevice, ad
 		}
 		sb.WriteString("    capabilities:\n")
 		sb.WriteString(capLines.String())
+
+		// suggested_area (added 2026-09-08) is the one constant attribute an imported device can
+		// carry -- purely a local Spaces.def positioning concept (which area this house's own
+		// "as area" space put it under), never something the exporting installation should dictate,
+		// unlike manufacturer/model/... which genuinely belong to the remote device and are instead
+		// learned live from the exporter's own cloud-crossed discovery config
+		// (discoveryimport.go's buildImportedDiscoveryBody). Real gap found live 2026-09-08:
+		// registerImportedDevicePositioning (Conceptual_DevicePositioning.go) already computed this
+		// into link.ConstantAttributes, but nothing here ever serialized it into imported.yaml, so
+		// it never reached the coordinator at all.
+		if area, ok := link.ConstantAttributes["suggested_area"]; ok && area.Value != "" {
+			sb.WriteString("    constant_attributes:\n")
+			sb.WriteString("      suggested_area:\n")
+			sb.WriteString("        value: \"" + area.Value + "\"\n")
+		}
 	}
 
 	if !written {
