@@ -53,6 +53,46 @@ type TDiscoveryDevice struct {
 	ViaDevice        string   `json:"via_device,omitempty"`
 }
 
+// withoutSuggestedArea returns a copy of d with SuggestedArea cleared -- for a cloud-crossing
+// discovery payload of any kind (hosts, hassbridge, ...): which area a device sits in is always
+// THIS house's own local Spaces.def positioning (registerHostNodeEntity/registerDevicePositioning's
+// "as area" default, or a device's own explicit override), never a fact for an importing house to
+// inherit -- the importer computes its own suggested_area from its own local space definitions
+// instead (registerImportedDevicePositioning). Real leak found live 2026-09-08: every cloud-crossing
+// payload reused the exact same TDiscoveryDevice value the local payload used, so an exporting
+// house's own suggested_area was silently crossing the cloud broker verbatim (an importer never
+// reads it back out, since importedDiscoveryPayload has no such field to decode -- but publishing it
+// there at all still leaks this house's own space layout onto a shared broker unnecessarily).
+func (d TDiscoveryDevice) withoutSuggestedArea() TDiscoveryDevice {
+	d.SuggestedArea = ""
+	return d
+}
+
+// cloudSafePayload returns a copy of payload (a TDiscoveryConfig.Payload value -- one of this
+// package's own *DiscoveryPayload struct types, each carrying a Device TDiscoveryDevice field) with
+// Device.SuggestedArea cleared, for publishDeviceDiscovery's own cloud leg -- see
+// TDiscoveryDevice.withoutSuggestedArea's own doc comment for why. Falls back to payload unchanged
+// for any type not yet covered here (never silently drops a whole payload, just doesn't strip a
+// field it doesn't know the shape of -- new payload types should add a case here as they're added).
+func cloudSafePayload(payload interface{}) interface{} {
+	switch p := payload.(type) {
+	case TBinarySensorDiscoveryPayload:
+		p.Device = p.Device.withoutSuggestedArea()
+		return p
+	case TSensorDiscoveryPayload:
+		p.Device = p.Device.withoutSuggestedArea()
+		return p
+	case TCommandlineSwitchDiscoveryPayload:
+		p.Device = p.Device.withoutSuggestedArea()
+		return p
+	case TCommandlineButtonDiscoveryPayload:
+		p.Device = p.Device.withoutSuggestedArea()
+		return p
+	default:
+		return payload
+	}
+}
+
 // TDiscoveryOrigin identifies this coordinator as the software that published a discovery config
 // -- HA's own MQTT discovery schema has recommended an "origin" block (sibling of "device", not
 // nested inside it) since 2023.11; every well-behaved MQTT integration includes one (confirmed

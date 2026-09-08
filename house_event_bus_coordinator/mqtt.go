@@ -73,11 +73,11 @@ func publishDeviceDiscovery(mainClient, cloudClient mqtt.Client, ownInstallation
 
 	published := 0
 	for _, cfg := range buildDiscoveryConfigs(deviceID, device, live, viaDeviceID, prefix) {
-		data, err := json.Marshal(cfg.Payload)
-		if err != nil {
-			return published, fmt.Errorf("marshalling discovery payload for %s: %w", cfg.Topic, err)
-		}
 		if plan.PublishMain {
+			data, err := json.Marshal(cfg.Payload)
+			if err != nil {
+				return published, fmt.Errorf("marshalling discovery payload for %s: %w", cfg.Topic, err)
+			}
 			if err := publisher.Publish(mainClient, "main", cfg.Topic, data); err != nil {
 				return published, err
 			}
@@ -92,9 +92,18 @@ func publishDeviceDiscovery(mainClient, cloudClient mqtt.Client, ownInstallation
 			// previously this was ownInstallation+"/"+cfg.Topic, the SAME id the local config uses,
 			// which was NOT independent of this house's own local naming the way the hassbridge
 			// side already was fixed to be.
+			//
+			// cloudSafePayload (added 2026-09-08) strips suggested_area before this crosses the
+			// cloud broker -- see TDiscoveryDevice.withoutSuggestedArea's own doc comment. Marshalled
+			// separately from the local payload above (this used to reuse the exact same bytes),
+			// since the two payloads can now genuinely differ.
+			cloudData, err := json.Marshal(cloudSafePayload(cfg.Payload))
+			if err != nil {
+				return published, fmt.Errorf("marshalling cloud discovery payload for %s: %w", cfg.Topic, err)
+			}
 			stableID := exportStableID(ownInstallation, deviceID, cfg.Capability)
 			qualifiedTopic := ownInstallation + "/" + discoveryTopic(prefix, cfg.Component, stableID)
-			if err := publisher.Publish(cloudClient, "cloud_coordinator", qualifiedTopic, data); err != nil {
+			if err := publisher.Publish(cloudClient, "cloud_coordinator", qualifiedTopic, cloudData); err != nil {
 				return published, err
 			}
 			published++

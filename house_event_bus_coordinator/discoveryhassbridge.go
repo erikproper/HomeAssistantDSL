@@ -560,7 +560,10 @@ func subscribeHassBridge(client, cloudClient mqtt.Client, ownInstallation string
 				cloudAvailabilityTopic = qualifier + "/" + canonicalizeRoamingBridgeTopic(availabilityTopic, device)
 			}
 			stableID := exportStableID(qualifier, found.DeviceID, found.Capability)
-			cloudBody := buildHassBridgeEntityDiscoveryBody(stableID, localEntity, found, qualifier+"/"+cloudBareTopic, devBlock, cloudAvailabilityTopic, liveUnit, liveDeviceClass)
+			// devBlock.withoutSuggestedArea(): which area a device sits in is always this house's
+			// own local Spaces.def positioning, never a fact for an importing house to inherit --
+			// see TDiscoveryDevice.withoutSuggestedArea's own doc comment.
+			cloudBody := buildHassBridgeEntityDiscoveryBody(stableID, localEntity, found, qualifier+"/"+cloudBareTopic, devBlock.withoutSuggestedArea(), cloudAvailabilityTopic, liveUnit, liveDeviceClass)
 			cloudBody["installation"] = qualifier
 			cloudData, err := json.Marshal(cloudBody)
 			if err != nil {
@@ -644,7 +647,9 @@ func republishHassBridgeDeviceCapabilities(client, cloudClient mqtt.Client, ownI
 				cloudAvailabilityTopic = qualifier + "/" + canonicalizeRoamingBridgeTopic(availabilityTopic, device)
 			}
 			stableID := exportStableID(qualifier, deviceID, capability)
-			cloudBody := buildHassBridgeEntityDiscoveryBody(stableID, cap.LocalEntity, found, cloudStateTopic, devBlock, cloudAvailabilityTopic, liveUnit, liveDeviceClass)
+			// devBlock.withoutSuggestedArea(): see the identical comment in subscribeHassBridge's
+			// own handler above.
+			cloudBody := buildHassBridgeEntityDiscoveryBody(stableID, cap.LocalEntity, found, cloudStateTopic, devBlock.withoutSuggestedArea(), cloudAvailabilityTopic, liveUnit, liveDeviceClass)
 			cloudBody["installation"] = qualifier
 			cloudData, err := json.Marshal(cloudBody)
 			if err != nil {

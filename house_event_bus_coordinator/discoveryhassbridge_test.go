@@ -640,6 +640,78 @@ func TestSubscribeHassBridgeExportCloudAvailabilityTopicIsInstallationQualified(
 	}
 }
 
+// TestSubscribeHassBridgeExportStripsSuggestedAreaFromCloudOnly is a regression test for a real
+// leak found live 2026-09-08: the cloud-crossing discovery body reused the exact same devBlock the
+// local one used, so an exported device's own suggested_area (this house's local Spaces.def "as
+// area" positioning) crossed the cloud broker verbatim. See TDiscoveryDevice.withoutSuggestedArea's
+// own doc comment for why an importing house must always compute this itself instead.
+func TestSubscribeHassBridgeExportStripsSuggestedAreaFromCloudOnly(t *testing.T) {
+	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
+		"hass.vienna_terrace": {
+			Instances:          []string{"protocols-server-2"},
+			Export:             true,
+			ConstantAttributes: map[string]TConceptualConstant{"suggested_area": {Value: "social/terrace"}},
+			Capabilities: map[string]THassBridgeCapability{
+				"temperature": {
+					SourceEntities: map[string]string{"protocols-server-2": "sensor.vienna_terrace_temperature"},
+					LocalEntity:    "sensor.infrastructural_vienna_terrace_temperature",
+				},
+			},
+		},
+	}}
+
+	localTopic := "homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_vienna_terrace_temperature/state"
+	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte("21.4")}}}
+	cloudClient := &fakeClient{}
+	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
+	store := NewLiveDeviceInfoStore("", nil)
+
+	if err := subscribeHassBridge(client, cloudClient, "junglinster", bridgeFile, store, publisher, testPrefix, nil); err != nil {
+		t.Fatalf("subscribeHassBridge error: %v", err)
+	}
+
+	localDiscoveryTopic, ok := hassBridgeDiscoveryTopic("sensor.infrastructural_vienna_terrace_temperature", testPrefix)
+	if !ok {
+		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
+	}
+	localPublish, found := findPublish(client.publishedSnapshot(), localDiscoveryTopic)
+	if !found {
+		t.Fatalf("expected a local discovery publish to %q, got %+v", localDiscoveryTopic, client.publishedSnapshot())
+	}
+	var localBody struct {
+		Device struct {
+			SuggestedArea string `json:"suggested_area"`
+		} `json:"device"`
+	}
+	if err := json.Unmarshal(localPublish.payload, &localBody); err != nil {
+		t.Fatalf("unmarshalling local discovery payload: %v", err)
+	}
+	if localBody.Device.SuggestedArea != "social/terrace" {
+		t.Errorf("local discovery device.suggested_area = %q, want %q", localBody.Device.SuggestedArea, "social/terrace")
+	}
+
+	stableID := exportStableID("junglinster", "hass.vienna_terrace", "temperature")
+	cloudDiscoveryTopic, ok := hassBridgeCloudDiscoveryTopic("sensor.infrastructural_vienna_terrace_temperature", stableID, testPrefix)
+	if !ok {
+		t.Fatalf("hassBridgeCloudDiscoveryTopic returned ok=false")
+	}
+	cloudPublish, found := findPublish(cloudClient.publishedSnapshot(), "junglinster/"+cloudDiscoveryTopic)
+	if !found {
+		t.Fatalf("expected a cloud discovery publish to %q, got %+v", "junglinster/"+cloudDiscoveryTopic, cloudClient.publishedSnapshot())
+	}
+	var cloudBody struct {
+		Device struct {
+			SuggestedArea string `json:"suggested_area"`
+		} `json:"device"`
+	}
+	if err := json.Unmarshal(cloudPublish.payload, &cloudBody); err != nil {
+		t.Fatalf("unmarshalling cloud discovery payload: %v", err)
+	}
+	if cloudBody.Device.SuggestedArea != "" {
+		t.Errorf("cloud discovery device.suggested_area = %q, want it stripped", cloudBody.Device.SuggestedArea)
+	}
+}
+
 func TestSubscribeHassBridgeNonExportDeviceNeverPublishesToCloud(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.laserjet": {
