@@ -188,15 +188,17 @@ func TestSubscribeDiscoveryBridgeMarksExistenceAndPublishesStatus(t *testing.T) 
 	}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
 	tracker := newDiscoveryExistenceTracker("")
+	jobs := make(chan TDiscoveryRelayJob, 100)
 
 	client := &fakeClient{}
-	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, tracker, nil); err != nil {
+	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, tracker, nil, nil, jobs); err != nil {
 		t.Fatalf("subscribeDiscoveryBridge error: %v", err)
 	}
 	client.subscribedHandlers[0](client, fakeMessage{
 		topic:   "physical/sensor/ems-esp/boiler_outdoortemp/config",
 		payload: []byte(realEMSESPBoilerOutdoortempPayload),
 	})
+	drainDiscoveryRelayQueue(jobs, publisher)
 
 	if got := tracker.snapshot("discovery.ems_esp")["boiler_outdoortemp"]; got != StatusKnownToExist {
 		t.Errorf("status = %q, want %q", got, StatusKnownToExist)
@@ -221,18 +223,21 @@ func TestSubscribeDiscoveryBridgeRetractsOnEmptyPayload(t *testing.T) {
 	}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
 	tracker := newDiscoveryExistenceTracker("")
+	jobs := make(chan TDiscoveryRelayJob, 100)
 
 	client := &fakeClient{}
-	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, tracker, nil); err != nil {
+	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, tracker, nil, nil, jobs); err != nil {
 		t.Fatalf("subscribeDiscoveryBridge error: %v", err)
 	}
 	topic := "physical/sensor/ems-esp/boiler_outdoortemp/config"
 	client.subscribedHandlers[0](client, fakeMessage{topic: topic, payload: []byte(realEMSESPBoilerOutdoortempPayload)})
+	drainDiscoveryRelayQueue(jobs, publisher)
 	if got := tracker.snapshot("discovery.ems_esp")["boiler_outdoortemp"]; got != StatusKnownToExist {
 		t.Fatalf("precondition failed: status = %q, want %q", got, StatusKnownToExist)
 	}
 
 	client.subscribedHandlers[0](client, fakeMessage{topic: topic, payload: []byte{}})
+	drainDiscoveryRelayQueue(jobs, publisher)
 
 	if got := tracker.snapshot("discovery.ems_esp")["boiler_outdoortemp"]; got != StatusKnownNotToExist {
 		t.Errorf("status after retraction = %q, want %q", got, StatusKnownNotToExist)
@@ -269,15 +274,17 @@ func TestSubscribeDiscoveryBridgeToleratesNilExistenceTracker(t *testing.T) {
 		},
 	}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
+	jobs := make(chan TDiscoveryRelayJob, 100)
 
 	client := &fakeClient{}
-	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, nil, nil); err != nil {
+	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, nil, nil, nil, jobs); err != nil {
 		t.Fatalf("subscribeDiscoveryBridge error: %v", err)
 	}
 	client.subscribedHandlers[0](client, fakeMessage{
 		topic:   "physical/sensor/ems-esp/boiler_outdoortemp/config",
 		payload: []byte(realEMSESPBoilerOutdoortempPayload),
 	})
+	drainDiscoveryRelayQueue(jobs, publisher)
 
 	if _, found := findPublish(client.published, "homeassistant/sensor/coordinator/discovery_ems_esp_boiler_outdoortemp/config"); !found {
 		t.Errorf("expected the relayed discovery config publish to still happen, got %+v", client.published)
@@ -305,13 +312,15 @@ var zigbee2mqttPassthroughRules = []TDiscoveryPassthroughRule{
 func TestSubscribeDiscoveryBridgePassesThroughUnmatchedDevice(t *testing.T) {
 	discoveryFile := discoveryFileWithPassthrough(nil)
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
+	jobs := make(chan TDiscoveryRelayJob, 100)
 
 	client := &fakeClient{}
-	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, nil, zigbee2mqttPassthroughRules); err != nil {
+	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, nil, zigbee2mqttPassthroughRules, nil, jobs); err != nil {
 		t.Fatalf("subscribeDiscoveryBridge error: %v", err)
 	}
 	sourceTopic := "physical/sensor/zigbee2mqtt/0x00158d0001aabbcc_temperature/config"
 	client.subscribedHandlers[0](client, fakeMessage{topic: sourceTopic, payload: []byte(realZigbee2MQTTAqaraMultiPayload)})
+	drainDiscoveryRelayQueue(jobs, publisher)
 
 	wantTopic := "homeassistant/sensor/zigbee2mqtt/0x00158d0001aabbcc_temperature/config"
 	publish, found := findPublish(client.published, wantTopic)
@@ -323,6 +332,38 @@ func TestSubscribeDiscoveryBridgePassesThroughUnmatchedDevice(t *testing.T) {
 	}
 }
 
+// TestSubscribeDiscoveryBridgePassthroughSurvivesRetireMissing is the end-to-end regression test
+// for the real incident this session's RetireMissing fix exists for (2026-09-14, PROJECT.md item
+// 4): a passthrough-relayed device's topic must still be there after a simulated coordinator
+// restart's RetireMissing sweep, even though -- by definition -- no generator-computed expected set
+// can ever contain it (that's exactly why it's still on passthrough, not a declared gateway).
+// Before the fix, this exact sequence deleted the topic every time.
+func TestSubscribeDiscoveryBridgePassthroughSurvivesRetireMissing(t *testing.T) {
+	discoveryFile := discoveryFileWithPassthrough(nil)
+	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
+	jobs := make(chan TDiscoveryRelayJob, 100)
+
+	client := &fakeClient{}
+	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, nil, zigbee2mqttPassthroughRules, nil, jobs); err != nil {
+		t.Fatalf("subscribeDiscoveryBridge error: %v", err)
+	}
+	sourceTopic := "physical/sensor/zigbee2mqtt/0x00158d0001aabbcc_temperature/config"
+	client.subscribedHandlers[0](client, fakeMessage{topic: sourceTopic, payload: []byte(realZigbee2MQTTAqaraMultiPayload)})
+	drainDiscoveryRelayQueue(jobs, publisher)
+
+	wantTopic := "homeassistant/sensor/zigbee2mqtt/0x00158d0001aabbcc_temperature/config"
+	if _, found := findPublish(client.published, wantTopic); !found {
+		t.Fatalf("expected the passthrough publish to happen before the RetireMissing sweep")
+	}
+
+	// Simulate the next coordinator restart: an empty expected set, exactly as it would be for a
+	// house with no declared gateways at all yet.
+	retired := publisher.RetireMissing(client, "main", map[string]bool{})
+	if len(retired) != 0 {
+		t.Errorf("RetireMissing retired %v, want nothing -- passthrough-relayed topics must survive", retired)
+	}
+}
+
 // TestSubscribeDiscoveryBridgeDoesNotPassThroughNonMatchingPrefix confirms a device that matches
 // no gateway AND no declared passthrough prefix is still simply ignored, exactly as before this
 // item existed -- passthrough only widens what gets relayed, never relays everything on the
@@ -331,15 +372,17 @@ func TestSubscribeDiscoveryBridgeDoesNotPassThroughNonMatchingPrefix(t *testing.
 	discoveryFile := discoveryFileWithPassthrough(nil)
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
 	rules := []TDiscoveryPassthroughRule{{TopicPrefix: "zwave/", SourcePrefix: "physical"}}
+	jobs := make(chan TDiscoveryRelayJob, 100)
 
 	client := &fakeClient{}
-	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, nil, rules); err != nil {
+	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, nil, rules, nil, jobs); err != nil {
 		t.Fatalf("subscribeDiscoveryBridge error: %v", err)
 	}
 	client.subscribedHandlers[0](client, fakeMessage{
 		topic:   "physical/sensor/zigbee2mqtt/0x00158d0001aabbcc_temperature/config",
 		payload: []byte(realZigbee2MQTTAqaraMultiPayload),
 	})
+	drainDiscoveryRelayQueue(jobs, publisher)
 
 	if len(client.published) != 0 {
 		t.Errorf("expected no publish at all, got %+v", client.published)
@@ -355,15 +398,17 @@ func TestSubscribeDiscoveryBridgeSkipsPassthroughForDeclaredGateway(t *testing.T
 		"discovery.aqara_multi": {Identifiers: []string{"zigbee2mqtt_0x00158d0001aabbcc"}},
 	})
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
+	jobs := make(chan TDiscoveryRelayJob, 100)
 
 	client := &fakeClient{}
-	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, nil, zigbee2mqttPassthroughRules); err != nil {
+	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, nil, zigbee2mqttPassthroughRules, nil, jobs); err != nil {
 		t.Fatalf("subscribeDiscoveryBridge error: %v", err)
 	}
 	client.subscribedHandlers[0](client, fakeMessage{
 		topic:   "physical/sensor/zigbee2mqtt/0x00158d0001aabbcc_temperature/config",
 		payload: []byte(realZigbee2MQTTAqaraMultiPayload),
 	})
+	drainDiscoveryRelayQueue(jobs, publisher)
 
 	rawTopic := "homeassistant/sensor/zigbee2mqtt/0x00158d0001aabbcc_temperature/config"
 	if _, found := findPublish(client.published, rawTopic); found {
@@ -380,14 +425,16 @@ func TestSubscribeDiscoveryBridgeRetiresPassthroughOnceDeviceMigrates(t *testing
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
 	sourceTopic := "physical/sensor/zigbee2mqtt/0x00158d0001aabbcc_temperature/config"
 	rawTopic := "homeassistant/sensor/zigbee2mqtt/0x00158d0001aabbcc_temperature/config"
+	jobs := make(chan TDiscoveryRelayJob, 100)
 
 	// Round 1: not yet declared -- passes through raw.
 	client := &fakeClient{}
 	discoveryFile := discoveryFileWithPassthrough(nil)
-	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, nil, zigbee2mqttPassthroughRules); err != nil {
+	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, nil, zigbee2mqttPassthroughRules, nil, jobs); err != nil {
 		t.Fatalf("subscribeDiscoveryBridge error: %v", err)
 	}
 	client.subscribedHandlers[0](client, fakeMessage{topic: sourceTopic, payload: []byte(realZigbee2MQTTAqaraMultiPayload)})
+	drainDiscoveryRelayQueue(jobs, publisher)
 	if _, found := findPublish(client.published, rawTopic); !found {
 		t.Fatalf("precondition failed: expected the raw passthrough publish, got %+v", client.published)
 	}
@@ -398,10 +445,11 @@ func TestSubscribeDiscoveryBridgeRetiresPassthroughOnceDeviceMigrates(t *testing
 	migratedFile := discoveryFileWithPassthrough(map[string]TDiscoveryGateway{
 		"discovery.aqara_multi": {Identifiers: []string{"zigbee2mqtt_0x00158d0001aabbcc"}},
 	})
-	if err := subscribeDiscoveryBridge(client2, nil, "junglinster", migratedFile, publisher, testPrefix, nil, zigbee2mqttPassthroughRules); err != nil {
+	if err := subscribeDiscoveryBridge(client2, nil, "junglinster", migratedFile, publisher, testPrefix, nil, zigbee2mqttPassthroughRules, nil, jobs); err != nil {
 		t.Fatalf("subscribeDiscoveryBridge error: %v", err)
 	}
 	client2.subscribedHandlers[0](client2, fakeMessage{topic: sourceTopic, payload: []byte(realZigbee2MQTTAqaraMultiPayload)})
+	drainDiscoveryRelayQueue(jobs, publisher)
 
 	publish, found := findPublish(client2.published, rawTopic)
 	if !found {
@@ -409,6 +457,76 @@ func TestSubscribeDiscoveryBridgeRetiresPassthroughOnceDeviceMigrates(t *testing
 	}
 	if len(publish.payload) != 0 {
 		t.Errorf("retiring publish payload = %q, want empty", publish.payload)
+	}
+}
+
+// TestSubscribeDiscoveryBridgeRecordsPassthroughDevice is the regression test for the real gap
+// found live 2026-09-14: a device relayed raw via passthrough never showed up in
+// suggestions/discovery.txt at all, since nothing recorded it anywhere the generator could query.
+// A passthrough relay must also record the device (grouped by its own real identifier, with its
+// own reported name) on passthroughDeviceTracker.
+func TestSubscribeDiscoveryBridgeRecordsPassthroughDevice(t *testing.T) {
+	discoveryFile := discoveryFileWithPassthrough(nil)
+	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
+	deviceTracker := newPassthroughDeviceTracker("")
+	jobs := make(chan TDiscoveryRelayJob, 100)
+
+	client := &fakeClient{}
+	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, nil, zigbee2mqttPassthroughRules, deviceTracker, jobs); err != nil {
+		t.Fatalf("subscribeDiscoveryBridge error: %v", err)
+	}
+	client.subscribedHandlers[0](client, fakeMessage{
+		topic:   "physical/sensor/zigbee2mqtt/0x00158d0001aabbcc_temperature/config",
+		payload: []byte(realZigbee2MQTTAqaraMultiPayload),
+	})
+
+	snap := deviceTracker.snapshot()
+	entry, ok := snap["zigbee2mqtt_0x00158d0001aabbcc"]
+	if !ok {
+		t.Fatalf("expected the device to be tracked, got %+v", snap)
+	}
+	if entry.Name != "aqara_multi" {
+		t.Errorf("Name = %q, want %q", entry.Name, "aqara_multi")
+	}
+	leaf, ok := entry.Leaves["0x00158d0001aabbcc_temperature_zigbee2mqtt"]
+	if !ok {
+		t.Fatalf("expected the leaf to be tracked, got %+v", entry.Leaves)
+	}
+	if leaf.Domain != "sensor" {
+		t.Errorf("leaf domain = %q, want %q (the topic's own component)", leaf.Domain, "sensor")
+	}
+}
+
+// TestSubscribeDiscoveryBridgeForgetsPassthroughDeviceOnceMigrated confirms a device stops being
+// tracked for suggestion the moment it starts matching a declared gateway -- otherwise it would
+// keep being suggested for a migration it has already undergone.
+func TestSubscribeDiscoveryBridgeForgetsPassthroughDeviceOnceMigrated(t *testing.T) {
+	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
+	deviceTracker := newPassthroughDeviceTracker("")
+	sourceTopic := "physical/sensor/zigbee2mqtt/0x00158d0001aabbcc_temperature/config"
+	jobs := make(chan TDiscoveryRelayJob, 100)
+
+	client := &fakeClient{}
+	discoveryFile := discoveryFileWithPassthrough(nil)
+	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, nil, zigbee2mqttPassthroughRules, deviceTracker, jobs); err != nil {
+		t.Fatalf("subscribeDiscoveryBridge error: %v", err)
+	}
+	client.subscribedHandlers[0](client, fakeMessage{topic: sourceTopic, payload: []byte(realZigbee2MQTTAqaraMultiPayload)})
+	if _, ok := deviceTracker.snapshot()["zigbee2mqtt_0x00158d0001aabbcc"]; !ok {
+		t.Fatalf("precondition failed: expected the device to be tracked before migration")
+	}
+
+	client2 := &fakeClient{}
+	migratedFile := discoveryFileWithPassthrough(map[string]TDiscoveryGateway{
+		"discovery.aqara_multi": {Identifiers: []string{"zigbee2mqtt_0x00158d0001aabbcc"}},
+	})
+	if err := subscribeDiscoveryBridge(client2, nil, "junglinster", migratedFile, publisher, testPrefix, nil, zigbee2mqttPassthroughRules, deviceTracker, jobs); err != nil {
+		t.Fatalf("subscribeDiscoveryBridge error: %v", err)
+	}
+	client2.subscribedHandlers[0](client2, fakeMessage{topic: sourceTopic, payload: []byte(realZigbee2MQTTAqaraMultiPayload)})
+
+	if _, ok := deviceTracker.snapshot()["zigbee2mqtt_0x00158d0001aabbcc"]; ok {
+		t.Errorf("expected the device to be forgotten once migrated, got %+v", deviceTracker.snapshot())
 	}
 }
 
@@ -421,17 +539,20 @@ func TestSubscribeDiscoveryBridgeRetiresPassthroughOnUpstreamRetraction(t *testi
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
 	sourceTopic := "physical/sensor/zigbee2mqtt/0x00158d0001aabbcc_temperature/config"
 	rawTopic := "homeassistant/sensor/zigbee2mqtt/0x00158d0001aabbcc_temperature/config"
+	jobs := make(chan TDiscoveryRelayJob, 100)
 
 	client := &fakeClient{}
-	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, nil, zigbee2mqttPassthroughRules); err != nil {
+	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, nil, zigbee2mqttPassthroughRules, nil, jobs); err != nil {
 		t.Fatalf("subscribeDiscoveryBridge error: %v", err)
 	}
 	client.subscribedHandlers[0](client, fakeMessage{topic: sourceTopic, payload: []byte(realZigbee2MQTTAqaraMultiPayload)})
+	drainDiscoveryRelayQueue(jobs, publisher)
 	if _, found := findPublish(client.published, rawTopic); !found {
 		t.Fatalf("precondition failed: expected the raw passthrough publish, got %+v", client.published)
 	}
 
 	client.subscribedHandlers[0](client, fakeMessage{topic: sourceTopic, payload: []byte{}})
+	drainDiscoveryRelayQueue(jobs, publisher)
 
 	var last recordedPublish
 	found := false
@@ -457,15 +578,17 @@ func TestSubscribeDiscoveryBridgeMatchesCommandTopicPrefix(t *testing.T) {
 	const payload = `{"device":{"identifiers":["zigbee2mqtt_0xswitch"]},"command_topic":"zigbee2mqtt/hallway_switch/set","unique_id":"0xswitch_switch_zigbee2mqtt"}`
 	discoveryFile := discoveryFileWithPassthrough(nil)
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
+	jobs := make(chan TDiscoveryRelayJob, 100)
 
 	client := &fakeClient{}
-	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, nil, zigbee2mqttPassthroughRules); err != nil {
+	if err := subscribeDiscoveryBridge(client, nil, "junglinster", discoveryFile, publisher, testPrefix, nil, zigbee2mqttPassthroughRules, nil, jobs); err != nil {
 		t.Fatalf("subscribeDiscoveryBridge error: %v", err)
 	}
 	client.subscribedHandlers[0](client, fakeMessage{
 		topic:   "physical/switch/zigbee2mqtt/hallway_switch/config",
 		payload: []byte(payload),
 	})
+	drainDiscoveryRelayQueue(jobs, publisher)
 
 	wantTopic := "homeassistant/switch/zigbee2mqtt/hallway_switch/config"
 	if _, found := findPublish(client.published, wantTopic); !found {

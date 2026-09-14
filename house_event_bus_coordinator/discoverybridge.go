@@ -102,6 +102,28 @@ func matchesAnyPassthroughPrefix(topic string, prefixes []string) bool {
 	return false
 }
 
+// topicComponent extracts the HA component (domain) segment from a discovery config topic shaped
+// "<prefix>/<component>/<node_id>/<object_id>/config" -- passthrough's own suggestion tracking
+// uses this as the real, known domain, rather than guessing one the way discovery_existence.go's
+// own suggestion report has to for opaque gateway leaf names.
+func topicComponent(topic, prefix string) string {
+	rest := strings.TrimPrefix(topic, prefix+"/")
+	if idx := strings.Index(rest, "/"); idx >= 0 {
+		return rest[:idx]
+	}
+	return ""
+}
+
+// firstDeviceIdentifier returns payload's own primary device identifier -- the stable key
+// passthrough device tracking (and its Forget-on-migration counterpart) is keyed on -- or "" if
+// the payload carried none at all.
+func firstDeviceIdentifier(payload tDecodedDiscoveryPayload) string {
+	if len(payload.DeviceIdentifiers) == 0 {
+		return ""
+	}
+	return payload.DeviceIdentifiers[0]
+}
+
 // tFlexStringList decodes an HA discovery "ids"/"identifiers" field, which may be either a bare
 // string or a list of strings.
 type tFlexStringList []string
@@ -121,11 +143,13 @@ func (f *tFlexStringList) UnmarshalJSON(data []byte) error {
 }
 
 // rawDiscoveryDevice decodes an incoming payload's "dev"/"device" block -- just the fields this
-// bridge needs (identity + one-hop via_device), not HA's full device-map field set.
+// bridge needs (identity + one-hop via_device + a human-readable name for passthrough
+// suggestions, PROJECT.md item 4), not HA's full device-map field set.
 type rawDiscoveryDevice struct {
 	IDs         tFlexStringList `json:"ids"`
 	Identifiers tFlexStringList `json:"identifiers"`
 	ViaDevice   string          `json:"via_device"`
+	Name        string          `json:"name"`
 }
 
 func (d rawDiscoveryDevice) identifiers() []string {
@@ -168,6 +192,7 @@ type tDecodedDiscoveryPayload struct {
 	StateClass        string
 	DeviceIdentifiers []string
 	ViaDevice         string
+	DeviceName        string
 }
 
 func firstNonEmpty(a, b string) string {
@@ -207,6 +232,7 @@ func decodeDiscoveryPayload(raw []byte) (tDecodedDiscoveryPayload, error) {
 		StateClass:        firstNonEmpty(p.StateClass, p.StateClassFull),
 		DeviceIdentifiers: device.identifiers(),
 		ViaDevice:         device.ViaDevice,
+		DeviceName:        device.Name,
 	}, nil
 }
 
@@ -314,7 +340,29 @@ func buildRelayedDiscoveryConfig(entityID, gatewayID string, payload tDecodedDis
 // publisher actually knows about, not every declared-gateway message regardless of passthrough
 // history). Only rules whose declared source matches discoveryFile.PhysicalPrefix are actionable
 // here (passthroughTopicPrefixes) -- this subscription only ever sees that one prefix.
-func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation string, discoveryFile TDiscoveryFile, publisher *TDiscoveryPublisher, conceptualPrefix string, existenceTracker *TDiscoveryExistenceTracker, passthroughRules []TDiscoveryPassthroughRule) error {
+//
+// passthroughDeviceTracker (2026-09-14, found live: real Zigbee2MQTT traffic was flowing through
+// passthrough but never showed up in suggestions/discovery.txt) records every device passed
+// through, keyed by its own real device identifier, so the generator can suggest a ready-to-paste
+// declaration for it (discovery_passthrough_devices.go) -- forgotten again the instant a device
+// starts matching a declared gateway, right alongside the existing raw-topic retirement above.
+// Deliberately Record/Forget only here, never a per-message PublishStatus (a second real incident,
+// found live minutes after the first deploy of this same feature: the initial subscribe replays
+// the whole retained backlog synchronously, and a full-snapshot publish per newly-seen leaf
+// starved the client's own later subscribes of their timeout window, crash-looping the
+// coordinator) -- main.go publishes the tracker's status once at startup and once per reconnect
+// instead, which is all a generate-time suggestion feed needs. May be nil (tests that don't need
+// it).
+//
+// relayJobs (2026-09-14, discovery_relay_queue.go) is where every outbound publish/retire this
+// handler decides to make actually goes -- never called directly against publisher any more. See
+// that file's own header comment for the two real incidents (a fatal crash loop, then a confirmed
+// live "No ACK from MQTT server" warning on HA's own side) that made both decoupling AND throttling
+// necessary, not just one or the other. The raw passthrough publish below sets Passthrough: true so
+// RetireMissing's static startup sweep never deletes it out from under a live device -- see
+// TDiscoveryPublisher.RetireMissing's own doc comment for the real incident (2026-09-14) this
+// exists to prevent a repeat of.
+func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation string, discoveryFile TDiscoveryFile, publisher *TDiscoveryPublisher, conceptualPrefix string, existenceTracker *TDiscoveryExistenceTracker, passthroughRules []TDiscoveryPassthroughRule, passthroughDeviceTracker *TPassthroughDeviceTracker, relayJobs chan<- TDiscoveryRelayJob) error {
 	passthroughPrefixes := passthroughTopicPrefixes(passthroughRules, discoveryFile.PhysicalPrefix)
 
 	handler := func(_ mqtt.Client, msg mqtt.Message) {
@@ -330,7 +378,7 @@ func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation s
 				}
 			}
 			if publisher.Knows("main", passthroughTopic) {
-				publisher.RetireOne(client, "main", passthroughTopic)
+				enqueueDiscoveryRelayJob(relayJobs, TDiscoveryRelayJob{Action: discoveryRelayRetire, Client: client, Broker: "main", Topic: passthroughTopic})
 			}
 			return
 		}
@@ -347,11 +395,27 @@ func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation s
 		gatewayID, matched := matchingGateway(payload, discoveryFile.Gateways)
 		if !matched {
 			if matchesAnyPassthroughPrefix(payload.StateTopic, passthroughPrefixes) || matchesAnyPassthroughPrefix(payload.CommandTopic, passthroughPrefixes) {
-				if err := publisher.Publish(client, "main", passthroughTopic, msg.Payload()); err != nil {
-					fmt.Printf("[discovery-bridge] passthrough-relaying %s: %v\n", passthroughTopic, err)
-					return
+				// Payload bytes are copied: msg.Payload() isn't guaranteed valid once this handler
+				// returns, and this job may not actually be processed until well after that.
+				payloadCopy := append([]byte(nil), msg.Payload()...)
+				enqueueDiscoveryRelayJob(relayJobs, TDiscoveryRelayJob{Action: discoveryRelayPublish, Client: client, Broker: "main", Topic: passthroughTopic, Payload: payloadCopy, Passthrough: true})
+				fmt.Printf("[discovery-bridge] queued passthrough relay %s -> %s\n", msg.Topic(), passthroughTopic)
+				if passthroughDeviceTracker != nil {
+					deviceIdentifier := firstDeviceIdentifier(payload)
+					domain := topicComponent(msg.Topic(), discoveryFile.PhysicalPrefix)
+					// Record only -- deliberately NOT publishing a status update per message (real
+					// incident, found live 2026-09-14 right after this deployed: the coordinator's
+					// initial subscribe replays the ENTIRE retained backlog synchronously, one
+					// message at a time -- hundreds of them, each a "first time seen" leaf -- and a
+					// full-snapshot PublishStatus() call per leaf here (an ack-waiting network round
+					// trip) starved the client's own connection setup of time to finish its LATER
+					// subscribes within their own timeout window, crash-looping the whole
+					// coordinator on "subscribing to homeassistant_instances/+/bridge/+/state: timed
+					// out" every ~20s. The retained topic is still kept fresh -- just once per
+					// startup/reconnect (main.go), not per leaf; good enough for a generate-time
+					// suggestion feed nothing live depends on.
+					passthroughDeviceTracker.Record(deviceIdentifier, payload.DeviceName, domain, payload.UniqueID)
 				}
-				fmt.Printf("[discovery-bridge] passed through %s -> %s\n", msg.Topic(), passthroughTopic)
 			}
 			return
 		}
@@ -359,7 +423,12 @@ func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation s
 		if publisher.Knows("main", passthroughTopic) {
 			// This device just started matching a declared gateway -- retire whatever raw
 			// passthrough copy was relaying it before, so HA never shows both at once.
-			publisher.RetireOne(client, "main", passthroughTopic)
+			enqueueDiscoveryRelayJob(relayJobs, TDiscoveryRelayJob{Action: discoveryRelayRetire, Client: client, Broker: "main", Topic: passthroughTopic})
+		}
+		if passthroughDeviceTracker != nil {
+			// Forget only -- same "no per-message status publish" reasoning as the passthrough
+			// branch above.
+			passthroughDeviceTracker.Forget(firstDeviceIdentifier(payload))
 		}
 
 		if existenceTracker != nil {
@@ -385,11 +454,8 @@ func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation s
 				fmt.Printf("[discovery-bridge] %s: marshalling relayed payload: %v\n", entityID, err)
 				continue
 			}
-			if err := publisher.Publish(client, "main", topic, data); err != nil {
-				fmt.Printf("[discovery-bridge] publishing %s: %v\n", topic, err)
-				continue
-			}
-			fmt.Printf("[discovery-bridge] relayed %s (gateway %s, leaf %s) -> %s\n", entityID, gatewayID, payload.UniqueID, topic)
+			enqueueDiscoveryRelayJob(relayJobs, TDiscoveryRelayJob{Action: discoveryRelayPublish, Client: client, Broker: "main", Topic: topic, Payload: data})
+			fmt.Printf("[discovery-bridge] queued relay of %s (gateway %s, leaf %s) -> %s\n", entityID, gatewayID, payload.UniqueID, topic)
 		}
 	}
 

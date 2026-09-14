@@ -26,6 +26,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -178,6 +179,9 @@ type TDiscoveryFile struct {
 }
 
 func main() {
+	mqtt.ERROR = log.New(os.Stdout, "[paho-ERROR] ", 0)
+	mqtt.CRITICAL = log.New(os.Stdout, "[paho-CRITICAL] ", 0)
+	mqtt.WARN = log.New(os.Stdout, "[paho-WARN] ", 0)
 	dryRun := flag.Bool("dry-run", false, "print discovery topics/payloads instead of connecting and publishing")
 	flag.Parse()
 
@@ -411,6 +415,14 @@ func main() {
 	// own republish closure, set further down, can call PublishAll again on every reconnect --
 	// nil (and skipped there, same guard) when this house has no "discovery" integration.
 	var discoveryExistenceTracker *TDiscoveryExistenceTracker
+	// RE-ENABLED 2026-09-14 now that the real root cause is fixed and confirmed offline (not
+	// live): discovery_relay_queue.go decouples AND throttles every outbound publish/retire
+	// subscribeDiscoveryBridge's handler decides to make, so a large retained-backlog replay burst
+	// can no longer starve an unrelated client.Subscribe call of its own ack (the actual crash-loop
+	// mechanism) or saturate the shared broker/network (the "No ACK from MQTT server" symptom
+	// confirmed live on HA's own side during the same incident).
+	passthroughDeviceTracker := newPassthroughDeviceTracker(filepath.Join(coordinatorDir, "discovery_passthrough_devices.json"))
+	discoveryRelayJobs := newDiscoveryRelayQueue(publisher, discoveryRelayDefaultThrottle)
 	if discoveryFile.PhysicalPrefix != "" {
 		// PROJECT.md 1.8: kind-2's own passive counterpart to kind-3's entity-existence inquiry --
 		// no active inquiry needed (a gateway self-announces), but the coordinator still needs to
@@ -420,7 +432,10 @@ func main() {
 		discoveryExistenceTracker = newDiscoveryExistenceTracker(filepath.Join(coordinatorDir, "discovery_existence.json"))
 		discoveryExistenceTracker.Seed(discoveryFile)
 		discoveryExistenceTracker.PublishAll(client, cloudClient, devicesFile.Installation, discoveryFile)
-		if err := subscribeDiscoveryBridge(client, cloudClient, devicesFile.Installation, discoveryFile, publisher, conceptualPrefix, discoveryExistenceTracker, passthroughFile.Passthrough); err != nil {
+		if err := passthroughDeviceTracker.PublishStatus(client, cloudClient, devicesFile.Installation); err != nil {
+			fmt.Printf("[discovery-passthrough] %v\n", err)
+		}
+		if err := subscribeDiscoveryBridge(client, cloudClient, devicesFile.Installation, discoveryFile, publisher, conceptualPrefix, discoveryExistenceTracker, passthroughFile.Passthrough, passthroughDeviceTracker, discoveryRelayJobs); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -555,6 +570,9 @@ func main() {
 		}
 		if discoveryExistenceTracker != nil {
 			discoveryExistenceTracker.PublishAll(client, cloudClient, devicesFile.Installation, discoveryFile)
+		}
+		if err := passthroughDeviceTracker.PublishStatus(client, cloudClient, devicesFile.Installation); err != nil {
+			fmt.Printf("[reconnect] passthroughDeviceTracker.PublishStatus: %v\n", err)
 		}
 		importExistenceTracker.PublishAll(client, cloudClient, devicesFile.Installation, importedFile)
 		if err := publishCommandlineDiscovery(client, commandlineFile, publisher, conceptualPrefix, devicesFile.Installation); err != nil {

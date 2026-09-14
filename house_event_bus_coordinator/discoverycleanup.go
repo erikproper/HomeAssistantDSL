@@ -58,24 +58,40 @@ var discoveryOrphanWatchSettleWindow = 3 * time.Second
 
 // TTopicManifest is the coordinator's own on-disk record of the last-published content of every
 // discovery topic it manages -- scoped strictly to its own devices.yaml/discovery.yaml entries,
-// never a broader archive of broker traffic.
+// plus (Passthrough) the one deliberate exception to that scoping: PROJECT.md item 4's
+// discovery_passthrough relay, whose topic set is inherently dynamic and can never appear in any
+// generator-computed expected set -- see RetireMissing's own doc comment for why that distinction
+// is load-bearing, not bookkeeping.
 type TTopicManifest struct {
-	Topics map[string]string `json:"topics"` // topic -> last-published JSON payload
+	Topics      map[string]string `json:"topics"`               // topic -> last-published JSON payload
+	Passthrough map[string]bool   `json:"passthrough,omitempty"` // manifestKey-keyed; see RetireMissing
 }
 
 // loadTopicManifest reads path's content map. A missing file, or one in an incompatible shape
 // (e.g. an earlier version's plain topic-list form), both fall back to an empty map rather than
 // an error -- this is a coordinator-owned runtime cache, always safe to rebuild from nothing.
 func loadTopicManifest(path string) map[string]string {
+	known, _ := loadManifest(path)
+	return known
+}
+
+// loadManifest is loadTopicManifest's fuller counterpart, also returning the passthrough-exempt
+// topic set (TTopicManifest.Passthrough) newDiscoveryPublisher needs. Same missing-file/
+// incompatible-shape fallback as loadTopicManifest.
+func loadManifest(path string) (map[string]string, map[string]bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return map[string]string{}
+		return map[string]string{}, map[string]bool{}
 	}
 	var manifest TTopicManifest
 	if err := json.Unmarshal(data, &manifest); err != nil || manifest.Topics == nil {
-		return map[string]string{}
+		return map[string]string{}, map[string]bool{}
 	}
-	return manifest.Topics
+	passthrough := manifest.Passthrough
+	if passthrough == nil {
+		passthrough = map[string]bool{}
+	}
+	return manifest.Topics, passthrough
 }
 
 // TDiscoveryCleanupFile is the top-level shape of a generated coordinator/discovery_cleanup.yaml
@@ -279,12 +295,14 @@ type TDiscoveryPublisher struct {
 	mu           sync.Mutex
 	manifestPath string
 	known        map[string]string
+	passthrough  map[string]bool // manifestKey-keyed subset of known; see RetireMissing
 }
 
-// newDiscoveryPublisher loads manifestPath (loadTopicManifest -- never fails, missing/incompatible
+// newDiscoveryPublisher loads manifestPath (loadManifest -- never fails, missing/incompatible
 // falls back to empty).
 func newDiscoveryPublisher(manifestPath string) *TDiscoveryPublisher {
-	return &TDiscoveryPublisher{manifestPath: manifestPath, known: loadTopicManifest(manifestPath)}
+	known, passthrough := loadManifest(manifestPath)
+	return &TDiscoveryPublisher{manifestPath: manifestPath, known: known, passthrough: passthrough}
 }
 
 // manifestKey combines broker and topic into p.known's map key -- a broker label, not just the
@@ -325,6 +343,18 @@ func (p *TDiscoveryPublisher) Publish(client mqtt.Client, broker, topic string, 
 // RetireMissing retires+forgets every known topic on broker no longer present in expected at all
 // (device or entity link removed, or an old topic-naming scheme superseded). Returns what it
 // retired, for logging/testing.
+//
+// Skips anything marked passthrough (PublishPassthrough) unconditionally, regardless of expected --
+// real incident, 2026-09-14: discovery_passthrough (PROJECT.md item 4) relays not-yet-migrated
+// Zigbee2MQTT devices under topics no generator-computed expectedTopics set can ever contain (their
+// whole point is that no Physical.def declaration exists yet), but plain Publish still recorded
+// them as "known". Every coordinator restart's RetireMissing therefore deleted every single
+// passthrough-relayed device's HA entity (and any manual rename on it) the moment it started,
+// simply because it wasn't "expected" -- Zigbee2MQTT would eventually republish it, but as a fresh
+// entity under its raw name, with the old registration (and rename) orphaned. Passthrough's own
+// topic lifecycle is already fully handled elsewhere (discoverybridge.go retires its own copy the
+// instant a device migrates or is retracted upstream) -- this blanket startup sweep has no business
+// touching it at all.
 func (p *TDiscoveryPublisher) RetireMissing(client mqtt.Client, broker string, expected map[string]bool) []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -333,6 +363,9 @@ func (p *TDiscoveryPublisher) RetireMissing(client mqtt.Client, broker string, e
 	var retired []string
 	for key := range p.known {
 		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		if p.passthrough[key] {
 			continue
 		}
 		topic := strings.TrimPrefix(key, prefix)
@@ -350,6 +383,23 @@ func (p *TDiscoveryPublisher) RetireMissing(client mqtt.Client, broker string, e
 		}
 	}
 	return retired
+}
+
+// PublishPassthrough is Publish's passthrough-relay counterpart (discoverybridge.go, PROJECT.md
+// item 4): identical publish/retire-on-change behaviour, but additionally marks topic exempt from
+// RetireMissing's static startup sweep (see that method's own doc comment for the real incident
+// this exists to prevent a repeat of).
+func (p *TDiscoveryPublisher) PublishPassthrough(client mqtt.Client, broker, topic string, payload []byte) error {
+	if err := p.Publish(client, broker, topic, payload); err != nil {
+		return err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.passthrough[manifestKey(broker, topic)] = true
+	if err := p.persist(); err != nil {
+		fmt.Printf("[discovery-cleanup] persisting manifest: %v\n", err)
+	}
+	return nil
 }
 
 // RetireOne retires a single topic (empty retained payload) and forgets it from the manifest --
@@ -379,14 +429,16 @@ func (p *TDiscoveryPublisher) RetireOne(client mqtt.Client, broker, topic string
 	retireDiscoveryTopic(client, topic)
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	delete(p.known, manifestKey(broker, topic))
+	key := manifestKey(broker, topic)
+	delete(p.known, key)
+	delete(p.passthrough, key)
 	if err := p.persist(); err != nil {
 		fmt.Printf("[discovery-cleanup] persisting manifest: %v\n", err)
 	}
 }
 
 func (p *TDiscoveryPublisher) persist() error {
-	data, err := json.MarshalIndent(TTopicManifest{Topics: p.known}, "", "  ")
+	data, err := json.MarshalIndent(TTopicManifest{Topics: p.known, Passthrough: p.passthrough}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshalling topic manifest: %w", err)
 	}

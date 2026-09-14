@@ -253,6 +253,62 @@ func TestDiscoveryPublisherRetireMissing(t *testing.T) {
 	}
 }
 
+// TestDiscoveryPublisherRetireMissingExemptsPassthroughTopics is the regression test for the real
+// incident this fix exists for (2026-09-14, PROJECT.md item 4): a passthrough-relayed Zigbee2MQTT
+// topic is recorded as "known" (PublishPassthrough) but can never appear in any generator-computed
+// expected set, since its whole point is that no Physical.def declaration exists for it yet. Before
+// this fix, RetireMissing treated that as "no longer wanted" and deleted it on every single
+// coordinator restart -- wiping the live HA entity (and any manual rename on it) each time, only for
+// Zigbee2MQTT to eventually republish a fresh, unqualified one.
+func TestDiscoveryPublisherRetireMissingExemptsPassthroughTopics(t *testing.T) {
+	client := &fakeClient{}
+	manifestPath := filepath.Join(t.TempDir(), "discovery_topics.json")
+	p := newDiscoveryPublisher(manifestPath)
+
+	passthroughTopic := "homeassistant/sensor/zigbee2mqtt/0x00158d0001aabbcc_temperature/config"
+	if err := p.PublishPassthrough(client, "main", passthroughTopic, []byte("a")); err != nil {
+		t.Fatalf("PublishPassthrough error: %v", err)
+	}
+
+	// expected is empty -- passthrough topics are never in any generator-computed expected set.
+	retired := p.RetireMissing(client, "main", map[string]bool{})
+	if len(retired) != 0 {
+		t.Errorf("RetireMissing retired %v, want nothing -- passthrough topics must be exempt", retired)
+	}
+	if !p.Knows("main", passthroughTopic) {
+		t.Errorf("expected the passthrough topic to still be known after RetireMissing")
+	}
+
+	reloaded := newDiscoveryPublisher(manifestPath)
+	if !reloaded.passthrough[manifestKey("main", passthroughTopic)] {
+		t.Errorf("expected the passthrough marking to survive a manifest reload")
+	}
+	// A second RetireMissing call, after a fresh process restart (simulated by reloading from
+	// disk), must still exempt it -- the exemption has to be persisted, not just in-memory.
+	if retired := reloaded.RetireMissing(client, "main", map[string]bool{}); len(retired) != 0 {
+		t.Errorf("RetireMissing after reload retired %v, want nothing", retired)
+	}
+}
+
+// TestDiscoveryPublisherRetireOneForgetsPassthroughMarking confirms an explicit RetireOne (the
+// path discoverybridge.go uses when a device migrates to a declared gateway, or is retracted
+// upstream) clears the passthrough marking too, not just the known-content entry -- otherwise a
+// later, unrelated topic reusing the exact same string could inherit a stale exemption.
+func TestDiscoveryPublisherRetireOneForgetsPassthroughMarking(t *testing.T) {
+	client := &fakeClient{}
+	p := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
+	topic := "homeassistant/sensor/zigbee2mqtt/0x00158d0001aabbcc_temperature/config"
+
+	if err := p.PublishPassthrough(client, "main", topic, []byte("a")); err != nil {
+		t.Fatalf("PublishPassthrough error: %v", err)
+	}
+	p.RetireOne(client, "main", topic)
+
+	if p.passthrough[manifestKey("main", topic)] {
+		t.Errorf("expected the passthrough marking to be forgotten after RetireOne")
+	}
+}
+
 // --- expected topic/payload computation ---
 
 func TestExpectedHostsPayloadsMatchesBuildDiscoveryConfigs(t *testing.T) {
