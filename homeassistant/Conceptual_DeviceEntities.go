@@ -87,6 +87,53 @@ func deviceSpecLeafPath(spec string) string {
 	return strings.TrimPrefix(spec[colonIdx+1:], "/")
 }
 
+// namingSpacePath returns the space path to resolve spec against: spacePath itself, unless
+// deviceNamePath is non-empty AND spec names its sphere explicitly via ':' (PROJECT.md item 5,
+// "device declaration acts like a space") -- in which case deviceNamePath is appended as one extra
+// segment. See registerDeviceSourceEntityLink's own doc comment for why this must stay separate
+// from administration.SpacePath itself (used unmodified for space bucketing). Always returns a
+// fresh slice when it extends anything; never mutates spacePath's backing array.
+//
+// The explicit-sphere gate matters: a bare spec like "sensor.status" (no ':', domain's default
+// sphere, the WHOLE remainder taken as path -- normalizeEntityFullName's own no-colon branch)
+// carries no location semantics the DSL author asked for at all, unlike "sensor.physical:co2"'s
+// explicit sphere + relative path. Real, deployed precedent for the bare form: Junglinster's own
+// "device infrastructural:laserjet from hass.laserjet with: entity sensor.status from
+// sensor.status; ...; end;" resolves to the flat "sensor.social_status", not
+// "sensor.social_laserjet_status" -- auto-prepending deviceNamePath there would silently rename a
+// real, already-onboarded HA entity. Confirmed via TestDeviceWithBlockMatchesTwoStatementFormForHassBridge.
+//
+// Also skipped when deviceNamePath equals spec's own domain (e.g. "device sphere:vacuum with:
+// entity vacuum.social: from ...; end;") -- confirmed by the user 2026-09-10: a device literally
+// named after its own domain (its leaf path just restates "this is a vacuum," not a distinguishing
+// name the way "washing_machine"/"picture_frame" are) shouldn't have that domain repeated a
+// second time in the entity's own path, purely redundant with the domain prefix already there --
+// "vacuum.social_apartment_living_room_vacuum" should read "vacuum.social_apartment_living_room".
+func namingSpacePath(spec string, spacePath []string, deviceNamePath string) []string {
+	if deviceNamePath == "" || !specHasExplicitSpherePath(spec) {
+		return spacePath
+	}
+	if dotIdx := strings.Index(spec, "."); dotIdx > 0 && spec[:dotIdx] == deviceNamePath {
+		return spacePath
+	}
+	extended := make([]string, len(spacePath), len(spacePath)+1)
+	copy(extended, spacePath)
+	return append(extended, deviceNamePath)
+}
+
+// specHasExplicitSpherePath reports whether spec (e.g. "sensor.physical:co2") names its sphere
+// explicitly via a ':' after the domain, as opposed to a bare "sensor.status" form that resolves
+// through lookupDefaultSphere's fallback with no location semantics of its own -- see
+// namingSpacePath's own doc comment for why only the former is eligible for deviceNamePath's
+// implicit path injection.
+func specHasExplicitSpherePath(spec string) bool {
+	dotIdx := strings.Index(spec, ".")
+	if dotIdx <= 0 || dotIdx >= len(spec)-1 {
+		return false
+	}
+	return strings.Contains(spec[dotIdx+1:], ":")
+}
+
 func deviceDisplayName(spaceName, sphere, path string) string {
 	var suffix string
 	if spaceName == "" || spaceName == "root" {

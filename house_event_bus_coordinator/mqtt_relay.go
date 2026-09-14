@@ -68,30 +68,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
-
-// qualifyHostsTopic inserts qualifier as a path segment right after a "hosts/<host>/..." bare
-// topic's host segment -- "hosts/eriks-macbook-pro-2/cpu/state" + "junglinster" becomes
-// "hosts/eriks-macbook-pro-2/junglinster/cpu/state" -- rather than prefixing the whole topic, so
-// the result still starts "hosts/<host>/...", matching the cloud broker's own client-ID-scoped
-// ACL ("pattern readwrite hosts/%c/#", the report script's own "-i $hostname"); an overall
-// "<installation>/hosts/..." prefix would fall outside that ACL and be silently dropped instead.
-// cpu/report (deployed, outside this repo) builds its own cloud-routed topics the same way --
-// see its own doc comment. Falls back to a plain prefix if bareTopic isn't hosts/-shaped (should
-// never happen given the fixed StateTopicTemplate/NodeTopicTemplate/DeviceInfoTopicTemplate
-// conventions, homeassistant/integration_hosts_storage.go).
-func qualifyHostsTopic(bareTopic, qualifier string) string {
-	parts := strings.SplitN(bareTopic, "/", 3)
-	if len(parts) != 3 || parts[0] != "hosts" {
-		return qualifier + "/" + bareTopic
-	}
-	return parts[0] + "/" + parts[1] + "/" + qualifier + "/" + parts[2]
-}
 
 // TDeviceRoutingPlan says which broker(s) a device's discovery config belongs on -- see this
 // file's own doc comment for the full table.
@@ -126,19 +107,16 @@ func deviceRoutingPlan(device TDevice, hasCloudClient bool) TDeviceRoutingPlan {
 }
 
 // needsCloudRelay reports whether device's raw state/node/device-info traffic needs bridging
-// from the cloud broker's installation-qualified topics onto main's bare ones (relayCloudDevice),
-// and the source installation to qualify with -- always device.ImportedFrom, whether it names
-// this house's own installation (a self-import, the "cloud"+"import" case: the device published
-// under its own name, and this coordinator is the owner reading its own data back) or another
-// house's (a real cross-house import). Both are structurally identical from here on -- there is
-// no longer a separate "cloud && native" case (retired 2026-09-02 along with the "native"
-// keyword/field): every consumer, owner included, is now qualified by an explicit, declared
-// installation name rather than an implicit "this house must be the owner" assumption.
-func needsCloudRelay(device TDevice) (qualifier string, needed bool) {
-	if device.ImportedFrom != "" {
-		return device.ImportedFrom, true
-	}
-	return "", false
+// from the cloud broker's bare topics onto main's own (relayCloudDevice) -- true whenever
+// device.ImportedFrom is set, whether it names this house's own installation (a self-import, the
+// "cloud"+"import" case: the device published under its own name, and this coordinator is the
+// owner reading its own data back) or another house's (a real cross-house import). Both are
+// structurally identical from here on -- there is no longer a separate "cloud && native" case
+// (retired 2026-09-02 along with the "native" keyword/field): every consumer, owner included, is
+// qualified by an explicit, declared installation name rather than an implicit "this house must be
+// the owner" assumption.
+func needsCloudRelay(device TDevice) bool {
+	return device.ImportedFrom != ""
 }
 
 // cloudDeviceStaleAfter is how long a "cloud"-routed device's node/state stays "true" after its
@@ -183,14 +161,16 @@ func (t *TCloudLivenessTracker) Register(deviceID string) {
 // unconditionally, not just on a stale->alive transition, matching how a report's own cpu/state
 // value is republished on every message regardless of whether it changed; a repeat retained
 // "true" publish is a cheap no-op on the broker side. Also cross-posts the same "true" to
-// cloudClient, qualified the same way any other relayed traffic is (qualifyHostsTopic(nodeTopic,
-// qualifier)) -- the user's own framing: the exporting coordinator already knows whether a device
-// has a real liveness source of its own; when it doesn't (this whole tracker exists because
-// "hosts"-kind devices' report script never publishes node/state itself), it should publish its
-// own computed signal to the cloud catalogue too, so a genuine cross-house importer
-// (discoveryimport.go) can just relay it like any other capability rather than needing its own
-// synthesis. No-op if cloudClient is nil or qualifier is "" (nothing to cross-post to).
-func (t *TCloudLivenessTracker) Touch(mainClient, cloudClient mqtt.Client, deviceID, nodeTopic, qualifier string) {
+// cloudClient, under the same bare topic (retired 2026-09-08's installation-qualified segment --
+// every cloud-reporting host has a globally unique hostname across the whole fleet instead) --
+// the user's own framing: the exporting coordinator already knows whether a device has a real
+// liveness source of its own; when it doesn't (this whole tracker exists because "hosts"-kind
+// devices' report script never publishes node/state itself), it should publish its own computed
+// signal to the cloud catalogue too, so a genuine cross-house importer (discoveryimport.go) can
+// just relay it like any other capability rather than needing its own synthesis. isCloudRouted
+// says whether this device is cloud-routed at all (device.ImportedFrom != ""); no-op cross-post
+// when cloudClient is nil or isCloudRouted is false.
+func (t *TCloudLivenessTracker) Touch(mainClient, cloudClient mqtt.Client, deviceID, nodeTopic string, isCloudRouted bool) {
 	t.mu.Lock()
 	t.lastSeen[deviceID] = time.Now()
 	t.stale[deviceID] = false
@@ -202,10 +182,9 @@ func (t *TCloudLivenessTracker) Touch(mainClient, cloudClient mqtt.Client, devic
 	if err := publishRetained(mainClient, nodeTopic, []byte(mqttBoolPayloadTrue)); err != nil {
 		fmt.Printf("[liveness] %s: publishing %s: %v\n", deviceID, nodeTopic, err)
 	}
-	if cloudClient != nil && qualifier != "" {
-		cloudTopic := qualifyHostsTopic(nodeTopic, qualifier)
-		if err := publishRetained(cloudClient, cloudTopic, []byte(mqttBoolPayloadTrue)); err != nil {
-			fmt.Printf("[liveness] %s: publishing %s: %v\n", deviceID, cloudTopic, err)
+	if cloudClient != nil && isCloudRouted {
+		if err := publishRetained(cloudClient, nodeTopic, []byte(mqttBoolPayloadTrue)); err != nil {
+			fmt.Printf("[liveness] %s: publishing %s: %v\n", deviceID, nodeTopic, err)
 		}
 	}
 }
@@ -244,9 +223,8 @@ func (t *TCloudLivenessTracker) staleSince(now time.Time) []string {
 
 // sweepOnce marks "false" (once -- see t.stale) every tracked device whose last Touch is older
 // than cloudDeviceStaleAfter -- on mainClient, and, when cloudClient is configured, also
-// cross-posted to cloud qualified by the device's own ImportedFrom (always this house's own
-// installation name in practice, since relayCloudDevice only ever runs for the self-import case --
-// see Touch's own doc comment for why this cross-post exists at all).
+// cross-posted to cloud under the same bare topic (retired 2026-09-08's installation-qualified
+// segment -- see Touch's own doc comment for why this cross-post exists at all).
 func (t *TCloudLivenessTracker) sweepOnce(mainClient, cloudClient mqtt.Client, devices map[string]TDevice) {
 	for _, deviceID := range t.staleSince(time.Now()) {
 		device, known := devices[deviceID]
@@ -259,32 +237,31 @@ func (t *TCloudLivenessTracker) sweepOnce(mainClient, cloudClient mqtt.Client, d
 		}
 		fmt.Printf("[liveness] %s: no traffic for over %s, marked unavailable\n", deviceID, cloudDeviceStaleAfter)
 		if cloudClient != nil && device.ImportedFrom != "" {
-			cloudTopic := qualifyHostsTopic(device.NodeTopic, device.ImportedFrom)
-			if err := publishRetained(cloudClient, cloudTopic, []byte(mqttBoolPayloadFalse)); err != nil {
-				fmt.Printf("[liveness] %s: publishing %s: %v\n", deviceID, cloudTopic, err)
+			if err := publishRetained(cloudClient, device.NodeTopic, []byte(mqttBoolPayloadFalse)); err != nil {
+				fmt.Printf("[liveness] %s: publishing %s: %v\n", deviceID, device.NodeTopic, err)
 			}
 		}
 	}
 }
 
-// relayCloudDevice subscribes on cloudClient to device's own state/device-info topics, each
-// prefixed with qualifier+"/" (the installation-qualified form its own report script -- or, for
-// an import, the remote installation's own coordinator -- actually publishes under on the shared
-// cloud broker), and republishes each message verbatim (same payload, retained) onto mainClient
-// under device's plain, unqualified topic -- the same bare "hosts/<host>/..." form this house's
+// relayCloudDevice subscribes on cloudClient to device's own bare state/device-info topics (the
+// same "hosts/<host>/..." shape its own report script -- or, for an import, the remote
+// installation's own coordinator -- publishes under on the shared cloud broker; retired
+// 2026-09-08's installation-qualified segment, since every cloud-reporting host has a globally
+// unique hostname across the whole fleet instead) and republishes each message verbatim (same
+// payload, retained) onto mainClient under the identical topic -- the same bare form this house's
 // own Home Assistant, and this coordinator's own subscribeDeviceInfo, already expect. Every
 // relayed message also Touches tracker, so device.NodeTopic reflects "traffic just arrived"
 // rather than being separately relayed from anywhere -- see this file's own doc comment,
 // "Availability inversion." Empty topic fields (e.g. a "ping"-type device has no Topic) are
 // skipped; device.NodeTopic itself is never subscribed from the cloud side at all -- it's
 // computed, not relayed.
-func relayCloudDevice(cloudClient, mainClient mqtt.Client, deviceID string, device TDevice, qualifier string, tracker *TCloudLivenessTracker) error {
+func relayCloudDevice(cloudClient, mainClient mqtt.Client, deviceID string, device TDevice, tracker *TCloudLivenessTracker) error {
 	tracker.Register(deviceID)
 	for _, bareTopic := range []string{device.Topic, device.DeviceInfoTopic} {
 		if bareTopic == "" {
 			continue
 		}
-		sourceTopic := qualifyHostsTopic(bareTopic, qualifier)
 		target := bareTopic
 		handler := func(_ mqtt.Client, msg mqtt.Message) {
 			token := mainClient.Publish(target, 0, true, msg.Payload())
@@ -292,14 +269,14 @@ func relayCloudDevice(cloudClient, mainClient mqtt.Client, deviceID string, devi
 				err := token.Error()
 				fmt.Printf("[relay] %s: republishing %s -> %s: %v\n", deviceID, msg.Topic(), target, err)
 			}
-			tracker.Touch(mainClient, cloudClient, deviceID, device.NodeTopic, qualifier)
+			tracker.Touch(mainClient, cloudClient, deviceID, device.NodeTopic, true)
 		}
-		tok := cloudClient.Subscribe(sourceTopic, 0, handler)
+		tok := cloudClient.Subscribe(bareTopic, 0, handler)
 		if !tok.WaitTimeout(10*time.Second) || tok.Error() != nil {
 			if err := tok.Error(); err != nil {
-				return fmt.Errorf("relaying %s: subscribing to %s: %w", deviceID, sourceTopic, err)
+				return fmt.Errorf("relaying %s: subscribing to %s: %w", deviceID, bareTopic, err)
 			}
-			return fmt.Errorf("relaying %s: subscribing to %s: timed out", deviceID, sourceTopic)
+			return fmt.Errorf("relaying %s: subscribing to %s: timed out", deviceID, bareTopic)
 		}
 	}
 	return nil
@@ -310,15 +287,14 @@ func relayCloudDevice(cloudClient, mainClient mqtt.Client, deviceID string, devi
 // profile configured for this house), then starts tracker's background sweep.
 func relayCloudDevices(cloudClient, mainClient mqtt.Client, devicesFile TDevicesFile, tracker *TCloudLivenessTracker) error {
 	for deviceID, device := range devicesFile.Devices {
-		qualifier, needed := needsCloudRelay(device)
-		if !needed {
+		if !needsCloudRelay(device) {
 			continue
 		}
 		if cloudClient == nil {
 			fmt.Printf("[relay] device %q needs cloud-broker relay but no cloud broker is configured; skipping\n", deviceID)
 			continue
 		}
-		if err := relayCloudDevice(cloudClient, mainClient, deviceID, device, qualifier, tracker); err != nil {
+		if err := relayCloudDevice(cloudClient, mainClient, deviceID, device, tracker); err != nil {
 			return err
 		}
 	}
@@ -327,19 +303,21 @@ func relayCloudDevices(cloudClient, mainClient mqtt.Client, devicesFile TDevices
 }
 
 // subscribeCloudOnlyDeviceInfo subscribes on cloudClient to every "cloud"-but-not-imported
-// device's own installation-qualified device/state topic directly (there is no relay onto main
-// for these -- see this file's own doc comment -- so subscribeDeviceInfo's main-side
-// subscription never sees them), updating store and republishing that device's discovery
-// (routed to cloud only, deviceRoutingPlan) on each update -- the cloud-only equivalent of
-// subscribeDeviceInfo. No-op (returns nil immediately) if devicesFile has no such device. A
-// self-imported device (Cloud && ImportedFrom != "") is excluded here -- its device-info instead
-// relays via needsCloudRelay/relayCloudDevice's ImportedFrom branch, same as any other import.
+// device's own bare device/state topic directly (there is no relay onto main for these -- see
+// this file's own doc comment -- so subscribeDeviceInfo's main-side subscription never sees
+// them), updating store and republishing that device's discovery (routed to cloud only,
+// deviceRoutingPlan) on each update -- the cloud-only equivalent of subscribeDeviceInfo. No-op
+// (returns nil immediately) if devicesFile has no such device. A self-imported device (Cloud &&
+// ImportedFrom != "") is excluded here -- its device-info instead relays via
+// needsCloudRelay/relayCloudDevice's ImportedFrom branch, same as any other import. ownInstallation
+// is still needed below for publishDeviceDiscovery's own (unrelated, unaffected) discovery-topic
+// qualification.
 func subscribeCloudOnlyDeviceInfo(cloudClient, mainClient mqtt.Client, ownInstallation string, devicesFile TDevicesFile, store *TLiveDeviceInfoStore, hostNameToDeviceID map[string]string, publisher *TDiscoveryPublisher) error {
 	prefix := devicesFile.conceptualPrefix()
 	topicToDeviceID := map[string]string{}
 	for deviceID, device := range devicesFile.Devices {
 		if device.Cloud && device.ImportedFrom == "" && device.DeviceInfoTopic != "" {
-			topicToDeviceID[qualifyHostsTopic(device.DeviceInfoTopic, ownInstallation)] = deviceID
+			topicToDeviceID[device.DeviceInfoTopic] = deviceID
 		}
 	}
 	if len(topicToDeviceID) == 0 {

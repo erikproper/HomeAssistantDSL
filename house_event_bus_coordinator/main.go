@@ -211,6 +211,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	passthroughFile, err := loadDiscoveryPassthroughFile(filepath.Join(coordinatorDir, "discovery_passthrough.yaml"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
 	cleanupFile, err := loadDiscoveryCleanupFile(filepath.Join(coordinatorDir, "discovery_cleanup.yaml"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -247,7 +253,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	client, err := connectMQTT(secrets.MQTT, "house_event_bus_coordinator-"+devicesFile.Installation)
+	// Shared by both clients below -- see TReconnectHook's own doc comment (mqtt.go). Empty until
+	// set near the end of this function, once every dependency the republish closure needs
+	// actually exists; a reconnect before then (vanishingly unlikely, but possible) is a safe
+	// no-op.
+	reconnectHook := &TReconnectHook{}
+
+	client, err := connectMQTT(secrets.MQTT, "house_event_bus_coordinator-"+devicesFile.Installation, reconnectHook)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -278,7 +290,7 @@ func main() {
 			// tight enough, a real crash loop (a disconnect landing in the narrow window between
 			// this Connect and main()'s early cloud-broker Subscribe calls, which treat any
 			// subscribe failure as fatal).
-			cloudClient, err = connectMQTT(brokerSecrets, "house_event_bus_coordinator-"+devicesFile.Installation+"-"+name)
+			cloudClient, err = connectMQTT(brokerSecrets, "house_event_bus_coordinator-"+devicesFile.Installation+"-"+name, reconnectHook)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "error: connecting to %q broker: %v\n", name, err)
 				os.Exit(1)
@@ -294,7 +306,7 @@ func main() {
 	topicToDeviceID, hostNameToDeviceID := buildDeviceLookups(devicesFile)
 
 	conceptualPrefix := devicesFile.conceptualPrefix()
-	expectedHostsContent, err := expectedHostsPayloads(devicesFile, cloudClient != nil)
+	expectedHostsContent, err := expectedHostsPayloads(devicesFile, cloudClient != nil, store)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -312,7 +324,7 @@ func main() {
 	for t := range expectedImportedTopics(importedFile, conceptualPrefix) {
 		expectedTopics[t] = true
 	}
-	for t := range expectedCommandlineTopics(commandlineFile, conceptualPrefix) {
+	for t := range expectedCommandlineTopics(commandlineFile, conceptualPrefix, devicesFile.Installation) {
 		expectedTopics[t] = true
 	}
 	// The "Discover entity" meta control (discover_entity_input.go) is permanent, coordinator-owned,
@@ -352,7 +364,7 @@ func main() {
 		cloudClient = nil
 	}
 	if cloudClient != nil {
-		expectedCloudContent, err := expectedCloudHostsPayloads(devicesFile, devicesFile.Installation)
+		expectedCloudContent, err := expectedCloudHostsPayloads(devicesFile, devicesFile.Installation, store)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
@@ -395,16 +407,20 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	// Hoisted to function scope (rather than declared inside the "if" below) so reconnectHook's
+	// own republish closure, set further down, can call PublishAll again on every reconnect --
+	// nil (and skipped there, same guard) when this house has no "discovery" integration.
+	var discoveryExistenceTracker *TDiscoveryExistenceTracker
 	if discoveryFile.PhysicalPrefix != "" {
 		// PROJECT.md 1.8: kind-2's own passive counterpart to kind-3's entity-existence inquiry --
 		// no active inquiry needed (a gateway self-announces), but the coordinator still needs to
 		// track and report each declared source leaf's status, seeded not-known-to-exist from
 		// discovery.yaml's own EntityLinks, populated as a byproduct of the discovery-bridge
 		// subscription below.
-		discoveryExistenceTracker := newDiscoveryExistenceTracker(filepath.Join(coordinatorDir, "discovery_existence.json"))
+		discoveryExistenceTracker = newDiscoveryExistenceTracker(filepath.Join(coordinatorDir, "discovery_existence.json"))
 		discoveryExistenceTracker.Seed(discoveryFile)
 		discoveryExistenceTracker.PublishAll(client, cloudClient, devicesFile.Installation, discoveryFile)
-		if err := subscribeDiscoveryBridge(client, cloudClient, devicesFile.Installation, discoveryFile, publisher, conceptualPrefix, discoveryExistenceTracker); err != nil {
+		if err := subscribeDiscoveryBridge(client, cloudClient, devicesFile.Installation, discoveryFile, publisher, conceptualPrefix, discoveryExistenceTracker, passthroughFile.Passthrough); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -481,7 +497,14 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
-	if err := publishCommandlineDiscovery(client, commandlineFile, publisher, conceptualPrefix); err != nil {
+	// "derived" import capabilities (plans/derived-capability-mechanism.md Phase 2) need no cloud
+	// message to resolve -- fully knowable from importedFile alone, so published once here rather
+	// than reactively inside subscribeImportedDevices' own message handlers.
+	if err := publishDerivedImportedDiscovery(client, importedFile, publisher, conceptualPrefix, devicesFile.Installation); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	if err := publishCommandlineDiscovery(client, commandlineFile, publisher, conceptualPrefix, devicesFile.Installation); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
@@ -493,7 +516,7 @@ func main() {
 
 	// Architecture.md §6.9: bootstrapping an entirely new, undeclared device needs a human-provided
 	// seed -- DiscoverSiblings can only enrich a device the tracker already has some anchor for.
-	if err := publishDiscoverEntityInput(client, conceptualPrefix); err != nil {
+	if err := publishDiscoverEntityInput(client, conceptualPrefix, devicesFile.Installation); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
@@ -518,6 +541,32 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Arms reconnectHook (mqtt.go) now that every dependency below actually exists -- from this
+	// point on, ANY subsequent (re)connect of either client (a network blip resuming to the same
+	// broker, or, this migration's own real case, main_mqtt_server pointing at a brand new, empty
+	// broker) re-publishes every piece of retained discovery/status this coordinator owns.
+	// Deliberately excludes every subscribeX(...) call above -- see TReconnectHook's own doc
+	// comment for why re-subscribing here would be actively harmful, not just redundant.
+	reconnectHook.Set(func() {
+		fmt.Println("[reconnect] republishing discovery/status after a (re)connect")
+		if err := publishDiscovery(client, cloudClient, devicesFile.Installation, devicesFile, store, hostNameToDeviceID, publisher); err != nil {
+			fmt.Printf("[reconnect] publishDiscovery: %v\n", err)
+		}
+		if discoveryExistenceTracker != nil {
+			discoveryExistenceTracker.PublishAll(client, cloudClient, devicesFile.Installation, discoveryFile)
+		}
+		importExistenceTracker.PublishAll(client, cloudClient, devicesFile.Installation, importedFile)
+		if err := publishCommandlineDiscovery(client, commandlineFile, publisher, conceptualPrefix, devicesFile.Installation); err != nil {
+			fmt.Printf("[reconnect] publishCommandlineDiscovery: %v\n", err)
+		}
+		if err := publishDiscoverEntityInput(client, conceptualPrefix, devicesFile.Installation); err != nil {
+			fmt.Printf("[reconnect] publishDiscoverEntityInput: %v\n", err)
+		}
+		if err := publishMetaReloadRestartButtons(client, conceptualPrefix, devicesFile.Installation, homeAssistantInstancesFile.Instances); err != nil {
+			fmt.Printf("[reconnect] publishMetaReloadRestartButtons: %v\n", err)
+		}
+	})
 
 	fmt.Println("coordinator running -- Ctrl-C to stop")
 	stop := make(chan os.Signal, 1)

@@ -22,12 +22,13 @@
  * Kind-agnostic resolution (2026-09-05): the importing side never knows or asks which integration
  * kind the exporter used. It resolves two independent, structural facts purely from fields already
  * present on the cloud discovery payload:
- *   - Does the raw state topic need cross-house qualification? -- "hosts"-kind topics are bare
- *     (e.g. "hosts/<host>/cpu/state", not installation-scoped by construction, per
- *     mqtt_relay.go's qualifyHostsTopic), while "home_assistant"-kind topics are already
- *     self-qualifying ("homeassistant_instances/<instance>/bridge/<entity>/state" -- the instance
- *     name is baked in at generation time on the exporting side). A bare "hosts/..." prefix is the
- *     one and only shape that ever needs qualifyHostsTopic applied; everything else is used as-is.
+ *   - "hosts"-kind topics are bare (e.g. "hosts/<host>/cpu/state") and used as-is -- retired
+ *     2026-09-08's installation-qualified segment (mqtt_relay.go's own former qualifyHostsTopic),
+ *     since every cloud-reporting host now has a globally unique hostname across the whole fleet,
+ *     removing the need to disambiguate installations on the shared cloud broker at all.
+ *     "home_assistant"-kind topics were always self-qualifying regardless
+ *     ("homeassistant_instances/<instance>/bridge/<entity>/state" -- the instance name is baked in
+ *     at generation time on the exporting side) and are unaffected by this change.
  *   - Does the raw payload need JSON-blob extraction? -- a "hosts"-kind attribute's discovery
  *     config carries a "value_template" field ("{{ value_json.<attr> }}", the one shape
  *     homeassistant/discovery.go ever generates) because several attributes share one JSON-blob
@@ -82,8 +83,19 @@ import (
 // explicit form carrying a RemoteEntityRef string field (the exporter's own local entity_id,
 // matched against each incoming payload's "default_entity_id"), removed 2026-09-07 once no real
 // Physical.def still used it.
+// Domain/DerivedFromCapability/DerivedViaTemplate (added 2026-09-10, plans/
+// derived-capability-mechanism.md Phase 2) are only ever set for a "derived DDD.NNN from
+// EEE.MMM via TTT;" capability (homeassistant/Physical_DerivedCapability.go) -- passed through
+// verbatim from Physical.def by integration_import_generator.go, never resolved there (unlike an
+// ordinary imported capability, a derived one has no exporter payload to match against at all, so
+// this side has to resolve its own discovery config -- resolveImportedDerivedCapability walks the
+// same-device derivation chain these three fields describe). All three empty for an ordinary
+// imported capability -- unchanged behaviour from before this feature existed.
 type TImportedCapability struct {
-	LocalEntity string `yaml:"local_entity"`
+	LocalEntity           string `yaml:"local_entity"`
+	Domain                string `yaml:"domain"`
+	DerivedFromCapability string `yaml:"derived_from"`
+	DerivedViaTemplate    string `yaml:"derived_via"`
 }
 
 // TImportedDevice is one declared import from coordinator/imported.yaml.
@@ -196,6 +208,14 @@ type importedDiscoveryPayload struct {
 		HwVersion    string   `json:"hw_version"`
 		SwVersion    string   `json:"sw_version"`
 		SerialNumber string   `json:"serial_number"`
+		// ViaDevice (added 2026-09-14, PROJECT.md item 3/plans/via-device-inference.md) is the
+		// EXPORTING house's own local DeviceID for whatever device the exported device is
+		// "connected via" -- discoveryhassbridge.go's buildHassBridgeDeviceBlock already sets this
+		// standard HA field on the exporter's own local discovery config (Phase 1), and
+		// crossPostHassBridgeToCloud forwards the same JSON bytes verbatim, so it just arrives
+		// here for free. Expressed in the EXPORTER's own device-id namespace, not this house's --
+		// buildImportedDiscoveryBody must translate it via importViaDeviceIndex before using it.
+		ViaDevice string `json:"via_device"`
 	} `json:"device"`
 }
 
@@ -280,6 +300,32 @@ func importedAvailabilityTopic(importFile TImportedFile, match importCapabilityM
 	return availabilityTopicFor(nodeTopic, match.Capability)
 }
 
+// importRemoteDeviceKey identifies one remote device by (exporting installation, that
+// installation's own local DeviceID for it) -- the same pair TImportedDevice's own
+// RemoteInstallation/RemoteDeviceID fields already carry, exactly what a "device import.X from
+// <house> <remote-id> with:" Physical.def declaration states. Added 2026-09-14 (PROJECT.md item
+// 3/plans/via-device-inference.md).
+type importRemoteDeviceKey struct {
+	RemoteInstallation string
+	RemoteDeviceID     string
+}
+
+// buildImportViaDeviceIndex builds a (RemoteInstallation, RemoteDeviceID) -> local DeviceID index
+// from every device importFile already declares -- pure local data, fully known from Physical.def
+// alone, no coordinator runtime state needed. buildImportedDiscoveryBody uses it to translate an
+// exporter's own via_device (expressed in ITS device-id namespace) into whichever of this house's
+// own imports, if any, corresponds to that same remote device.
+func buildImportViaDeviceIndex(importFile TImportedFile) map[importRemoteDeviceKey]string {
+	index := make(map[importRemoteDeviceKey]string, len(importFile.Devices))
+	for localDeviceID, device := range importFile.Devices {
+		if device.RemoteInstallation == "" || device.RemoteDeviceID == "" {
+			continue
+		}
+		index[importRemoteDeviceKey{RemoteInstallation: device.RemoteInstallation, RemoteDeviceID: device.RemoteDeviceID}] = localDeviceID
+	}
+	return index
+}
+
 // buildImportedDiscoveryBody builds the local discovery config for one matched capability --
 // device_class/unit/state_class/icon copied verbatim from the exporting installation's own
 // payload (it already resolved them, including any Defaults.def gap-filling on its own side;
@@ -303,7 +349,14 @@ func importedAvailabilityTopic(importFile TImportedFile, match importCapabilityM
 // live 2026-09-02 alongside the identical fix in discoveryhassbridge.go/discovery.go, for the same
 // reason: MQTT discovery entities can't use "has_entity_name", so a bare capability name left
 // every such entity showing no location context at all in HA's UI.
-func buildImportedDiscoveryBody(match importCapabilityMatch, payload importedDiscoveryPayload, nodeAvailabilityTopic string) map[string]interface{} {
+//
+// remoteInstallation/viaDeviceIndex (added 2026-09-14, PROJECT.md item 3/
+// plans/via-device-inference.md) translate payload.Device.ViaDevice -- expressed in the
+// EXPORTER's own device-id namespace (Phase 1 already resolved it there) -- into whichever of
+// THIS house's own imports, if any, corresponds to that same remote device. No new inference here
+// at all: buildImportViaDeviceIndex is built once from Physical.def's own already-declared
+// (RemoteInstallation, RemoteDeviceID) pairs.
+func buildImportedDiscoveryBody(match importCapabilityMatch, payload importedDiscoveryPayload, nodeAvailabilityTopic, remoteInstallation string, viaDeviceIndex map[importRemoteDeviceKey]string, installation string) map[string]interface{} {
 	deviceName := match.DisplayName
 	if deviceName == "" {
 		deviceName = match.LocalDeviceID
@@ -340,13 +393,21 @@ func buildImportedDiscoveryBody(match importCapabilityMatch, payload importedDis
 	if match.SuggestedArea != "" {
 		deviceBlock["suggested_area"] = match.SuggestedArea
 	}
+	// via_device: translate the exporter's own local id into this house's own import, if this
+	// house also imports the named target device -- otherwise there is nothing in this house's
+	// own HA device registry to link to, correctly omitted rather than left dangling.
+	if payload.Device.ViaDevice != "" {
+		if localTarget, ok := viaDeviceIndex[importRemoteDeviceKey{RemoteInstallation: remoteInstallation, RemoteDeviceID: payload.Device.ViaDevice}]; ok {
+			deviceBlock["via_device"] = localTarget
+		}
+	}
 	body := map[string]interface{}{
 		"unique_id":         importedUniqueID(match.LocalEntity),
 		"default_entity_id": match.LocalEntity,
 		"name":              deviceName + "/" + match.Capability,
 		"state_topic":       stateTopic,
 		"device":            deviceBlock,
-		"origin":            coordinatorOriginMap(),
+		"origin":            coordinatorOriginMap(installation),
 	}
 	if payload.DeviceClass != "" {
 		body["device_class"] = payload.DeviceClass
@@ -378,6 +439,126 @@ func buildImportedDiscoveryBody(match importCapabilityMatch, payload importedDis
 	return body
 }
 
+// resolveImportedDerivedCapability walks a "derived" import capability's own same-device
+// derivation chain (DerivedFromCapability/DerivedViaTemplate, plans/
+// derived-capability-mechanism.md Phase 2) down to its ultimate ATOMIC ancestor -- there is no
+// exporter payload for a derived capability itself to match against, so its state_topic has to be
+// the ancestor's own already-relayed local topic (importedStateTopic), same raw value every other
+// capability keyed off that same ancestor would see. template is the fully composed Jinja
+// expression ("$" substituted through every step, base case the literal Jinja identifier "value"
+// -- HA's own MQTT value_template built-in variable naming the raw state_topic payload, the same
+// role sourceToJinja2's states()/state_attr() read plays on the hassbridge side, just expressed as
+// a value_template rather than baked into a republishing automation, since an import's ancestor
+// topic is already local -- no republish automation to bake it into). ok is false for a dangling
+// reference or a cycle (homeassistant/physical_rule_derived_capabilities.go already warns about
+// these at generate time; visited is this function's own defence in depth).
+func resolveImportedDerivedCapability(device TImportedDevice, label string, visited map[string]bool) (topic, template string, ok bool) {
+	if visited[label] {
+		return "", "", false
+	}
+	visited[label] = true
+
+	cap, known := device.Capabilities[label]
+	if !known {
+		return "", "", false
+	}
+
+	if cap.DerivedFromCapability == "" {
+		if cap.LocalEntity == "" {
+			return "", "", false
+		}
+		return importedStateTopic(cap.LocalEntity), "value", true
+	}
+
+	baseTopic, baseTemplate, resolved := resolveImportedDerivedCapability(device, cap.DerivedFromCapability, visited)
+	if !resolved {
+		return "", "", false
+	}
+	return baseTopic, substituteImportedDerivedTemplate(cap.DerivedViaTemplate, baseTemplate), true
+}
+
+// substituteImportedDerivedTemplate mirrors homeassistant/Physical_DerivedCapability.go's own
+// substituteDerivedTemplate exactly (same parenthesizing rationale -- "derived" composes
+// recursively, so an unparenthesized substitution could silently change operator precedence a
+// level down) -- duplicated here rather than shared, matching this codebase's existing convention
+// of the generator and coordinator never importing each other's packages (they are separate
+// deployables; compare e.g. sourceToJinja2's own generator-side-only Jinja-building helpers, which
+// have no coordinator-side equivalent function to share with either).
+func substituteImportedDerivedTemplate(template, baseExpr string) string {
+	return strings.ReplaceAll(template, "$", "("+baseExpr+")")
+}
+
+// buildDerivedImportedDiscoveryBody builds the local discovery config for a "derived" import
+// capability -- unlike buildImportedDiscoveryBody, fully resolvable from importFile alone, no
+// cloud message ever needed to trigger it: state_topic is baseTopic (the ultimate atomic
+// ancestor's own already-relayed local topic, resolveImportedDerivedCapability), and
+// value_template applies the composed derivation chain to whatever arrives there. Device
+// block/availability/binary_sensor payload convention all mirror buildImportedDiscoveryBody
+// exactly, just reading device/cap directly (no exporter payload to draw device-info fields from --
+// a derived capability's own device block is exactly its LOCAL device's own, nothing remote to
+// learn).
+func buildDerivedImportedDiscoveryBody(localDeviceID string, device TImportedDevice, capability string, cap TImportedCapability, baseTopic, template, nodeAvailabilityTopic, installation string) map[string]interface{} {
+	deviceName := device.DisplayName
+	if deviceName == "" {
+		deviceName = localDeviceID
+	}
+	deviceBlock := map[string]interface{}{
+		"identifiers": []string{localDeviceID},
+		"name":        deviceName,
+	}
+	if area := device.ConstantAttributes["suggested_area"].Value; area != "" {
+		deviceBlock["suggested_area"] = area
+	}
+	body := map[string]interface{}{
+		"unique_id":         importedUniqueID(cap.LocalEntity),
+		"default_entity_id": cap.LocalEntity,
+		"name":              deviceName + "/" + capability,
+		"state_topic":       baseTopic,
+		"value_template":    "{{ " + template + " }}",
+		"device":            deviceBlock,
+		"origin":            coordinatorOriginMap(installation),
+	}
+	applyProxiedBinarySensorPayload(body, cap.LocalEntity)
+	buildAvailabilityFields(body, baseTopic, nodeAvailabilityTopic)
+	return body
+}
+
+// publishDerivedImportedDiscovery publishes a discovery config for every "derived" import
+// capability declared in importFile -- once, at startup (called alongside subscribeImportedDevices
+// from main.go), since it needs no live MQTT message to resolve, unlike every other imported
+// capability's own discovery config (matched against an incoming exporter payload). Skips a
+// capability whose chain doesn't resolve (dangling reference or cycle -- warned about at generate
+// time already; silently skipped here rather than publishing something broken).
+func publishDerivedImportedDiscovery(client mqtt.Client, importFile TImportedFile, publisher *TDiscoveryPublisher, conceptualPrefix, installation string) error {
+	for deviceID, device := range importFile.Devices {
+		for capability, cap := range device.Capabilities {
+			if cap.DerivedFromCapability == "" {
+				continue
+			}
+			baseTopic, template, resolved := resolveImportedDerivedCapability(device, capability, map[string]bool{})
+			if !resolved {
+				fmt.Printf("[discovery-import] device %q: \"derived\" capability %q could not be resolved (dangling reference or cycle); skipping\n", deviceID, capability)
+				continue
+			}
+			nodeAvailabilityTopic := importedAvailabilityTopic(importFile, importCapabilityMatch{LocalDeviceID: deviceID, Capability: capability})
+			body := buildDerivedImportedDiscoveryBody(deviceID, device, capability, cap, baseTopic, template, nodeAvailabilityTopic, installation)
+			dotIdx := strings.Index(cap.LocalEntity, ".")
+			if dotIdx < 0 {
+				continue
+			}
+			topic := discoveryTopic(conceptualPrefix, cap.LocalEntity[:dotIdx], importedUniqueID(cap.LocalEntity))
+			data, err := json.Marshal(body)
+			if err != nil {
+				return fmt.Errorf("marshalling derived import discovery payload for %s: %w", cap.LocalEntity, err)
+			}
+			if err := publisher.Publish(client, "main", topic, data); err != nil {
+				return fmt.Errorf("publishing %s: %w", topic, err)
+			}
+		}
+	}
+	return nil
+}
+
 // TImportedHostsRelay is one capability's resolved relay target -- LocalEntity is where to
 // republish, ExtractionField is the JSON key to pull out of the raw incoming payload first (""
 // means republish the raw payload verbatim, e.g. a "node" liveness boolean, which is never
@@ -393,8 +574,8 @@ type TImportedHostsRelay struct {
 	ExtractionField string
 }
 
-// TImportedHostsRelayIndex maps a "hosts"-kind capability's fully-qualified cloud source topic
-// (e.g. "hosts/mqtt/junglinster/cpu/state", after qualifyHostsTopic) to every locally-declared
+// TImportedHostsRelayIndex maps a "hosts"-kind capability's bare cloud source topic
+// (e.g. "hosts/mqtt/cpu/state") to every locally-declared
 // capability relayed from it, learned lazily as each capability's own discovery CONFIG message
 // arrives. Several capabilities (e.g. "load" and "temperature") share one such topic, since
 // "hosts"-kind attributes are published as one JSON blob per device -- this index is what lets one
@@ -478,6 +659,7 @@ func subscribeImportedDevices(mainClient, cloudClient mqtt.Client, ownInstallati
 	}
 
 	hostsRelayIndex := newImportedHostsRelayIndex()
+	viaDeviceIndex := buildImportViaDeviceIndex(importFile)
 
 	for remoteInstallation := range remoteInstallations {
 		remoteInstallation := remoteInstallation
@@ -513,13 +695,14 @@ func subscribeImportedDevices(mainClient, cloudClient mqtt.Client, ownInstallati
 			}
 			switch {
 			case strings.HasPrefix(payload.StateTopic, "hosts/"):
-				// A "hosts"-kind capability's raw topic is bare and not self-qualifying (this
-				// file's own header comment) -- learn its real cross-house topic and, if this
-				// attribute shares a JSON-blob topic with others (value_template set), which field
-				// to pull out of it, so the state relay below (registered once, not per
-				// capability) knows what to do with a message on that topic.
-				qualifiedTopic := qualifyHostsTopic(payload.StateTopic, remoteInstallation)
-				hostsRelayIndex.register(qualifiedTopic, TImportedHostsRelay{LocalEntity: match.LocalEntity, ExtractionField: extractionField})
+				// A "hosts"-kind capability's raw topic is bare and published as-is on the cloud
+				// broker too (retired 2026-09-08's installation-qualified segment -- every
+				// cloud-reporting host has a globally unique hostname across the whole fleet
+				// instead, so no two remote installations can ever collide on the same bare
+				// topic). Learn it, and, if this attribute shares a JSON-blob topic with others
+				// (value_template set), which field to pull out of it, so the state relay below
+				// (registered once, not per capability) knows what to do with a message on it.
+				hostsRelayIndex.register(payload.StateTopic, TImportedHostsRelay{LocalEntity: match.LocalEntity, ExtractionField: extractionField})
 			case payload.StateTopic != "":
 				// A "home_assistant"-kind capability's own state topic is already self-qualifying
 				// (unlike "hosts"-kind's bare one above) -- registering it here lets stateHandler
@@ -529,7 +712,7 @@ func subscribeImportedDevices(mainClient, cloudClient mqtt.Client, ownInstallati
 				hostsRelayIndex.register(payload.StateTopic, TImportedHostsRelay{LocalEntity: match.LocalEntity, ExtractionField: extractionField})
 			}
 
-			body := buildImportedDiscoveryBody(match, payload, importedAvailabilityTopic(importFile, match))
+			body := buildImportedDiscoveryBody(match, payload, importedAvailabilityTopic(importFile, match), remoteInstallation, viaDeviceIndex, ownInstallation)
 			dotIdx := strings.Index(match.LocalEntity, ".")
 			if dotIdx < 0 {
 				return
@@ -585,46 +768,48 @@ func subscribeImportedDevices(mainClient, cloudClient mqtt.Client, ownInstallati
 			return fmt.Errorf("subscribing to %s: timed out", stateFilter)
 		}
 
-		// "hosts"-kind's own bare, cross-house-qualified shape: "hosts/<host>/<installation>/
-		// <suffix>/state" (5 segments -- qualifyHostsTopic inserts the installation right after
-		// the host segment). One static wildcard per remote installation, same non-concurrent-
-		// spawn discipline as stateFilter above: hostsRelayIndex is populated lazily by
-		// configHandler as each capability's own discovery config arrives, so a message on a topic
-		// nothing has registered yet is simply a safe no-op (lookup returns nothing to relay).
-		hostsStateHandler := func(_ mqtt.Client, msg mqtt.Message) {
-			relays := hostsRelayIndex.lookup(msg.Topic())
-			for _, relay := range relays {
-				payload := msg.Payload()
-				if relay.ExtractionField != "" {
-					var fields map[string]json.RawMessage
-					if err := json.Unmarshal(msg.Payload(), &fields); err != nil {
-						fmt.Printf("[discovery-import] %s: cannot parse JSON payload for extraction: %v\n", msg.Topic(), err)
-						continue
-					}
-					raw, found := fields[relay.ExtractionField]
-					if !found {
-						continue
-					}
-					payload = raw
-				}
-				localStateTopic := importedStateTopic(relay.LocalEntity)
-				pubToken := mainClient.Publish(localStateTopic, 0, true, payload)
-				if !pubToken.WaitTimeout(10*time.Second) || pubToken.Error() != nil {
-					if err := pubToken.Error(); err != nil {
-						fmt.Printf("[discovery-import] relaying %s -> %s: %v\n", msg.Topic(), localStateTopic, err)
-					}
-				}
-			}
-		}
+	}
 
-		hostsStateFilter := "hosts/+/" + remoteInstallation + "/+/state"
-		token = cloudClient.Subscribe(hostsStateFilter, 0, hostsStateHandler)
-		if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
-			if err := token.Error(); err != nil {
-				return fmt.Errorf("subscribing to %s: %w", hostsStateFilter, err)
+	// "hosts"-kind's own bare shape: "hosts/<host>/<suffix>/state" (retired 2026-09-08's
+	// installation-qualified segment -- every cloud-reporting host has a globally unique hostname
+	// across the whole fleet instead, so this one wildcard is shared across every remote
+	// installation rather than needing its own per-installation subscription). hostsRelayIndex is
+	// populated lazily by each remote installation's own configHandler above as its capabilities'
+	// discovery configs arrive, so a message on a topic nothing has registered yet is simply a
+	// safe no-op (lookup returns nothing to relay).
+	hostsStateHandler := func(_ mqtt.Client, msg mqtt.Message) {
+		relays := hostsRelayIndex.lookup(msg.Topic())
+		for _, relay := range relays {
+			payload := msg.Payload()
+			if relay.ExtractionField != "" {
+				var fields map[string]json.RawMessage
+				if err := json.Unmarshal(msg.Payload(), &fields); err != nil {
+					fmt.Printf("[discovery-import] %s: cannot parse JSON payload for extraction: %v\n", msg.Topic(), err)
+					continue
+				}
+				raw, found := fields[relay.ExtractionField]
+				if !found {
+					continue
+				}
+				payload = raw
 			}
-			return fmt.Errorf("subscribing to %s: timed out", hostsStateFilter)
+			localStateTopic := importedStateTopic(relay.LocalEntity)
+			pubToken := mainClient.Publish(localStateTopic, 0, true, payload)
+			if !pubToken.WaitTimeout(10*time.Second) || pubToken.Error() != nil {
+				if err := pubToken.Error(); err != nil {
+					fmt.Printf("[discovery-import] relaying %s -> %s: %v\n", msg.Topic(), localStateTopic, err)
+				}
+			}
 		}
+	}
+
+	hostsStateFilter := "hosts/+/+/state"
+	token := cloudClient.Subscribe(hostsStateFilter, 0, hostsStateHandler)
+	if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
+		if err := token.Error(); err != nil {
+			return fmt.Errorf("subscribing to %s: %w", hostsStateFilter, err)
+		}
+		return fmt.Errorf("subscribing to %s: timed out", hostsStateFilter)
 	}
 
 	return nil

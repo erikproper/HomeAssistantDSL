@@ -55,7 +55,23 @@ package main
 // RemoteEntityRef string field, matched against each incoming payload's "default_entity_id") on
 // 2026-09-07, once no real Physical.def still used it -- see integration_import_parser.go's own
 // header comment.
-type TImportedCapability struct{}
+//
+// Domain/DerivedFromCapability/DerivedViaTemplate (added 2026-09-10, plans/
+// derived-capability-mechanism.md Phase 2) are only ever set for a "derived DDD.NNN from
+// EEE.MMM via TTT;" capability -- a LOCALLY-synthesized capability with no upstream cloud
+// discovery payload to match at all (unlike an ordinary imported capability, which has nothing
+// left to declare beyond its own presence, per this type's own header comment above). Domain
+// (DDD) has to be stored here, unlike an ordinary imported capability's domain (which always
+// comes from wherever Spaces.def positions it): a derived capability has no exporter payload to
+// inherit a domain from. DerivedFromCapability holds the sibling capability's own map key (MMM);
+// DerivedViaTemplate is TTT, "$" standing for the sibling's own resolved value. All three empty
+// for an ordinary imported capability -- unchanged behaviour from this type's previous empty-
+// struct shape.
+type TImportedCapability struct {
+	Domain                string
+	DerivedFromCapability string
+	DerivedViaTemplate    string
+}
 
 // TImportedDevice is one "device <local-id> from <remote-installation> <remote-device-id> with:
 // ... end;" declaration inside Physical.def's "integration import with: ... end;" block

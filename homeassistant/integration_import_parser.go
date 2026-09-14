@@ -35,9 +35,22 @@
  * still used it -- removed outright rather than kept alongside, per the user's own explicit
  * instruction, since the shorthand form covers every case the explicit form did.
  *
+ * An import device may declare neither a "derived" capability nor a constant device attribute
+ * (manufacturer/model/...) of its own (2026-09-12): the exporting side owns all device-specific
+ * knowledge and must provide it already resolved (derivations) or already reported live
+ * (constants) -- an importer never needs to know whether the imported device has a built-in
+ * property or a Physical.def-declared one, mirroring the same "device-specific knowledge lives on
+ * the exporting side" principle behind moving battery_alert derivations onto the exporter
+ * (derived-capability-mechanism.md). Both shapes are recognized on sight and rejected with a
+ * specific warning (see parseImportIntegrationBody's own body) rather than falling through to the
+ * generic "unrecognised line" warning -- an earlier phase of the derived-capability rollout
+ * temporarily allowed "derived" here, to cover Vienna's imported Netatmo devices before
+ * Junglinster (the real source) was migrated; that migration is now complete on both houses, so
+ * the allowance is withdrawn. Constant attributes were never allowed.
+ *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 07.09.2026
+ * Version of: 12.09.2026
  *
  */
 
@@ -54,6 +67,13 @@ var importHeaderPattern = regexp.MustCompile(`^device\s+(\S+)\s+from\s+(\S+)\s+(
 // importCapabilityPattern matches "<domain>.<capability>;" -- see this file's own header comment
 // for the full rationale.
 var importCapabilityPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s*;\s*$`)
+
+// importConstantAttributeShapePattern recognizes the same "<name>: "<value>" [forced];" shape
+// integration_hosts_parser.go/integration_hassbridge_parser.go's own constantAttributePattern
+// accepts, purely to give an import device's author a specific, actionable rejection instead of
+// the generic "unrecognised line" fallback -- see this file's own header comment on why import
+// devices may declare neither constant attributes nor "derived" capabilities.
+var importConstantAttributeShapePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*:\s*"[^"]*"(?:\s+forced)?\s*;\s*$`)
 
 // parseImportIntegrationBody parses the body lines of an "integration import with: ... end;"
 // block. Lines that don't parse cleanly are reported as warnings rather than aborting the parse,
@@ -78,6 +98,20 @@ func parseImportIntegrationBody(bodyLines []string) ([]TImportedDevice, []string
 			if line == "end;" {
 				devices = append(devices, current)
 				inCapabilities = false
+				continue
+			}
+			// An import device may declare neither "derived" capabilities nor constant device
+			// attributes (manufacturer/model/...): the exporting side owns all device-specific
+			// knowledge and must provide it already-resolved (derived) or already-reported
+			// (live constants) -- see this file's own header comment. Checked ahead of
+			// importCapabilityPattern for the same reason parseDerivedCapabilityLine used to be:
+			// "derived" is a distinct, unambiguous leading keyword.
+			if derivedCapabilityLinePattern.MatchString(line) {
+				warnings = append(warnings, fmt.Sprintf("Physical.def: imported device %q must not declare a \"derived\" capability (body line %d) -- derivations belong on the exporting side's own Physical.def declaration: %q", current.DeviceID, lineIdx+1, line))
+				continue
+			}
+			if importConstantAttributeShapePattern.MatchString(line) {
+				warnings = append(warnings, fmt.Sprintf("Physical.def: imported device %q must not declare a constant device attribute (body line %d) -- manufacturer/model/etc. belong on the exporting side's own Physical.def declaration, reported live: %q", current.DeviceID, lineIdx+1, line))
 				continue
 			}
 			if matches := importCapabilityPattern.FindStringSubmatch(line); matches != nil {
@@ -142,6 +176,11 @@ func collectImportedDevicesByID(definitionDir string) (map[string]TImportedDevic
 	for _, d := range devices {
 		if _, exists := byID[d.DeviceID]; !exists {
 			byID[d.DeviceID] = d
+		} else {
+			// See integration_hosts_storage.go's own "declared more than once" warning for
+			// the real incident (2026-09-10) that prompted adding this across every
+			// integration kind's own collector, not just hassbridge's (which already had it).
+			warnings = append(warnings, fmt.Sprintf("Physical.def: device %q declared more than once within the \"import\" integration; keeping the first declaration", d.DeviceID))
 		}
 	}
 	return byID, warnings

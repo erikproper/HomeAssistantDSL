@@ -143,6 +143,13 @@ func collectHostsDevicesByID(definitionDir string) (map[string]THostDevice, []st
 			}
 			if _, exists := byID[d.DeviceID]; !exists {
 				byID[d.DeviceID] = d
+			} else {
+				// Real bug found live 2026-09-10 (Junglinster's own "host.frame" declared twice,
+				// fixed manually only after the second declaration's own capabilities went
+				// silently missing): this first-wins merge used to drop a duplicate with no
+				// feedback at all -- warn now, matching collectHassBridgeDevicesByID's own
+				// "declared more than once" precedent.
+				warnings = append(warnings, fmt.Sprintf("Physical.def: device %q declared more than once within the \"hosts\" integration; keeping the first declaration", d.DeviceID))
 			}
 		}
 	}

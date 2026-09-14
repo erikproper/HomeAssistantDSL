@@ -83,7 +83,7 @@ func generateCommandlineHostFile(outputRoot string, device TCommandlineDevice) e
 
 // commandlineCapabilityRef looks up a commandline capability's conceptual positioning (registered
 // by Conceptual_CommandlineEntities.go's registerCommandlineCapabilityEntityLink, via the ordinary
-// "entity <spec> from <device-id> entity <capability>;" construct), returning the entity id and a
+// "entity <spec> from <device-id> <capability>;" construct), returning the entity id and a
 // sphere/path-derived display name -- both "" if this capability was never positioned in
 // Spaces.def, in which case discoverycommandline.go falls back to its own auto-derived naming.
 func commandlineCapabilityRef(admin *TAdministrationState, deviceID, name string) (entityID, displayName string) {
@@ -123,6 +123,20 @@ func generateCommandlineCoordinatorFile(outputRoot string, devices []TCommandlin
 
 		sb.WriteString("  " + d.DeviceID + ":\n")
 		sb.WriteString("    host: \"" + d.Host + "\"\n")
+		// display_name (added 2026-09-11): this house's own Spaces.def-positioning-derived name
+		// for the device -- real gap found live: registerCommandlineDevicePositioning
+		// (Conceptual_DevicePositioning.go) already computes this correctly, but nothing ever
+		// serialized it here, so the coordinator's own "device:" block always fell back to the
+		// bare Host instead (e.g. Vienna's own picture_frame device showing up named
+		// "protocols-server-2" -- its Host -- rather than its real Spaces.def position). Absent
+		// entirely (via omitempty on the coordinator's own decode side) when the device was never
+		// positioned, same "nothing to fall back to but the bare id" case every other device kind
+		// already has.
+		if admin != nil {
+			if link, ok := admin.DeviceConceptualLinks[d.DeviceID]; ok && link.DisplayName != "" {
+				sb.WriteString("    display_name: " + link.DisplayName + "\n")
+			}
+		}
 
 		writeKindList := func(kind, section string) {
 			var kindNames []string
@@ -174,7 +188,7 @@ func generateCommandlineIntegrationOutputs(bodyLines []string, ctx TPhysicalGene
 			return err
 		}
 		if ctx.HasMQTTSecrets {
-			if err := generateMQTTShellSecretsFile(ctx.OutputRoot, "commandline", "secrets."+d.Host, ctx.MQTTSecrets, ctx.Installation); err != nil {
+			if err := generateMQTTShellSecretsFile(ctx.OutputRoot, "commandline", "secrets."+d.Host, ctx.MQTTSecrets); err != nil {
 				return err
 			}
 		}

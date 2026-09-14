@@ -147,14 +147,31 @@ func isCoordinatorOwnedTopic(topic, prefix string) bool {
 // the real value (not hardcoded true) -- a Cloud-only device that would otherwise be excluded here
 // is instead correctly EXCLUDED when hasCloudClient is false, matching deviceRoutingPlan's own
 // "no cloud client configured" case.
-func expectedHostsPayloads(devicesFile TDevicesFile, hasCloudClient bool) (map[string]string, error) {
+//
+// store supplies each device's own already-known live-reported fields (manufacturer/model/
+// sw_version/via_device/...) via store.Snapshot(id) -- real bug found live 2026-09-09, PROJECT.md:
+// this used to always pass live=nil to buildDiscoveryConfigs, computing a bare, live-data-free
+// baseline. watchForOrphanedDiscoveryTopics (below) compares that baseline, byte-for-byte, against
+// whatever the broker's own retained discovery message actually holds during its startup settle
+// window -- but a device whose live fields were already learned and persisted across a PREVIOUS
+// coordinator run (store's own persisted live_device_info.json, liveinfo.go) has *already*
+// live-enriched content sitting on the broker from before this restart, which a nil-live baseline
+// can never match. The mismatch got misread as "someone else published something wrong here" and
+// the topic was wrongly retired -- confirmed live on Vienna (host.eriks-mac-mini/host.frame's own
+// sensor+binary_sensor discovery wiped from the broker, invisible in HA's own MQTT integration for
+// over a day, self-inflicted and never self-healing since nothing ever re-triggered a real
+// republish for content the manifest still believed was already correctly on the broker). Passing
+// store's own already-persisted snapshot here makes the startup baseline match what's actually
+// expected to already be there, closing the gap this construct's own doc comment already flagged
+// as a *runtime* risk without noticing it was just as live a risk at startup.
+func expectedHostsPayloads(devicesFile TDevicesFile, hasCloudClient bool, store *TLiveDeviceInfoStore) (map[string]string, error) {
 	expected := map[string]string{}
 	prefix := devicesFile.conceptualPrefix()
 	for id, device := range devicesFile.Devices {
 		if !deviceRoutingPlan(device, hasCloudClient).PublishMain {
 			continue
 		}
-		for _, cfg := range buildDiscoveryConfigs(id, device, nil, "", prefix) {
+		for _, cfg := range buildDiscoveryConfigs(id, device, store.Snapshot(id), "", prefix, devicesFile.Installation) {
 			data, err := json.Marshal(cfg.Payload)
 			if err != nil {
 				return nil, fmt.Errorf("marshalling discovery payload for %s: %w", cfg.Topic, err)
@@ -175,14 +192,18 @@ func expectedHostsPayloads(devicesFile TDevicesFile, hasCloudClient bool) (map[s
 // check would have wrongly excluded it the moment ImportedFrom became non-empty for that case.
 // hasCloudClient is always true here -- this function is only ever meaningful when a cloud broker
 // already exists, which its own caller already gates on.
-func expectedCloudHostsPayloads(devicesFile TDevicesFile, ownInstallation string) (map[string]string, error) {
+//
+// store: same rationale as expectedHostsPayloads' own doc comment (real bug found live 2026-09-09)
+// -- a nil-live baseline here would be just as wrong for the cloud broker's own retained discovery
+// content.
+func expectedCloudHostsPayloads(devicesFile TDevicesFile, ownInstallation string, store *TLiveDeviceInfoStore) (map[string]string, error) {
 	expected := map[string]string{}
 	prefix := devicesFile.conceptualPrefix()
 	for id, device := range devicesFile.Devices {
 		if !deviceRoutingPlan(device, true).PublishCloud {
 			continue
 		}
-		for _, cfg := range buildDiscoveryConfigs(id, device, nil, "", prefix) {
+		for _, cfg := range buildDiscoveryConfigs(id, device, store.Snapshot(id), "", prefix, ownInstallation) {
 			data, err := json.Marshal(cfg.Payload)
 			if err != nil {
 				return nil, fmt.Errorf("marshalling discovery payload for %s: %w", cfg.Topic, err)
@@ -342,6 +363,18 @@ func (p *TDiscoveryPublisher) RetireMissing(client mqtt.Client, broker string, e
 // permanently empty on the broker even after the fix deployed: the coordinator's own persisted
 // manifest still remembered them as already-published from before they'd been wrongly retired,
 // so every subsequent Publish call for the same unchanged content was a silent no-op.
+// Knows reports whether topic (on broker) is currently recorded as something this publisher
+// itself previously published -- discoverybridge.go's own passthrough relay uses this to decide
+// whether a retire attempt (RetireOne, an unconditional network round-trip + log line) is
+// worthwhile at all, rather than firing one for every message on a shared subscription regardless
+// of whether this publisher ever actually touched that exact topic.
+func (p *TDiscoveryPublisher) Knows(broker, topic string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	_, ok := p.known[manifestKey(broker, topic)]
+	return ok
+}
+
 func (p *TDiscoveryPublisher) RetireOne(client mqtt.Client, broker, topic string) {
 	retireDiscoveryTopic(client, topic)
 	p.mu.Lock()

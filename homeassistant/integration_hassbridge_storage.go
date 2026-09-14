@@ -54,6 +54,29 @@ type THassBridgeCapability struct {
 	Icon        string
 	DeviceClass string
 	StateClass  string
+	// ValueMap (added 2026-09-09) translates the source's own raw reported value before it's ever
+	// published -- "map: "<source-value>" "<target-value>";" (repeatable), declared inside the
+	// capability's own "with: ... end;" block or as a bare trailing "<path> map: ...;" line, same
+	// two places Unit/Icon/DeviceClass/StateClass can go. Real motivating case: a Roomba's own
+	// native vocabulary ("home", "run", "stop", ...) doesn't match HA's own MQTT vacuum activity
+	// strings ("docked", "cleaning", "idle", ...) at all -- applied at generate time
+	// (remote_instance_entity_reporting.go's applyValueMap), purely within the generator, never
+	// reaching the coordinator (which only ever relays an already-resolved value). Empty/absent
+	// means every raw value passes through unchanged, exactly as before this field existed. A
+	// value with no entry here is left completely unchanged (never an error) -- this is a
+	// translation table, not an enum whitelist.
+	ValueMap map[string]string
+	// DerivedFromCapability/DerivedViaTemplate (added 2026-09-10, plans/
+	// derived-capability-mechanism.md Phase 2): "derived DDD.NNN from EEE.MMM via TTT;"
+	// declares this capability's value as a function of a SIBLING capability of the SAME device
+	// (DerivedFromCapability holds EEE.MMM's own map key, MMM) rather than a literal Sources
+	// entry -- Sources is empty for a derived capability. DerivedViaTemplate is TTT, "$" standing
+	// for the sibling's own resolved value. Both empty for an ordinary, atomically-declared
+	// capability. Populated by parseDerivedCapabilityLine (Physical_DerivedCapability.go),
+	// validated (sibling presence, cycle-freedom) by validateDerivedCapabilities
+	// (physical_rule_derived_capabilities.go).
+	DerivedFromCapability string
+	DerivedViaTemplate    string
 }
 
 // THassBridgeDevice is one "device <id> with: ... end;" declaration inside Physical.def's

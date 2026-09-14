@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -200,6 +201,32 @@ func TestDiscoveryPublisherRetiresBeforeRepublishOnContentChange(t *testing.T) {
 	}
 }
 
+// TestDiscoveryPublisherKnows is discoverybridge.go's own passthrough-retire guard's coverage:
+// Knows must report false before anything's been published to a topic (on a given broker), true
+// immediately after, and false again once explicitly retired via RetireOne.
+func TestDiscoveryPublisherKnows(t *testing.T) {
+	client := &fakeClient{}
+	p := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
+	topic := "homeassistant/sensor/zigbee2mqtt/some_device/config"
+
+	if p.Knows("main", topic) {
+		t.Errorf("Knows = true before anything was published, want false")
+	}
+	if err := p.Publish(client, "main", topic, []byte(`{"a":1}`)); err != nil {
+		t.Fatalf("Publish error: %v", err)
+	}
+	if !p.Knows("main", topic) {
+		t.Errorf("Knows = false after Publish, want true")
+	}
+	if p.Knows("cloud_coordinator", topic) {
+		t.Errorf("Knows = true for a different broker label, want false (manifestKey is broker-scoped)")
+	}
+	p.RetireOne(client, "main", topic)
+	if p.Knows("main", topic) {
+		t.Errorf("Knows = true after RetireOne, want false")
+	}
+}
+
 func TestDiscoveryPublisherRetireMissing(t *testing.T) {
 	client := &fakeClient{}
 	manifestPath := filepath.Join(t.TempDir(), "discovery_topics.json")
@@ -230,13 +257,13 @@ func TestDiscoveryPublisherRetireMissing(t *testing.T) {
 
 func TestExpectedHostsPayloadsMatchesBuildDiscoveryConfigs(t *testing.T) {
 	devicesFile := TDevicesFile{Devices: map[string]TDevice{"host.smarty": smartyDevice()}}
-	got, err := expectedHostsPayloads(devicesFile, true)
+	got, err := expectedHostsPayloads(devicesFile, true, NewLiveDeviceInfoStore("", nil))
 	if err != nil {
 		t.Fatalf("expectedHostsPayloads error: %v", err)
 	}
 
 	want := map[string]bool{}
-	for _, cfg := range buildDiscoveryConfigs("host.smarty", smartyDevice(), nil, "", devicesFile.conceptualPrefix()) {
+	for _, cfg := range buildDiscoveryConfigs("host.smarty", smartyDevice(), nil, "", devicesFile.conceptualPrefix(), devicesFile.Installation) {
 		want[cfg.Topic] = true
 	}
 	if len(got) != len(want) {
@@ -246,6 +273,65 @@ func TestExpectedHostsPayloadsMatchesBuildDiscoveryConfigs(t *testing.T) {
 		if _, ok := got[topic]; !ok {
 			t.Errorf("missing expected topic %q", topic)
 		}
+	}
+}
+
+// TestExpectedHostsPayloadsUsesPersistedLiveDeviceInfo is the regression test for a real bug found
+// live 2026-09-09 (Vienna): expectedHostsPayloads used to always compute its baseline with
+// live=nil, so a device whose manufacturer/model/sw_version/... was already learned and persisted
+// across a PREVIOUS coordinator run had a startup "expected" payload that could never match what
+// was actually, correctly sitting on the broker from before the restart (already live-enriched).
+// watchForOrphanedDiscoveryTopics' startup content-check then wrongly retired the topic. Confirms
+// expectedHostsPayloads now folds the store's own persisted snapshot into its baseline, matching
+// buildDiscoveryConfigs(..., store.Snapshot(id), ...) exactly -- not the bare, live-data-free one.
+func TestExpectedHostsPayloadsUsesPersistedLiveDeviceInfo(t *testing.T) {
+	devicesFile := TDevicesFile{Devices: map[string]TDevice{"host.smarty": smartyDevice()}}
+
+	store := NewLiveDeviceInfoStore("", nil)
+	store.Update("host.smarty", map[string]string{"manufacturer": "raspberrypi", "sw_version": "Fedora Linux 44"})
+
+	got, err := expectedHostsPayloads(devicesFile, true, store)
+	if err != nil {
+		t.Fatalf("expectedHostsPayloads error: %v", err)
+	}
+
+	wantEnriched := map[string]string{}
+	for _, cfg := range buildDiscoveryConfigs("host.smarty", smartyDevice(), store.Snapshot("host.smarty"), "", devicesFile.conceptualPrefix(), devicesFile.Installation) {
+		data, err := json.Marshal(cfg.Payload)
+		if err != nil {
+			t.Fatalf("marshalling want payload: %v", err)
+		}
+		wantEnriched[cfg.Topic] = string(data)
+	}
+	if len(wantEnriched) == 0 {
+		t.Fatalf("test setup produced no discovery configs to compare against")
+	}
+	for topic, want := range wantEnriched {
+		if got[topic] != want {
+			t.Errorf("got[%q] = %s, want the live-enriched payload %s", topic, got[topic], want)
+		}
+	}
+
+	// The bug's own symptom, made explicit: the bare (live=nil) baseline must NOT match what
+	// expectedHostsPayloads now computes, for at least the device-info-bearing "device" fields --
+	// otherwise this test would pass even with the old, broken behaviour.
+	bare := map[string]string{}
+	for _, cfg := range buildDiscoveryConfigs("host.smarty", smartyDevice(), nil, "", devicesFile.conceptualPrefix(), devicesFile.Installation) {
+		data, err := json.Marshal(cfg.Payload)
+		if err != nil {
+			t.Fatalf("marshalling bare payload: %v", err)
+		}
+		bare[cfg.Topic] = string(data)
+	}
+	sawDifference := false
+	for topic, want := range wantEnriched {
+		if bare[topic] != want {
+			sawDifference = true
+			break
+		}
+	}
+	if !sawDifference {
+		t.Fatalf("test setup error: live-enriched and bare payloads are identical, so this test can't distinguish the fix from the bug")
 	}
 }
 
@@ -279,19 +365,19 @@ func TestExpectedCloudHostsPayloadsQualifiesTopicsAndSkipsNonCloudAndRealImporte
 		"host.imported":    importedDevice,
 	}}
 
-	got, err := expectedCloudHostsPayloads(devicesFile, "junglinster")
+	got, err := expectedCloudHostsPayloads(devicesFile, "junglinster", NewLiveDeviceInfoStore("", nil))
 	if err != nil {
 		t.Fatalf("expectedCloudHostsPayloads error: %v", err)
 	}
 
 	prefix := devicesFile.conceptualPrefix()
 	wantCloudOnly := map[string]bool{}
-	for _, cfg := range buildDiscoveryConfigs("host.cloud_only", cloudDevice, nil, "", prefix) {
+	for _, cfg := range buildDiscoveryConfigs("host.cloud_only", cloudDevice, nil, "", prefix, "test") {
 		stableID := exportStableID("junglinster", "host.cloud_only", cfg.Capability)
 		wantCloudOnly["junglinster/"+discoveryTopic(prefix, cfg.Component, stableID)] = true
 	}
 	wantSelfImport := map[string]bool{}
-	for _, cfg := range buildDiscoveryConfigs("host.self_import", selfImportDevice, nil, "", prefix) {
+	for _, cfg := range buildDiscoveryConfigs("host.self_import", selfImportDevice, nil, "", prefix, "test") {
 		stableID := exportStableID("junglinster", "host.self_import", cfg.Capability)
 		wantSelfImport["junglinster/"+discoveryTopic(prefix, cfg.Component, stableID)] = true
 	}

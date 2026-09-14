@@ -17,6 +17,92 @@ func TestLoadHassBridgeFileMissingReturnsZeroValue(t *testing.T) {
 	}
 }
 
+// TestBuildHassBridgeDeviceBlockSetsViaDeviceOnlyWhenResolved is the unit-level check for
+// PROJECT.md item 3/plans/via-device-inference.md: viaDeviceID is the caller's own
+// already-resolved value (mirroring discovery.go's buildDiscoveryConfigs), set on the device
+// block verbatim when non-empty, omitted entirely otherwise.
+func TestBuildHassBridgeDeviceBlockSetsViaDeviceOnlyWhenResolved(t *testing.T) {
+	device := THassBridgeDevice{DisplayName: "infrastructural/vienna_bedroom"}
+
+	resolved := buildHassBridgeDeviceBlock("hass.vienna_bedroom", device, nil, "hass.vienna_livingroom")
+	if resolved.ViaDevice != "hass.vienna_livingroom" {
+		t.Errorf("ViaDevice = %q, want %q", resolved.ViaDevice, "hass.vienna_livingroom")
+	}
+
+	unresolved := buildHassBridgeDeviceBlock("hass.vienna_bedroom", device, nil, "")
+	if unresolved.ViaDevice != "" {
+		t.Errorf("ViaDevice = %q, want empty when unresolved", unresolved.ViaDevice)
+	}
+}
+
+// TestSubscribeHassBridgePublishesViaDeviceWhenResolvable is the end-to-end check: a Netatmo
+// module device whose base station is ALSO declared and tracked in the same instance gets a real
+// "device.via_device" in its published discovery config, resolved purely from existence-tracker
+// data already collected -- no new Physical.def syntax.
+func TestSubscribeHassBridgePublishesViaDeviceWhenResolvable(t *testing.T) {
+	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
+		"hass.module": {
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"battery_level": {
+					SourceEntities: map[string]string{"protocols-server-2": "sensor.module_battery"},
+					LocalEntity:    "sensor.physical_module_battery_level",
+				},
+			},
+		},
+		"hass.base": {
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"node": {
+					SourceEntities: map[string]string{"protocols-server-2": "sensor.base_connectivity"},
+					LocalEntity:    "sensor.physical_base_node",
+				},
+			},
+		},
+	}}
+
+	existenceTracker := newEntityExistenceTracker("")
+	existenceTracker.Seed(bridgeFile)
+	existenceTracker.Record("protocols-server-2", "sensor.module_battery", true, "80", "", "", "", "remote-module", "remote-base")
+	existenceTracker.Record("protocols-server-2", "sensor.base_connectivity", true, "on", "", "", "", "remote-base", "")
+
+	localTopic := "homeassistant_instances/protocols-server-2/bridge/sensor.physical_module_battery_level/state"
+	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte("80")}}}
+	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
+	store := NewLiveDeviceInfoStore("", nil)
+
+	if err := subscribeHassBridge(client, nil, "", bridgeFile, store, publisher, testPrefix, existenceTracker); err != nil {
+		t.Fatalf("subscribeHassBridge error: %v", err)
+	}
+
+	wantTopic, ok := hassBridgeDiscoveryTopic("sensor.physical_module_battery_level", testPrefix)
+	if !ok {
+		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
+	}
+
+	found := false
+	for _, p := range client.published {
+		if p.topic != wantTopic {
+			continue
+		}
+		found = true
+		var body map[string]interface{}
+		if err := json.Unmarshal(p.payload, &body); err != nil {
+			t.Fatalf("unmarshalling discovery payload: %v", err)
+		}
+		device, ok := body["device"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("device block missing or wrong shape: %v", body["device"])
+		}
+		if device["via_device"] != "hass.base" {
+			t.Errorf("device.via_device = %v, want %q", device["via_device"], "hass.base")
+		}
+	}
+	if !found {
+		t.Errorf("expected a discovery config published to %q, got %v", wantTopic, client.published)
+	}
+}
+
 func TestSubscribeHassBridgePublishesDiscoveryAndState(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.laserjet": {
@@ -26,6 +112,7 @@ func TestSubscribeHassBridgePublishesDiscoveryAndState(t *testing.T) {
 				"status": {
 					SourceEntities: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w"},
 					LocalEntity:    "sensor.infrastructural_house_downward_hallway_laserjet_status",
+					DisplaySuffix:  "status",
 				},
 			},
 			ConstantAttributes: map[string]TConceptualConstant{
@@ -88,7 +175,9 @@ func TestSubscribeHassBridgePublishesDiscoveryAndState(t *testing.T) {
 // typing showed up with no unit_of_measurement/device_class at all, even though the remote
 // entity it bridges from genuinely has both (e.g. a Fritz!Box's own gb_received sensor) --
 // existence_tracker.LiveTyping (populated by the same inquiry reply that already answers "does
-// this exist") must be consulted as a fallback.
+// this exist") must be consulted as a fallback. Extended 2026-09-09 to also cover icon -- a
+// second real gap, found live on Vienna's washing_machine bridge: the 2026-09-06 fix's own doc
+// comments already named icon as part of the same problem, but never actually wired it through.
 func TestSubscribeHassBridgeFallsBackToLiveTypingWhenDeclaredEmpty(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.fritz_box": {
@@ -106,7 +195,7 @@ func TestSubscribeHassBridgeFallsBackToLiveTypingWhenDeclaredEmpty(t *testing.T)
 
 	existenceTracker := newEntityExistenceTracker("")
 	existenceTracker.Seed(bridgeFile)
-	existenceTracker.Record("protocols-server-2", "sensor.fritz_box_7490_gb_received", true, "1234", "GB", "data_size")
+	existenceTracker.Record("protocols-server-2", "sensor.fritz_box_7490_gb_received", true, "1234", "GB", "data_size", "mdi:download-network", "", "")
 
 	localTopic := "homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_fritz_box_gb_received/state"
 	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte("1234")}}}
@@ -136,6 +225,9 @@ func TestSubscribeHassBridgeFallsBackToLiveTypingWhenDeclaredEmpty(t *testing.T)
 		}
 		if body["device_class"] != "data_size" {
 			t.Errorf("device_class = %v, want the live-reported \"data_size\" fallback", body["device_class"])
+		}
+		if body["icon"] != "mdi:download-network" {
+			t.Errorf("icon = %v, want the live-reported \"mdi:download-network\" fallback", body["icon"])
 		}
 	}
 	if !found {
@@ -720,6 +812,7 @@ func TestSubscribeHassBridgeNonExportDeviceNeverPublishesToCloud(t *testing.T) {
 				"status": {
 					SourceEntities: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w"},
 					LocalEntity:    "sensor.infrastructural_house_downward_hallway_laserjet_status",
+					DisplaySuffix:  "status",
 				},
 			},
 		},
@@ -812,6 +905,7 @@ func TestExpectedHassBridgeTopicsMatchesPublishedTopic(t *testing.T) {
 				"status": {
 					SourceEntities: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w"},
 					LocalEntity:    "sensor.infrastructural_house_downward_hallway_laserjet_status",
+					DisplaySuffix:  "status",
 				},
 			},
 		},
@@ -969,5 +1063,98 @@ func TestSubscribeHassBridgeSelfImportNoopWhenCloudClientNil(t *testing.T) {
 	}}
 	if err := subscribeHassBridgeSelfImport(nil, &fakeClient{}, "junglinster", bridgeFile); err != nil {
 		t.Fatalf("subscribeHassBridgeSelfImport error: %v", err)
+	}
+}
+
+// TestSubscribeHassBridgeSetsCommandTopicForCommandableCapability is the coordinator-side
+// counterpart to homeassistant/remote_instance_entity_commands_test.go -- confirms
+// buildHassBridgeEntityDiscoveryBody actually wires a capability's own generator-resolved
+// Commands/DiscoveryExtra (coordinator/homeassistant_bridge.yaml content, unmarshalled here
+// directly as fixture data) into a real discovery config: command_topic plus every payload_*
+// field, plus supported_features. Also confirms the cloud-exported body (Export: true) has NO
+// command_topic at all yet -- Phase 2 (cross-house command relay) is deliberately deferred, see
+// Architecture.md §6.13.
+func TestSubscribeHassBridgeSetsCommandTopicForCommandableCapability(t *testing.T) {
+	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
+		"hass.roomba": {
+			Instances:   []string{"protocols-server-2"},
+			DisplayName: "social/apartment/roomba",
+			Export:      true,
+			Capabilities: map[string]THassBridgeCapability{
+				"roomba": {
+					SourceEntities: map[string]string{"protocols-server-2": "vacuum.roomba"},
+					LocalEntity:    "vacuum.social_apartment_roomba",
+					Commands: map[string]TCapabilityCommand{
+						"start": {Payload: "start", DiscoveryKey: "payload_start"},
+						"pause": {Payload: "pause", DiscoveryKey: "payload_pause"},
+					},
+					DiscoveryExtra: map[string]interface{}{
+						"supported_features": []interface{}{"start", "pause"},
+					},
+				},
+			},
+		},
+	}}
+
+	localTopic := "homeassistant_instances/protocols-server-2/bridge/vacuum.social_apartment_roomba/state"
+	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte(`{"state": "docked"}`)}}}
+	cloudClient := &fakeClient{}
+	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
+	store := NewLiveDeviceInfoStore("", nil)
+
+	if err := subscribeHassBridge(client, cloudClient, "vienna", bridgeFile, store, publisher, testPrefix, nil); err != nil {
+		t.Fatalf("subscribeHassBridge error: %v", err)
+	}
+
+	localDiscoveryTopic, ok := hassBridgeDiscoveryTopic("vacuum.social_apartment_roomba", testPrefix)
+	if !ok {
+		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
+	}
+	wantCommandTopic := "homeassistant_instances/protocols-server-2/bridge/vacuum.social_apartment_roomba/command"
+
+	localFound := false
+	for _, p := range client.published {
+		if p.topic != localDiscoveryTopic {
+			continue
+		}
+		localFound = true
+		var body map[string]interface{}
+		if err := json.Unmarshal(p.payload, &body); err != nil {
+			t.Fatalf("unmarshalling local discovery payload: %v", err)
+		}
+		if body["command_topic"] != wantCommandTopic {
+			t.Errorf("command_topic = %v, want %q", body["command_topic"], wantCommandTopic)
+		}
+		if body["payload_start"] != "start" {
+			t.Errorf("payload_start = %v, want \"start\"", body["payload_start"])
+		}
+		if body["payload_pause"] != "pause" {
+			t.Errorf("payload_pause = %v, want \"pause\"", body["payload_pause"])
+		}
+		features, ok := body["supported_features"].([]interface{})
+		if !ok || len(features) != 2 {
+			t.Errorf("supported_features = %v, want the two declared features", body["supported_features"])
+		}
+	}
+	if !localFound {
+		t.Fatalf("expected a local discovery config published to %q, got %v", localDiscoveryTopic, client.published)
+	}
+
+	cloudFound := false
+	for _, p := range cloudClient.published {
+		var body map[string]interface{}
+		if err := json.Unmarshal(p.payload, &body); err != nil {
+			continue
+		}
+		if _, isDiscovery := body["unique_id"]; !isDiscovery {
+			continue
+		}
+		cloudFound = true
+		if _, hasCommandTopic := body["command_topic"]; hasCommandTopic {
+			t.Errorf("cloud-exported body = %v, want no command_topic at all (Phase 2 cross-house command relay is deliberately not built yet)", body)
+		}
+	}
+	if !cloudFound {
+		t.Fatalf("expected a cloud-exported discovery config, got %v", cloudClient.published)
 	}
 }

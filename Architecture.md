@@ -47,6 +47,29 @@ The architecture mirrors OMG's Model Driven Architecture (CIM/PIM/PSM), and sepa
   - **Absorb**: one device becomes subordinate to, and extends, an existing "master" device rather than forming something new — e.g. `switch.infrastructural:garage/smarty` (a Zigbee-controlled power switch for the `smarty` host) absorbed into `host.smarty` as its on/off switch capability; or the common Z-Wave/Zigbee pairing of a Z-Wave wall switch (linked to a physical wall switch) absorbing the Zigbee dimmer light(s) it actually controls, forming one logical light.
 - **Physical**: protocol- and integration-specific reality, abstracted (mostly) to MQTT, with pragmatic exceptions such as media players and Z-Wave (see §11).
 
+**Where physical-layer derivation ends and logical-layer combination begins** (2026-09-09, design
+in progress, not yet built — see PROJECT.md item 4 and `splendid-zooming-lighthouse.md`): a
+capability's value can be *derived* from exactly one sibling capability of the same physical
+device (e.g. a `battery_alert` binary_sensor thresholding that same device's own `battery_level`)
+entirely within the physical layer — the transformation is expressed once, in Physical.def, and
+realized as an MQTT discovery `value_template`, so it is the *receiving* HA instance that evaluates
+it on ingest, never the coordinator or the source integration itself (resolving the "who does this
+derivation work" question this project has carried since the MQTT migration: not the source
+platform, since not every integration — Zigbee2MQTT, for instance — can define a derived entity of
+its own; not the coordinator, since that would mean re-implementing HA's own templating engine for
+no benefit). This gives a precise, mechanical line between the two layers: **a transformation over
+the value of exactly one base entity is physical-layer work; anything needing more than one base
+entity's value is logical-layer work by construction** — aggregate/absorb above, and multi-device
+choreography (turning on a smart dimmer whose mains power is switched by a separate device,
+sequencing "switch relay on, wait, then set brightness") both fall on the logical side of that line
+for exactly this reason, not merely by convention.
+
+One deliberate exception: availability/liveness ("is available") stays a physical-layer primitive
+even though it is itself a kind of derived value — it can require a synthetic, time-out-based check
+(an entity considered unavailable after N minutes of silence) that is not a pure function of one
+payload value at all, so it can never fit the single-base-entity substitution model above, however
+many base entities it might otherwise reference.
+
 The relationship between the conceptual and logical/physical layers is a mapping, not a 1:1 correspondence — one conceptual light can be realized by several physical devices plus an automation stitching them together, and inhabitants never need to know that.
 
 ---
@@ -222,6 +245,8 @@ A directly reusable coordinator capability — useful to anyone adopting this mo
 This means adopting the architecture never requires a flag-day cutover. Entities move to proper model-driven refinement one at a time — as each is dealt with, the coordinator gains a real decision to make for it (per §6.1's discovery-refinement role) and stops naively passing that one entity through. Everything not yet touched keeps working exactly as it did before the coordinator existed at all.
 
 This is a coordinator *setting* — an explicit passthrough default — not a special case coded into the model. It's the same raw-discovery → refinement pipeline from §6.1, just with refinement defaulting to identity until the model has something to say about a given entity. For example: migrating an existing Zigbee2MQTT deployment onto this architecture doesn't require redefining every device in the model on day one — the coordinator defaults to passing Zigbee2MQTT's raw discovery straight through, and devices move to true model-driven refinement gradually, one at a time.
+
+**Design rationale: passthrough naming is a robustness liability, not just a cosmetic gap.** A live incident on Vienna (2026-09-09, see README.md's "Operational notes") showed why finishing this migration matters beyond naming consistency. Home Assistant's MQTT integration treats a missing/empty retained discovery config as an instruction to *delete* the entity outright, not merely mark it unavailable — unlike most other integrations, which leave an orphaned entity behind when a device stops reporting. For an entity still on raw Zigbee2MQTT passthrough, the `entity_id` HA shows is whatever a human manually renamed it to at some point after creation, entirely outside this codebase's control; if the registry row is ever deleted and recreated (broker losing retained state, a bad reload, or any other event that makes the config genuinely disappear for a while), the entity comes back under Zigbee2MQTT's own raw `friendly_name`-based naming, and the manual rename is lost with no record of what it should be. An entity that has been moved to true model-driven refinement doesn't have this problem: the coordinator itself authors the discovery config, including its `object_id`/name, so it can set that name to already match the DSL's naming convention. Even in the worst case — the registry row deleted and the entity recreated completely from scratch — the freshly-created `entity_id` comes back correct immediately, because there is no longer a human-only, unrecorded naming step to lose. This is a concrete, incident-tested reason (not just tidiness) to keep moving entities off passthrough and onto real model-driven refinement over time.
 
 ### 6.5 Worked example: Netatmo cross-home federation
 
@@ -722,10 +747,73 @@ files directly.
 `integration import`-style declaration analogous to hosts' `ImportedFrom`, which would let one
 house's Physical.def declare "pull this device from that installation's exported cloud topics."
 PROJECT.md 1.2c's own "test re-import 'faking' Vienna import in Junglinster" is the concrete
-scenario this was built ahead of; 1.2d is the import mechanism itself. Command topics
-(open/close/stop, etc.) don't exist for hassbridge entities at all yet (PROJECT.md 1.6, still
-undesigned) — nothing to cross-post there yet either; add it alongside state/device-info once
-commands land, not before.
+scenario this was built ahead of; 1.2d is the import mechanism itself. Command topics now exist
+for the same-broker case (§6.13) but not yet across this `export`/import cloud-broker link —
+that's §6.13's own "Phase 2" note, not built yet either.
+
+### 6.13 Command routing for hassbridge entities (PROJECT.md item 11)
+
+**hassbridge was one-way (state only) until 2026-09-09.** Every mechanism §6/§6.12 document —
+reporting automations, discovery relay, `export`'s cloud cross-post — only ever moves a value from
+the instance that owns an entity *outward*. Nothing let a command travel the other way, so a
+bridged entity in a domain HA itself treats as controllable (`switch`, `vacuum`, ...) showed up
+read-only on the consuming instance regardless. Forcing case: a Roomba vacuum bridged from a
+secondary HA instance needs `vacuum.start`/`pause`/`return_to_base` to actually reach the physical
+device, not just report its status.
+
+**Design principle: a domain's command set is generator-owned, table-driven, opt-in-via-
+declaration.** `homeassistant/hassbridge_commands.go` maps a capability's domain (the part of its
+`<domain>.<label>` key before the dot) to the HA services it supports (`domainCommands`) and any
+fixed discovery fields those need (`domainDiscoveryExtras`, e.g. vacuum's `supported_features` —
+MQTT vacuum's own default omits `pause`/`locate` unless explicitly listed). A capability
+automatically gets command generation the moment its domain has a table entry — no new Physical.def
+syntax, the same principle already used to reject a `forced` override keyword for the
+battery_level/battery_alert biconditional (item 14): declaring a capability in a commandable
+domain already *is* the opt-in. `house_event_bus_coordinator` never learns a domain name or an HA
+service string — `integration_hassbridge_generator.go` bakes each capability's resolved
+`commands`/`discovery_extra` straight into `coordinator/homeassistant_bridge.yaml`, so the
+coordinator only ever merges already-resolved data into a discovery config
+(`discoveryhassbridge.go`'s `buildHassBridgeEntityDiscoveryBody`), keeping it domain-agnostic
+everywhere else already applies.
+
+**All of one entity's commands share a single MQTT topic**
+(`homeassistant_instances/<instance>/bridge/<local_entity>/command`), discriminated purely by
+matching the incoming payload against a literal string — confirmed against the live MQTT
+switch/vacuum component source (not assumed from memory): both schemas take exactly one
+`command_topic`, with each command recognised via its own configured `payload_*` field (`payload_
+on`/`payload_off`, `payload_start`/`payload_pause`/...). `homeassistant/
+remote_instance_entity_commands.go` generates one automation file per entity per command (matching
+PROJECT.md item 11's own naming, `command_<fully_qualified_entity_name>_<command>.yaml`, alias
+`command/<fully_qualified_entity_name_with_slashes>/<command>`), each triggering on that shared
+topic with an exact-payload filter and calling one hardcoded service on the remote entity_id — no
+Jinja dispatch, no argument parsing, because every command this table carries is a bare
+service-call trigger.
+
+**Same-broker case needs zero coordinator runtime involvement**, exactly like state reporting's own
+shape (§6, "author the discovery config once, then get out of the way") and the `commandline`
+daemon's (`command_topic` pointed at directly, coordinator never subscribes to it at runtime,
+§8): once `buildHassBridgeEntityDiscoveryBody` has set `command_topic` and each `payload_*` field,
+HA's own MQTT integration on the consuming instance publishes straight to that shared topic, and
+the remote instance's own already-subscribed automation picks it up — the message never touches
+the coordinator process at all.
+
+**Not every domain's state is a bare value — vacuum needed a second table.** Confirmed against the
+live MQTT vacuum component's own `_state_message_received`: its `state_topic` payload must already
+be a JSON object carrying a `"state"` key, with no `value_template` hook to reshape a bare string
+into that at the discovery-config level. `hassbridge_commands.go`'s `domainStatePayloadTemplate`
+covers this — a domain with no entry keeps today's atomic (bare-string) reporting unchanged;
+vacuum's entry wraps the resolved value as `{'state': ($)} | tojson` before
+`entityReportingAutomationBody` publishes it. See PROJECT.md item 23 for the generalisation of this
+one-off wrapper into a proper reversible topic/JSON rewriting mechanism, not yet designed.
+
+**Phase 2, not built yet**: routing a command across the `export`/import cloud-broker link
+(§6.12) — the mirror image of state's own direction (state flows owning-house → cloud →
+consuming-house; a command must flow consuming-house → cloud → owning-house over the same link).
+Reuses `Export`/`SelfImportFrom`, no new Physical.def flag: those already mean "this device's
+traffic crosses the house boundary," and a command is just the reverse-direction half of that
+meaning once its domain is commandable. Deliberately deferred — same-broker was the forcing case
+(a same-house secondary HA instance), and nothing today needs a command to cross a house boundary
+yet.
 
 ---
 
@@ -934,6 +1022,45 @@ Not everything needs Docker/Podman — the decision is whether a service is an *
 - **Appliance** (→ containerize, e.g. Podman/Quadlets or Docker): Z-Wave JS UI, Zigbee2MQTT, MQTT bridge services, other radio services. Reproducible deployment, easy migration between hosts (copy the compose/quadlet directory + persistent storage, plug in the hardware, start), isolated dependencies, simple upgrades.
 - **Workbench** (→ native install): FHEM. Easier module installation, easier debugging, natural integration with host Linux tooling — containerizing something under active, exploratory development mostly gets in the way.
 
+### 11.3 Backup strategy
+
+Every containerized appliance (§11.2) keeps its persistent state under one uniform path,
+`/var/lib/home-automation/<container-name>/` (mosquitto, zigbee, zwave, bt-proxy, homeassistant,
+caddy, ...) — a convention that predates this backup mechanism but is exactly what makes it work
+with zero per-container or per-host configuration: `backup-home-automation`
+(`/usr/local/bin/backup-home-automation`, one daily `systemd` timer per host) simply iterates
+whatever subdirectories exist under that root, tars each into a dated archive under
+`/var/backups/home-automation/` (14-day local retention), and best-effort `rsync --delete`s the
+whole thing to `erikp@xanadu:/mnt/yotta7/HomeAutomation/<installation>/<hostname>/` — xanadu being
+a "generally on-line" RAID box, so this step logs and skips gracefully rather than failing the
+local backup when it isn't reachable.
+
+On `protocols-server-1` specifically (not `-2`), the same script also mirrors the local **main**
+Home Assistant instance's own self-managed `/backup` folder — HAOS's own automatic snapshots,
+already self-cleaning on that side — via its "Advanced SSH & Web Terminal" add-on, staged locally
+first (rsync can't hop directly between two remote hosts in one invocation) and then replicated to
+`.../HomeAutomation/<installation>/main/` the same way. Deployed live 2026-09-08 on both houses'
+`protocols-server-1` and Junglinster's `protocols-server-2`; all per-host specifics (which
+`INSTALLATION` name, how xanadu and the main instance are each reached — this differs by house,
+since xanadu isn't reachable the same way from Vienna as it is from Junglinster's own LAN) live in
+`/etc/backup-home-automation.conf`, keeping the script itself identical everywhere.
+
+Two real, worth-remembering gotchas from that rollout: GNU `tar` exits 1 (not a hard failure) when
+a file changes mid-archive — expected for an actively-written database like Home Assistant's own
+`home-assistant_v2.db`, tolerated explicitly rather than treated as fatal; `rsync` similarly exits
+23/24 ("partial transfer") when some source files are permission-restricted (hit against a
+subtree inside HAOS's own `/backup/config/` that even the SSH add-on's own account can't read),
+tolerated the same way. Both are narrowly scoped tolerances — any other exit code still aborts the
+script loudly, since the point is graceful degradation of *known* edge cases, not swallowing real
+failures.
+
+**Not yet covered**: Vienna's `protocols-server-2` (`frame`) has no `/var/lib/home-automation/`
+tree at all today — it only runs the picture-frame slideshow (PROJECT.md item 1's `commandline`
+integration), so this script currently skips it by construction (nothing under that path to
+iterate). Adding it needs its own small design pass first: deciding what's actually worth backing
+up there (X11/slideshow config, `~/commandline`'s own generated secrets, OS-level state) before
+just pointing the same script at an empty root.
+
 ---
 
 ## 12. Multi-house federation
@@ -975,6 +1102,29 @@ The report script's cross-platform TLS handling: Linux has a standard CA bundle 
 
 **Known macOS/launchd quirk, why every Mac must use the cloud profile, never a local one** (found live 2026-09-05, `eriks-mac-studio`): `mosquitto_pub` (Homebrew, libmosquitto 2.1.0/2.1.2) reliably prints `Error: Bad file descriptor` and silently fails to actually deliver its publish when spawned by a `launchd` LaunchAgent — but *only* when the destination is a LAN address (confirmed with both the local broker's own hostname and its literal IP, both with and without TLS). The identical invocation, same binary, same machine, same LaunchAgent, targeting the external `mqtt.erikproper.eu` (TLS) instead, works cleanly every time (`exit 0`, no error, confirmed delivered). An interactive shell never reproduces it at all, against either destination — it's specific to the no-controlling-terminal LaunchAgent context, and specific to LAN-destined connections within it. Root cause not fully isolated (matches a known *class* of "spawn EBADF in a macOS LaunchAgent context" issue reported for other tools too, with no clean upstream fix found); explicit stdio redirection at the call site didn't resolve it. **Operational rule, not just a workaround**: every Mac host reports via the cloud-routed `cpu` profile (`cloud`+`import` on its Physical.def declaration, `com.erikproper.cpu-report-cloud-client.plist`) even when it's a permanent LAN resident of its own house — never the plain local profile — since the cloud path is the one empirically proven reliable under launchd. `eriks-mac-studio` was switched from `device host.eriks-mac-studio eriks-mac-studio cpu;` (plain local) to `device host.eriks-mac-studio eriks-mac-studio cpu cloud import;` for exactly this reason, joining `eriks-macbook-pro-2`/`host.mqtt` on the same pattern.
 
+**Retired 2026-09-08: the `hosts`-kind cloud topic's installation-qualified segment.** Every
+cloud-reporting `hosts`-kind device (`cpu`/report script, this section's own worked examples)
+originally published under `hosts/<host>/<installation>/<suffix>/state` — the installation segment
+existed solely to disambiguate two installations reporting the same bare hostname on the shared
+cloud broker. Found live the same day: a single shared, Nextcloud-synced `secrets.cloud_client`
+file is what every Mac in *both* houses reads, and each house's own `./generate`+`./deploy` wrote
+its own installation's value into that one shared file — whichever house deployed most recently
+silently overwrote the other's, breaking `eriks-macbook-pro-2`'s reporting the moment Vienna's own
+`eriks-mac-mini` rollout deployed after it. The qualifier bought disambiguation that was never
+actually needed: every cloud-reporting host (Mac or Unix — `studio`, `mini`, `pro-1`, `air-4`,
+`mqtt`, ...) already has a globally unique hostname across the whole fleet, the same invariant a
+plain local report already relies on. Retired the segment entirely rather than working around the
+collision — `cpu/report` always publishes bare `hosts/<host>/...` now, `secrets.cloud_client` is
+byte-identical regardless of which house generates it (no more per-installation
+`secrets.<installation>` alias file either), and `mqtt_relay.go`'s `qualifyHostsTopic`/
+`discoveryimport.go`'s equivalent cross-house-import handling were removed outright — both the
+self-import relay and a real cross-house import (Vienna importing Junglinster's `pro-1`/`air-4`/
+`mqtt`) now subscribe/publish the identical bare topic on both the cloud and local broker. The
+*other*, whole-prefix installation qualification (`<installation>/homeassistant/...` discovery
+topics, `<installation>/discovery_gateways/...` etc. — see the cloud existence-status entry below)
+is a separate mechanism for a separate reason (two houses' own "main" instances colliding on their
+own discovery topics) and is unaffected by this change.
+
 **Roaming `home_assistant`-bridge devices** (an HA companion-app device, e.g. a phone, reachable via more than one local HA instance — `hass.eriks_iphone`, built 2026-09-02): `THassBridgeDevice.Instances []string` lets the same device be declared identically under more than one `integration home_assistant <qualifier> with:` block in the same house's Physical.def, merged (not colliding) generator-side. `ExportAs` (the `roaming` keyword, replacing `export`) qualifies the cloud cross-post with a shared virtual installation name ("roaming") instead of this house's own real name, so several real installations can each export their own local copy of the device under one stable cloud identity; `SelfImportFrom` (the `import` keyword) additionally relays that shared cloud data back onto this coordinator's own local bridge topic, feeding the one Spaces.def-positioned entity rather than creating a second one.
 
 Four bugs found and fixed live 2026-09-05, the first day this was exercised for a real device (`hass.eriks_iphone`, roaming across `main`/`protocols-server-2` at Junglinster and `main` at Vienna):
@@ -987,12 +1137,26 @@ Four bugs found and fixed live 2026-09-05, the first day this was exercised for 
 
 **Follow-up gap, same day**: `publishStatus` (both kind-2 and kind-3) only ever fires on an actual known/retracted transition — a coordinator restart re-seeds already-known status in memory (from persisted JSON) without re-publishing it, so a topic-naming migration like the qualification fix above left the newly-qualified cloud topic with *no* retained value at all until the next real transition, which a stable gateway or instance might not produce again for a long time; every `./generate` cloud fetch timed out in the meantime (confirmed live for Junglinster's discovery gateways). Fixed by publishing every declared instance's/gateway's current status immediately on startup — `TEntityExistenceTracker.StartEntityExistenceInquiries` and the new `TDiscoveryExistenceTracker.PublishAll`, both called right after `Seed`.
 
+**The exporting side owns all device-specific knowledge; an import device may declare neither derivations nor constant attributes** (2026-09-12): the same principle behind moving Netatmo `battery_alert` derivations off Vienna's imports and onto Junglinster's own exports (§2's "derived" note) generalizes to a hard rule, enforced in the parser rather than left as a convention. An importing house's Physical.def `device <local-id> from <house> <remote-id> with: ... end;` block may only ever list bare `<domain>.<capability>;` capability references (or the shared `for <device-id>:` shorthand) — it may not declare:
+
+- a `derived ... via ...;` capability of its own (`integration_import_parser.go` recognizes the shape on sight and rejects it with a specific warning, rather than silently registering it as it briefly did during an earlier, temporary phase of the derived-capability rollout — see that file's own header comment), or
+- a constant device attribute (`manufacturer:`/`model:`/etc.) — `TImportedDevice` structurally has no field for one, and the parser has never accepted the `hosts`/`hassbridge` `<name>: "<value>" [forced];` shape here either.
+
+The reasoning is symmetric for both: an importing house should never need to know *how* a remote device's property came to be — whether a value is a raw sensor reading or something the exporting side computed via `derived`, and whether "Nabu Casa" is a hardcoded literal or something the exporting installation itself reports live — that is exactly the kind of "device-specific knowledge" this project consistently keeps on the side that actually owns the device. An importer only ever gets to say *which* of the exporter's already-fully-formed capabilities to relay locally, never to add device-level knowledge of its own on top. (Constant attributes reported live by the exporter and threaded through to the importer's own discovery config is the natural long-term shape here, but isn't built yet — today an imported device's `manufacturer`/`model` fields stay empty, per `registerImportedDevicePositioning`'s own doc comment.)
+
 ---
 
 ## 13. Open design questions
 
 - Should **provider** become a first-class DSL concept (as opposed to today's `providing` macro pattern)?
-- How should **projections** (to MQTT, to HA YAML, to future backends) and **transformations** be represented in the semantic model — and how should reusable patterns across them work?
+- How should **projections** (to MQTT, to HA YAML, to future backends) and **transformations** be represented in the semantic model — and how should reusable patterns across them work? Partially
+  answered 2026-09-09 for the physical-layer, single-base-entity case (see §2's own "Where
+  physical-layer derivation ends" note and `splendid-zooming-lighthouse.md`): a `derived` capability
+  declared in Physical.def, realized as an MQTT discovery `value_template` composed via two
+  coordinator-resident tables (a per-capability value_template table, and a template-recipe table
+  keyed by base/derived capability) rather than a separate generator-authored HA `template:` entity —
+  designed, not yet built. Still fully open: the equivalent story for logical-layer, multi-device
+  transformations and command choreography (PROJECT.md item 14's inverse-command-routing question).
 - Cross-check **HA areas vs. DSL spaces** — are they the same concept, and if not, how do they relate?
 - `Integrations.def` grammar is still being worked out by direct experimentation (§9.2) rather than designed up front — expect it to keep changing shape for a while before the physical/logical file split (§9.1) is worth actually implementing in the parser.
 - How a `space` definition refers to a device attribute (constant/variable, device/world — §6.6) rather than only a device, and how that then materializes as a generated entity, is still open.

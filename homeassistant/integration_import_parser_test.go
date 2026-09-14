@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseImportIntegrationBody(t *testing.T) {
 	devices, warnings := parseImportIntegrationBody([]string{
@@ -137,5 +140,59 @@ func TestCollectImportedDevicesAcrossMultipleBlocks(t *testing.T) {
 	}
 	if len(devices) != 2 {
 		t.Fatalf("got %d devices, want 2", len(devices))
+	}
+}
+
+// TestParseImportIntegrationBodyRejectsDerivedCapability: an import device must not declare a
+// "derived DDD.NNN from EEE.MMM via TTT;" line -- the exporting side owns all
+// device-specific knowledge and must provide it already-resolved. (Superseded 2026-09-12: an
+// earlier phase of the derived-capability rollout temporarily allowed this, to cover Vienna's
+// imported Netatmo devices before Junglinster, the real source, was migrated -- that migration is
+// now complete on both houses, so the allowance is withdrawn.)
+func TestParseImportIntegrationBodyRejectsDerivedCapability(t *testing.T) {
+	devices, warnings := parseImportIntegrationBody([]string{
+		"device import.vienna_terrace from junglinster hass.vienna_terrace with:",
+		"  sensor.battery_level;",
+		`  derived binary_sensor.battery_alert from sensor.battery_level via "( $ | int(0) < 20 )";`,
+		"end;",
+	})
+	if len(warnings) != 1 {
+		t.Fatalf("got %d warnings, want 1: %v", len(warnings), warnings)
+	}
+	if !strings.Contains(warnings[0], `"derived"`) || !strings.Contains(warnings[0], "import.vienna_terrace") {
+		t.Errorf("warning = %q, want it to name the device and reject \"derived\"", warnings[0])
+	}
+	if len(devices) != 1 {
+		t.Fatalf("got %d devices, want 1", len(devices))
+	}
+	if _, ok := devices[0].Capabilities["battery_alert"]; ok {
+		t.Errorf("Capabilities = %v, \"battery_alert\" must not have been registered", devices[0].Capabilities)
+	}
+	if _, ok := devices[0].Capabilities["battery_level"]; !ok {
+		t.Errorf("expected the ordinary \"battery_level\" capability to still be registered, got %v", devices[0].Capabilities)
+	}
+}
+
+// TestParseImportIntegrationBodyRejectsConstantAttribute: an import device must not declare a
+// constant device attribute (manufacturer/model/...) -- these belong on the exporting side's own
+// Physical.def declaration, reported live, never hand-declared again on the importing side.
+func TestParseImportIntegrationBodyRejectsConstantAttribute(t *testing.T) {
+	devices, warnings := parseImportIntegrationBody([]string{
+		"device import.vienna_livingroom from junglinster node.vienna_livingroom with:",
+		"  sensor.co2;",
+		`  manufacturer: "Nabu Casa" forced;`,
+		"end;",
+	})
+	if len(warnings) != 1 {
+		t.Fatalf("got %d warnings, want 1: %v", len(warnings), warnings)
+	}
+	if !strings.Contains(warnings[0], "constant device attribute") || !strings.Contains(warnings[0], "import.vienna_livingroom") {
+		t.Errorf("warning = %q, want it to name the device and reject the constant attribute", warnings[0])
+	}
+	if len(devices) != 1 {
+		t.Fatalf("got %d devices, want 1", len(devices))
+	}
+	if _, ok := devices[0].Capabilities["manufacturer"]; ok {
+		t.Errorf("Capabilities = %v, \"manufacturer\" must not have been registered", devices[0].Capabilities)
 	}
 }

@@ -29,6 +29,7 @@
 package main
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -87,6 +88,13 @@ func generateHassBridgeFile(outputRoot string, hassBridgeDevicesByID map[string]
 				capLines.WriteString("          " + instance + ": " + device.Capabilities[name].Sources[instance] + "\n")
 			}
 			capLines.WriteString("        local_entity: " + attr.EntityID + "\n")
+			// display_suffix (added 2026-09-10): see TDeviceAttributeLink.DisplaySuffix's own doc
+			// comment -- the word the coordinator's discovery "name" field appends after the
+			// device's own display name, resolved here (generate time) rather than by the
+			// coordinator using this capability's own raw key, so an empty-trailing-path DSL
+			// declaration's domain fallback doesn't need the coordinator to know anything about
+			// Spaces.def positioning at all.
+			capLines.WriteString("        display_suffix: " + attr.DisplaySuffix + "\n")
 			if attr.DeviceClass != "" {
 				capLines.WriteString("        device_class: " + attr.DeviceClass + "\n")
 			}
@@ -98,6 +106,38 @@ func generateHassBridgeFile(outputRoot string, hassBridgeDevicesByID map[string]
 			}
 			if attr.Icon != "" {
 				capLines.WriteString("        icon: " + attr.Icon + "\n")
+			}
+			// commands/discovery_extra (added 2026-09-09): fully resolved here, off this
+			// capability's own Domain, so the coordinator stays domain-agnostic -- it only ever
+			// merges whatever this file already says into a discovery config, with no per-domain
+			// knowledge of its own (hassbridge_commands.go's domainCommands/domainDiscoveryExtras
+			// are this project's one place that maps a domain to real HA services/payloads).
+			if commands, commandable := domainCommands[device.Capabilities[name].Domain]; commandable {
+				capLines.WriteString("        commands:\n")
+				for _, command := range commands {
+					capLines.WriteString("          " + command.Name + ":\n")
+					capLines.WriteString("            payload: \"" + command.Payload + "\"\n")
+					capLines.WriteString("            discovery_key: " + command.DiscoveryKey + "\n")
+				}
+				if extra, hasExtra := domainDiscoveryExtras[device.Capabilities[name].Domain]; hasExtra {
+					extraKeys := make([]string, 0, len(extra))
+					for key := range extra {
+						extraKeys = append(extraKeys, key)
+					}
+					sort.Strings(extraKeys)
+					capLines.WriteString("        discovery_extra:\n")
+					for _, key := range extraKeys {
+						capLines.WriteString("          " + key + ":\n")
+						switch values := extra[key].(type) {
+						case []string:
+							for _, value := range values {
+								capLines.WriteString("            - " + value + "\n")
+							}
+						default:
+							panic(fmt.Sprintf("hassbridge_commands.go: domainDiscoveryExtras[%q][%q] has unsupported type %T", device.Capabilities[name].Domain, key, extra[key]))
+						}
+					}
+				}
 			}
 		}
 		if !anyResolved {

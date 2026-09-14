@@ -29,6 +29,30 @@ import (
 	"strings"
 )
 
+// generateDiscoveryPrefixBaselineFile writes just physical_prefix to coordinator/discovery.yaml --
+// the same "always establish a baseline, let a fuller later generator overwrite it" pattern
+// generatePhysicalIntegrationOutputs' own baseline devices.yaml call already uses
+// (Physical_Generator.go). Needed because a house may declare discovery_passthrough rules
+// (discovery_passthrough.go) without ever declaring an "integration discovery with: ... end;"
+// block at all -- generateDiscoveryIntegrationOutputs below only runs when that block exists, but
+// the coordinator still needs physical_prefix to subscribe on for passthrough alone, even with
+// zero declared gateways. Skipped entirely (no file written) when physicalPrefix is unset, same
+// "nothing declared" convention discovery.yaml/discovery_cleanup.yaml both already follow. Called
+// early in generatePhysicalIntegrationOutputs, before "integration discovery with:" blocks are
+// even parsed -- if one turns out to exist, generateDiscoveryIntegrationOutputs's own later write
+// overwrites this with the fuller content (it already includes physical_prefix itself), so nothing
+// is lost either way.
+func generateDiscoveryPrefixBaselineFile(outputRoot, physicalPrefix string) error {
+	if physicalPrefix == "" {
+		return nil
+	}
+	var sb strings.Builder
+	sb.WriteString(generatorHeader)
+	sb.WriteString("physical_prefix: \"" + physicalPrefix + "\"\n")
+	dir := filepath.Join(outputRoot, "coordinator")
+	return writeYAMLFile(filepath.Join(dir, "discovery.yaml"), sb.String())
+}
+
 // generateDiscoveryIntegrationOutputs parses the "integration discovery with: ... end;" block's
 // body into gateway devices, then writes coordinator/discovery.yaml: the declared gateways (id +
 // identifiers), the resolved ${mqtt_discovery_physical} topic prefix the coordinator should

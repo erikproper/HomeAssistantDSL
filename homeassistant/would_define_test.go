@@ -11,7 +11,7 @@ func TestDescribeWouldDefineForDiscoveryImpliedEntity(t *testing.T) {
 	hostDevicesByID := map[string]THostDevice{
 		"host.appletv-office": {DeviceID: "host.appletv-office", HostName: "appletv-office", IntegrationType: "ping"},
 	}
-	if warnings := registerDevicePositioning(admin, decl, hostDevicesByID, nil, nil, "Spaces.def", 1); len(warnings) != 0 {
+	if warnings := registerDevicePositioning(admin, decl, hostDevicesByID, nil, nil, nil, "Spaces.def", 1); len(warnings) != 0 {
 		t.Fatalf("unexpected warnings setting up the fixture: %v", warnings)
 	}
 

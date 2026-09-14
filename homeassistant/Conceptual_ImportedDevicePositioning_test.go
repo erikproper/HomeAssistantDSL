@@ -8,15 +8,20 @@ import (
 )
 
 // TestImportedDevicePositioningEndToEnd covers PROJECT.md 1.2d's Spaces.def integration: the SAME
-// merged "device <spec> from <device-id> with: entity ... from entity <capability>; ...; end;"
+// merged "device <spec> from <device-id> with: entity ... from <capability>; ...; end;"
 // construct already used for native hassbridge devices must also work, unmodified, for a
 // "hassbridge"-form import -- Spaces.def never needs to know or care which integration kind a
-// device-id resolves against (the user's own explicit design confirmation, 2026-08-30).
+// device-id resolves against (the user's own explicit design confirmation, 2026-08-30). Also
+// exercises PROJECT.md item 5's "device declaration acts like a space" sugar: the capability specs
+// below deliberately omit the device's own leaf path ("netatmo/") -- this is the exact real-world
+// example item 5 itself was written against (Vienna's shower_room Netatmo device) -- and still
+// resolve to the same entity ids the old, fully-spelled-out "sensor.physical:netatmo/temperature"
+// form produced.
 func TestImportedDevicePositioningEndToEnd(t *testing.T) {
 	const miniDSL = `space social:shower_room with:
   device infrastructural:netatmo from hass.vienna_shower_room with:
-    entity sensor.physical:netatmo/temperature from entity temperature;
-    entity sensor.physical:netatmo/co2         from entity co2;
+    entity sensor.physical:temperature from temperature;
+    entity sensor.physical:co2         from co2;
   end;
 end;`
 
@@ -67,7 +72,7 @@ func TestImportedDevicePositioningInheritsEnclosingAreaFromNestedSpace(t *testin
 	const miniDSL = `space social:terrace as area with:
   space social:front with:
     device infrastructural:netatmo from hass.vienna_shower_room with:
-      entity sensor.physical:netatmo/temperature from entity temperature;
+      entity sensor.physical:temperature from temperature;
     end;
   end;
 end;`
@@ -133,7 +138,7 @@ func TestRegisterDeviceCapabilityEntityLinkWarnsOnUndeclaredImportedCapability(t
 	}
 	decl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.physical:netatmo/pressure", DeviceID: "hass.vienna_shower_room", Capability: "pressure"}
 
-	warnings, deferred := registerDeviceCapabilityEntityLink(administration, decl, nil, nil, importedDevicesByID, nil, nil, "test.def", 1, true)
+	warnings, deferred := registerDeviceCapabilityEntityLink(administration, decl, nil, nil, importedDevicesByID, nil, nil, "test.def", 1, true, "")
 	if deferred {
 		t.Fatalf("expected deferred=false")
 	}
@@ -156,7 +161,7 @@ func TestRegisterImportedDevicePositioningWarnsWhenNoNodeCapabilityDeclared(t *t
 	}
 	decl := TDevicePositioningDeclaration{Spec: "infrastructural:no_node", DeviceID: "hass.no_node"}
 
-	warnings := registerDevicePositioning(administration, decl, nil, nil, importedDevicesByID, "test.def", 1)
+	warnings := registerDevicePositioning(administration, decl, nil, nil, importedDevicesByID, nil, "test.def", 1)
 	if len(warnings) != 1 {
 		t.Fatalf("got %d warnings, want 1: %v", len(warnings), warnings)
 	}
@@ -179,7 +184,7 @@ func TestRegisterDeviceSourceEntityLinkRejectsAsFormForImports(t *testing.T) {
 	}
 	decl := TDeviceSourceEntityDeclaration{LocalSpec: "sensor.physical:netatmo/temperature", Source: "sensor.something", DeviceID: "hass.vienna_shower_room"}
 
-	warnings, deferred := registerDeviceSourceEntityLink(administration, decl, nil, importedDevicesByID, "test.def", 1, true, "")
+	warnings, deferred := registerDeviceSourceEntityLink(administration, decl, nil, importedDevicesByID, "test.def", 1, true, "", "")
 	if deferred {
 		t.Fatalf("expected deferred=false")
 	}

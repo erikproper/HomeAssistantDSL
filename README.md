@@ -269,6 +269,14 @@ Only capabilities Spaces.def actually references end up in `coordinator/imported
 imported-but-unused capability is silently skipped, same as every other device kind's own
 positioning gate. See `Architecture.md` §12 for the underlying cloud-broker federation mechanism.
 
+An imported device's `with: ... end;` block may only ever list bare `<domain>.<capability>;` lines
+(or the `for <device-id>:` shorthand) — no `derived ... via ...;` capability and no constant
+device attribute (`manufacturer:`/`model:`/etc.) may be declared here. The exporting side owns all
+device-specific knowledge and must provide it already resolved or already reported live; the
+importer only ever chooses *which* of the exporter's capabilities to relay. Either shape is
+rejected with a specific warning rather than silently accepted — see `Architecture.md` §12's own
+note on this rule.
+
 ### Macros
 
 Macros expand into one or more entity declarations. They are defined in `Macros.def` and invoked from `Entities.def`:
@@ -395,3 +403,52 @@ After YAML generation three checks run automatically:
 3. **Bridge entity availability** (when each bridge is reachable): remote entity IDs referenced by `import rest` directives are verified against the bridge's live HA instance.
 
 All three checks are advisory: warnings are printed but generation still completes.
+
+## Operational notes
+
+**The coordinator's discovery cleanup must never compute an "expected payload" baseline that
+doesn't reflect live-reported device metadata.** `discoverycleanup.go`'s job is to retract any
+retained discovery topic the coordinator itself published that no longer matches what it would
+publish today. If the "what would I publish today" computation is done against a bare/nil
+baseline (skipping the enriched manufacturer/model/sw_version data actually folded in from
+`TLiveDeviceInfoStore`), it will conclude that its own, correctly-enriched, already-published
+configs are stale and retract them — a self-inflicted discovery wipe. This happened live on
+Vienna on 2026-09-09 (`expectedHostsPayloads`/`expectedCloudHostsPayloads` were called without
+the live-device-info store); fixed by threading the store through both functions so the baseline
+always matches what was actually published. This cleanup logic only ever touches topics the
+coordinator considers its own (`isCoordinatorOwnedTopic`: `coordinator` node ID, or `host_`/
+`discovery_` prefixes) — it never touches Zigbee2MQTT's own IEEE-address-keyed discovery topics.
+
+**Reloading Home Assistant's MQTT integration is not always safe to use as a recovery step.**
+During the same 2026-09-09 incident, reloading the MQTT integration (in an attempt to get
+Zigbee2MQTT's devices to reappear) caused roughly 96 devices' worth of entities to re-register
+under Zigbee2MQTT's own raw `friendly_name`-based object IDs instead of their existing, manually
+renamed `entity_id`s (e.g. `switch.social_apartment_shower_room_radiator` — manually renamed to
+follow this DSL's naming convention — became `switch.apartment_shower_room_radiator_robb`). The
+exact mechanism was never fully confirmed, but the leading theory: MQTT discovery treats an
+empty/missing retained config topic as an instruction to *delete* the entity, not just mark it
+unavailable — unlike other integrations (e.g. Netatmo), which simply leave an orphaned entity in
+place when a device stops reporting or moves to another instance. Earlier in the same incident,
+the MQTT integration briefly showed only 3 devices instead of the usual ~96 — consistent with most
+devices' retained discovery config topics having genuinely gone missing (most likely from mosquitto
+losing its persisted retained-message store during the outage/restart, not from the coordinator's
+own cleanup, which is scoped away from Zigbee2MQTT's topics — see above) — and HA's MQTT
+integration responding by removing those entities' registry rows outright. The later reload then
+had nothing to reattach to, so Zigbee2MQTT's own re-published discovery messages created fresh
+registry rows under its raw `friendly_name`-based naming. Because MQTT cleans up this aggressively,
+treat any sign of MQTT-discovered devices going missing (not just unavailable) as urgent — the
+longer discovery config topics stay missing, the more entities get deleted outright rather than
+just greyed out — and treat reloading the MQTT integration as a last-resort step with a real blast
+radius, not a routine recovery action.
+
+Recovery, when this happens: restore a Home Assistant backup scoped to **Settings and History**
+only (Settings → System → Backups → restore, select that scope — not the full backup, which would
+also touch add-ons/config). This is safe specifically because MQTT entities are keyed by a stable
+`unique_id` (for Zigbee2MQTT, derived from the device's IEEE address, e.g.
+`0x9035eafffe694527_switch_zigbee2mqtt`) that never changes regardless of `friendly_name` or
+discovery-topic churn — once the pre-incident entity registry is back in place, HA reattaches the
+correct `entity_id` to each device as retained discovery/state messages arrive again, with no
+manual per-entity renaming needed. A backup restore is only safe this way if nothing was changed
+*manually* in HA's registries between the backup and the incident — any state that arrived purely
+via MQTT discovery in that window is self-healing after the restore, but a manual registry edit in
+that window would be lost.

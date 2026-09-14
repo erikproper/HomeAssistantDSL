@@ -535,8 +535,8 @@ func TestNormalizeEntityFullNameLeadingSlashIsSphereAbsolute(t *testing.T) {
 func TestDeviceEntityImpliesDiscoveryEntitiesWithoutSpacePrefix(t *testing.T) {
 	const miniDSL = `space social:garage with:
   device infrastructural:/smarty from host.smarty with:
-    entity sensor.infrastructural:/smarty/cpu/load        from entity cpu/load;
-    entity sensor.infrastructural:/smarty/cpu/temperature from entity cpu/temperature;
+    entity sensor.infrastructural:/smarty/cpu/load        from cpu/load;
+    entity sensor.infrastructural:/smarty/cpu/temperature from cpu/temperature;
   end;
 end;`
 
@@ -616,7 +616,7 @@ end;`
 func TestDeviceEntitySingleAttributeFlagRegistersOnlyThatAttribute(t *testing.T) {
 	const miniDSL = `space social:garage with:
   device infrastructural:/mqtt from host.mqtt with:
-    entity sensor.infrastructural:/mqtt/cpu/load from entity cpu/load;
+    entity sensor.infrastructural:/mqtt/cpu/load from cpu/load;
   end;
 end;`
 
@@ -652,7 +652,7 @@ end;`
 func TestDeviceEntityUnrecognisedFlagRegistersNothingExtra(t *testing.T) {
 	const miniDSL = `space social:garage with:
   device infrastructural:/mqtt from host.mqtt with:
-    entity sensor.infrastructural:/mqtt/bogus_attribute from entity bogus_attribute;
+    entity sensor.infrastructural:/mqtt/bogus_attribute from bogus_attribute;
   end;
 end;`
 

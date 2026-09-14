@@ -7,7 +7,7 @@ import (
 
 func TestPublishDiscoverEntityInputPayloadShape(t *testing.T) {
 	client := &fakeClient{}
-	if err := publishDiscoverEntityInput(client, "homeassistant"); err != nil {
+	if err := publishDiscoverEntityInput(client, "homeassistant", "test"); err != nil {
 		t.Fatalf("publishDiscoverEntityInput error: %v", err)
 	}
 	if len(client.published) != 1 {

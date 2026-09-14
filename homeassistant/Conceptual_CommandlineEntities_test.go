@@ -33,12 +33,12 @@ func frameCommandlineDevicesByID() map[string]TCommandlineDevice {
 // case found live 2026-09-06: host.frame is declared BOTH as a "hosts" cpu device (ping/cpu) AND a
 // "commandline" device (the picture-frame switch), sharing one DeviceID. Positioning it once via
 // the hosts branch ("device infrastructural:frame from host.frame;") must still let a SEPARATE
-// "entity switch.social:picture_frame from host.frame entity slideshow;" line resolve the
+// "entity switch.social:picture_frame from host.frame slideshow;" line resolve the
 // commandline capability, reusing the SAME DeviceConceptualLink rather than needing its own
 // positioning statement.
 func TestCommandlineCapabilityEntityLinkResolvesOnDualKindDevice(t *testing.T) {
 	const miniDSL = `device infrastructural:apartment/living_room/rack/frame from host.frame;
-entity switch.social:apartment/living_room/picture_frame from host.frame entity slideshow;`
+entity switch.social:apartment/living_room/picture_frame from host.frame slideshow;`
 
 	hostDevicesByID := map[string]THostDevice{
 		"host.frame": {DeviceID: "host.frame", HostName: "frame", IntegrationType: "cpu"},
@@ -78,7 +78,7 @@ entity switch.social:apartment/living_room/picture_frame from host.frame entity 
 // reference to an entity that will never actually exist under that domain.
 func TestCommandlineCapabilityEntityLinkRejectsDomainMismatch(t *testing.T) {
 	const miniDSL = `device infrastructural:apartment/living_room/rack/frame from host.frame;
-entity binary_sensor.social:apartment/living_room/picture_frame from host.frame entity slideshow;`
+entity binary_sensor.social:apartment/living_room/picture_frame from host.frame slideshow;`
 
 	hostDevicesByID := map[string]THostDevice{
 		"host.frame": {DeviceID: "host.frame", HostName: "frame", IntegrationType: "cpu"},

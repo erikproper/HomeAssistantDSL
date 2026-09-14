@@ -160,44 +160,22 @@ func TestGenerateCPUBrokerSecretsFilesExcludesCoordinatorOnly(t *testing.T) {
 	}
 }
 
-// TestGenerateCPUBrokerSecretsFilesWritesInstallationAlias covers the 2026-09-02 addition: a
-// second copy of every non-"main" leaf-usable profile, written under "secrets.<installation>" --
-// identical content to "secrets.<profile-name>" -- so the report/deploy scripts can address "the
-// cloud profile for this installation" generically, without knowing the literal profile name.
-func TestGenerateCPUBrokerSecretsFilesWritesInstallationAlias(t *testing.T) {
+// TestGenerateCPUBrokerSecretsFilesNoInstallationField confirms the 2026-09-08 retirement of
+// cpu/report's own installation-qualified topic segment: no "installation=" line in any
+// profile's content -- every cloud-reporting host is expected to have a globally unique hostname
+// across the whole fleet instead, so two houses' own ./deploy pushing secrets.cloud_client into
+// the shared Integrations/cpu directory can never disagree on its content. Also confirms
+// "cloud_client" itself never gets a "secrets.<installation>" alias (that would reintroduce the
+// exact cross-house collision this retirement fixed) -- only "main" does, per
+// TestGenerateCPUBrokerSecretsFilesWritesLocalInstallationAlias below, and that alias carries no
+// installation= line either.
+func TestGenerateCPUBrokerSecretsFilesNoInstallationField(t *testing.T) {
 	outputRoot := t.TempDir()
 	profiles := map[string]TMQTTBrokerSecrets{
-		"main":         {Server: "junglinster", Login: "u", Password: "p", Port: "1883"},
 		"cloud_client": {Server: "mqtt.erikproper.eu", Login: "client", Password: "cp", Port: "8883", TLS: true},
 	}
 
 	if err := generateCPUBrokerSecretsFiles(outputRoot, profiles, "junglinster"); err != nil {
-		t.Fatalf("generateCPUBrokerSecretsFiles error: %v", err)
-	}
-
-	clientContent, err := os.ReadFile(filepath.Join(outputRoot, "cpu", "secrets.cloud_client"))
-	if err != nil {
-		t.Fatalf("expected cpu/secrets.cloud_client: %v", err)
-	}
-	aliasContent, err := os.ReadFile(filepath.Join(outputRoot, "cpu", "secrets.junglinster"))
-	if err != nil {
-		t.Fatalf("expected cpu/secrets.junglinster (installation alias of secrets.cloud_client): %v", err)
-	}
-	if string(aliasContent) != string(clientContent) {
-		t.Errorf("secrets.junglinster = %q, want identical to secrets.cloud_client = %q", aliasContent, clientContent)
-	}
-}
-
-// TestGenerateCPUBrokerSecretsFilesNoInstallationAliasWhenUnset confirms no alias file is written
-// at all when installation is "" (matching "main"'s own report-time behaviour of never needing
-// installation-qualification).
-func TestGenerateCPUBrokerSecretsFilesNoInstallationAliasWhenUnset(t *testing.T) {
-	outputRoot := t.TempDir()
-	profiles := map[string]TMQTTBrokerSecrets{
-		"cloud_client": {Server: "mqtt.erikproper.eu", Login: "client", Password: "cp", Port: "8883", TLS: true},
-	}
-
-	if err := generateCPUBrokerSecretsFiles(outputRoot, profiles, ""); err != nil {
 		t.Fatalf("generateCPUBrokerSecretsFiles error: %v", err)
 	}
 
@@ -211,5 +189,79 @@ func TestGenerateCPUBrokerSecretsFilesNoInstallationAliasWhenUnset(t *testing.T)
 			names = append(names, e.Name())
 		}
 		t.Errorf("cpu dir entries = %v, want exactly [secrets.cloud_client]", names)
+	}
+
+	content, err := os.ReadFile(filepath.Join(outputRoot, "cpu", "secrets.cloud_client"))
+	if err != nil {
+		t.Fatalf("expected cpu/secrets.cloud_client: %v", err)
+	}
+	if strings.Contains(string(content), "installation=") {
+		t.Errorf("secrets.cloud_client content = %q, want no installation= line", content)
+	}
+}
+
+// TestGenerateCPUBrokerSecretsFilesWritesLocalInstallationAlias is a regression test for a real
+// bug found live 2026-09-09: an earlier version of this generator wrote "secrets.<installation>"
+// as an alias of the CLOUD "cloud_client" profile, silently clobbering pre-existing local-broker
+// files of the exact same name that protocols-server-1 (both houses) and Vienna's own frame
+// already depended on for local cpu/load reporting (their crontabs invoke
+// "cpu/report <installation-name>"). "secrets.<installation>" must be an alias of "main" (the
+// LOCAL broker) instead -- identical content to secrets.default, never cloud content, and no
+// collision risk the way cloud_client had, since "main" is never shared across houses' own
+// Nextcloud folder.
+func TestGenerateCPUBrokerSecretsFilesWritesLocalInstallationAlias(t *testing.T) {
+	outputRoot := t.TempDir()
+	profiles := map[string]TMQTTBrokerSecrets{
+		"main":         {Server: "vienna-broker", Login: "carvalhoproper", Password: "p", Port: "1883"},
+		"cloud_client": {Server: "mqtt.erikproper.eu", Login: "client", Password: "cp", Port: "8883", TLS: true},
+	}
+
+	if err := generateCPUBrokerSecretsFiles(outputRoot, profiles, "vienna"); err != nil {
+		t.Fatalf("generateCPUBrokerSecretsFiles error: %v", err)
+	}
+
+	defaultContent, err := os.ReadFile(filepath.Join(outputRoot, "cpu", "secrets.default"))
+	if err != nil {
+		t.Fatalf("expected cpu/secrets.default: %v", err)
+	}
+	aliasContent, err := os.ReadFile(filepath.Join(outputRoot, "cpu", "secrets.vienna"))
+	if err != nil {
+		t.Fatalf("expected cpu/secrets.vienna (local alias of secrets.default): %v", err)
+	}
+	if string(aliasContent) != string(defaultContent) {
+		t.Errorf("secrets.vienna = %q, want identical to secrets.default = %q", aliasContent, defaultContent)
+	}
+	if !strings.Contains(string(aliasContent), "mqtt_server=vienna-broker") {
+		t.Errorf("secrets.vienna = %q, want the LOCAL broker's server, not cloud_client's", aliasContent)
+	}
+
+	if _, err := os.Stat(filepath.Join(outputRoot, "cpu", "secrets.cloud_client")); err != nil {
+		t.Errorf("expected cpu/secrets.cloud_client to still exist unchanged: %v", err)
+	}
+}
+
+// TestGenerateCPUBrokerSecretsFilesNoLocalAliasWhenInstallationUnset confirms no
+// "secrets.<installation>" file is written at all when installation is "" -- e.g. a house whose
+// Settings.def never set ${installation}, matching "main"'s own no-topic-qualification behaviour.
+func TestGenerateCPUBrokerSecretsFilesNoLocalAliasWhenInstallationUnset(t *testing.T) {
+	outputRoot := t.TempDir()
+	profiles := map[string]TMQTTBrokerSecrets{
+		"main": {Server: "vienna-broker", Login: "carvalhoproper", Password: "p", Port: "1883"},
+	}
+
+	if err := generateCPUBrokerSecretsFiles(outputRoot, profiles, ""); err != nil {
+		t.Fatalf("generateCPUBrokerSecretsFiles error: %v", err)
+	}
+
+	entries, err := os.ReadDir(filepath.Join(outputRoot, "cpu"))
+	if err != nil {
+		t.Fatalf("reading cpu dir: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "secrets.default" {
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Errorf("cpu dir entries = %v, want exactly [secrets.default]", names)
 	}
 }

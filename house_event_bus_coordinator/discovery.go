@@ -140,17 +140,21 @@ type TDiscoveryOrigin struct {
 }
 
 // coordinatorOrigin returns the shared origin block every discovery config in this coordinator
-// uses -- see TDiscoveryOrigin's own doc comment.
-func coordinatorOrigin() TDiscoveryOrigin {
-	return TDiscoveryOrigin{Name: "House Event Bus Coordinator"}
+// uses -- see TDiscoveryOrigin's own doc comment. installation (added 2026-09-14, found live
+// while debugging PROJECT.md item 3/plans/via-device-inference.md: with two coordinators in this
+// federation, one per house, a bare "House Event Bus Coordinator" name can't tell which one
+// authored a given discovery config) is this house's own devicesFile.Installation/ownInstallation
+// -- always already known by every caller, never invented here.
+func coordinatorOrigin(installation string) TDiscoveryOrigin {
+	return TDiscoveryOrigin{Name: "House Event Bus Coordinator (" + installation + ")"}
 }
 
 // coordinatorOriginMap is coordinatorOrigin's shape for a map[string]interface{}-built discovery
 // body (most discovery-authoring files in this package build their payload this way rather than
 // via a named struct) -- kept in exact sync with TDiscoveryOrigin's own JSON shape by hand, since
 // json.Marshal can't unify a struct and a map literal.
-func coordinatorOriginMap() map[string]interface{} {
-	return map[string]interface{}{"name": "House Event Bus Coordinator"}
+func coordinatorOriginMap(installation string) map[string]interface{} {
+	return map[string]interface{}{"name": "House Event Bus Coordinator (" + installation + ")"}
 }
 
 // applyConstantAttribute sets dev's field for one HA device-map attribute name, matching
@@ -397,7 +401,10 @@ func applyProxiedBinarySensorPayload(body map[string]interface{}, localEntity st
 // viaDeviceID is the already-resolved via_device target (another device's own identifier), ""
 // if the reported broker hostname didn't resolve to one or nothing was reported yet. prefix is
 // TDevicesFile.conceptualPrefix() -- ${mqtt_discovery_conceptual}, "homeassistant" by default.
-func buildDiscoveryConfigs(deviceID string, device TDevice, live map[string]string, viaDeviceID string, prefix string) []TDiscoveryConfig {
+// installation is this house's own devicesFile.Installation, threaded through to
+// coordinatorOrigin so a discovery config's origin block identifies which of the federation's
+// coordinators authored it.
+func buildDiscoveryConfigs(deviceID string, device TDevice, live map[string]string, viaDeviceID, prefix, installation string) []TDiscoveryConfig {
 	if device.Conceptual == nil {
 		return nil
 	}
@@ -443,7 +450,7 @@ func buildDiscoveryConfigs(deviceID string, device TDevice, live map[string]stri
 				DeviceClass:     device.Conceptual.NodeDeviceClass,
 				Icon:            device.Conceptual.NodeIcon,
 				Device:          devBlock,
-				Origin:          coordinatorOrigin(),
+				Origin:          coordinatorOrigin(installation),
 			},
 		})
 	}
@@ -483,7 +490,7 @@ func buildDiscoveryConfigs(deviceID string, device TDevice, live map[string]stri
 				StateClass:          link.StateClass,
 				Icon:                link.Icon,
 				Device:              devBlock,
-				Origin:              coordinatorOrigin(),
+				Origin:              coordinatorOrigin(installation),
 			},
 		})
 	}
@@ -503,7 +510,7 @@ func printDiscoveryDryRun(devicesFile TDevicesFile) {
 	sort.Strings(deviceIDs)
 
 	for _, id := range deviceIDs {
-		configs := buildDiscoveryConfigs(id, devicesFile.Devices[id], nil, "", devicesFile.conceptualPrefix())
+		configs := buildDiscoveryConfigs(id, devicesFile.Devices[id], nil, "", devicesFile.conceptualPrefix(), devicesFile.Installation)
 		if len(configs) == 0 {
 			continue
 		}

@@ -85,7 +85,7 @@ func extractDeviceSourceEntityDeclaration(line string) (*TDeviceSourceEntityDecl
 // there's no pre-existing Physical.def capability name to reuse, so the always-unique entity_id is
 // the only sensible key (see this file's header comment). A caller that already resolved a real
 // Physical.def capability label (registerDeviceCapabilityEntityLink, for the
-// "entity ... from <device-id> entity <capability>;" construct, and registerDevicePositioning, for
+// "entity ... from <device-id> <capability>;" construct, and registerDevicePositioning, for
 // the "node" capability it auto-registers) MUST pass that bare label instead -- device.Capabilities
 // already has an entry under that exact key (that's how the caller found capability.Source in the
 // first place), and AttributeEntityIDs has to match it. This was a real, live bug (2026-08-28):
@@ -105,11 +105,24 @@ func extractDeviceSourceEntityDeclaration(line string) (*TDeviceSourceEntityDecl
 // reported warning. Every other return path is unaffected by finalAttempt: those failures (unknown
 // device, unresolvable domain/entity id) can never be fixed by something appearing later in the
 // file, so they're always final.
-func registerDeviceSourceEntityLink(administration *TAdministrationState, decl TDeviceSourceEntityDeclaration, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, entitiesPath string, lineNum int, finalAttempt bool, capabilityKey string) (warnings []string, deferred bool) {
+//
+// deviceNamePath is PROJECT.md item 5's "device declaration acts like a space" sugar: non-empty
+// only when decl came from inside a "device <spec> from <device-id> with: ... end;" block
+// (Conceptual_DevicePositioning.go), it's the positioned device's own leaf path (deviceSpecLeafPath
+// of that block's own spec, e.g. "netatmo") -- appended as one extra path segment when resolving
+// decl.LocalSpec, so a capability line inside the block can write "sensor.physical:co2" instead of
+// repeating "sensor.physical:netatmo/co2" every time, exactly as a nested "space netatmo with:"
+// block would let entities inside it drop its own name too. Deliberately affects ONLY the naming
+// call (fullName below) -- administration.CurrentSpaceName() a few lines down (used for space
+// bucketing/RegisterDiscoveryImpliedEntity) must keep reading the real, unmodified
+// administration.SpacePath, since this device's capabilities still belong to the space the
+// positioning line itself sits in, not to a synthetic "netatmo" pseudo-space that was never opened
+// via OpenSpace/EnsureSpaceRegistered.
+func registerDeviceSourceEntityLink(administration *TAdministrationState, decl TDeviceSourceEntityDeclaration, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, entitiesPath string, lineNum int, finalAttempt bool, capabilityKey string, deviceNamePath string) (warnings []string, deferred bool) {
 	provenance := fmt.Sprintf("%s:%d → %s as %s from %s", filepath.Base(entitiesPath), lineNum, decl.LocalSpec, decl.Source, decl.DeviceID)
 
 	if importedDevice, found := importedDevicesByID[decl.DeviceID]; found {
-		return registerImportedDeviceSourceEntityLink(administration, decl, importedDevice, entitiesPath, lineNum, finalAttempt, capabilityKey, provenance)
+		return registerImportedDeviceSourceEntityLink(administration, decl, importedDevice, entitiesPath, lineNum, finalAttempt, capabilityKey, provenance, deviceNamePath)
 	}
 
 	device, found := hassBridgeDevicesByID[decl.DeviceID]
@@ -125,7 +138,7 @@ func registerDeviceSourceEntityLink(administration *TAdministrationState, decl T
 		return []string{fmt.Sprintf("%s: device %q has no \"device.<spec> from %s with: ...;\" positioning yet -- add one (any space) before referencing one of its entities directly", provenance, decl.DeviceID, decl.DeviceID)}, true
 	}
 
-	fullName := normalizeEntityFullName(decl.LocalSpec, administration.SpacePath)
+	fullName := normalizeEntityFullName(decl.LocalSpec, namingSpacePath(decl.LocalSpec, administration.SpacePath, deviceNamePath))
 	identity := extractEntityIdentity(fullName)
 	if identity.Domain == "" {
 		return []string{fmt.Sprintf("%s: could not resolve a domain from %q; skipping", provenance, decl.LocalSpec)}, false
@@ -190,13 +203,37 @@ func registerDeviceSourceEntityLink(administration *TAdministrationState, decl T
 			sources[instance] = decl.Source
 		}
 	}
-	device.Capabilities[key] = THassBridgeCapability{
-		Domain: identity.Domain, Sources: sources,
-		DeviceClass: deviceClass, Unit: unit, StateClass: stateClass, Icon: icon,
+	// Start from existing (already read above for its own DeviceClass/Unit/StateClass/Icon) rather
+	// than a fresh struct literal -- real bug, found live 2026-09-10 while wiring the "derived"
+	// capability mechanism (plans/derived-capability-mechanism.md): a fresh literal here silently
+	// dropped ValueMap and (once added) DerivedFromCapability/DerivedViaTemplate every time this
+	// construct referenced an existing Physical.def-declared capability (capabilityKey != ""),
+	// since none of those fields were ever carried over. Only the fields this function actually
+	// resolves (Domain/Sources/typing) are reassigned below; everything else -- including any field
+	// added to THassBridgeCapability in the future -- passes through unchanged.
+	updated := existing
+	updated.Domain = identity.Domain
+	updated.Sources = sources
+	updated.DeviceClass, updated.Unit, updated.StateClass, updated.Icon = deviceClass, unit, stateClass, icon
+	device.Capabilities[key] = updated
+	// See TDeviceAttributeLink.DisplaySuffix's own doc comment: an empty trailing path in the DSL
+	// author's own local spec (e.g. "vacuum.social:") means "nothing more specific than the device
+	// itself" -- fall back to the domain word (never key, the raw Physical.def capability label,
+	// e.g. "roomba") rather than leaking a physical-layer detail into the conceptual layer's own
+	// friendly name. But when the device's OWN leaf already equals the domain (e.g. "device
+	// infrastructural:vacuum from appliance.vacuum" -- devBlock.Name already ends in "vacuum"),
+	// even the domain word would be a redundant repeat, so omit the suffix entirely.
+	displaySuffix := key
+	if deviceSpecLeafPath(decl.LocalSpec) == "" {
+		if deviceNamePath == identity.Domain {
+			displaySuffix = ""
+		} else {
+			displaySuffix = identity.Domain
+		}
 	}
 	link.AttributeEntityIDs[key] = TDeviceAttributeLink{
 		EntityID: entityID, DeviceClass: deviceClass, Unit: unit, StateClass: stateClass, Icon: icon,
-		Identity: identity,
+		Identity: identity, DisplaySuffix: displaySuffix,
 	}
 	administration.DeviceConceptualLinks[decl.DeviceID] = link
 
@@ -219,13 +256,13 @@ func registerDeviceSourceEntityLink(administration *TAdministrationState, decl T
 // The bare "entity <spec> as <source> from <device-id>;" form (capabilityKey == "", decl.Source
 // DSL-author-supplied) makes no sense for an import -- there's no "raw remote entity string" the
 // DSL author can meaningfully supply here, only an already-Physical.def-declared capability name
-// (via the "for <device-id>: entity <spec> from entity <capability>;" shorthand,
+// (via the "for <device-id>: entity <spec> from <capability>;" shorthand,
 // Conceptual_DeviceCapabilityEntities.go, which always passes a non-empty capabilityKey) -- so
 // that form is rejected with a clear message rather than silently accepted and never actually
 // wired to anything.
-func registerImportedDeviceSourceEntityLink(administration *TAdministrationState, decl TDeviceSourceEntityDeclaration, importedDevice TImportedDevice, entitiesPath string, lineNum int, finalAttempt bool, capabilityKey, provenance string) (warnings []string, deferred bool) {
+func registerImportedDeviceSourceEntityLink(administration *TAdministrationState, decl TDeviceSourceEntityDeclaration, importedDevice TImportedDevice, entitiesPath string, lineNum int, finalAttempt bool, capabilityKey, provenance, deviceNamePath string) (warnings []string, deferred bool) {
 	if capabilityKey == "" {
-		return []string{fmt.Sprintf("%s: device %q is an import -- the \"entity ... as <source> from ...;\" form isn't supported for imports (there's no local raw entity reference to give); use \"for %s: entity <spec> from entity <capability>;\" referencing an already-declared Physical.def capability instead", provenance, decl.DeviceID, decl.DeviceID)}, false
+		return []string{fmt.Sprintf("%s: device %q is an import -- the \"entity ... as <source> from ...;\" form isn't supported for imports (there's no local raw entity reference to give); use \"for %s: entity <spec> from <capability>;\" referencing an already-declared Physical.def capability instead", provenance, decl.DeviceID, decl.DeviceID)}, false
 	}
 	if _, declared := importedDevice.Capabilities[capabilityKey]; !declared {
 		return []string{fmt.Sprintf("%s: imported device %q declares no %q capability; add a \"%s: <remote-local-entity>;\" line to its Physical.def import declaration", provenance, decl.DeviceID, capabilityKey, capabilityKey)}, false
@@ -239,7 +276,7 @@ func registerImportedDeviceSourceEntityLink(administration *TAdministrationState
 		return []string{fmt.Sprintf("%s: device %q has no \"device.<spec> from %s with: ...;\" positioning yet -- add one (any space) before referencing one of its entities directly", provenance, decl.DeviceID, decl.DeviceID)}, true
 	}
 
-	fullName := normalizeEntityFullName(decl.LocalSpec, administration.SpacePath)
+	fullName := normalizeEntityFullName(decl.LocalSpec, namingSpacePath(decl.LocalSpec, administration.SpacePath, deviceNamePath))
 	identity := extractEntityIdentity(fullName)
 	if identity.Domain == "" {
 		return []string{fmt.Sprintf("%s: could not resolve a domain from %q; skipping", provenance, decl.LocalSpec)}, false

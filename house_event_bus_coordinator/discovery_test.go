@@ -114,7 +114,7 @@ func TestBuildDiscoveryConfigsNodeHasNoHardcodedDeviceClass(t *testing.T) {
 	device.Conceptual.NodeDeviceClass = ""
 	device.Conceptual.NodeIcon = ""
 
-	configs := buildDiscoveryConfigs("host.smarty", device, nil, "", testPrefix)
+	configs := buildDiscoveryConfigs("host.smarty", device, nil, "", testPrefix, "test")
 	for _, c := range configs {
 		payload, ok := c.Payload.(TBinarySensorDiscoveryPayload)
 		if !ok {
@@ -130,7 +130,7 @@ func TestBuildDiscoveryConfigsNodeHasNoHardcodedDeviceClass(t *testing.T) {
 }
 
 func TestBuildDiscoveryConfigsForDeviceWithConceptualLink(t *testing.T) {
-	configs := buildDiscoveryConfigs("host.smarty", smartyDevice(), nil, "", testPrefix)
+	configs := buildDiscoveryConfigs("host.smarty", smartyDevice(), nil, "", testPrefix, "test")
 	if len(configs) != 3 {
 		t.Fatalf("got %d discovery configs, want 3: %+v", len(configs), configs)
 	}
@@ -212,8 +212,8 @@ func TestBuildDiscoveryConfigsForDeviceWithConceptualLink(t *testing.T) {
 	if tempPayload.Name != "infrastructural/garage/smarty/temperature" {
 		t.Errorf("temperature payload Name = %q, want %q", tempPayload.Name, "infrastructural/garage/smarty/temperature")
 	}
-	if nodePayload.Origin != coordinatorOrigin() || loadPayload.Origin != coordinatorOrigin() {
-		t.Errorf("node/load Origin = %+v / %+v, want %+v on both", nodePayload.Origin, loadPayload.Origin, coordinatorOrigin())
+	if nodePayload.Origin != coordinatorOrigin("test") || loadPayload.Origin != coordinatorOrigin("test") {
+		t.Errorf("node/load Origin = %+v / %+v, want %+v on both", nodePayload.Origin, loadPayload.Origin, coordinatorOrigin("test"))
 	}
 }
 
@@ -221,16 +221,16 @@ func TestBuildDiscoveryConfigsForDeviceWithConceptualLink(t *testing.T) {
 // doc comment warning: its map[string]interface{} shape must stay in exact sync with
 // TDiscoveryOrigin's JSON shape by hand, since the two can't be unified through json.Marshal.
 func TestCoordinatorOriginMapMatchesStructShape(t *testing.T) {
-	structJSON, err := json.Marshal(coordinatorOrigin())
+	structJSON, err := json.Marshal(coordinatorOrigin("test"))
 	if err != nil {
 		t.Fatalf("marshalling coordinatorOrigin(): %v", err)
 	}
-	mapJSON, err := json.Marshal(coordinatorOriginMap())
+	mapJSON, err := json.Marshal(coordinatorOriginMap("test"))
 	if err != nil {
 		t.Fatalf("marshalling coordinatorOriginMap(): %v", err)
 	}
 	if string(structJSON) != string(mapJSON) {
-		t.Errorf("coordinatorOrigin() marshals to %s, coordinatorOriginMap() marshals to %s -- want identical", structJSON, mapJSON)
+		t.Errorf("coordinatorOrigin(\"test\") marshals to %s, coordinatorOriginMap(\"test\") marshals to %s -- want identical", structJSON, mapJSON)
 	}
 }
 
@@ -244,7 +244,7 @@ func TestBuildDiscoveryConfigsUsesGroupPrefixedCapabilityWhenSet(t *testing.T) {
 	loadAttr.Capability = "cpu/load"
 	device.Conceptual.AttributeEntities["load"] = loadAttr
 
-	configs := buildDiscoveryConfigs("host.smarty", device, nil, "", testPrefix)
+	configs := buildDiscoveryConfigs("host.smarty", device, nil, "", testPrefix, "test")
 	byTopic := map[string]TDiscoveryConfig{}
 	for _, c := range configs {
 		byTopic[c.Topic] = c
@@ -274,7 +274,7 @@ func TestBuildDiscoveryConfigsUsesGroupPrefixedCapabilityWhenSet(t *testing.T) {
 
 func TestBuildDiscoveryConfigsSkipsDeviceWithoutConceptualLink(t *testing.T) {
 	device := TDevice{Host: "air-4", NodeTopic: "hosts/air-4/node/state", Topic: "hosts/air-4/cpu/state"}
-	configs := buildDiscoveryConfigs("host.air-4", device, nil, "", testPrefix)
+	configs := buildDiscoveryConfigs("host.air-4", device, nil, "", testPrefix, "test")
 	if configs != nil {
 		t.Fatalf("got %d discovery configs, want none (no conceptual link): %+v", len(configs), configs)
 	}
@@ -320,7 +320,7 @@ func TestBuildDiscoveryConfigsMergesLiveDeviceInfoAndViaDevice(t *testing.T) {
 		"serial_number": "10000000abcdef12",
 		"via_device":    "junglinster",
 	}
-	configs := buildDiscoveryConfigs("host.smarty", smartyDevice(), live, "host.junglinster", testPrefix)
+	configs := buildDiscoveryConfigs("host.smarty", smartyDevice(), live, "host.junglinster", testPrefix, "test")
 
 	nodeTopic := "homeassistant/binary_sensor/coordinator/host_smarty_node/config"
 	byTopic := map[string]TDiscoveryConfig{}

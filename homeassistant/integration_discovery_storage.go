@@ -36,7 +36,10 @@
 
 package main
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // TDiscoveryCapability is one named leaf a discovery gateway (sub-)device exposes.
 type TDiscoveryCapability struct {
@@ -91,6 +94,11 @@ func collectDiscoveryGatewaysByID(definitionDir string) (map[string]TDiscoveryGa
 		for _, d := range devices {
 			if _, exists := byID[d.DeviceID]; !exists {
 				byID[d.DeviceID] = d
+			} else {
+				// See integration_hosts_storage.go's own "declared more than once" warning for
+				// the real incident (2026-09-10) that prompted adding this across every
+				// integration kind's own collector, not just hassbridge's (which already had it).
+				warnings = append(warnings, fmt.Sprintf("Physical.def: device %q declared more than once within the \"discovery\" integration; keeping the first declaration", d.DeviceID))
 			}
 		}
 	}

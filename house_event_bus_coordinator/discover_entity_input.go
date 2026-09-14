@@ -60,7 +60,7 @@ func discoverEntityCommandTopic() string {
 // publishDiscoverEntityInput discovery-publishes the single MQTT text entity a person uses to seed
 // a brand-new device. Optimistic (no state_topic) -- nothing needs to report a value back, HA just
 // keeps showing whatever was last typed until the person clears or replaces it themselves.
-func publishDiscoverEntityInput(client mqtt.Client, conceptualPrefix string) error {
+func publishDiscoverEntityInput(client mqtt.Client, conceptualPrefix, installation string) error {
 	topic := discoveryTopic(conceptualPrefix, "text", discoverEntityStableID)
 	body := map[string]interface{}{
 		"unique_id": discoverEntityStableID,
@@ -74,7 +74,7 @@ func publishDiscoverEntityInput(client mqtt.Client, conceptualPrefix string) err
 		"command_topic":   discoverEntityCommandTopic(),
 		"optimistic":      true,
 		"entity_category": "config",
-		"origin":          coordinatorOriginMap(),
+		"origin":          coordinatorOriginMap(installation),
 	}
 	data, err := json.Marshal(body)
 	if err != nil {

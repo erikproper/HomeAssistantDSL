@@ -135,6 +135,23 @@ func (s *TLiveDeviceInfoStore) Update(deviceID string, fields map[string]string)
 	}
 }
 
+// Notify fires onChange(deviceID) directly, without touching any stored field -- for a change
+// that lives elsewhere but still needs the exact same "republish this device's discovery config"
+// reaction the store's own field changes already get. Added 2026-09-14 (PROJECT.md item 3/
+// plans/via-device-inference.md): a newly-resolved via_device target
+// (house_event_bus_coordinator/entity_existence.go's ResolveViaDevice) is deliberately never
+// stored here (it's a cross-device lookup, not a per-device live value -- see that file's own doc
+// comment), but discoveryhassbridge.go's buildHassBridgeDeviceBlock still needs a republish to
+// pick it up. A no-op if no onChange is set (tests).
+func (s *TLiveDeviceInfoStore) Notify(deviceID string) {
+	s.mu.Lock()
+	onChange := s.onChange
+	s.mu.Unlock()
+	if onChange != nil {
+		onChange(deviceID)
+	}
+}
+
 // SetOnChange (re)sets the store's onChange callback -- lets main.go wire it up once every
 // dependency the callback itself needs (devicesFile, hassBridgeFile, publisher, ...) is available,
 // rather than requiring NewLiveDeviceInfoStore to be called only after all of those are ready.

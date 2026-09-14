@@ -59,10 +59,17 @@ type TCommandlineCapabilityRef struct {
 // "slideshow", "reboot"); no script content ever appears here, since the coordinator only ever
 // relays commandline/<host>/<entity>/... topics, never invokes a script itself.
 type TCommandlineDevice struct {
-	Host     string                               `yaml:"host"`
-	Switches map[string]TCommandlineCapabilityRef `yaml:"switches,omitempty"`
-	Sensors  map[string]TCommandlineCapabilityRef `yaml:"sensors,omitempty"`
-	Buttons  map[string]TCommandlineCapabilityRef `yaml:"buttons,omitempty"`
+	Host string `yaml:"host"`
+	// DisplayName is this house's own Spaces.def-positioning-derived name (e.g.
+	// "apartment/living_room/picture_frame"), when the device has been positioned -- absent for a
+	// device Physical.def declares but Spaces.def never positions. Real gap found live 2026-09-11:
+	// this field never existed before, so the device's own "device:" block always fell back to the
+	// bare Host below, even for a positioned device -- e.g. Vienna's own picture_frame showing up
+	// named "protocols-server-2" (its Host) rather than its real Spaces.def position.
+	DisplayName string                               `yaml:"display_name,omitempty"`
+	Switches    map[string]TCommandlineCapabilityRef `yaml:"switches,omitempty"`
+	Sensors     map[string]TCommandlineCapabilityRef `yaml:"sensors,omitempty"`
+	Buttons     map[string]TCommandlineCapabilityRef `yaml:"buttons,omitempty"`
 }
 
 // TCommandlineFile is the top-level shape of a generated coordinator/commandline.yaml file --
@@ -162,8 +169,15 @@ func resolveCommandlineNaming(host, name, domain string, ref TCommandlineCapabil
 // this specific daemon process alive, PROJECT.md item 1's own stated rationale for using LWT here
 // instead of ping-style staleness) and must get their own separate HA entities; only the shared
 // Device.Identifiers should be reused, grouping them visually under the one physical device.
-func buildCommandlineDiscoveryConfigs(deviceID string, device TCommandlineDevice, prefix string) []TDiscoveryConfig {
-	devBlock := TDiscoveryDevice{Identifiers: []string{deviceID}, Name: device.Host}
+func buildCommandlineDiscoveryConfigs(deviceID string, device TCommandlineDevice, prefix, installation string) []TDiscoveryConfig {
+	// deviceName falls back to the bare Host when the device was never positioned in Spaces.def
+	// (DisplayName absent) -- same "fallback to bare id when unset" convention every other device
+	// kind's own discovery-config builder already follows (e.g. buildImportedDiscoveryBody).
+	deviceName := device.DisplayName
+	if deviceName == "" {
+		deviceName = device.Host
+	}
+	devBlock := TDiscoveryDevice{Identifiers: []string{deviceID}, Name: deviceName}
 	nodeTopic := commandlineNodeTopic(device.Host)
 
 	var configs []TDiscoveryConfig
@@ -174,13 +188,13 @@ func buildCommandlineDiscoveryConfigs(deviceID string, device TCommandlineDevice
 		Payload: TBinarySensorDiscoveryPayload{
 			UniqueID:        nodeUniqueID,
 			DefaultEntityID: "binary_sensor." + sanitizeTopicSegment(device.Host) + "_commandline_node",
-			Name:            stringPtr(device.Host + "/commandline"),
+			Name:            stringPtr(deviceName + "/commandline"),
 			StateTopic:      nodeTopic,
 			PayloadOn:       mqttBoolPayloadTrue,
 			PayloadOff:      mqttBoolPayloadFalse,
 			DeviceClass:     "connectivity",
 			Device:          devBlock,
-			Origin:          coordinatorOrigin(),
+			Origin:          coordinatorOrigin(installation),
 		},
 	})
 
@@ -204,7 +218,7 @@ func buildCommandlineDiscoveryConfigs(deviceID string, device TCommandlineDevice
 				PayloadAvailable:  mqttBoolPayloadTrue,
 				PayloadNotAvail:   mqttBoolPayloadFalse,
 				Device:            devBlock,
-				Origin:            coordinatorOrigin(),
+				Origin:            coordinatorOrigin(installation),
 			},
 		})
 	}
@@ -224,7 +238,7 @@ func buildCommandlineDiscoveryConfigs(deviceID string, device TCommandlineDevice
 				PayloadAvailable:    mqttBoolPayloadTrue,
 				PayloadNotAvailable: mqttBoolPayloadFalse,
 				Device:              devBlock,
-				Origin:              coordinatorOrigin(),
+				Origin:              coordinatorOrigin(installation),
 			},
 		})
 	}
@@ -245,7 +259,7 @@ func buildCommandlineDiscoveryConfigs(deviceID string, device TCommandlineDevice
 				PayloadAvailable:  mqttBoolPayloadTrue,
 				PayloadNotAvail:   mqttBoolPayloadFalse,
 				Device:            devBlock,
-				Origin:            coordinatorOrigin(),
+				Origin:            coordinatorOrigin(installation),
 			},
 		})
 	}
@@ -292,7 +306,7 @@ type TCommandlineButtonDiscoveryPayload struct {
 // publishCommandlineDiscovery publishes every commandline.yaml device's discovery configs once,
 // through publisher -- local ("main" broker) only, matching PROJECT.md item 1's own scope (no
 // cloud routing designed for this integration yet).
-func publishCommandlineDiscovery(client mqtt.Client, commandlineFile TCommandlineFile, publisher *TDiscoveryPublisher, prefix string) error {
+func publishCommandlineDiscovery(client mqtt.Client, commandlineFile TCommandlineFile, publisher *TDiscoveryPublisher, prefix, installation string) error {
 	published := 0
 	deviceIDs := make([]string, 0, len(commandlineFile.Devices))
 	for id := range commandlineFile.Devices {
@@ -300,7 +314,7 @@ func publishCommandlineDiscovery(client mqtt.Client, commandlineFile TCommandlin
 	}
 	sort.Strings(deviceIDs)
 	for _, id := range deviceIDs {
-		for _, cfg := range buildCommandlineDiscoveryConfigs(id, commandlineFile.Devices[id], prefix) {
+		for _, cfg := range buildCommandlineDiscoveryConfigs(id, commandlineFile.Devices[id], prefix, installation) {
 			data, err := json.Marshal(cfg.Payload)
 			if err != nil {
 				return fmt.Errorf("marshalling discovery payload for %s: %w", cfg.Topic, err)
@@ -319,10 +333,10 @@ func publishCommandlineDiscovery(client mqtt.Client, commandlineFile TCommandlin
 // watchForOrphanedDiscoveryTopics' orphan-cleanup set -- topic existence only (not exact expected
 // content), matching the discovery-bridge/hassbridge/imported kinds' own simpler convention rather
 // than "hosts"' deeper content-aware check.
-func expectedCommandlineTopics(commandlineFile TCommandlineFile, prefix string) map[string]bool {
+func expectedCommandlineTopics(commandlineFile TCommandlineFile, prefix, installation string) map[string]bool {
 	expected := map[string]bool{}
 	for id, device := range commandlineFile.Devices {
-		for _, cfg := range buildCommandlineDiscoveryConfigs(id, device, prefix) {
+		for _, cfg := range buildCommandlineDiscoveryConfigs(id, device, prefix, installation) {
 			expected[cfg.Topic] = true
 		}
 	}

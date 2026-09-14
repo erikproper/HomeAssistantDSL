@@ -99,7 +99,7 @@ type TAdministrationState struct {
 
 	// Physical.def device id -> conceptual-layer HA entity ids implied for it by a
 	// "device <spec> from <device-id>;" positioning declaration (Conceptual_DevicePositioning.go)
-	// and any "entity <spec> from <device-id> entity <capability>;" links registered against it
+	// and any "entity <spec> from <device-id> <capability>;" links registered against it
 	// (Conceptual_DeviceCapabilityEntities.go) in Spaces.def. Read by
 	// generateCoordinatorDevicesFile to enrich coordinator/devices.yaml.
 	DeviceConceptualLinks map[string]TDeviceConceptualLink
@@ -177,7 +177,7 @@ type TDeviceConceptualLink struct {
 	// HostIdentity is the device's own resolved sphere/path, set only for "hosts"-kind devices
 	// (registerHostNodeEntity, Conceptual_DeviceEntities.go) -- unlike a "home_assistant" bridge
 	// capability (whose entity naming is free-form, driven entirely by the LocalSpec written on
-	// its own "entity ... from <device-id> entity <capability>;" line), a hosts attribute's naming
+	// its own "entity ... from <device-id> <capability>;" line), a hosts attribute's naming
 	// is always computed from the device's OWN position plus its integration type's materialization
 	// (mat.AttributeDomain/splitCapabilityName), never chosen per-attribute -- so
 	// registerDeviceCapabilityEntityLink's hosts-kind branch needs the device's identity back from
@@ -214,6 +214,18 @@ type TDeviceAttributeLink struct {
 	// 1.1's per-entity reporting/command automation filenames and aliases -- must be built from
 	// this, not by trying to un-flatten EntityID.
 	Identity TEntityIdentity
+
+	// DisplaySuffix is the word a hassbridge discovery config's "name" field appends after the
+	// device's own display name (house_event_bus_coordinator/discoveryhassbridge.go's
+	// buildHassBridgeEntityDiscoveryBody) -- normally the capability's own key (e.g. "status"), but
+	// the entity's own DOMAIN when the DSL author's local spec had an empty trailing path (e.g.
+	// "entity vacuum.social: from roomba;") -- confirmed by the user 2026-09-10: an empty path
+	// means "nothing more specific to say beyond the device itself," so the friendly name should
+	// read a plain, readable domain word ("apartment/living_room/vacuum"), not leak the raw
+	// Physical.def capability label ("apartment/living_room/vacuum/roomba") into the conceptual
+	// layer's own display text -- a physical/conceptual layer boundary this project otherwise
+	// takes care to keep separate everywhere else.
+	DisplaySuffix string
 }
 
 // TFollowsRelation records a "follows <follower> <leader>;" space-level directive.

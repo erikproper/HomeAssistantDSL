@@ -38,6 +38,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -70,8 +72,15 @@ type TEntityExistenceEntry struct {
 	// device name (confirmed live 2026-08-29: two separate Netatmo modules both auto-named
 	// "Vienna Terrace") never collapses into the first one's synthetic grouping.
 	RemoteDeviceID string
-	Status         TEntityExistenceStatus
-	State          string // last-known state value, only meaningful when Status == StatusKnownToExist
+	// RemoteViaDeviceID is the remote instance's own device registry "via_device_id" for
+	// RemoteDeviceID -- another remote device id this one is "connected via" (e.g. a Netatmo radio
+	// module via its own base station), added 2026-09-14 (PROJECT.md item 3/
+	// plans/via-device-inference.md). "" if the remote reported none, or hasn't been inquired yet.
+	// ResolveViaDevice matches this against another tracked entry's own RemoteDeviceID, within the
+	// same instance, one hop only -- see that method's own doc comment.
+	RemoteViaDeviceID string
+	Status            TEntityExistenceStatus
+	State             string // last-known state value, only meaningful when Status == StatusKnownToExist
 	// Unit/DeviceClass are the remote entity's own reported unit_of_measurement/device_class
 	// (added 2026-09-06), piggybacked off the same inquiry reply that already answers "does this
 	// exist" -- only meaningful when Status == StatusKnownToExist, "" otherwise. Used by
@@ -81,16 +90,22 @@ type TEntityExistenceEntry struct {
 	// entity genuinely has both.
 	Unit        string
 	DeviceClass string
+	// Icon is the remote entity's own reported "icon" attribute (added 2026-09-09 -- real gap
+	// found live on Vienna's washing_machine bridge: the 2026-09-06 unit/device_class fallback's
+	// own doc comments already named icon as part of the same problem, but the fix never actually
+	// carried it through). Same fallback tier as Unit/DeviceClass: only used when neither
+	// Physical.def's own explicit declaration nor Defaults.def/code-level rules set one.
+	Icon string
 }
 
 // TEntityExistenceTracker holds, per named HA instance, every hassbridge-referenced source
 // entity's current status, and drives the paced inquiry loop.
 type TEntityExistenceTracker struct {
-	mu       sync.Mutex
-	path     string                                       // persistPath's own record; "" disables persistence entirely (tests)
-	entries  map[string]map[string]*TEntityExistenceEntry // instance -> sourceEntity -> entry
-	order    map[string][]string                          // instance -> stable registration order (round-robin base)
-	cursor   map[string]int                               // instance -> next round-robin index for the "recheck known" pass
+	mu      sync.Mutex
+	path    string                                       // persistPath's own record; "" disables persistence entirely (tests)
+	entries map[string]map[string]*TEntityExistenceEntry // instance -> sourceEntity -> entry
+	order   map[string][]string                          // instance -> stable registration order (round-robin base)
+	cursor  map[string]int                               // instance -> next round-robin index for the "recheck known" pass
 	// backlogCursor is nextToInquire's own rotation position within the not-known-to-exist
 	// backlog specifically (as opposed to cursor's round-robin over EVERY entry, used only once
 	// the whole backlog is empty). Real bug found live 2026-09-07: without this, nextToInquire
@@ -134,9 +149,23 @@ func newEntityExistenceTracker(path string) *TEntityExistenceTracker {
 // entityExistencePersistedInstance/entityExistencePersistedFile are entity_existence.json's own
 // on-disk shape -- one entry per instance, preserving registration order (nextToInquire's
 // round-robin base) alongside each entity's last-known entry.
+//
+// Cursor/BacklogCursor (added 2026-09-11) persist nextToInquire's own two round-robin positions --
+// real bug found live: without these, every coordinator restart reset both cursors to 0, so the
+// "recheck already-known entities" pass (cursor) always restarted from the front of order. An
+// instance with many tracked entities and frequent restarts (redeploys) could then go a very long
+// time -- in the worst case, indefinitely -- without ever reaching entities near the tail of its
+// own order list, even though the remote instance's own inquiry-reply automation was fully capable
+// of returning fresh typing/device-info the whole time. Confirmed live on Junglinster
+// 2026-09-11: several of Vienna's own imported Netatmo devices (hass.vienna_bedroom and others)
+// were missing manufacturer/model in coordinator/live_device_info.json despite a fresh manual
+// inquiry immediately returning it correctly -- the automatic loop had simply never gotten back
+// around to them since the tracker was last restarted.
 type entityExistencePersistedInstance struct {
-	Order   []string                         `json:"order"`
-	Entries map[string]TEntityExistenceEntry `json:"entries"`
+	Order         []string                         `json:"order"`
+	Entries       map[string]TEntityExistenceEntry `json:"entries"`
+	Cursor        int                              `json:"cursor,omitempty"`
+	BacklogCursor int                              `json:"backlog_cursor,omitempty"`
 }
 
 type entityExistencePersistedFile struct {
@@ -167,6 +196,8 @@ func (t *TEntityExistenceTracker) loadPersisted() {
 		}
 		t.entries[instance] = entries
 		t.order[instance] = saved.Order
+		t.cursor[instance] = saved.Cursor
+		t.backlogCursor[instance] = saved.BacklogCursor
 	}
 }
 
@@ -179,7 +210,10 @@ func (t *TEntityExistenceTracker) persist() {
 	}
 	persisted := entityExistencePersistedFile{Instances: make(map[string]entityExistencePersistedInstance, len(t.entries))}
 	for instance, entries := range t.entries {
-		saved := entityExistencePersistedInstance{Order: t.order[instance], Entries: make(map[string]TEntityExistenceEntry, len(entries))}
+		saved := entityExistencePersistedInstance{
+			Order: t.order[instance], Entries: make(map[string]TEntityExistenceEntry, len(entries)),
+			Cursor: t.cursor[instance], BacklogCursor: t.backlogCursor[instance],
+		}
 		for entity, entry := range entries {
 			saved.Entries[entity] = *entry
 		}
@@ -216,7 +250,24 @@ func (t *TEntityExistenceTracker) Seed(bridgeFile THassBridgeFile) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	declared := map[string]map[string]bool{} // instance -> entity -> still declared this round
-	for deviceID, device := range bridgeFile.Devices {
+	// Sorted, not range-order: two devices can legitimately declare the SAME source entity as
+	// their own capability (found live 2026-09-14 -- node.vienna_bedroom and node.vienna_livingroom
+	// both declare "binary_sensor.vienna_bedroom_connectivity" as their own "node" capability, a
+	// deliberate Physical.def workaround for a flaky dedicated living-room connectivity sensor).
+	// Go's randomized map iteration then made the correction below (whichever DEVICE is processed
+	// LAST in this loop wins the shared entity) flip non-deterministically between coordinator
+	// restarts. Sorting doesn't resolve the underlying modeling ambiguity -- Physical.def itself
+	// has no way to say which of two devices is the "real" owner of a shared entity -- but at
+	// least makes the outcome stable and reproducible instead of random. ResolveViaDevice itself
+	// no longer depends on this attribution being "correct" for the shared entity's own device
+	// (see its own doc comment), so this is a belt-and-braces stability fix, not the primary one.
+	deviceIDs := make([]string, 0, len(bridgeFile.Devices))
+	for deviceID := range bridgeFile.Devices {
+		deviceIDs = append(deviceIDs, deviceID)
+	}
+	sort.Strings(deviceIDs)
+	for _, deviceID := range deviceIDs {
+		device := bridgeFile.Devices[deviceID]
 		// Each instance seeds its OWN declared source entity, never a shared one -- a roaming
 		// device's own local entity_id for the same capability can genuinely differ across
 		// instances (real incident, found live 2026-09-05: Vienna's own registry initially lacked
@@ -238,23 +289,40 @@ func (t *TEntityExistenceTracker) Seed(bridgeFile THassBridgeFile) {
 				entity := bareEntityFromSource(source)
 				declared[instance][entity] = true
 				if existing, seen := t.entries[instance][entity]; seen {
-					// A real, Physical.def-declared owner always corrects a synthetic (or missing)
-					// DeviceID -- real bug found live 2026-09-08: DiscoverSiblings only mints a
-					// synthetic "hass.discovered_..." grouping when an anchor's DeviceID is still ""
-					// at that moment, which can happen for an entity that's genuinely declared here
-					// but whose very first sighting (a manual "Discover entity" request, or a
-					// coordinator restart racing a Seed call) happened before Seed ever got to it.
-					// Once wrongly synthetic, it was persisted that way forever after -- this exact
-					// "if seen, skip" check meant a later, correctly-ordered Seed call could never
-					// self-heal it, since the wrong persisted value always won. Status/State/Unit/
-					// DeviceClass are deliberately left untouched -- only DeviceID/RemoteDeviceID,
-					// so a confirmed-known status never gets reset by this correction.
-					if existing.DeviceID == "" || isSyntheticDeviceID(existing.DeviceID) {
-						if existing.DeviceID != deviceID {
-							fmt.Printf("[existence] %s: %s was grouped under %q, correcting to its real declared device %q\n", instance, entity, existing.DeviceID, deviceID)
-						}
+					// The currently-declared owner always wins over whatever was persisted before,
+					// full stop -- Physical.def is always the naming authority, not the coordinator
+					// (buildSuggestionReportFromExistence's own doc comment states this same
+					// principle). Originally this only corrected a synthetic (or missing) DeviceID
+					// (real bug found live 2026-09-08: DiscoverSiblings only mints a synthetic
+					// "hass.discovered_..." grouping when an anchor's DeviceID is still "" at that
+					// moment, which can happen for an entity that's genuinely declared here but
+					// whose very first sighting -- a manual "Discover entity" request, or a
+					// coordinator restart racing a Seed call -- happened before Seed ever got to
+					// it; once wrongly synthetic, it was persisted that way forever after, since the
+					// old "if seen, skip" check meant a later, correctly-ordered Seed call could
+					// never self-heal it). Broadened 2026-09-14 (PROJECT.md item 3/
+					// plans/via-device-inference.md, found live: Vienna never showed a resolved
+					// via_device for a Netatmo module despite every underlying signal being
+					// correct) -- a real-but-STALE DeviceID from BEFORE a device rename is just as
+					// wrong as a synthetic one, and entity_existence.json's deliberate persistence
+					// across every coordinator redeploy (Architecture.md §6.11) means it never gets
+					// a chance to self-heal on its own: ResolveViaDevice's own lookup keys off the
+					// device id THIS Seed call already knows is current, so a stale label there
+					// silently breaks the match forever, with no error anywhere in the chain.
+					// Status/State/Unit/DeviceClass/Icon are deliberately left untouched -- only
+					// DeviceID itself changes here. RemoteDeviceID/RemoteViaDeviceID are
+					// deliberately PRESERVED across this correction (changed 2026-09-14, alongside
+					// broadening this check): they describe which REMOTE device this entry maps
+					// to, a fact that's entirely independent of whatever LOCAL Physical.def label
+					// is currently in use for it -- a pure rename doesn't change the real device on
+					// the other end, so clearing already-correct data here would just force an
+					// unnecessary fresh inquiry (real gap found live 2026-09-14: this correction
+					// used to also clear RemoteDeviceID, meaning every coordinator restart after a
+					// rename re-forced a fresh wait even on the SECOND and later restarts, not just
+					// the first one following the rename itself).
+					if existing.DeviceID != deviceID {
+						fmt.Printf("[existence] %s: %s was grouped under %q, correcting to its currently-declared device %q\n", instance, entity, existing.DeviceID, deviceID)
 						existing.DeviceID = deviceID
-						existing.RemoteDeviceID = ""
 					}
 					continue
 				}
@@ -283,6 +351,25 @@ func (t *TEntityExistenceTracker) Seed(bridgeFile THassBridgeFile) {
 			delete(t.entries[instance], entity)
 			t.order[instance] = removeString(t.order[instance], entity)
 			fmt.Printf("[existence] %s: pruned %q -- confirmed not-to-exist and no longer declared\n", instance, entity)
+		}
+	}
+
+	// Self-heal any already-persisted malformed entity id (see DiscoverSiblings' own guard, added
+	// 2026-09-14 -- this handles ids that got tracked BEFORE that guard existed, or that lost their
+	// current declaration since, e.g. a device rename leaving a stale malformed sibling behind).
+	// Unlike the StatusKnownNotToExist prune above, this ignores Status entirely: a malformed id can
+	// never resolve either way (HA's states[...]/device_id(...) error out instead of answering), so
+	// it would otherwise sit in "not-known-to-exist" and monopolize nextToInquire's backlog slot
+	// forever. Still deferring to a current declaration, per Seed's usual "Physical.def is the naming
+	// authority" principle -- pruning here only ever removes an orphan, never something re-declared.
+	for instance, entities := range t.entries {
+		for entity := range entities {
+			if declared[instance][entity] || isWellFormedEntityID(entity) {
+				continue
+			}
+			delete(t.entries[instance], entity)
+			t.order[instance] = removeString(t.order[instance], entity)
+			fmt.Printf("[existence] %s: pruned malformed entity id %q -- can never resolve, no longer declared\n", instance, entity)
 		}
 	}
 
@@ -367,6 +454,21 @@ func bareEntityFromSource(src string) string {
 	return src
 }
 
+// validEntityIDPattern mirrors Home Assistant's own homeassistant.core.valid_entity_id() --
+// notably its `(?!.+__)` guard rejecting a double underscore anywhere in the id, which HA's
+// template `states[...]`/`device_id(...)` lookups enforce too: given a malformed id, they raise
+// TemplateError: Invalid entity ID instead of returning None the way a well-formed-but-unknown id
+// would. A tracked entity that can never pass this check can therefore never be resolved by
+// inquiry at all -- every attempt errors the inquiry automation out before it gets anywhere near
+// building a reply -- so it would otherwise monopolize nextToInquire's not-known-to-exist backlog
+// slot forever, exactly like the unreduced-source-expression bug bareEntityFromSource already
+// fixed (2026-08-28).
+var validEntityIDPattern = regexp.MustCompile(`^[a-z0-9]+(?:_[a-z0-9]+)*\.[a-z0-9]+(?:_[a-z0-9]+)*$`)
+
+func isWellFormedEntityID(id string) bool {
+	return validEntityIDPattern.MatchString(id)
+}
+
 // nextToInquire picks the next source entity to ask instance about: any not-known-to-exist entity
 // first, ROTATING through the backlog rather than always starting from the front (backlogCursor --
 // see its own doc comment for the real bug this fixes, 2026-09-07); once every entity has a
@@ -402,7 +504,13 @@ func (t *TEntityExistenceTracker) nextToInquire(instance string) string {
 // (subscribeExistenceReply) can feed reply's own device-info fields into TLiveDeviceInfoStore under
 // the right key without a second, separately-locked lookup. A reply about an entity this tracker
 // never asked about (stale/unexpected) is ignored, not an error.
-func (t *TEntityExistenceTracker) Record(instance, sourceEntity string, exists bool, state, unit, deviceClass string) (deviceID string) {
+//
+// remoteDeviceID/remoteViaDeviceID (added 2026-09-14, PROJECT.md item 3/
+// plans/via-device-inference.md) record the remote instance's own device_id/via_device_id for
+// EVERY tracked entry, not just DiscoverSiblings-synthesized ones as before -- ResolveViaDevice
+// needs a real Physical.def-declared device's own RemoteDeviceID populated too, to match another
+// device's reported via_device_id against it.
+func (t *TEntityExistenceTracker) Record(instance, sourceEntity string, exists bool, state, unit, deviceClass, icon, remoteDeviceID, remoteViaDeviceID string) (deviceID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	byEntity, ok := t.entries[instance]
@@ -418,28 +526,35 @@ func (t *TEntityExistenceTracker) Record(instance, sourceEntity string, exists b
 		entry.State = state
 		entry.Unit = unit
 		entry.DeviceClass = deviceClass
+		entry.Icon = icon
+		if remoteDeviceID != "" {
+			entry.RemoteDeviceID = remoteDeviceID
+		}
+		entry.RemoteViaDeviceID = remoteViaDeviceID
 	} else {
 		entry.Status = StatusKnownNotToExist
 		entry.State = ""
 		entry.Unit = ""
 		entry.DeviceClass = ""
+		entry.Icon = ""
+		entry.RemoteViaDeviceID = ""
 	}
 	t.persist()
 	return entry.DeviceID
 }
 
-// LiveTyping returns instance's own last-reported unit_of_measurement/device_class for
-// sourceEntity, "" for either (or both) if never resolved to known-to-exist, or unknown to this
-// tracker entirely -- discoveryhassbridge.go's own fallback typing source, behind Physical.def's
-// explicit declaration and Defaults.def/code-level rules.
-func (t *TEntityExistenceTracker) LiveTyping(instance, sourceEntity string) (unit, deviceClass string) {
+// LiveTyping returns instance's own last-reported unit_of_measurement/device_class/icon for
+// sourceEntity, "" for any not resolved to known-to-exist, or unknown to this tracker entirely --
+// discoveryhassbridge.go's own fallback typing source, behind Physical.def's explicit declaration
+// and Defaults.def/code-level rules.
+func (t *TEntityExistenceTracker) LiveTyping(instance, sourceEntity string) (unit, deviceClass, icon string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	entry, ok := t.entries[instance][sourceEntity]
 	if !ok {
-		return "", ""
+		return "", "", ""
 	}
-	return entry.Unit, entry.DeviceClass
+	return entry.Unit, entry.DeviceClass, entry.Icon
 }
 
 // DiscoverSiblings folds newly-seen entities into instance's tracked set, attributed to the same
@@ -479,6 +594,16 @@ func (t *TEntityExistenceTracker) DiscoverSiblings(instance, anchorEntity, remot
 		if sibling == "" || sibling == anchorEntity {
 			continue
 		}
+		if !isWellFormedEntityID(sibling) {
+			// Real bug found live 2026-09-14 (PROJECT.md item 3): HA's own device_entities()
+			// reply carried a malformed double-underscore id for this device at some point in
+			// the past (root incident lost -- entity_existence.json is deliberately persisted
+			// across restarts, see this file's own header comment); tracking it would monopolize
+			// nextToInquire's backlog slot forever, since HA's states[...]/device_id(...) reject
+			// it outright rather than returning "doesn't exist".
+			fmt.Printf("[existence] %s: ignoring malformed sibling entity id %q (via %s, device %q)\n", instance, sibling, anchorEntity, anchor.DeviceID)
+			continue
+		}
 		if _, seen := byEntity[sibling]; seen {
 			continue
 		}
@@ -499,14 +624,6 @@ func syntheticDeviceID(deviceName, fallback string) string {
 		source = fallback
 	}
 	return "hass.discovered_" + slugify(source)
-}
-
-// isSyntheticDeviceID reports whether id is one of syntheticDeviceID's own placeholder ids --
-// used by Seed's own reconciliation pass (see its doc comment) to recognise an entry that needs
-// correcting to its real, Physical.def-declared owner, never a genuinely-declared device id that
-// simply happens to also start "hass.".
-func isSyntheticDeviceID(id string) bool {
-	return strings.HasPrefix(id, "hass.discovered_")
 }
 
 // resolveSyntheticDeviceID returns the synthetic local device id for remoteDeviceID within
@@ -543,6 +660,63 @@ func deviceIDClaimedByDifferentRemote(byEntity map[string]*TEntityExistenceEntry
 		}
 	}
 	return false
+}
+
+// ResolveViaDevice reports the local DeviceID deviceID's own via_device should point at, within
+// instance -- PROJECT.md item 3/plans/via-device-inference.md's same-house inference: deviceID
+// depends on another device this same instance ALSO advertises, purely from data the paced
+// inquiry loop already collected (no new Physical.def syntax). Deliberately one hop only, matching
+// discoverybridge.go's own documented kind-2 scope -- a target that is itself "via" a third device
+// is not chased further.
+//
+// Two lookups, both plain scans over instance's own tracked entries (small, instance-scoped maps
+// -- same style resolveSyntheticDeviceID already uses for its own disambiguation check):
+//  1. find deviceID's own reported RemoteViaDeviceID (any of its entries -- they all belong to the
+//     same device, so the first non-empty hit is enough, same reasoning snapshotByDevice's own
+//     grouping relies on).
+//  2. find another entry, anywhere in this instance, whose own RemoteDeviceID equals that --
+//     that entry's DeviceID is the resolved target.
+//
+// ok is false if deviceID reported no via_device_id, or if the target it named isn't (yet, or
+// ever) itself a tracked device in this same instance -- a correct, unremarkable outcome (nothing
+// to link to), not an error.
+// ownSourceEntities is deviceID's own declared source entity_ids for instance (any capability's
+// SourceEntities[instance], e.g. from THassBridgeDevice.Capabilities) -- looked up directly by
+// entity_id rather than via the tracker's own DeviceID attribution, deliberately. Found live
+// 2026-09-14: two devices can legitimately declare the SAME source entity as their own capability
+// (node.vienna_bedroom and node.vienna_livingroom both declare "binary_sensor.vienna_bedroom_
+// connectivity" as their own "node", a deliberate Physical.def workaround for a flaky dedicated
+// living-room connectivity sensor) -- the tracker's own entry.DeviceID can only ever hold ONE
+// owner for a shared entity (Seed's own correction, sorted for determinism but still an arbitrary
+// pick between two equally-legitimate claimants), so keying this lookup off entry.DeviceID would
+// silently and non-deterministically fail for whichever device didn't "win" the shared entity that
+// restart. Physical.def's own declaration is the authoritative source for "is this entity mine",
+// so use it directly instead.
+func (t *TEntityExistenceTracker) ResolveViaDevice(instance, deviceID string, ownSourceEntities []string) (targetDeviceID string, ok bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	byEntity, exists := t.entries[instance]
+	if !exists {
+		return "", false
+	}
+
+	remoteViaDeviceID := ""
+	for _, sourceEntity := range ownSourceEntities {
+		if entry, tracked := byEntity[sourceEntity]; tracked && entry.RemoteViaDeviceID != "" {
+			remoteViaDeviceID = entry.RemoteViaDeviceID
+			break
+		}
+	}
+	if remoteViaDeviceID == "" {
+		return "", false
+	}
+
+	for _, entry := range byEntity {
+		if entry.DeviceID != "" && entry.DeviceID != deviceID && entry.RemoteDeviceID == remoteViaDeviceID {
+			return entry.DeviceID, true
+		}
+	}
+	return "", false
 }
 
 // slugify reduces s to a Physical.def-style identifier fragment: lowercase, runs of anything
@@ -603,6 +777,7 @@ type existenceInquiryReply struct {
 	State           string   `json:"state"`
 	Unit            string   `json:"unit_of_measurement"`
 	DeviceClass     string   `json:"device_class"`
+	Icon            string   `json:"icon"`
 	DeviceID        string   `json:"device_id"`
 	DeviceName      string   `json:"device_name"`
 	Manufacturer    string   `json:"manufacturer"`
@@ -611,6 +786,7 @@ type existenceInquiryReply struct {
 	SwVersion       string   `json:"sw_version"`
 	HwVersion       string   `json:"hw_version"`
 	SerialNumber    string   `json:"serial_number"`
+	ViaDeviceID     string   `json:"via_device_id"`
 	SiblingEntities []string `json:"sibling_entities"`
 }
 
@@ -711,7 +887,7 @@ func (t *TEntityExistenceTracker) subscribeExistenceReply(mainClient, cloudClien
 			fmt.Printf("[existence] %s: cannot parse inquiry reply: %v\n", instance, err)
 			return
 		}
-		deviceID := t.Record(instance, reply.EntityID, reply.Exists, reply.State, reply.Unit, reply.DeviceClass)
+		deviceID := t.Record(instance, reply.EntityID, reply.Exists, reply.State, reply.Unit, reply.DeviceClass, reply.Icon, reply.DeviceID, reply.ViaDeviceID)
 		fmt.Printf("[existence] %s: %s -> exists=%v\n", instance, reply.EntityID, reply.Exists)
 		if reply.Exists && len(reply.SiblingEntities) > 0 {
 			t.DiscoverSiblings(instance, reply.EntityID, reply.DeviceID, reply.DeviceName, reply.SiblingEntities)
@@ -719,6 +895,22 @@ func (t *TEntityExistenceTracker) subscribeExistenceReply(mainClient, cloudClien
 		if store != nil && deviceID != "" {
 			if fields := reply.deviceInfoFields(); len(fields) > 0 {
 				store.Update(deviceID, fields)
+			}
+			// via_device is deliberately never stored in TLiveDeviceInfoStore (a cross-device
+			// lookup, not a per-device live value -- ResolveViaDevice's own doc comment), but a
+			// newly-resolved target still needs the exact same "republish this device's discovery
+			// config" reaction store.Update's onChange already gives manufacturer/model -- Notify
+			// gives it that without storing anything. This handler has no THassBridgeDevice in
+			// scope to call ResolveViaDevice itself (it's generic across every tracked kind, not
+			// hassbridge-specific) -- notifying whenever this reply reports EITHER half of a
+			// via_device relationship (its own device_id, which some other device's via_device_id
+			// might target, or its own via_device_id, which might now resolve) is a deliberately
+			// loose trigger: buildHassBridgeDeviceBlock's own callers do the real, precise
+			// resolution at publish time, so an occasional redundant republish here is harmless,
+			// matching this file's own existing tolerance for unconditional per-reply republishing
+			// (publishStatus, below, already does the same).
+			if reply.DeviceID != "" || reply.ViaDeviceID != "" {
+				store.Notify(deviceID)
 			}
 		}
 		if err := t.publishStatus(mainClient, cloudClient, ownInstallation, instance); err != nil {

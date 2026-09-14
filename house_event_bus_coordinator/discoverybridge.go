@@ -33,11 +33,74 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"gopkg.in/yaml.v3"
 )
+
+// TDiscoveryPassthroughRule is one Physical.def "discovery_passthrough "<topic-prefix>" from
+// "<source-prefix>";" declaration (homeassistant/discovery_passthrough.go).
+type TDiscoveryPassthroughRule struct {
+	TopicPrefix  string `yaml:"topic_prefix"`
+	SourcePrefix string `yaml:"source_prefix"`
+}
+
+// TDiscoveryPassthroughFile is the top-level shape of a generated
+// coordinator/discovery_passthrough.yaml file. Absent entirely when a house has no
+// discovery_passthrough statements declared -- loadDiscoveryPassthroughFile treats that as
+// "nothing to pass through," not an error, same convention as loadDiscoveryFile/
+// loadDiscoveryCleanupFile.
+type TDiscoveryPassthroughFile struct {
+	Passthrough []TDiscoveryPassthroughRule `yaml:"passthrough"`
+}
+
+// loadDiscoveryPassthroughFile reads and parses a generator-produced
+// coordinator/discovery_passthrough.yaml file, if one exists.
+func loadDiscoveryPassthroughFile(path string) (TDiscoveryPassthroughFile, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return TDiscoveryPassthroughFile{}, nil
+		}
+		return TDiscoveryPassthroughFile{}, fmt.Errorf("cannot read %s: %w", path, err)
+	}
+
+	var passthroughFile TDiscoveryPassthroughFile
+	if err := yaml.Unmarshal(data, &passthroughFile); err != nil {
+		return TDiscoveryPassthroughFile{}, fmt.Errorf("cannot parse %s: %w", path, err)
+	}
+	return passthroughFile, nil
+}
+
+// passthroughTopicPrefixes reduces rules to just the topic prefixes actionable against
+// physicalPrefix -- a rule declared "from" a different source prefix can never match live traffic
+// on this subscription (the generator already warned about this at generate time,
+// homeassistant/discovery_passthrough.go); silently ignored here rather than re-warned, so the
+// coordinator's own log isn't cluttered by a condition already surfaced at generate time.
+func passthroughTopicPrefixes(rules []TDiscoveryPassthroughRule, physicalPrefix string) []string {
+	var prefixes []string
+	for _, rule := range rules {
+		if rule.SourcePrefix != physicalPrefix {
+			continue
+		}
+		prefixes = append(prefixes, rule.TopicPrefix)
+	}
+	return prefixes
+}
+
+// matchesAnyPassthroughPrefix reports whether topic (a discovery payload's own state_topic or
+// command_topic, already "~"-expanded) starts with any of prefixes.
+func matchesAnyPassthroughPrefix(topic string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		if prefix != "" && strings.HasPrefix(topic, prefix) {
+			return true
+		}
+	}
+	return false
+}
 
 // tFlexStringList decodes an HA discovery "ids"/"identifiers" field, which may be either a bare
 // string or a list of strings.
@@ -80,6 +143,8 @@ type rawDiscoveryPayload struct {
 	UniqueIDFull      string             `json:"unique_id"`
 	StateTopic        string             `json:"stat_t"`
 	StateTopicFull    string             `json:"state_topic"`
+	CommandTopic      string             `json:"cmd_t"`
+	CommandTopicFull  string             `json:"command_topic"`
 	ValueTemplate     string             `json:"val_tpl"`
 	ValueTemplateFull string             `json:"value_template"`
 	DeviceClass       string             `json:"dev_cla"`
@@ -96,6 +161,7 @@ type rawDiscoveryPayload struct {
 type tDecodedDiscoveryPayload struct {
 	UniqueID          string
 	StateTopic        string
+	CommandTopic      string
 	ValueTemplate     string
 	DeviceClass       string
 	Unit              string
@@ -120,8 +186,10 @@ func decodeDiscoveryPayload(raw []byte) (tDecodedDiscoveryPayload, error) {
 	}
 
 	stateTopic := firstNonEmpty(p.StateTopic, p.StateTopicFull)
+	commandTopic := firstNonEmpty(p.CommandTopic, p.CommandTopicFull)
 	if p.TopicPrefix != "" {
 		stateTopic = strings.ReplaceAll(stateTopic, "~", p.TopicPrefix)
+		commandTopic = strings.ReplaceAll(commandTopic, "~", p.TopicPrefix)
 	}
 
 	device := p.Device
@@ -132,6 +200,7 @@ func decodeDiscoveryPayload(raw []byte) (tDecodedDiscoveryPayload, error) {
 	return tDecodedDiscoveryPayload{
 		UniqueID:          firstNonEmpty(p.UniqueID, p.UniqueIDFull),
 		StateTopic:        stateTopic,
+		CommandTopic:      commandTopic,
 		ValueTemplate:     firstNonEmpty(p.ValueTemplate, p.ValueTemplateFull),
 		DeviceClass:       firstNonEmpty(p.DeviceClass, p.DeviceClassFull),
 		Unit:              firstNonEmpty(p.Unit, p.UnitFull),
@@ -186,7 +255,7 @@ func relayedDiscoveryUniqueID(gatewayID, leaf string) string {
 // empty, never override one it set. icon has no native counterpart in the decoded payload at
 // all (see decodeDiscoveryPayload's "extend on demand" abbreviation set), so it comes from link
 // unconditionally.
-func buildRelayedDiscoveryConfig(entityID, gatewayID string, payload tDecodedDiscoveryPayload, link TDiscoveryEntityLink, prefix string) (topic string, body map[string]interface{}, ok bool) {
+func buildRelayedDiscoveryConfig(entityID, gatewayID string, payload tDecodedDiscoveryPayload, link TDiscoveryEntityLink, prefix, installation string) (topic string, body map[string]interface{}, ok bool) {
 	dotIdx := strings.Index(entityID, ".")
 	if dotIdx < 0 || payload.StateTopic == "" || payload.UniqueID == "" {
 		return "", nil, false
@@ -200,7 +269,7 @@ func buildRelayedDiscoveryConfig(entityID, gatewayID string, payload tDecodedDis
 		"default_entity_id": domain + "." + objectID,
 		"name":              objectID,
 		"state_topic":       payload.StateTopic,
-		"origin":            coordinatorOriginMap(),
+		"origin":            coordinatorOriginMap(installation),
 	}
 	if payload.ValueTemplate != "" {
 		body["value_template"] = payload.ValueTemplate
@@ -232,8 +301,25 @@ func buildRelayedDiscoveryConfig(entityID, gatewayID string, payload tDecodedDis
 // to a (gatewayID, leaf) via whatever identity a prior non-empty payload on the same topic recorded
 // (RecordTopicIdentity), moving that leaf to known-not-to-exist. existenceTracker may be nil (tests
 // that don't need it).
-func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation string, discoveryFile TDiscoveryFile, publisher *TDiscoveryPublisher, conceptualPrefix string, existenceTracker *TDiscoveryExistenceTracker) error {
+//
+// passthroughRules (PROJECT.md item 4, 2026-09-14) is the gradual-migration counterpart to the
+// above: for a message whose device DOESN'T match a declared gateway, but whose state_topic or
+// command_topic starts with a declared discovery_passthrough prefix, the raw payload is relayed
+// byte-for-byte onto conceptualPrefix (topic tail unchanged, only the leading physical-prefix
+// segment swapped) -- so HA keeps seeing a not-yet-migrated device exactly as it always has, no
+// Physical.def declaration required. The two are mutually exclusive per message specifically so a
+// device doesn't ever appear twice once it migrates: the moment a device's identifiers start
+// matching a declared gateway, this same handler also retires whatever raw copy it may have been
+// relaying for it (publisher.Knows guards the retire so it's only attempted for a topic this
+// publisher actually knows about, not every declared-gateway message regardless of passthrough
+// history). Only rules whose declared source matches discoveryFile.PhysicalPrefix are actionable
+// here (passthroughTopicPrefixes) -- this subscription only ever sees that one prefix.
+func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation string, discoveryFile TDiscoveryFile, publisher *TDiscoveryPublisher, conceptualPrefix string, existenceTracker *TDiscoveryExistenceTracker, passthroughRules []TDiscoveryPassthroughRule) error {
+	passthroughPrefixes := passthroughTopicPrefixes(passthroughRules, discoveryFile.PhysicalPrefix)
+
 	handler := func(_ mqtt.Client, msg mqtt.Message) {
+		passthroughTopic := conceptualPrefix + strings.TrimPrefix(msg.Topic(), discoveryFile.PhysicalPrefix)
+
 		if len(msg.Payload()) == 0 {
 			if existenceTracker != nil {
 				if gatewayID, leaf, changed := existenceTracker.MarkRetracted(msg.Topic()); changed {
@@ -242,6 +328,9 @@ func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation s
 						fmt.Printf("[discovery-existence] %v\n", err)
 					}
 				}
+			}
+			if publisher.Knows("main", passthroughTopic) {
+				publisher.RetireOne(client, "main", passthroughTopic)
 			}
 			return
 		}
@@ -257,7 +346,20 @@ func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation s
 
 		gatewayID, matched := matchingGateway(payload, discoveryFile.Gateways)
 		if !matched {
+			if matchesAnyPassthroughPrefix(payload.StateTopic, passthroughPrefixes) || matchesAnyPassthroughPrefix(payload.CommandTopic, passthroughPrefixes) {
+				if err := publisher.Publish(client, "main", passthroughTopic, msg.Payload()); err != nil {
+					fmt.Printf("[discovery-bridge] passthrough-relaying %s: %v\n", passthroughTopic, err)
+					return
+				}
+				fmt.Printf("[discovery-bridge] passed through %s -> %s\n", msg.Topic(), passthroughTopic)
+			}
 			return
+		}
+
+		if publisher.Knows("main", passthroughTopic) {
+			// This device just started matching a declared gateway -- retire whatever raw
+			// passthrough copy was relaying it before, so HA never shows both at once.
+			publisher.RetireOne(client, "main", passthroughTopic)
 		}
 
 		if existenceTracker != nil {
@@ -274,7 +376,7 @@ func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation s
 			if link.Gateway != gatewayID || link.Leaf != payload.UniqueID {
 				continue
 			}
-			topic, body, ok := buildRelayedDiscoveryConfig(entityID, gatewayID, payload, link, conceptualPrefix)
+			topic, body, ok := buildRelayedDiscoveryConfig(entityID, gatewayID, payload, link, conceptualPrefix, ownInstallation)
 			if !ok {
 				continue
 			}

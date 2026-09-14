@@ -37,9 +37,16 @@ import "strings"
 // "homeassistant_instances/<name>/inquire" whose *payload* is the entity_id to check (not part of
 // the topic, so no per-entity automation/trigger is ever needed), replies on
 // "homeassistant_instances/<name>/inquire/reply" with
-// {"entity_id", "exists", "state", "unit_of_measurement", "device_class", "device_id",
+// {"entity_id", "exists", "state", "unit_of_measurement", "device_class", "icon", "device_id",
 // "device_name", "manufacturer", "model", "model_id", "sw_version", "hw_version",
-// "serial_number", "sibling_entities"} as JSON.
+// "serial_number", "via_device_id", "sibling_entities"} as JSON.
+//
+// via_device_id (added 2026-09-14, PROJECT.md item 3/plans/via-device-inference.md) piggybacks on
+// this same device_attr(did, ...) lookup -- a real, standard Home Assistant device-registry field
+// naming another device THIS one is "connected via" (e.g. a Netatmo radio module via its own base
+// station). house_event_bus_coordinator/entity_existence.go's ResolveViaDevice matches it against
+// another tracked device's own RemoteDeviceID, purely within this instance's own already-known
+// data -- no new inquiry beyond this one extra field.
 //
 // manufacturer/model/model_id/sw_version/hw_version/serial_number (added 2026-09-08) piggyback on
 // the same device_attr(did, ...) lookup device_name already uses -- real gap found live: a
@@ -69,7 +76,10 @@ import "strings"
 // integration (e.g. a Fritz!Box's own gb_received sensor) already resolved on the remote end.
 // Real gap found live 2026-09-06: a bridged capability with no explicit Physical.def/Defaults.def
 // typing showed up with no unit/icon at all, even though the remote entity it bridges from
-// genuinely has both -- this was simply never being looked at.
+// genuinely has both -- this was simply never being looked at. icon itself (added 2026-09-09) was
+// named in that same 2026-09-06 fix's own doc comments but never actually wired through -- found
+// live again on Vienna's washing_machine bridge; s.attributes.get('icon') is the same free lookup
+// as unit_of_measurement/device_class, off the same states[] call.
 func entityExistenceInquiryAutomationBody(name string) string {
 	var sb strings.Builder
 	sb.WriteString("- alias: \"Coordinator bridge: entity existence inquiry\"\n")
@@ -91,6 +101,6 @@ func entityExistenceInquiryAutomationBody(name string) string {
 	sb.WriteString("    data:\n")
 	sb.WriteString("      topic: \"homeassistant_instances/" + name + "/inquire/reply\"\n")
 	sb.WriteString("      payload: >-\n")
-	sb.WriteString("        {% set s = states[trigger.payload] %}{% set did = device_id(trigger.payload) if s else none %}{{ {'entity_id': trigger.payload, 'exists': s is not none, 'state': (s.state if s else none), 'unit_of_measurement': (s.attributes.get('unit_of_measurement') if s else none), 'device_class': (s.attributes.get('device_class') if s else none), 'device_id': did, 'device_name': (device_attr(did, 'name') if did else none), 'manufacturer': (device_attr(did, 'manufacturer') if did else none), 'model': (device_attr(did, 'model') if did else none), 'model_id': (device_attr(did, 'model_id') if did else none), 'sw_version': (device_attr(did, 'sw_version') if did else none), 'hw_version': (device_attr(did, 'hw_version') if did else none), 'serial_number': (device_attr(did, 'serial_number') if did else none), 'sibling_entities': (device_entities(did) if did else [])} | tojson }}\n")
+	sb.WriteString("        {% set s = states[trigger.payload] %}{% set did = device_id(trigger.payload) if s else none %}{{ {'entity_id': trigger.payload, 'exists': s is not none, 'state': (s.state if s else none), 'unit_of_measurement': (s.attributes.get('unit_of_measurement') if s else none), 'device_class': (s.attributes.get('device_class') if s else none), 'icon': (s.attributes.get('icon') if s else none), 'device_id': did, 'device_name': (device_attr(did, 'name') if did else none), 'manufacturer': (device_attr(did, 'manufacturer') if did else none), 'model': (device_attr(did, 'model') if did else none), 'model_id': (device_attr(did, 'model_id') if did else none), 'sw_version': (device_attr(did, 'sw_version') if did else none), 'hw_version': (device_attr(did, 'hw_version') if did else none), 'serial_number': (device_attr(did, 'serial_number') if did else none), 'via_device_id': (device_attr(did, 'via_device_id') if did else none), 'sibling_entities': (device_entities(did) if did else [])} | tojson }}\n")
 	return sb.String()
 }

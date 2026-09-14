@@ -4,7 +4,7 @@
  * Package:   Main
  * Component: ConceptualCommandlineEntities
  *
- * Registers the conceptual layer's "entity <local-spec> from <device-id> entity <capability>;"
+ * Registers the conceptual layer's "entity <local-spec> from <device-id> <capability>;"
  * construct (Conceptual_DeviceCapabilityEntities.go) for a "commandline" integration device's own
  * switch/sensor/button capability -- lets a script-backed entity get a real conceptual position
  * (e.g. "switch.social:picture_frame") instead of the coordinator's own auto-derived
@@ -42,7 +42,11 @@ import "fmt"
 // sense for), a commandline capability's Kind IS the entity's real domain as the coordinator will
 // actually publish it -- a mismatched local spec would silently produce a broken reference no
 // coercion could fix.
-func registerCommandlineCapabilityEntityLink(administration *TAdministrationState, localSpec, deviceID, bareName string, capability TCommandlineCapability, provenance string, finalAttempt bool) (warnings []string, deferred bool) {
+// deviceNamePath is PROJECT.md item 5's "device declaration acts like a space" sugar -- see
+// registerDeviceSourceEntityLink's doc comment (Conceptual_DeviceSourceEntities.go) for the full
+// rationale; non-empty only when localSpec came from inside a "device <spec> from <device-id>
+// with: ... end;" block's body.
+func registerCommandlineCapabilityEntityLink(administration *TAdministrationState, localSpec, deviceID, bareName string, capability TCommandlineCapability, provenance string, finalAttempt bool, deviceNamePath string) (warnings []string, deferred bool) {
 	link, hasLink := administration.DeviceConceptualLinks[deviceID]
 	if !hasLink {
 		if !finalAttempt {
@@ -51,7 +55,7 @@ func registerCommandlineCapabilityEntityLink(administration *TAdministrationStat
 		return []string{fmt.Sprintf("%s: device %q has no \"device.<spec> from %s;\" positioning yet -- add one (any space) before referencing one of its entities directly", provenance, deviceID, deviceID)}, true
 	}
 
-	fullName := normalizeEntityFullName(localSpec, administration.SpacePath)
+	fullName := normalizeEntityFullName(localSpec, namingSpacePath(localSpec, administration.SpacePath, deviceNamePath))
 	identity := extractEntityIdentity(fullName)
 	if identity.Domain == "" {
 		return []string{fmt.Sprintf("%s: could not resolve a domain from %q; skipping", provenance, localSpec)}, false

@@ -5,6 +5,53 @@ import (
 	"testing"
 )
 
+// TestRegisterDevicePositioningForStandaloneCommandlineDevice is a regression test for a real gap
+// found live 2026-09-10: a "commandline" integration device with no sibling "hosts"/"home_assistant"
+// device sharing its DeviceID (e.g. a picture frame modelled as its own appliance.picture_frame
+// identity, not piggybacking on host.frame) had no way to ever get positioned at all --
+// registerDevicePositioning only recognised hosts/hassbridge/import device kinds, and
+// registerCommandlineCapabilityEntityLink requires a DeviceConceptualLinks entry to already exist
+// (by design, for the sibling-sharing case), so a standalone commandline device's own "device
+// <spec> from <device-id> with: ...;" positioning line just warned "not found" and its capability
+// reference then warned "no positioning yet" -- confirmed live on Vienna's real Physical.def/
+// Spaces.def.
+func TestRegisterDevicePositioningForStandaloneCommandlineDevice(t *testing.T) {
+	const dsl = `device infrastructural:picture_frame from appliance.picture_frame with:
+  entity switch.social:picture_frame from slideshow;
+end;`
+
+	commandlineDevicesByID := map[string]TCommandlineDevice{
+		"appliance.picture_frame": {
+			DeviceID: "appliance.picture_frame",
+			Host:     "protocols-server-2",
+			Capabilities: map[string]TCommandlineCapability{
+				"slideshow": {Kind: "switch", StatusScript: "check", OnScript: "start", OffScript: "stop"},
+			},
+		},
+	}
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, nil, commandlineDevicesByID, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if report.Len() != 0 {
+		t.Errorf("unexpected warnings: %s", report.String())
+	}
+
+	link, ok := result.Administration.DeviceConceptualLinks["appliance.picture_frame"]
+	if !ok {
+		t.Fatalf("expected a DeviceConceptualLinks entry for appliance.picture_frame")
+	}
+	attr, ok := link.AttributeEntityIDs["slideshow"]
+	if !ok {
+		t.Fatalf("expected the \"slideshow\" capability to resolve, got %+v", link.AttributeEntityIDs)
+	}
+	if attr.EntityID == "" || attr.Identity.Domain != "switch" {
+		t.Errorf("attr = %+v, want a resolved non-empty switch entity_id", attr)
+	}
+}
+
 func TestExtractDeviceWithBlockHeader(t *testing.T) {
 	decl, ok := extractDeviceWithBlockHeader("device infrastructural:xanadu from host.xanadu with:")
 	if !ok {
@@ -21,16 +68,16 @@ func TestExtractDeviceWithBlockHeader(t *testing.T) {
 // TestDeviceWithBlockMatchesTwoStatementFormForHosts confirms "device <spec> from <device-id>
 // with: ... end;" produces an IDENTICAL DeviceConceptualLinks entry to writing the same thing out
 // longhand -- a bare "device <spec> from <device-id>;" positioning statement followed by one fully
-// spelled-out "entity <spec> from <device-id> entity <capability>;" line per attribute (no "for:"
+// spelled-out "entity <spec> from <device-id> <capability>;" line per attribute (no "for:"
 // abbreviation, which the with-block's body lines expand into internally, PROJECT.md unification
 // plan 2026-09-01) -- for a "hosts" device.
 func TestDeviceWithBlockMatchesTwoStatementFormForHosts(t *testing.T) {
 	const twoStatementDSL = `device infrastructural:xanadu from host.xanadu;
-entity sensor.infrastructural:xanadu/cpu/load        from host.xanadu entity load;
-entity sensor.infrastructural:xanadu/cpu/temperature from host.xanadu entity temperature;`
+entity sensor.infrastructural:xanadu/cpu/load        from host.xanadu load;
+entity sensor.infrastructural:xanadu/cpu/temperature from host.xanadu temperature;`
 	const mergedDSL = `device infrastructural:xanadu from host.xanadu with:
-  entity sensor.infrastructural:xanadu/cpu/load        from entity load;
-  entity sensor.infrastructural:xanadu/cpu/temperature from entity temperature;
+  entity sensor.infrastructural:xanadu/cpu/load        from load;
+  entity sensor.infrastructural:xanadu/cpu/temperature from temperature;
 end;`
 
 	hostDevicesByID := map[string]THostDevice{
@@ -68,11 +115,11 @@ end;`
 // confirming the merged construct works identically for both device kinds it supports.
 func TestDeviceWithBlockMatchesTwoStatementFormForHassBridge(t *testing.T) {
 	const twoStatementDSL = `device infrastructural:laserjet from hass.laserjet;
-entity sensor.status   from hass.laserjet entity sensor.status;
-entity sensor.cardrige from hass.laserjet entity sensor.cardrige;`
+entity sensor.status   from hass.laserjet sensor.status;
+entity sensor.cardrige from hass.laserjet sensor.cardrige;`
 	const mergedDSL = `device infrastructural:laserjet from hass.laserjet with:
-  entity sensor.status   from entity sensor.status;
-  entity sensor.cardrige from entity sensor.cardrige;
+  entity sensor.status   from sensor.status;
+  entity sensor.cardrige from sensor.cardrige;
 end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
@@ -193,7 +240,7 @@ func TestRegisterDevicePositioningWarnsWhenNoNodeCapabilityDeclared(t *testing.T
 	}
 	decl := TDevicePositioningDeclaration{Spec: "infrastructural:no_node", DeviceID: "hass.no_node"}
 
-	warnings := registerDevicePositioning(administration, decl, nil, hassBridgeDevicesByID, nil, "test.def", 1)
+	warnings := registerDevicePositioning(administration, decl, nil, hassBridgeDevicesByID, nil, nil, "test.def", 1)
 	if len(warnings) != 1 {
 		t.Fatalf("got %d warnings, want 1: %v", len(warnings), warnings)
 	}
@@ -239,7 +286,7 @@ func TestRegisterDevicePositioningInheritsEnclosingAreaFromNestedSpace(t *testin
 	}
 	decl := TDevicePositioningDeclaration{Spec: "infrastructural:netatmo", DeviceID: "hass.living_room_terrace"}
 
-	warnings := registerDevicePositioning(administration, decl, nil, hassBridgeDevicesByID, nil, "test.def", 1)
+	warnings := registerDevicePositioning(administration, decl, nil, hassBridgeDevicesByID, nil, nil, "test.def", 1)
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
@@ -272,7 +319,7 @@ func TestRegisterDevicePositioningExplicitSuggestedAreaWinsOverEnclosingArea(t *
 	}
 	decl := TDevicePositioningDeclaration{Spec: "infrastructural:netatmo", DeviceID: "hass.living_room_terrace"}
 
-	warnings := registerDevicePositioning(administration, decl, nil, hassBridgeDevicesByID, nil, "test.def", 1)
+	warnings := registerDevicePositioning(administration, decl, nil, hassBridgeDevicesByID, nil, nil, "test.def", 1)
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
@@ -296,7 +343,7 @@ func TestRegisterDevicePositioningNoWarningWhenNodeCapabilityDeclared(t *testing
 	}
 	decl := TDevicePositioningDeclaration{Spec: "infrastructural:netatmo", DeviceID: "hass.davids_bedroom"}
 
-	warnings := registerDevicePositioning(administration, decl, nil, hassBridgeDevicesByID, nil, "test.def", 1)
+	warnings := registerDevicePositioning(administration, decl, nil, hassBridgeDevicesByID, nil, nil, "test.def", 1)
 	if len(warnings) != 0 {
 		t.Errorf("expected no warnings when a \"node\" capability is declared, got %v", warnings)
 	}

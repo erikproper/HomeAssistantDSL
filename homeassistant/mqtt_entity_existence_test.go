@@ -76,17 +76,17 @@ func TestUsedHassBridgeEntityIDsFiltersByInstanceAndStripsAttributeSuffix(t *tes
 func TestBuildSuggestionReportFromExistenceExcludesUsedAndUnresolved(t *testing.T) {
 	status := TEntityExistenceStatusPayload{
 		"hass.davids_bedroom": {Entities: map[string]TEntityExistenceStatusEntry{
-			"sensor.davids_bedroom_carbon_dioxide": {Status: existenceStatusKnownToExist},
-			"sensor.davids_bedroom_health_index":   {Status: existenceStatusKnownToExist},
-			"sensor.already_used":                  {Status: existenceStatusKnownToExist},
-			"sensor.still_unresolved":              {Status: "not-known-to-exist"},
-			"sensor.confirmed_gone":                {Status: existenceStatusKnownNotToExist},
+			"sensor.davids_bedroom_carbon_dioxide":   {Status: existenceStatusKnownToExist},
+			"sensor.davids_bedroom_health_index":     {Status: existenceStatusKnownToExist},
+			"sensor.davids_bedroom_already_used":     {Status: existenceStatusKnownToExist},
+			"sensor.davids_bedroom_still_unresolved": {Status: "not-known-to-exist"},
+			"sensor.davids_bedroom_confirmed_gone":   {Status: existenceStatusKnownNotToExist},
 		}},
 		"": {Entities: map[string]TEntityExistenceStatusEntry{
 			"sensor.standalone_thing": {Status: existenceStatusKnownToExist},
 		}},
 	}
-	used := map[string]bool{"sensor.already_used": true}
+	used := map[string]bool{"sensor.davids_bedroom_already_used": true}
 
 	report := buildSuggestionReportFromExistence(status, used, nil)
 
@@ -94,7 +94,7 @@ func TestBuildSuggestionReportFromExistenceExcludesUsedAndUnresolved(t *testing.
 		"device hass.davids_bedroom with:",
 		"sensor.co2:",
 		"sensor.davids_bedroom_carbon_dioxide;",
-		"sensor.:",
+		"sensor.health_index:",
 		"sensor.davids_bedroom_health_index;",
 		"# not recognized",
 		"end;",
@@ -103,10 +103,42 @@ func TestBuildSuggestionReportFromExistenceExcludesUsedAndUnresolved(t *testing.
 	) {
 		t.Errorf("report missing expected content:\n%s", report)
 	}
-	for _, unwanted := range []string{"sensor.already_used", "sensor.still_unresolved", "sensor.confirmed_gone"} {
+	for _, unwanted := range []string{"sensor.davids_bedroom_already_used;", "sensor.davids_bedroom_still_unresolved;", "sensor.davids_bedroom_confirmed_gone;"} {
 		if strings.Contains(report, unwanted) {
 			t.Errorf("report must exclude %q (used/unresolved/confirmed-gone), got:\n%s", unwanted, report)
 		}
+	}
+}
+
+// TestBuildSuggestionReportFromExistenceGuessesTailWhenNoKeywordMatches is the concrete case that
+// motivated commonEntityLocalNamePrefix: a device whose not-yet-declared entities share no
+// recognized keyword, but do share a naming prefix with the device's OWN already-declared
+// entities -- the bare "sensor.bathroom_washing_machine" (no attribute suffix at all, already
+// used) is what clamps the common prefix at "bathroom_washing_machine", not the longer
+// "bathroom_washing_machine_wash_" the not-yet-declared subset alone would share.
+func TestBuildSuggestionReportFromExistenceGuessesTailWhenNoKeywordMatches(t *testing.T) {
+	status := TEntityExistenceStatusPayload{
+		"appliance.washing_machine": {Entities: map[string]TEntityExistenceStatusEntry{
+			"sensor.bathroom_washing_machine":                  {Status: existenceStatusKnownToExist},
+			"sensor.bathroom_washing_machine_wash_delay_start": {Status: existenceStatusKnownToExist},
+			"sensor.bathroom_washing_machine_wash_temperature": {Status: existenceStatusKnownToExist},
+		}},
+	}
+	used := map[string]bool{"sensor.bathroom_washing_machine": true}
+
+	report := buildSuggestionReportFromExistence(status, used, nil)
+
+	if !containsAll(report,
+		"sensor.wash_delay_start:",
+		"sensor.bathroom_washing_machine_wash_delay_start;",
+		"# not recognized",
+		"sensor.temperature:",
+		"sensor.bathroom_washing_machine_wash_temperature;",
+	) {
+		t.Errorf("report missing expected content:\n%s", report)
+	}
+	if strings.Contains(report, "sensor.:") {
+		t.Errorf("report should have guessed a non-empty tail, not left it blank:\n%s", report)
 	}
 }
 

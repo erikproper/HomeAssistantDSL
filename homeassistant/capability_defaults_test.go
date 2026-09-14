@@ -174,11 +174,11 @@ func TestRegisterHassBridgeAttributeEntityUsesCapabilityDefaultsRules(t *testing
 	}
 
 	positioningDecl := TDevicePositioningDeclaration{Spec: "infrastructural:junglinster", DeviceID: "host.junglinster"}
-	if warnings := registerDevicePositioning(admin, positioningDecl, nil, hassBridgeDevicesByID, nil, "Spaces.def", 1); len(warnings) != 0 {
+	if warnings := registerDevicePositioning(admin, positioningDecl, nil, hassBridgeDevicesByID, nil, nil, "Spaces.def", 1); len(warnings) != 0 {
 		t.Fatalf("unexpected warnings positioning the fixture device: %v", warnings)
 	}
 	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:junglinster/cpu/load", DeviceID: "host.junglinster", Capability: "cpu/load"}
-	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, "Spaces.def", 1, true); len(warnings) != 0 || deferred {
+	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, "Spaces.def", 1, true, ""); len(warnings) != 0 || deferred {
 		t.Fatalf("unexpected warnings/deferred: warnings=%v deferred=%v", warnings, deferred)
 	}
 

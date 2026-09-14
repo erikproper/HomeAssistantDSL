@@ -22,8 +22,46 @@ func frameDevice() TCommandlineDevice {
 	}
 }
 
+// TestBuildCommandlineDiscoveryConfigsPrefersDisplayNameOverHost is a regression test for a real
+// gap found live 2026-09-11: the device's own "device:" block name always fell back to the bare
+// Host, even when Spaces.def had genuinely positioned the device elsewhere (e.g. Vienna's own
+// picture_frame showing up named "protocols-server-2" -- its Host -- rather than
+// "apartment/living_room/picture_frame"). DisplayName, once present, must win.
+func TestBuildCommandlineDiscoveryConfigsPrefersDisplayNameOverHost(t *testing.T) {
+	device := frameDevice()
+	device.DisplayName = "apartment/living_room/picture_frame"
+
+	configs := buildCommandlineDiscoveryConfigs("host.frame", device, testPrefix, "test")
+	for _, c := range configs {
+		var deviceBlock TDiscoveryDevice
+		switch p := c.Payload.(type) {
+		case TBinarySensorDiscoveryPayload:
+			deviceBlock = p.Device
+		case TCommandlineSwitchDiscoveryPayload:
+			deviceBlock = p.Device
+		case TCommandlineButtonDiscoveryPayload:
+			deviceBlock = p.Device
+		default:
+			t.Fatalf("unexpected payload type: %T", c.Payload)
+		}
+		if deviceBlock.Name != "apartment/living_room/picture_frame" {
+			t.Errorf("topic %q: device.Name = %q, want the positioned DisplayName, not the bare Host", c.Topic, deviceBlock.Name)
+		}
+	}
+
+	nodeTopic := "homeassistant/binary_sensor/coordinator/host_frame_commandline_node/config"
+	byTopic := map[string]TDiscoveryConfig{}
+	for _, c := range configs {
+		byTopic[c.Topic] = c
+	}
+	nodePayload := byTopic[nodeTopic].Payload.(TBinarySensorDiscoveryPayload)
+	if nodePayload.Name == nil || *nodePayload.Name != "apartment/living_room/picture_frame/commandline" {
+		t.Errorf("node payload Name = %v, want the DisplayName-based name, not the bare Host one", nodePayload.Name)
+	}
+}
+
 func TestBuildCommandlineDiscoveryConfigsNodeSwitchAndButton(t *testing.T) {
-	configs := buildCommandlineDiscoveryConfigs("host.frame", frameDevice(), testPrefix)
+	configs := buildCommandlineDiscoveryConfigs("host.frame", frameDevice(), testPrefix, "test")
 	if len(configs) != 3 {
 		t.Fatalf("got %d discovery configs, want 3 (node + switch + button): %+v", len(configs), configs)
 	}
@@ -91,7 +129,7 @@ func TestBuildCommandlineDiscoveryConfigsNodeSwitchAndButton(t *testing.T) {
 // same as any other MQTT sensor, only ever published to by the daemon's own status_script.
 func TestBuildCommandlineDiscoveryConfigsSensorHasNoCommandTopic(t *testing.T) {
 	device := TCommandlineDevice{Host: "frame", Sensors: map[string]TCommandlineCapabilityRef{"uptime": {}}}
-	configs := buildCommandlineDiscoveryConfigs("host.frame", device, testPrefix)
+	configs := buildCommandlineDiscoveryConfigs("host.frame", device, testPrefix, "test")
 
 	var sensorCfg *TDiscoveryConfig
 	for i := range configs {
@@ -121,7 +159,7 @@ func TestBuildCommandlineDiscoveryConfigsUsesPositionedEntityIDWhenSet(t *testin
 			"slideshow": {EntityID: "switch.social_apartment_living_room_picture_frame", Name: "social/apartment/living_room/picture_frame"},
 		},
 	}
-	configs := buildCommandlineDiscoveryConfigs("host.frame", device, testPrefix)
+	configs := buildCommandlineDiscoveryConfigs("host.frame", device, testPrefix, "test")
 
 	var switchCfg TCommandlineSwitchDiscoveryPayload
 	for _, c := range configs {
@@ -143,7 +181,7 @@ func TestBuildCommandlineDiscoveryConfigsUsesPositionedEntityIDWhenSet(t *testin
 // "integration commandline" (switch/button) -- so HA's device registry merges them into one
 // device rather than showing two, per this file's own doc comment.
 func TestBuildCommandlineDiscoveryConfigsSharesDeviceIdentityWithHostsKind(t *testing.T) {
-	configs := buildCommandlineDiscoveryConfigs("host.frame", frameDevice(), testPrefix)
+	configs := buildCommandlineDiscoveryConfigs("host.frame", frameDevice(), testPrefix, "test")
 	nodeCfg := configs[0].Payload.(TBinarySensorDiscoveryPayload)
 	if len(nodeCfg.Device.Identifiers) != 1 || nodeCfg.Device.Identifiers[0] != "host.frame" {
 		t.Errorf("Device.Identifiers = %v, want exactly [\"host.frame\"] to match a hosts-kind declaration of the same id", nodeCfg.Device.Identifiers)
@@ -159,7 +197,7 @@ func TestBuildCommandlineDiscoveryConfigsSharesDeviceIdentityWithHostsKind(t *te
 // (homeassistant/binary_sensor/coordinator/host_frame_node/config), each one's own refresh
 // flip-flopping the entity between hosts' ping-based state and commandline's own LWT-based one.
 func TestBuildCommandlineDiscoveryConfigsNodeUniqueIDDoesNotCollideWithHostsKind(t *testing.T) {
-	configs := buildCommandlineDiscoveryConfigs("host.frame", frameDevice(), testPrefix)
+	configs := buildCommandlineDiscoveryConfigs("host.frame", frameDevice(), testPrefix, "test")
 	nodeCfg := configs[0].Payload.(TBinarySensorDiscoveryPayload)
 	hostsKindNodeUniqueID := "host.frame" + "_node" // buildDiscoveryConfigs' own formula, discovery.go
 	if nodeCfg.UniqueID == hostsKindNodeUniqueID {

@@ -67,13 +67,13 @@ entity binary_sensor.infrastructural:laserjet/jammed as switch.laserjet_jam_sens
 
 // TestDeviceCapabilityEntityResolvesTypingDefaults is the regression test for a real bug caught
 // live 2026-08-29: registerDeviceSourceEntityLink (reached here via registerDeviceCapabilityEntityLink,
-// the "entity ... from <device-id> entity <capability>;" construct, including its "for <device-id>:
+// the "entity ... from <device-id> <capability>;" construct, including its "for <device-id>:
 // ...;"/merged-block shorthand) never resolved device_class/unit/state_class/icon at all -- every
 // capability positioned this way silently lost its typing in HA, even though the sibling
 // registerHassBridgeAttributeEntity path always has.
 func TestDeviceCapabilityEntityResolvesTypingDefaults(t *testing.T) {
 	const miniDSL = `device infrastructural:davids_bedroom from hass.davids_bedroom;
-entity sensor.physical:netatmo/co2 from hass.davids_bedroom entity sensor.co2;`
+entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.davids_bedroom": {DeviceID: "hass.davids_bedroom", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{
@@ -110,13 +110,52 @@ entity sensor.physical:netatmo/co2 from hass.davids_bedroom entity sensor.co2;`
 	}
 }
 
+// TestDeviceCapabilityEntityPreservesValueMapAndDerivedFields is a regression test for a real bug
+// found live 2026-09-10 while wiring the "derived" capability mechanism
+// (plans/derived-capability-mechanism.md): registerDeviceSourceEntityLink used to rebuild
+// device.Capabilities[key] from a fresh THassBridgeCapability{} literal, silently dropping
+// ValueMap (and, once added, DerivedFromCapability/DerivedViaTemplate) every time an already-
+// declared Physical.def capability was referenced via "entity <spec> from <device-id>
+// <capability>;" -- the ordinary way Spaces.def positions a capability. Confirmed this doesn't
+// just affect the new "derived" fields: a device already using "map:" (ValueMap) would have hit
+// this silently too, had any real Spaces.def happened to position it this way.
+func TestDeviceCapabilityEntityPreservesValueMapAndDerivedFields(t *testing.T) {
+	const miniDSL = `device infrastructural:roomba from hass.roomba;
+entity sensor.physical:vacuum/status from hass.roomba status;
+entity binary_sensor.physical:vacuum/battery_alert from hass.roomba battery_alert;`
+
+	hassBridgeDevicesByID := map[string]THassBridgeDevice{
+		"hass.roomba": {DeviceID: "hass.roomba", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{
+			"status":        {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.roomba_status"}, ValueMap: map[string]string{"home": "docked"}},
+			"battery_level": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.roomba_battery_level"}},
+			"battery_alert": {Domain: "binary_sensor", DerivedFromCapability: "battery_level", DerivedViaTemplate: "( $ | int(0) < 20 )"},
+		}},
+	}
+
+	var report strings.Builder
+	_, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	status := hassBridgeDevicesByID["hass.roomba"].Capabilities["status"]
+	if status.ValueMap["home"] != "docked" {
+		t.Errorf("Capabilities[status].ValueMap = %v, want \"home\"->\"docked\" preserved", status.ValueMap)
+	}
+
+	alert := hassBridgeDevicesByID["hass.roomba"].Capabilities["battery_alert"]
+	if alert.DerivedFromCapability != "battery_level" || alert.DerivedViaTemplate != "( $ | int(0) < 20 )" {
+		t.Errorf("Capabilities[battery_alert] = %+v, want DerivedFromCapability/DerivedViaTemplate preserved", alert)
+	}
+}
+
 // TestDeviceCapabilityEntityExplicitTypingWinsOverDefaults confirms an explicit device_class/unit/
 // state_class/icon Physical.def already declared directly on the capability (before this
 // construct runs) is preserved, never overwritten by a conflicting capabilityDefaults rule -- same
 // precedence registerHassBridgeAttributeEntity's own path already guarantees.
 func TestDeviceCapabilityEntityExplicitTypingWinsOverDefaults(t *testing.T) {
 	const miniDSL = `device infrastructural:davids_bedroom from hass.davids_bedroom;
-entity sensor.physical:netatmo/co2 from hass.davids_bedroom entity sensor.co2;`
+entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.davids_bedroom": {DeviceID: "hass.davids_bedroom", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{
@@ -160,7 +199,7 @@ func TestDeviceSourceEntityWarnsWithoutPriorDevicePositioning(t *testing.T) {
 	// device is never positioned anywhere in miniDSL, so it should warn even on a "final" check.
 	admin := newAdministrationState()
 	decl := TDeviceSourceEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:laserjet/jammed", Source: "switch.laserjet_jam_sensor", DeviceID: "hass.laserjet"}
-	warnings, deferred := registerDeviceSourceEntityLink(admin, decl, hassBridgeDevicesByID, nil, "Spaces.def", 42, true, "")
+	warnings, deferred := registerDeviceSourceEntityLink(admin, decl, hassBridgeDevicesByID, nil, "Spaces.def", 42, true, "", "")
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "no \"device.<spec> from hass.laserjet with: ...;\" positioning yet") {
 		t.Errorf("warnings = %v, want a single warning about missing device positioning", warnings)
 	}
@@ -177,7 +216,7 @@ func TestDeviceSourceEntityDefersRatherThanWarnsOnFirstAttempt(t *testing.T) {
 		"hass.laserjet": {DeviceID: "hass.laserjet", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{}},
 	}
 	decl := TDeviceSourceEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:laserjet/jammed", Source: "switch.laserjet_jam_sensor", DeviceID: "hass.laserjet"}
-	warnings, deferred := registerDeviceSourceEntityLink(admin, decl, hassBridgeDevicesByID, nil, "Spaces.def", 42, false, "")
+	warnings, deferred := registerDeviceSourceEntityLink(admin, decl, hassBridgeDevicesByID, nil, "Spaces.def", 42, false, "", "")
 	if len(warnings) != 0 {
 		t.Errorf("warnings = %v, want none on a non-final attempt", warnings)
 	}
@@ -189,7 +228,7 @@ func TestDeviceSourceEntityDefersRatherThanWarnsOnFirstAttempt(t *testing.T) {
 func TestDeviceSourceEntityWarnsOnUnknownDevice(t *testing.T) {
 	admin := newAdministrationState()
 	decl := TDeviceSourceEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:laserjet/jammed", Source: "switch.laserjet_jam_sensor", DeviceID: "hass.unknown"}
-	warnings, deferred := registerDeviceSourceEntityLink(admin, decl, map[string]THassBridgeDevice{}, nil, "Spaces.def", 42, false, "")
+	warnings, deferred := registerDeviceSourceEntityLink(admin, decl, map[string]THassBridgeDevice{}, nil, "Spaces.def", 42, false, "", "")
 	if len(warnings) != 1 || !strings.Contains(warnings[0], `device "hass.unknown" not found`) {
 		t.Errorf("warnings = %v, want a single \"device not found\" warning", warnings)
 	}
@@ -204,7 +243,7 @@ func TestDeviceSourceEntityWarnsOnUnknownDevice(t *testing.T) {
 // the file, and not by requiring positioning-before-usage source order.
 func TestDeviceCapabilityEntityBeforePositioningStillResolves(t *testing.T) {
 	const miniDSL = `space social:david_bedroom with:
-  entity sensor.physical:netatmo/co2 from hass.davids_bedroom entity sensor.co2;
+  entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;
   device infrastructural:netatmo from hass.davids_bedroom;
 end;`
 

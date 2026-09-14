@@ -55,20 +55,32 @@ func generatePingHostsFile(outputRoot string, devices []THostDevice) error {
 // generateCPUBrokerSecretsFiles writes <outputRoot>/cpu/secrets.<name> for every declared MQTT
 // broker profile except ones marked "coordinator_only true;" (TMQTTBrokerSecrets.CoordinatorOnly
 // -- those hold credentials meant for the coordinator process, never for a leaf host's report
-// script). "main" is written as "secrets.default", matching cpu/report's own "$1, defaulting to
-// default" invocation convention -- every other profile keeps its own declared name (e.g.
-// "secrets.cloud_client"). Which of these a given host machine's scheduler (cron/launchd) actually
-// invokes cpu/report against is entirely outside this generator's concern -- it just makes every
-// leaf-usable profile's secrets available, once, for any host to use.
+// script). "main" is written as BOTH "secrets.default" (matching cpu/report's own "$1, defaulting
+// to default" invocation convention) AND "secrets.<installation>" -- real, pre-existing crontabs
+// across the fleet (protocols-server-1 in both houses, Vienna's own frame) invoke
+// "cpu/report <installation-name>" for local reporting, a genuinely established convention this
+// generator was unaware of until it accidentally clobbered it (see below). Every other
+// non-"main" profile keeps its own declared name (e.g. "secrets.cloud_client"). Which of these a
+// given host machine's scheduler (cron/launchd) actually invokes cpu/report against is entirely
+// outside this generator's concern -- it just makes every leaf-usable profile's secrets
+// available, once, for any host to use.
 //
-// Every cloud-qualified (non-"main") profile also gets a second copy written under
-// "secrets.<installation>" -- e.g. "secrets.junglinster" alongside "secrets.cloud_client",
-// identical content -- so the report script and its deploy script can address "the cloud profile
-// for this installation" generically, by installation name, without needing to know the literal
-// profile name "cloud_client" at all. Added 2026-09-02 for the "cloud"+"import"/"roaming"
-// unification: a report script invoked uniformly as "cpu/report ${installation}" is what makes a
-// single deploy script work unmodified across every installation, rather than each one needing
-// its own hardcoded profile name.
+// Real bug found live 2026-09-09: an EARLIER version of this function (2026-09-02 through
+// 2026-09-08) wrote "secrets.<installation>" as an alias of the CLOUD "cloud_client" profile
+// instead -- a well-intentioned but wrong assumption, made without checking whether that
+// filename already had an established meaning. It did: "secrets.vienna"/"secrets.junglinster"
+// were already real, pre-existing LOCAL-broker profile files multiple hosts' crontabs already
+// depended on. Every regenerate+redeploy during that window silently overwrote them with cloud
+// broker credentials, breaking local cpu/load reporting on protocols-server-1 (both houses) and
+// Vienna's own frame without any visible error -- found only when the user noticed frame's
+// data had stopped reaching Home Assistant. That cloud-alias mechanism was retired the same day
+// once its OWN motivating bug (a cross-house collision on the one shared, Nextcloud-synced
+// secrets.cloud_client file) was fixed at the root instead (dropping cpu/report's own
+// installation-qualified topic segment) -- but retiring it never restored what it had already
+// clobbered. This local-broker alias is a different, unrelated, and correct use of the same
+// filename pattern: unlike cloud_client, "main" is never shared across houses' own Nextcloud
+// folder (each house's own ./deploy only ever pushes its own secrets.<installation> to its own
+// hosts), so there is no analogous collision risk here.
 func generateCPUBrokerSecretsFiles(outputRoot string, profiles map[string]TMQTTBrokerSecrets, installation string) error {
 	names := make([]string, 0, len(profiles))
 	for name := range profiles {
@@ -81,20 +93,14 @@ func generateCPUBrokerSecretsFiles(outputRoot string, profiles map[string]TMQTTB
 			continue
 		}
 		filename := "secrets." + name
-		// "main" never needs installation-qualification -- its reports stay on the house's own
-		// local broker, under the plain "hosts/<host>/..." topics every local consumer already
-		// expects (only a cloud-routed report needs to disambiguate itself from another
-		// installation sharing the same broker -- see cpu/report's own topic-selection logic).
-		reportInstallation := installation
 		if name == "main" {
 			filename = "secrets.default"
-			reportInstallation = ""
 		}
-		if err := generateMQTTShellSecretsFile(outputRoot, "cpu", filename, secrets, reportInstallation); err != nil {
+		if err := generateMQTTShellSecretsFile(outputRoot, "cpu", filename, secrets); err != nil {
 			return err
 		}
-		if name != "main" && installation != "" {
-			if err := generateMQTTShellSecretsFile(outputRoot, "cpu", "secrets."+installation, secrets, reportInstallation); err != nil {
+		if name == "main" && installation != "" {
+			if err := generateMQTTShellSecretsFile(outputRoot, "cpu", "secrets."+installation, secrets); err != nil {
 				return err
 			}
 		}
@@ -111,10 +117,14 @@ func generateCPUBrokerSecretsFiles(outputRoot string, profiles map[string]TMQTTB
 // script can rely on the key always being present rather than treating "absent" as meaningful.
 // Deployment from this generated file to the actual Integrations/ location is handled outside
 // the generator, same as ping/hosts.
-// installation, when non-empty, is written as "installation=<value>" -- cpu/report uses its
-// presence (not just its value) to decide whether to qualify its report topics with it, so this
-// must be omitted entirely for "main" (a purely local report), not just left blank.
-func generateMQTTShellSecretsFile(outputRoot, subdir, filename string, secrets TMQTTBrokerSecrets, installation string) error {
+// No installation field any more (retired 2026-09-08): cpu/report used to qualify its own
+// cloud-routed topic with it to disambiguate two installations reporting the same bare hostname on
+// the shared cloud broker -- dropped in favour of just requiring every cloud-reporting host to have
+// a globally unique hostname across the whole fleet, which was already true in practice (studio,
+// mini, pro-1, air-4, mqtt, ...) and removes an entire class of cross-house collision risk at the
+// source (found live the same day: the qualified segment's value depended on whichever house
+// deployed last, silently breaking the other house's reporting).
+func generateMQTTShellSecretsFile(outputRoot, subdir, filename string, secrets TMQTTBrokerSecrets) error {
 	var sb strings.Builder
 	sb.WriteString("mqtt_server=" + secrets.Server + "\n")
 	sb.WriteString("mqtt_login=" + secrets.Login + "\n")
@@ -125,9 +135,6 @@ func generateMQTTShellSecretsFile(outputRoot, subdir, filename string, secrets T
 		tls = "1"
 	}
 	sb.WriteString("mqtt_tls=" + tls + "\n")
-	if installation != "" {
-		sb.WriteString("installation=" + installation + "\n")
-	}
 	dir := filepath.Join(outputRoot, subdir)
 	return writeYAMLFile(filepath.Join(dir, filename), sb.String())
 }
@@ -453,7 +460,7 @@ func generateHostsIntegrationOutputs(bodyLines []string, ctx TPhysicalGeneration
 		// (generatePingHostsFile's one shared "ping/hosts" list), not something that runs
 		// distributed per-host the way cpu/report does -- it only ever needs the one "main"
 		// broker, so it keeps the plain unsuffixed "secrets" filename.
-		if err := generateMQTTShellSecretsFile(ctx.OutputRoot, "ping", "secrets", ctx.MQTTSecrets, ""); err != nil {
+		if err := generateMQTTShellSecretsFile(ctx.OutputRoot, "ping", "secrets", ctx.MQTTSecrets); err != nil {
 			return err
 		}
 	}

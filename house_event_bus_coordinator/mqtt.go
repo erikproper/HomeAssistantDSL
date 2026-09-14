@@ -23,17 +23,68 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
+// TReconnectHook lets main() register, well after both broker connections are already
+// established and every dependency (store/publisher/existence trackers/etc.) exists, a single
+// "republish everything idempotent" callback that fires on every SUBSEQUENT (re)connect of
+// either client -- found live 2026-09-09 migrating Vienna's local broker off Green's own add-on
+// onto a dedicated container: the coordinator's own discovery/status publishing only ever ran
+// once, at process startup, so a device's local discovery config (host.frame's own commandline
+// switch, cross-house-imported Netatmo capabilities) never reappeared on the NEW, empty broker
+// until the coordinator process itself was restarted -- a broker-side change (or any dropped
+// connection) should be self-healing, not require a manual coordinator bump every time.
+//
+// Set(fn) is called once, near the end of main(), once every real dependency exists; call() is
+// what each connectMQTT client's own OnConnectHandler actually invokes on every (re)connect,
+// including the very first -- a nil fn (the state before Set has run) is a safe no-op, since
+// main()'s own sequential startup code already does the FIRST-time setup explicitly and
+// deterministically; only genuine reconnects after that point ever call a non-nil fn. Mutex-
+// guarded since paho invokes OnConnectHandler on its own internal goroutine, concurrently with
+// whatever main() is still doing.
+//
+// Deliberately does NOT re-run any subscribeX(...) call -- re-subscribing on every reconnect
+// would register additional, duplicate handlers for the same topic without removing the old
+// ones (double-processing every message, and for hassbridge/self-import specifically, risking a
+// real feedback loop), not just republish something idempotent. Topic subscriptions instead
+// survive a same-broker reconnect via SetResumeSubs(true) below, which is paho's own session-
+// resumption mechanism; only a genuinely NEW broker (this migration's own case) starts a session
+// with no memory of prior subscriptions at all, which is exactly what the idempotent republish
+// this hook triggers is for.
+type TReconnectHook struct {
+	mu sync.Mutex
+	fn func()
+}
+
+func (h *TReconnectHook) Set(fn func()) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.fn = fn
+}
+
+func (h *TReconnectHook) call() {
+	h.mu.Lock()
+	fn := h.fn
+	h.mu.Unlock()
+	if fn != nil {
+		fn()
+	}
+}
+
 // connectMQTT connects to secrets' broker, blocking until connected or failed. secrets.TLS
 // selects "ssl://" over a plain "tcp://" broker URL, with an empty tls.Config -- meaning the
 // system's own root CA pool, sufficient for a publicly-trusted certificate (e.g. Let's Encrypt,
 // the cloud broker's own setup) without needing a custom CA file; nothing here supports a
-// privately-issued/self-signed cloud broker certificate.
-func connectMQTT(secrets TMQTTBrokerSecrets, clientID string) (mqtt.Client, error) {
+// privately-issued/self-signed cloud broker certificate. SetResumeSubs(true) asks paho to
+// automatically restore this client's own topic subscriptions after a same-broker reconnect
+// (the default, CleanSession-style behaviour drops them silently); hook.call() fires on every
+// (re)connect, including the first, but is a safe no-op until main() has set a real function on
+// it -- see TReconnectHook's own doc comment.
+func connectMQTT(secrets TMQTTBrokerSecrets, clientID string, hook *TReconnectHook) (mqtt.Client, error) {
 	opts := mqtt.NewClientOptions()
 	scheme := "tcp"
 	if secrets.TLS {
@@ -45,7 +96,13 @@ func connectMQTT(secrets TMQTTBrokerSecrets, clientID string) (mqtt.Client, erro
 	opts.SetUsername(secrets.Login)
 	opts.SetPassword(secrets.Password)
 	opts.SetAutoReconnect(true)
+	opts.SetResumeSubs(true)
 	opts.SetConnectTimeout(10 * time.Second)
+	if hook != nil {
+		opts.SetOnConnectHandler(func(mqtt.Client) {
+			hook.call()
+		})
+	}
 
 	client := mqtt.NewClient(opts)
 	token := client.Connect()
@@ -72,7 +129,7 @@ func publishDeviceDiscovery(mainClient, cloudClient mqtt.Client, ownInstallation
 	plan := deviceRoutingPlan(device, cloudClient != nil)
 
 	published := 0
-	for _, cfg := range buildDiscoveryConfigs(deviceID, device, live, viaDeviceID, prefix) {
+	for _, cfg := range buildDiscoveryConfigs(deviceID, device, live, viaDeviceID, prefix, ownInstallation) {
 		if plan.PublishMain {
 			data, err := json.Marshal(cfg.Payload)
 			if err != nil {

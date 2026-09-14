@@ -165,3 +165,55 @@ end;`, "\n"), ctx); err != nil {
 		}
 	}
 }
+
+// TestGenerateCommandlineIntegrationOutputsWritesDeviceDisplayName is a regression test for a real
+// gap found live 2026-09-11: registerCommandlineDevicePositioning (Conceptual_DevicePositioning.go)
+// already computes a device-level DisplayName from Spaces.def's own positioning, but nothing ever
+// serialized it into coordinator/commandline.yaml -- so the coordinator's own "device:" block
+// always fell back to the bare Host instead (e.g. Vienna's own picture_frame device showing up
+// named "protocols-server-2", its Host, rather than "apartment/living_room/picture_frame").
+func TestGenerateCommandlineIntegrationOutputsWritesDeviceDisplayName(t *testing.T) {
+	outputRoot := t.TempDir()
+	admin := newAdministrationState()
+	admin.DeviceConceptualLinks["host.frame"] = TDeviceConceptualLink{
+		DisplayName:        "apartment/living_room/picture_frame",
+		AttributeEntityIDs: map[string]TDeviceAttributeLink{},
+	}
+
+	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot, Admin: admin}
+	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame frame with:
+  switch.slideshow: "check_slideshow" "start_slideshow" "stop_slideshow";
+end;`, "\n"), ctx); err != nil {
+		t.Fatalf("generateCommandlineIntegrationOutputs: %v", err)
+	}
+
+	coordFile, err := os.ReadFile(filepath.Join(outputRoot, "coordinator", "commandline.yaml"))
+	if err != nil {
+		t.Fatalf("reading coordinator/commandline.yaml: %v", err)
+	}
+	coordContent := string(coordFile)
+	if !strings.Contains(coordContent, "display_name: apartment/living_room/picture_frame") {
+		t.Errorf("coordinator/commandline.yaml missing display_name; got:\n%s", coordContent)
+	}
+}
+
+// TestGenerateCommandlineIntegrationOutputsOmitsDisplayNameWhenUnpositioned confirms a device
+// Physical.def declares but Spaces.def never positions gets no "display_name:" line at all --
+// nothing to fall back to but the bare Host, same as every other device kind's own manifest.
+func TestGenerateCommandlineIntegrationOutputsOmitsDisplayNameWhenUnpositioned(t *testing.T) {
+	outputRoot := t.TempDir()
+	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot}
+	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame frame with:
+  switch.slideshow: "check_slideshow" "start_slideshow" "stop_slideshow";
+end;`, "\n"), ctx); err != nil {
+		t.Fatalf("generateCommandlineIntegrationOutputs: %v", err)
+	}
+
+	coordFile, err := os.ReadFile(filepath.Join(outputRoot, "coordinator", "commandline.yaml"))
+	if err != nil {
+		t.Fatalf("reading coordinator/commandline.yaml: %v", err)
+	}
+	if strings.Contains(string(coordFile), "display_name:") {
+		t.Errorf("coordinator/commandline.yaml should have no display_name line for an unpositioned device; got:\n%s", coordFile)
+	}
+}

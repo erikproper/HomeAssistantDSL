@@ -145,6 +145,13 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 		return err
 	}
 
+	if err := generateDiscoveryPassthroughFile(outputRoot, collectDiscoveryPassthroughRules(physicalContent), ctx.MQTTDiscoveryPhysicalPrefix); err != nil {
+		return err
+	}
+	if err := generateDiscoveryPrefixBaselineFile(outputRoot, ctx.MQTTDiscoveryPhysicalPrefix); err != nil {
+		return err
+	}
+
 	instances := collectHomeAssistantInstances(physicalContent)
 	if err := generateHomeAssistantInstancesFile(outputRoot, instances); err != nil {
 		return err

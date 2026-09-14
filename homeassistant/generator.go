@@ -118,6 +118,22 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 		fmt.Printf("[physical] %s\n", w)
 	}
 
+	for _, w := range validateNoConflictingDeviceNames(hostDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID) {
+		fmt.Printf("[physical] %s\n", w)
+	}
+
+	for _, w := range validateNodeCapabilityRequired(hassBridgeDevicesByID, importedDevicesByID) {
+		fmt.Printf("[physical] %s\n", w)
+	}
+
+	for _, w := range validateDerivedCapabilities(hassBridgeDevicesByID, importedDevicesByID) {
+		fmt.Printf("[physical] %s\n", w)
+	}
+
+	for _, w := range validateBatteryLevelAlertBiconditional(hassBridgeDevicesByID, importedDevicesByID) {
+		fmt.Printf("[physical] %s\n", w)
+	}
+
 	capabilityDefaults, capabilityDefaultsWarnings := collectCapabilityDefaults(definitionDir, sharedDefinitionDir)
 	for _, w := range capabilityDefaultsWarnings {
 		fmt.Printf("[physical] %s\n", w)
@@ -226,7 +242,6 @@ func generateConfigurationFile(outputDir string, _ *TAdministrationState) error 
 var integrationDefs = []struct{ file, content string }{
 	{"automation.yaml", "automation: !include_dir_merge_list ../automation"},
 	{"binary_sensor.yaml", "binary_sensor: !include_dir_list ../entities/binary_sensor"},
-	{"command_line.yaml", "command_line: !include_dir_merge_list ../entities/command_line"},
 	{"input_boolean.yaml", "input_boolean: !include_dir_merge_named ../entities/input_boolean"},
 	{"input_datetime.yaml", "input_datetime: !include_dir_merge_named ../entities/input_datetime"},
 	{"input_number.yaml", "input_number: !include_dir_merge_named ../entities/input_number"},

@@ -80,6 +80,20 @@ func generateImportedDeviceFile(outputRoot string, devices []TImportedDevice, ad
 			anyResolved = true
 			capLines.WriteString("      " + name + ":\n")
 			capLines.WriteString("        local_entity: " + attr.EntityID + "\n")
+			// domain/derived_from/derived_via (added 2026-09-10, plans/
+			// derived-capability-mechanism.md Phase 2): only ever set for a "derived ...
+			// from ... via ...;" capability (Physical_DerivedCapability.go) -- an ordinary imported
+			// capability's domain always comes from wherever Spaces.def positions it (see
+			// integration_import_storage.go's own header comment), so these three are omitted for
+			// it, exactly as before this feature existed. The coordinator resolves the full
+			// derivation chain itself (discoveryimport.go) -- this file only ever passes through
+			// what Physical.def declared, verbatim, the same division of responsibility
+			// generateHassBridgeFile's own commands/discovery_extra fields already follow.
+			if cap := device.Capabilities[name]; cap.DerivedFromCapability != "" {
+				capLines.WriteString("        domain: " + cap.Domain + "\n")
+				capLines.WriteString("        derived_from: " + cap.DerivedFromCapability + "\n")
+				capLines.WriteString("        derived_via: \"" + cap.DerivedViaTemplate + "\"\n")
+			}
 		}
 		if !anyResolved {
 			continue

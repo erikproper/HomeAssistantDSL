@@ -94,7 +94,7 @@ func TestEntityExistenceTrackerSeedPrunesConfirmedDeadOrphans(t *testing.T) {
 			},
 		},
 	}})
-	tracker.Record("protocols-server-2", "sensor.living_room__battery", false, "", "", "")
+	tracker.Record("protocols-server-2", "sensor.living_room__battery", false, "", "", "", "", "", "")
 
 	// A sibling discovered independently of any Physical.def declaration, and a manually-typed
 	// "Discover entity" seed -- neither ever appears in bridgeFile, both must survive re-seeding
@@ -158,7 +158,7 @@ func TestEntityExistenceTrackerSeedCorrectsSyntheticDeviceIDToRealOwner(t *testi
 	// Simulate the bug: a manual discovery request reached this entity before Seed ever ran,
 	// wrongly grouping it (and a sibling) under a synthetic device.
 	tracker.SeedManualEntity("protocols-server-2", "sensor.office_bathroom_carbon_dioxide")
-	tracker.Record("protocols-server-2", "sensor.office_bathroom_carbon_dioxide", true, "412", "", "")
+	tracker.Record("protocols-server-2", "sensor.office_bathroom_carbon_dioxide", true, "412", "", "", "", "", "")
 	tracker.DiscoverSiblings("protocols-server-2", "sensor.office_bathroom_carbon_dioxide", "remote-device-1", "Office Bathroom", []string{"sensor.office_bathroom_temperature"})
 
 	byDevice := tracker.snapshotByDevice("protocols-server-2")
@@ -188,6 +188,166 @@ func TestEntityExistenceTrackerSeedCorrectsSyntheticDeviceIDToRealOwner(t *testi
 	}
 }
 
+// TestEntityExistenceTrackerSeedCorrectsStaleRealDeviceIDAfterRename is the regression test for
+// the real bug found live 2026-09-14 (PROJECT.md item 3/plans/via-device-inference.md): a Physical.def
+// device rename (e.g. "hass.vienna_bedroom" -> "node.vienna_bedroom") left entity_existence.json's
+// own persisted entries still labeled with the OLD device id -- not synthetic, so the old
+// correction check (isSyntheticDeviceID) never touched it, silently breaking ResolveViaDevice's
+// own lookup (which keys off the CURRENT Physical.def device id) forever, with no error anywhere
+// in the chain, even though the underlying via_device_id/RemoteDeviceID data was perfectly
+// correct. The currently-declared owner must always win, regardless of whether the previous value
+// was synthetic, real-but-stale, or anything else.
+func TestEntityExistenceTrackerSeedCorrectsStaleRealDeviceIDAfterRename(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+
+	// Pre-rename state: the module (dependent) and base station (target) are both tracked under
+	// their OLD, real Physical.def ids, with real via_device_id/RemoteDeviceID data already
+	// recorded -- exactly what a live coordinator's persisted entity_existence.json holds from
+	// before a device rename.
+	tracker.Seed(THassBridgeFile{Devices: map[string]THassBridgeDevice{
+		"hass.vienna_bedroom": {
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"battery_level": {SourceEntities: map[string]string{"protocols-server-2": "sensor.vienna_bedroom_battery"}},
+			},
+		},
+		"hass.vienna_livingroom": {
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"pressure": {SourceEntities: map[string]string{"protocols-server-2": "sensor.vienna_atmospheric_pressure"}},
+			},
+		},
+	}})
+	tracker.Record("protocols-server-2", "sensor.vienna_bedroom_battery", true, "80", "", "", "", "remote-module", "remote-base")
+	tracker.Record("protocols-server-2", "sensor.vienna_atmospheric_pressure", true, "1013", "", "", "", "remote-base", "")
+
+	// Before Seed re-declares under the new ids: ResolveViaDevice's own first lookup (deviceID's
+	// own via_device_id) is keyed directly off the source entity, not the tracker's DeviceID
+	// attribution, so it already finds "remote-base" here regardless of the rename. But the SECOND
+	// lookup (translating that remote id into a LOCAL target) still depends on Seed's own
+	// correction having run -- confirms the target comes back under the STALE pre-rename id until
+	// it does.
+	if target, ok := tracker.ResolveViaDevice("protocols-server-2", "node.vienna_bedroom", []string{"sensor.vienna_bedroom_battery"}); !ok || target != "hass.vienna_livingroom" {
+		t.Fatalf("ResolveViaDevice before correction = (%q, %v), want (\"hass.vienna_livingroom\", true) -- the stale target, demonstrating why Seed's own correction matters", target, ok)
+	}
+
+	// The rename lands: Physical.def now declares these exact same source entities under
+	// "node.vienna_bedroom"/"node.vienna_livingroom" instead. A real coordinator restart re-Seeds
+	// from the newly generated homeassistant_bridge.yaml.
+	tracker.Seed(THassBridgeFile{Devices: map[string]THassBridgeDevice{
+		"node.vienna_bedroom": {
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"battery_level": {SourceEntities: map[string]string{"protocols-server-2": "sensor.vienna_bedroom_battery"}},
+			},
+		},
+		"node.vienna_livingroom": {
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"pressure": {SourceEntities: map[string]string{"protocols-server-2": "sensor.vienna_atmospheric_pressure"}},
+			},
+		},
+	}})
+
+	byDevice := tracker.snapshotByDevice("protocols-server-2")
+	if _, stillStale := byDevice["hass.vienna_bedroom"]; stillStale {
+		t.Errorf("stale real device id survived Seed, want it corrected away entirely: %+v", byDevice)
+	}
+	battery, ok := byDevice["node.vienna_bedroom"]["sensor.vienna_bedroom_battery"]
+	if !ok || battery.Status != StatusKnownToExist || battery.State != "80" {
+		t.Errorf("battery entry = %+v (ok=%v), want its confirmed state preserved after correction", battery, ok)
+	}
+
+	// The real end-to-end proof: ResolveViaDevice, called with the CURRENT device id and its own
+	// current source entities (exactly how discoveryhassbridge.go's callers use it), now finds the
+	// CORRECTED target, not the stale one.
+	target, ok := tracker.ResolveViaDevice("protocols-server-2", "node.vienna_bedroom", []string{"sensor.vienna_bedroom_battery"})
+	if !ok || target != "node.vienna_livingroom" {
+		t.Errorf("ResolveViaDevice(node.vienna_bedroom) = (%q, %v), want (\"node.vienna_livingroom\", true)", target, ok)
+	}
+}
+
+func TestIsWellFormedEntityID(t *testing.T) {
+	cases := []struct {
+		id   string
+		want bool
+	}{
+		{"sensor.living_room_terrace_battery", true},
+		{"sensor.living_room__battery", false},
+		{"sensor.", false},
+		{".battery", false},
+		{"sensor.processor_use is available", false},
+	}
+	for _, c := range cases {
+		if got := isWellFormedEntityID(c.id); got != c.want {
+			t.Errorf("isWellFormedEntityID(%q) = %v, want %v", c.id, got, c.want)
+		}
+	}
+}
+
+// TestDiscoverSiblingsIgnoresMalformedEntityID is the regression test for the real bug found live
+// 2026-09-14 (PROJECT.md item 3): device_entities() reported a malformed double-underscore sibling
+// id for hass.living_room_terrace at some point in the past, which DiscoverSiblings tracked
+// verbatim. Unlike a typo'd Physical.def declaration (TestEntityExistenceTrackerSeedPrunesConfirmedDeadOrphans),
+// a DiscoverSiblings-only ghost like this is never bridgeFile-declared and can never be confirmed
+// dead either -- HA's own states[...]/device_id(...) template lookups reject a malformed id with a
+// TemplateError instead of ever returning "doesn't exist", so the inquiry automation errors out
+// before Record is ever called and the entry is stuck at StatusNotKnownToExist forever, permanently
+// occupying nextToInquire's backlog slot. DiscoverSiblings must never track such an id to begin
+// with.
+func TestDiscoverSiblingsIgnoresMalformedEntityID(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.Seed(THassBridgeFile{Devices: map[string]THassBridgeDevice{
+		"hass.living_room_terrace": {
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"battery": {SourceEntities: map[string]string{"protocols-server-2": "sensor.living_room_terrace_battery"}},
+			},
+		},
+	}})
+	tracker.DiscoverSiblings("protocols-server-2", "sensor.living_room_terrace_battery", "remote-device-1", "Terrace", []string{"sensor.living_room__humidity", "sensor.living_room_terrace_rf_strength"})
+
+	byDevice := tracker.snapshotByDevice("protocols-server-2")
+	entities := byDevice["hass.living_room_terrace"]
+	if _, found := entities["sensor.living_room__humidity"]; found {
+		t.Errorf("tracked a malformed sibling entity id, want it ignored: %+v", entities)
+	}
+	if _, found := entities["sensor.living_room_terrace_rf_strength"]; !found {
+		t.Errorf("expected the well-formed sibling to still be tracked, got %+v", entities)
+	}
+}
+
+// TestEntityExistenceTrackerSeedPrunesAlreadyPersistedMalformedGhost covers the self-heal half of
+// the same 2026-09-14 fix: an id that was already tracked and persisted as malformed (e.g. from
+// before DiscoverSiblings' own guard existed, or a device rename leaving one behind) must be pruned
+// on the next Seed even though it's stuck at StatusNotKnownToExist, not StatusKnownNotToExist --
+// entity_existence.json is deliberately persisted across every coordinator redeploy, so without
+// this the ghost would otherwise survive forever.
+func TestEntityExistenceTrackerSeedPrunesAlreadyPersistedMalformedGhost(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.entries["protocols-server-2"] = map[string]*TEntityExistenceEntry{
+		"sensor.living_room__battery": {DeviceID: "hass.living_room_terrace", Status: StatusNotKnownToExist},
+	}
+	tracker.order["protocols-server-2"] = []string{"sensor.living_room__battery"}
+
+	tracker.Seed(THassBridgeFile{Devices: map[string]THassBridgeDevice{
+		"node.living_room_terrace": {
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"battery": {SourceEntities: map[string]string{"protocols-server-2": "sensor.living_room_terrace_battery"}},
+			},
+		},
+	}})
+
+	byDevice := tracker.snapshotByDevice("protocols-server-2")
+	if _, found := byDevice["hass.living_room_terrace"]["sensor.living_room__battery"]; found {
+		t.Errorf("already-persisted malformed ghost survived Seed, want it pruned: %+v", byDevice)
+	}
+	if _, found := byDevice["node.living_room_terrace"]["sensor.living_room_terrace_battery"]; !found {
+		t.Errorf("expected the real declared entity to be tracked, got %+v", byDevice)
+	}
+}
+
 func TestEntityExistenceTrackerSeedNeverPrunesStillDeclaredEntries(t *testing.T) {
 	tracker := newEntityExistenceTracker("")
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
@@ -199,7 +359,7 @@ func TestEntityExistenceTrackerSeedNeverPrunesStillDeclaredEntries(t *testing.T)
 		},
 	}}
 	tracker.Seed(bridgeFile)
-	tracker.Record("protocols-server-2", "sensor.still_broken", false, "", "", "")
+	tracker.Record("protocols-server-2", "sensor.still_broken", false, "", "", "", "", "", "")
 
 	tracker.Seed(bridgeFile)
 
@@ -223,7 +383,7 @@ func TestEntityExistenceTrackerSeedMainEntities(t *testing.T) {
 		t.Errorf("expected a fresh not-known-to-exist entry, got %+v (found=%v)", entry, found)
 	}
 
-	tracker.Record("main", "sensor.already_known", true, "21.0", "°C", "temperature")
+	tracker.Record("main", "sensor.already_known", true, "21.0", "°C", "temperature", "", "", "")
 	tracker.SeedMainEntities([]string{"sensor.physical_door_aqara_multi_temperature", "sensor.already_known"})
 
 	byDevice = tracker.snapshotByDevice("main")
@@ -239,7 +399,7 @@ func TestEntityExistenceTrackerSeedMainEntities(t *testing.T) {
 func TestEntityExistenceTrackerSeedMainEntitiesPrunesOwnGhosts(t *testing.T) {
 	tracker := newEntityExistenceTracker("")
 	tracker.SeedMainEntities([]string{"sensor.removed_from_spaces_def"})
-	tracker.Record("main", "sensor.removed_from_spaces_def", false, "", "", "")
+	tracker.Record("main", "sensor.removed_from_spaces_def", false, "", "", "", "", "", "")
 
 	tracker.SeedMainEntities(nil)
 
@@ -258,7 +418,7 @@ func TestEntityExistenceTrackerSeedMainEntitiesPrunesOwnGhosts(t *testing.T) {
 func TestEntityExistenceTrackerSeedNeverPrunesMainEntities(t *testing.T) {
 	tracker := newEntityExistenceTracker("")
 	tracker.SeedMainEntities([]string{"sensor.physical_door_aqara_multi_temperature"})
-	tracker.Record("main", "sensor.physical_door_aqara_multi_temperature", false, "", "", "")
+	tracker.Record("main", "sensor.physical_door_aqara_multi_temperature", false, "", "", "", "", "", "")
 
 	// A bridgeFile that never mentions this entity at all -- exactly what every real coordinator
 	// restart looks like for a kind-5 entity, since Seed only ever knows about hassbridge devices.
@@ -285,7 +445,7 @@ func TestEntityExistenceTrackerSeedManualEntity(t *testing.T) {
 	}
 
 	// Re-seeding an already-known entity must not reset a status it has already resolved to.
-	tracker.Record("main", "sensor.newly_typed_in", true, "42", "", "")
+	tracker.Record("main", "sensor.newly_typed_in", true, "42", "", "", "", "", "")
 	tracker.SeedManualEntity("main", "sensor.newly_typed_in")
 	byDevice = tracker.snapshotByDevice("main")
 	if byDevice[""]["sensor.newly_typed_in"].Status != StatusKnownToExist {
@@ -336,8 +496,8 @@ func TestEntityExistenceTrackerSeedThenNextToInquirePrefersUnknown(t *testing.T)
 
 	// Resolve both; nextToInquire must now fall back to round-robin over known entities, not
 	// return "" and not get stuck.
-	tracker.Record("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide", true, "412.3", "", "")
-	tracker.Record("protocols-server-2", "sensor.davids_bedroom_humidity", false, "", "", "")
+	tracker.Record("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide", true, "412.3", "", "", "", "", "")
+	tracker.Record("protocols-server-2", "sensor.davids_bedroom_humidity", false, "", "", "", "", "", "")
 
 	seen := map[string]bool{}
 	for i := 0; i < 4; i++ {
@@ -373,7 +533,7 @@ func TestEntityExistenceTrackerNextToInquireRotatesPastStuckEntry(t *testing.T) 
 		entity := tracker.nextToInquire("main")
 		seen[entity] = true
 		if entity != "sensor.stuck_never_replies" {
-			tracker.Record("main", entity, true, "", "", "")
+			tracker.Record("main", entity, true, "", "", "", "", "", "")
 		}
 	}
 	if len(seen) != 3 {
@@ -394,8 +554,8 @@ func TestEntityExistenceTrackerNextToInquireEmptyInstance(t *testing.T) {
 func TestEntityExistenceTrackerRecordGroupsByDevice(t *testing.T) {
 	tracker := newEntityExistenceTracker("")
 	tracker.Seed(fixtureBridgeFileForExistence())
-	tracker.Record("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide", true, "412.3", "", "")
-	tracker.Record("protocols-server-2", "sensor.davids_bedroom_humidity", false, "", "", "")
+	tracker.Record("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide", true, "412.3", "", "", "", "", "")
+	tracker.Record("protocols-server-2", "sensor.davids_bedroom_humidity", false, "", "", "", "", "", "")
 
 	byDevice := tracker.snapshotByDevice("protocols-server-2")
 	entities, ok := byDevice["hass.davids_bedroom"]
@@ -418,25 +578,25 @@ func TestRecordStoresLiveTypingOnlyWhenKnownToExist(t *testing.T) {
 	tracker := newEntityExistenceTracker("")
 	tracker.Seed(fixtureBridgeFileForExistence())
 
-	tracker.Record("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide", true, "412.3", "ppm", "carbon_dioxide")
-	if unit, deviceClass := tracker.LiveTyping("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide"); unit != "ppm" || deviceClass != "carbon_dioxide" {
-		t.Errorf("LiveTyping = (%q, %q), want (\"ppm\", \"carbon_dioxide\")", unit, deviceClass)
+	tracker.Record("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide", true, "412.3", "ppm", "carbon_dioxide", "mdi:molecule-co2", "", "")
+	if unit, deviceClass, icon := tracker.LiveTyping("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide"); unit != "ppm" || deviceClass != "carbon_dioxide" || icon != "mdi:molecule-co2" {
+		t.Errorf("LiveTyping = (%q, %q, %q), want (\"ppm\", \"carbon_dioxide\", \"mdi:molecule-co2\")", unit, deviceClass, icon)
 	}
 
-	tracker.Record("protocols-server-2", "sensor.davids_bedroom_humidity", false, "", "should-not-be-stored", "should-not-be-stored")
-	if unit, deviceClass := tracker.LiveTyping("protocols-server-2", "sensor.davids_bedroom_humidity"); unit != "" || deviceClass != "" {
-		t.Errorf("LiveTyping = (%q, %q), want (\"\", \"\") for a known-not-to-exist entity", unit, deviceClass)
+	tracker.Record("protocols-server-2", "sensor.davids_bedroom_humidity", false, "", "should-not-be-stored", "should-not-be-stored", "should-not-be-stored", "", "")
+	if unit, deviceClass, icon := tracker.LiveTyping("protocols-server-2", "sensor.davids_bedroom_humidity"); unit != "" || deviceClass != "" || icon != "" {
+		t.Errorf("LiveTyping = (%q, %q, %q), want (\"\", \"\", \"\") for a known-not-to-exist entity", unit, deviceClass, icon)
 	}
 
-	if unit, deviceClass := tracker.LiveTyping("protocols-server-2", "sensor.never_tracked_at_all"); unit != "" || deviceClass != "" {
-		t.Errorf("LiveTyping = (%q, %q), want (\"\", \"\") for an entity this tracker has never heard of", unit, deviceClass)
+	if unit, deviceClass, icon := tracker.LiveTyping("protocols-server-2", "sensor.never_tracked_at_all"); unit != "" || deviceClass != "" || icon != "" {
+		t.Errorf("LiveTyping = (%q, %q, %q), want (\"\", \"\", \"\") for an entity this tracker has never heard of", unit, deviceClass, icon)
 	}
 }
 
 func TestEntityExistenceTrackerDiscoverSiblingsAddsNewEntitiesUnderSameDevice(t *testing.T) {
 	tracker := newEntityExistenceTracker("")
 	tracker.Seed(fixtureBridgeFileForExistence())
-	tracker.Record("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide", true, "412.3", "", "")
+	tracker.Record("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide", true, "412.3", "", "", "", "", "")
 
 	tracker.DiscoverSiblings("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide", "remote-device-davids-bedroom", "David's Bedroom", []string{
 		"sensor.davids_bedroom_carbon_dioxide",        // the anchor itself -- must not duplicate
@@ -483,9 +643,9 @@ func TestEntityExistenceTrackerDiscoverSiblingsNoopWhenAnchorUntracked(t *testin
 func TestEntityExistenceTrackerDiscoverSiblingsDisambiguatesSameNameDifferentRemoteDevice(t *testing.T) {
 	tracker := newEntityExistenceTracker("")
 	tracker.SeedManualEntity("protocols-server-2", "sensor.vienna_terrace_wind_direction")
-	tracker.Record("protocols-server-2", "sensor.vienna_terrace_wind_direction", true, "180", "", "")
+	tracker.Record("protocols-server-2", "sensor.vienna_terrace_wind_direction", true, "180", "", "", "", "", "")
 	tracker.SeedManualEntity("protocols-server-2", "sensor.vienna_terrace_humidity")
-	tracker.Record("protocols-server-2", "sensor.vienna_terrace_humidity", true, "55", "", "")
+	tracker.Record("protocols-server-2", "sensor.vienna_terrace_humidity", true, "55", "", "", "", "", "")
 
 	tracker.DiscoverSiblings("protocols-server-2", "sensor.vienna_terrace_wind_direction", "remote-wind-module", "Vienna Terrace", []string{
 		"sensor.vienna_terrace_wind_speed",
@@ -531,7 +691,7 @@ func TestEntityExistenceTrackerDiscoverSiblingsDisambiguatesSameNameDifferentRem
 func TestEntityExistenceTrackerDiscoverSiblingsMintsSyntheticDeviceForManuallySeededAnchor(t *testing.T) {
 	tracker := newEntityExistenceTracker("")
 	tracker.SeedManualEntity("protocols-server-2", "sensor.office_storage_carbon_dioxide")
-	tracker.Record("protocols-server-2", "sensor.office_storage_carbon_dioxide", true, "612", "", "")
+	tracker.Record("protocols-server-2", "sensor.office_storage_carbon_dioxide", true, "612", "", "", "", "", "")
 
 	tracker.DiscoverSiblings("protocols-server-2", "sensor.office_storage_carbon_dioxide", "remote-device-office-storage", "Office Storage", []string{
 		"sensor.office_storage_humidity",
@@ -611,8 +771,8 @@ func TestEntityExistenceTrackerRecordIgnoresUnknownReply(t *testing.T) {
 	tracker := newEntityExistenceTracker("")
 	tracker.Seed(fixtureBridgeFileForExistence())
 	// A reply about an entity/instance never seeded must not panic or create a phantom entry.
-	tracker.Record("protocols-server-2", "sensor.never_asked_about", true, "1", "", "")
-	tracker.Record("some-other-instance", "sensor.davids_bedroom_carbon_dioxide", true, "1", "", "")
+	tracker.Record("protocols-server-2", "sensor.never_asked_about", true, "1", "", "", "", "", "")
+	tracker.Record("some-other-instance", "sensor.davids_bedroom_carbon_dioxide", true, "1", "", "", "", "", "")
 
 	byDevice := tracker.snapshotByDevice("protocols-server-2")
 	if _, found := byDevice["hass.davids_bedroom"]["sensor.never_asked_about"]; found {
@@ -726,6 +886,54 @@ func TestSubscribeExistenceReplyTriggersStoreOnChange(t *testing.T) {
 
 	if notified != "hass.davids_bedroom" {
 		t.Errorf("onChange notified = %q, want %q", notified, "hass.davids_bedroom")
+	}
+}
+
+// TestSubscribeExistenceReplyNotifiesStoreWhenViaDeviceResolves confirms a newly-resolved
+// via_device target triggers the same store.onChange republish reaction a manufacturer/model
+// update already gets, even though via_device itself is never stored (liveinfo.go's own Notify
+// doc comment) -- the base station's own inquiry reply must already have landed first (Seed alone
+// never populates RemoteDeviceID).
+func TestSubscribeExistenceReplyNotifiesStoreWhenViaDeviceResolves(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.Seed(fixtureTwoDeviceBridgeFileForViaDevice())
+	tracker.Record("protocols-server-2", "sensor.base_connectivity", true, "on", "", "", "", "remote-base", "")
+
+	var notified string
+	store := NewLiveDeviceInfoStore("", func(deviceID string) { notified = deviceID })
+
+	client := &fakeClient{}
+	if err := tracker.subscribeExistenceReply(client, nil, "junglinster", "protocols-server-2", store); err != nil {
+		t.Fatalf("subscribeExistenceReply error: %v", err)
+	}
+	reply := existenceInquiryReply{EntityID: "sensor.module_battery", Exists: true, State: "80", DeviceID: "remote-module", ViaDeviceID: "remote-base"}
+	payload, _ := json.Marshal(reply)
+	client.subscribedHandlers[0](client, fakeMessage{topic: existenceReplyTopic("protocols-server-2"), payload: payload})
+
+	if notified != "hass.module" {
+		t.Errorf("onChange notified = %q, want %q", notified, "hass.module")
+	}
+}
+
+// TestSubscribeExistenceReplyDoesNotNotifyStoreWithoutViaDevice confirms an ordinary reply (no
+// resolvable via_device, no other device-info fields) never fires the store's onChange at all --
+// Notify is only for a genuinely new via_device resolution, not every reply unconditionally.
+func TestSubscribeExistenceReplyDoesNotNotifyStoreWithoutViaDevice(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.Seed(fixtureBridgeFileForExistence())
+	notified := false
+	store := NewLiveDeviceInfoStore("", func(deviceID string) { notified = true })
+
+	client := &fakeClient{}
+	if err := tracker.subscribeExistenceReply(client, nil, "junglinster", "protocols-server-2", store); err != nil {
+		t.Fatalf("subscribeExistenceReply error: %v", err)
+	}
+	reply := existenceInquiryReply{EntityID: "sensor.davids_bedroom_carbon_dioxide", Exists: true, State: "412.3"}
+	payload, _ := json.Marshal(reply)
+	client.subscribedHandlers[0](client, fakeMessage{topic: existenceReplyTopic("protocols-server-2"), payload: payload})
+
+	if notified {
+		t.Errorf("onChange fired, want no notification (no via_device, no device-info fields)")
 	}
 }
 
@@ -902,10 +1110,10 @@ func TestEntityExistenceTrackerPersistsAcrossRestart(t *testing.T) {
 
 	first := newEntityExistenceTracker(path)
 	first.Seed(fixtureBridgeFileForExistence())
-	first.Record("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide", true, "412.3", "", "")
-	first.Record("protocols-server-2", "sensor.davids_bedroom_humidity", false, "", "", "")
+	first.Record("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide", true, "412.3", "", "", "", "", "")
+	first.Record("protocols-server-2", "sensor.davids_bedroom_humidity", false, "", "", "", "", "", "")
 	first.SeedManualEntity("protocols-server-2", "sensor.office_storage_carbon_dioxide")
-	first.Record("protocols-server-2", "sensor.office_storage_carbon_dioxide", true, "612", "", "")
+	first.Record("protocols-server-2", "sensor.office_storage_carbon_dioxide", true, "612", "", "", "", "", "")
 	first.DiscoverSiblings("protocols-server-2", "sensor.office_storage_carbon_dioxide", "remote-device-office-storage", "Office Storage", []string{
 		"sensor.office_storage_humidity",
 	})
@@ -948,11 +1156,199 @@ func TestEntityExistenceTrackerPersistsAcrossRestart(t *testing.T) {
 	}
 }
 
+// TestEntityExistenceTrackerPersistsRoundRobinCursorsAcrossRestart is a regression test for a real
+// bug found live 2026-09-11: nextToInquire's own two round-robin positions (cursor, backlogCursor)
+// were never persisted, so every coordinator restart reset both to 0 -- the "recheck already-known
+// entities" pass (cursor) always restarted from the front of order. An instance with many tracked
+// entities and frequent restarts could then go a very long time without ever reaching entities near
+// the tail of its own order list, even though the remote instance's own inquiry-reply automation
+// was fully capable of returning fresh typing/device-info the whole time (confirmed live: several
+// of Vienna's imported Netatmo devices were missing manufacturer/model despite a fresh manual
+// inquiry immediately returning it correctly).
+func TestEntityExistenceTrackerPersistsRoundRobinCursorsAcrossRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "entity_existence.json")
+
+	first := newEntityExistenceTracker(path)
+	first.Seed(fixtureBridgeFileForExistence())
+	// Mark both fixture entities known-to-exist, so nextToInquire falls into the round-robin
+	// "recheck known" pass (cursor) rather than the not-known-to-exist backlog (backlogCursor).
+	first.Record("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide", true, "412.3", "", "", "", "", "")
+	first.Record("protocols-server-2", "sensor.davids_bedroom_humidity", true, "40", "", "", "", "", "")
+
+	// Advance the round-robin cursor past its zero starting position, then force a persist (Record
+	// itself always persists; nextToInquire alone does not).
+	first.nextToInquire("protocols-server-2")
+	first.Record("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide", true, "412.3", "", "", "", "", "")
+
+	if first.cursor["protocols-server-2"] == 0 {
+		t.Fatalf("test setup broken: cursor never advanced")
+	}
+
+	// A fresh tracker on the same path, simulating a coordinator restart.
+	second := newEntityExistenceTracker(path)
+	second.Seed(fixtureBridgeFileForExistence())
+
+	if second.cursor["protocols-server-2"] != first.cursor["protocols-server-2"] {
+		t.Errorf("cursor after restart = %d, want it restored to %d (not reset to 0)", second.cursor["protocols-server-2"], first.cursor["protocols-server-2"])
+	}
+	if second.backlogCursor["protocols-server-2"] != first.backlogCursor["protocols-server-2"] {
+		t.Errorf("backlogCursor after restart = %d, want it restored to %d", second.backlogCursor["protocols-server-2"], first.backlogCursor["protocols-server-2"])
+	}
+}
+
 func TestEntityExistenceTrackerNoPathDoesNotTouchDisk(t *testing.T) {
 	tracker := newEntityExistenceTracker("")
 	tracker.Seed(fixtureBridgeFileForExistence())
-	tracker.Record("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide", true, "412.3", "", "")
+	tracker.Record("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide", true, "412.3", "", "", "", "", "")
 	// No assertion beyond "this doesn't panic or error" -- persist()/loadPersisted() must both be
 	// true no-ops when path == "", which every other test in this file already implicitly relies
 	// on by never touching a real filesystem path.
+}
+
+// fixtureTwoDeviceBridgeFileForViaDevice declares two hassbridge devices on the same instance --
+// a Netatmo radio module and its own base station -- for ResolveViaDevice's one-hop matching.
+func fixtureTwoDeviceBridgeFileForViaDevice() THassBridgeFile {
+	return THassBridgeFile{Devices: map[string]THassBridgeDevice{
+		"hass.module": {
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"battery_level": {SourceEntities: map[string]string{"protocols-server-2": "sensor.module_battery"}, LocalEntity: "sensor.physical_module_battery_level"},
+			},
+		},
+		"hass.base": {
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"node": {SourceEntities: map[string]string{"protocols-server-2": "sensor.base_connectivity"}, LocalEntity: "sensor.physical_base_node"},
+			},
+		},
+	}}
+}
+
+// TestResolveViaDeviceOneHop is the concrete case PROJECT.md item 3/plans/via-device-inference.md
+// exists for: a Netatmo radio module's own reported via_device_id names its base station's own
+// remote device_id -- ResolveViaDevice must match that against the base station's own tracked
+// RemoteDeviceID (recorded from ITS OWN inquiry reply, not the module's) and return the base
+// station's local DeviceID.
+func TestResolveViaDeviceOneHop(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.Seed(fixtureTwoDeviceBridgeFileForViaDevice())
+
+	tracker.Record("protocols-server-2", "sensor.module_battery", true, "80", "", "", "", "remote-module", "remote-base")
+	tracker.Record("protocols-server-2", "sensor.base_connectivity", true, "on", "", "", "", "remote-base", "")
+
+	target, ok := tracker.ResolveViaDevice("protocols-server-2", "hass.module", []string{"sensor.module_battery"})
+	if !ok || target != "hass.base" {
+		t.Errorf("ResolveViaDevice(module) = (%q, %v), want (\"hass.base\", true)", target, ok)
+	}
+
+	// The base station itself reported no via_device_id of its own -- one hop only, nothing to
+	// resolve for it.
+	if _, ok := tracker.ResolveViaDevice("protocols-server-2", "hass.base", []string{"sensor.base_connectivity"}); ok {
+		t.Errorf("ResolveViaDevice(base) = ok, want false (base reported no via_device_id)")
+	}
+}
+
+// TestResolveViaDeviceNoMatchingTarget confirms an unresolvable via_device_id (the named remote
+// device isn't itself tracked in this instance) is a correct, unremarkable "nothing to link to",
+// not an error.
+func TestResolveViaDeviceNoMatchingTarget(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.Seed(fixtureTwoDeviceBridgeFileForViaDevice())
+
+	tracker.Record("protocols-server-2", "sensor.module_battery", true, "80", "", "", "", "remote-module", "remote-nothing-tracks-this")
+	tracker.Record("protocols-server-2", "sensor.base_connectivity", true, "on", "", "", "", "remote-base", "")
+
+	if _, ok := tracker.ResolveViaDevice("protocols-server-2", "hass.module", []string{"sensor.module_battery"}); ok {
+		t.Errorf("ResolveViaDevice = ok, want false (named target isn't tracked)")
+	}
+}
+
+// TestResolveViaDeviceUnknownInstanceOrDevice confirms both "instance never seen" and "device
+// reported no via_device_id at all yet" resolve to ok=false, never a panic.
+func TestResolveViaDeviceUnknownInstanceOrDevice(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.Seed(fixtureTwoDeviceBridgeFileForViaDevice())
+
+	if _, ok := tracker.ResolveViaDevice("some-other-instance", "hass.module", []string{"sensor.module_battery"}); ok {
+		t.Errorf("ResolveViaDevice(unknown instance) = ok, want false")
+	}
+	if _, ok := tracker.ResolveViaDevice("protocols-server-2", "hass.module", []string{"sensor.module_battery"}); ok {
+		t.Errorf("ResolveViaDevice(no inquiry reply yet) = ok, want false")
+	}
+}
+
+// TestResolveViaDeviceResolvesSharedSourceEntityRegardlessOfTrackerAttribution is the regression
+// test for the real bug found live 2026-09-14: two devices can legitimately declare the SAME
+// source entity as their own capability (node.vienna_bedroom and node.vienna_livingroom both
+// declare "binary_sensor.vienna_bedroom_connectivity" as their own "node", a deliberate
+// Physical.def workaround for a flaky dedicated living-room connectivity sensor). The tracker's
+// own entry.DeviceID can only hold ONE owner for a shared entity, and Go's randomized map
+// iteration made Seed's own correction flip that owner non-deterministically between coordinator
+// restarts -- silently breaking ResolveViaDevice's own resolution for whichever device didn't
+// "win" that particular restart. Fixed by keying the lookup directly off Physical.def's own
+// declared source entities (ownSourceEntities), never off the tracker's own DeviceID attribution
+// -- this test proves resolution succeeds for BOTH devices sharing the entity, regardless of which
+// one the tracker's own (now merely cosmetic) DeviceID field currently happens to say owns it.
+func TestResolveViaDeviceResolvesSharedSourceEntityRegardlessOfTrackerAttribution(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
+		"node.vienna_bedroom": {
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"node":          {SourceEntities: map[string]string{"protocols-server-2": "binary_sensor.vienna_bedroom_connectivity"}},
+				"battery_level": {SourceEntities: map[string]string{"protocols-server-2": "sensor.vienna_bedroom_battery"}},
+			},
+		},
+		"node.vienna_livingroom": {
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"node":     {SourceEntities: map[string]string{"protocols-server-2": "binary_sensor.vienna_bedroom_connectivity"}},
+				"pressure": {SourceEntities: map[string]string{"protocols-server-2": "sensor.vienna_atmospheric_pressure"}},
+			},
+		},
+		"node.base": {
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"node": {SourceEntities: map[string]string{"protocols-server-2": "sensor.base_node"}},
+			},
+		},
+	}}
+	tracker.Seed(bridgeFile)
+
+	// The shared entity's own inquiry reply reports the BEDROOM's real via_device_id (this is the
+	// only reply that ever arrives for it -- both devices reference the identical entity_id, so
+	// there is only ever one tracked entry, one Record() call, one real answer from HA's registry).
+	tracker.Record("protocols-server-2", "binary_sensor.vienna_bedroom_connectivity", true, "on", "", "", "", "remote-bedroom", "remote-base")
+	tracker.Record("protocols-server-2", "sensor.vienna_bedroom_battery", true, "80", "", "", "", "remote-bedroom", "")
+	tracker.Record("protocols-server-2", "sensor.vienna_atmospheric_pressure", true, "1013", "", "", "", "remote-livingroom", "")
+	tracker.Record("protocols-server-2", "sensor.base_node", true, "on", "", "", "", "remote-base", "")
+
+	// Whichever device the tracker's own (cosmetic) DeviceID field currently attributes the shared
+	// entity to, BOTH node.vienna_bedroom's own capabilities resolve it correctly, because the
+	// lookup goes straight to Physical.def's own declared source entities.
+	for _, ownSourceEntities := range [][]string{
+		{"binary_sensor.vienna_bedroom_connectivity"},
+		{"sensor.vienna_bedroom_battery", "binary_sensor.vienna_bedroom_connectivity"},
+	} {
+		target, ok := tracker.ResolveViaDevice("protocols-server-2", "node.vienna_bedroom", ownSourceEntities)
+		if !ok || target != "node.base" {
+			t.Errorf("ResolveViaDevice(node.vienna_bedroom, %v) = (%q, %v), want (\"node.base\", true)", ownSourceEntities, target, ok)
+		}
+	}
+}
+
+// TestRecordPopulatesRemoteDeviceIDForDeclaredDevice is the regression test for the gap this
+// design closed: before, RemoteDeviceID was only ever set by DiscoverSiblings (coordinator-
+// synthesized devices) -- a normal, Physical.def-declared device's own tracked entries never
+// recorded it, even though every inquiry reply already carries it.
+func TestRecordPopulatesRemoteDeviceIDForDeclaredDevice(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.Seed(fixtureBridgeFileForExistence())
+
+	tracker.Record("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide", true, "412.3", "", "", "", "remote-davids-bedroom", "")
+
+	entry := tracker.entries["protocols-server-2"]["sensor.davids_bedroom_carbon_dioxide"]
+	if entry.RemoteDeviceID != "remote-davids-bedroom" {
+		t.Errorf("RemoteDeviceID = %q, want %q", entry.RemoteDeviceID, "remote-davids-bedroom")
+	}
 }

@@ -14,7 +14,7 @@
  * entity -- for a "home_assistant" bridge device, only if it has declared one (a hassbridge
  * device's node is an optional capability, same as any other); for a "hosts" device, always (its
  * node is unconditional, registerHostNodeEntity, Conceptual_DeviceEntities.go) -- the same way an
- * explicit "entity binary_sensor.<spec>/node from <device-id> entity binary_sensor.node;"
+ * explicit "entity binary_sensor.<spec>/node from <device-id> binary_sensor.node;"
  * (Conceptual_DeviceCapabilityEntities.go) would. Every other entity is expected to be
  * individually positioned via that same per-capability construct.
  *
@@ -104,13 +104,13 @@ func extractDeviceWithBlockHeader(line string) (*TDevicePositioningDeclaration, 
 // the current space + resolved sphere/path, ConstantAttributes from Physical.def's device-level
 // fields), and auto-registers its "node" capability, if declared, via
 // registerDeviceSourceEntityLink -- exactly as if an explicit
-// "entity binary_sensor.<spec>/node from <device-id> entity binary_sensor.node;" line had been
+// "entity binary_sensor.<spec>/node from <device-id> binary_sensor.node;" line had been
 // written. Called from the single main parse loop at the exact point the positioning line is
 // reached, with administration.SpacePath already reflecting the real, current nesting -- so the
 // node sub-call always finds DeviceConceptualLinks[decl.DeviceID] just-set two lines up and can
 // never itself need to defer; its finalAttempt argument is fixed true for exactly that reason.
 // Returns warnings; never aborts parsing.
-func registerDevicePositioning(administration *TAdministrationState, decl TDevicePositioningDeclaration, hostDevicesByID map[string]THostDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, entitiesPath string, lineNum int) []string {
+func registerDevicePositioning(administration *TAdministrationState, decl TDevicePositioningDeclaration, hostDevicesByID map[string]THostDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, commandlineDevicesByID map[string]TCommandlineDevice, entitiesPath string, lineNum int) []string {
 	provenance := fmt.Sprintf("%s:%d → device %s from %s", filepath.Base(entitiesPath), lineNum, decl.Spec, decl.DeviceID)
 
 	deviceIdentity := extractEntityIdentity(normalizeEntityFullName("device."+decl.Spec, administration.SpacePath))
@@ -128,9 +128,13 @@ func registerDevicePositioning(administration *TAdministrationState, decl TDevic
 		return registerImportedDevicePositioning(administration, decl, importedDevice, deviceIdentity, displayName, entitiesPath, lineNum, provenance)
 	}
 
+	if _, found := commandlineDevicesByID[decl.DeviceID]; found {
+		return registerCommandlineDevicePositioning(administration, decl, displayName)
+	}
+
 	device, found := hassBridgeDevicesByID[decl.DeviceID]
 	if !found {
-		return []string{fmt.Sprintf("%s: device %q not found in Physical.def's \"hosts\"/\"home_assistant\" integrations or as a \"hassbridge\"-form import", provenance, decl.DeviceID)}
+		return []string{fmt.Sprintf("%s: device %q not found in Physical.def's \"hosts\"/\"home_assistant\"/\"commandline\" integrations or as a \"hassbridge\"-form import", provenance, decl.DeviceID)}
 	}
 
 	constantAttrs := make(map[string]TDeviceAttributeConstant, len(device.ConstantAttributes))
@@ -173,7 +177,7 @@ func registerDevicePositioning(administration *TAdministrationState, decl TDevic
 		// display-only (the provenance string on a rare error path).
 		Source:   representativeSource(nodeCapability.Sources),
 		DeviceID: decl.DeviceID,
-	}, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, lineNum, true, "node")
+	}, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, lineNum, true, "node", "")
 	return warnings
 }
 
@@ -196,6 +200,30 @@ func registerHostDevicePositioning(administration *TAdministrationState, decl TD
 	link, warnings := registerHostNodeEntity(administration, mat, device, deviceIdentity, spaceName, displayName, provenance)
 	administration.DeviceConceptualLinks[decl.DeviceID] = link
 	return warnings
+}
+
+// registerCommandlineDevicePositioning is registerDevicePositioning's counterpart for a
+// "commandline" integration device (real gap found live 2026-09-10: a commandline device was
+// only ever reachable via registerCommandlineCapabilityEntityLink, which requires
+// DeviceConceptualLinks[deviceID] to already exist -- by design, for a device sharing its
+// identity with an already-positioned "hosts"/"home_assistant" device of the SAME id (e.g.
+// host.frame, discoverycommandline.go's own doc comment explains why). A commandline device with
+// no such sibling -- its own standalone DeviceID, e.g. appliance.picture_frame -- had no way to
+// ever get positioned at all).
+//
+// Deliberately minimal, unlike the hosts/hassbridge/import paths: TCommandlineDevice carries no
+// ConstantAttributes (no device-info fields exist anywhere in this integration kind's own
+// Physical.def grammar) and no "node" capability concept -- a commandline device's liveness
+// entity is always the coordinator's own unconditional, auto-named
+// binary_sensor.<host>_commandline_node (discoverycommandline.go's buildCommandlineDiscoveryConfigs),
+// never influenced by Spaces.def positioning, so there is nothing else to auto-register here
+// beyond the shared "device:" block itself.
+func registerCommandlineDevicePositioning(administration *TAdministrationState, decl TDevicePositioningDeclaration, displayName string) []string {
+	administration.DeviceConceptualLinks[decl.DeviceID] = TDeviceConceptualLink{
+		DisplayName:        displayName,
+		AttributeEntityIDs: map[string]TDeviceAttributeLink{},
+	}
+	return nil
 }
 
 // registerImportedDevicePositioning is registerDevicePositioning's counterpart for a
@@ -229,6 +257,6 @@ func registerImportedDevicePositioning(administration *TAdministrationState, dec
 	warnings, _ := registerDeviceSourceEntityLink(administration, TDeviceSourceEntityDeclaration{
 		LocalSpec: nodeSpec,
 		DeviceID:  decl.DeviceID,
-	}, nil, map[string]TImportedDevice{decl.DeviceID: importedDevice}, entitiesPath, lineNum, true, "node")
+	}, nil, map[string]TImportedDevice{decl.DeviceID: importedDevice}, entitiesPath, lineNum, true, "node", "")
 	return warnings
 }

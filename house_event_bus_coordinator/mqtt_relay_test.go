@@ -5,22 +5,6 @@ import (
 	"time"
 )
 
-func TestQualifyHostsTopic(t *testing.T) {
-	got := qualifyHostsTopic("hosts/eriks-macbook-pro-2/cpu/state", "junglinster")
-	want := "hosts/eriks-macbook-pro-2/junglinster/cpu/state"
-	if got != want {
-		t.Errorf("qualifyHostsTopic() = %q, want %q", got, want)
-	}
-}
-
-func TestQualifyHostsTopicFallsBackForUnshapedTopic(t *testing.T) {
-	got := qualifyHostsTopic("weird/topic", "junglinster")
-	want := "junglinster/weird/topic"
-	if got != want {
-		t.Errorf("qualifyHostsTopic() = %q, want %q", got, want)
-	}
-}
-
 func TestDeviceRoutingPlan(t *testing.T) {
 	cases := []struct {
 		name           string
@@ -49,17 +33,17 @@ func TestDeviceRoutingPlan(t *testing.T) {
 }
 
 func TestNeedsCloudRelay(t *testing.T) {
-	if qualifier, needed := needsCloudRelay(TDevice{}); needed {
-		t.Errorf("plain local device should not need relay, got qualifier=%q", qualifier)
+	if needsCloudRelay(TDevice{}) {
+		t.Errorf("plain local device should not need relay")
 	}
-	if qualifier, needed := needsCloudRelay(TDevice{Cloud: true}); needed {
-		t.Errorf("cloud-only, not imported, device should not need relay, got qualifier=%q", qualifier)
+	if needsCloudRelay(TDevice{Cloud: true}) {
+		t.Errorf("cloud-only, not imported, device should not need relay")
 	}
-	if qualifier, needed := needsCloudRelay(TDevice{Cloud: true, ImportedFrom: "junglinster"}); !needed || qualifier != "junglinster" {
-		t.Errorf("cloud + self-import device should relay with own installation, got qualifier=%q needed=%v", qualifier, needed)
+	if !needsCloudRelay(TDevice{Cloud: true, ImportedFrom: "junglinster"}) {
+		t.Errorf("cloud + self-import device should need relay")
 	}
-	if qualifier, needed := needsCloudRelay(TDevice{ImportedFrom: "vienna"}); !needed || qualifier != "vienna" {
-		t.Errorf("real cross-house imported device should relay with remote installation, got qualifier=%q needed=%v", qualifier, needed)
+	if !needsCloudRelay(TDevice{ImportedFrom: "vienna"}) {
+		t.Errorf("real cross-house imported device should need relay")
 	}
 }
 
@@ -67,7 +51,7 @@ func TestCloudLivenessTrackerTouchPublishesTrueImmediately(t *testing.T) {
 	mainClient := &fakeClient{}
 	tracker := newCloudLivenessTracker()
 
-	tracker.Touch(mainClient, nil, "host.eriks-macbook-pro-2", "hosts/eriks-macbook-pro-2/node/state", "")
+	tracker.Touch(mainClient, nil, "host.eriks-macbook-pro-2", "hosts/eriks-macbook-pro-2/node/state", false)
 
 	if len(mainClient.published) != 1 {
 		t.Fatalf("got %d publishes, want 1: %v", len(mainClient.published), mainClient.published)
@@ -79,37 +63,37 @@ func TestCloudLivenessTrackerTouchPublishesTrueImmediately(t *testing.T) {
 
 // TestCloudLivenessTrackerTouchCrossPostsToCloud covers the 2026-09-05 fix: the exporting
 // installation is the one that knows a "hosts"-kind device has no real liveness source of its
-// own, so its own computed "true"/"false" must reach the cloud catalogue too (qualified the same
-// way any other relayed traffic is), letting a genuine cross-house importer just relay it like any
-// other capability instead of needing its own synthesis.
+// own, so its own computed "true"/"false" must reach the cloud catalogue too (under the same bare
+// topic, retired 2026-09-08's installation-qualified segment), letting a genuine cross-house
+// importer just relay it like any other capability instead of needing its own synthesis.
 func TestCloudLivenessTrackerTouchCrossPostsToCloud(t *testing.T) {
 	mainClient := &fakeClient{}
 	cloudClient := &fakeClient{}
 	tracker := newCloudLivenessTracker()
 
-	tracker.Touch(mainClient, cloudClient, "host.eriks-macbook-pro-2", "hosts/eriks-macbook-pro-2/node/state", "junglinster")
+	tracker.Touch(mainClient, cloudClient, "host.eriks-macbook-pro-2", "hosts/eriks-macbook-pro-2/node/state", true)
 
 	if len(cloudClient.published) != 1 {
 		t.Fatalf("got %d cloud publishes, want 1: %v", len(cloudClient.published), cloudClient.published)
 	}
-	wantTopic := "hosts/eriks-macbook-pro-2/junglinster/node/state"
+	wantTopic := "hosts/eriks-macbook-pro-2/node/state"
 	if cloudClient.published[0].topic != wantTopic || string(cloudClient.published[0].payload) != "true" {
 		t.Errorf("got %+v, want topic=%s payload=true", cloudClient.published[0], wantTopic)
 	}
 }
 
-// TestCloudLivenessTrackerTouchSkipsCloudCrossPostWithoutQualifier confirms no cloud publish is
-// attempted when there's nothing to qualify with (e.g. a cloud client configured but this device
-// isn't itself cloud-relayed) -- must not panic or publish an unqualified topic.
-func TestCloudLivenessTrackerTouchSkipsCloudCrossPostWithoutQualifier(t *testing.T) {
+// TestCloudLivenessTrackerTouchSkipsCloudCrossPostWhenNotCloudRouted confirms no cloud publish is
+// attempted when this device isn't itself cloud-relayed, even with a cloud client configured --
+// must not panic or publish spuriously.
+func TestCloudLivenessTrackerTouchSkipsCloudCrossPostWhenNotCloudRouted(t *testing.T) {
 	mainClient := &fakeClient{}
 	cloudClient := &fakeClient{}
 	tracker := newCloudLivenessTracker()
 
-	tracker.Touch(mainClient, cloudClient, "host.eriks-macbook-pro-2", "hosts/eriks-macbook-pro-2/node/state", "")
+	tracker.Touch(mainClient, cloudClient, "host.eriks-macbook-pro-2", "hosts/eriks-macbook-pro-2/node/state", false)
 
 	if len(cloudClient.published) != 0 {
-		t.Errorf("got %v, want no cloud publish when qualifier is empty", cloudClient.published)
+		t.Errorf("got %v, want no cloud publish when not cloud-routed", cloudClient.published)
 	}
 }
 
@@ -137,8 +121,8 @@ func TestCloudLivenessTrackerSweepMarksStaleDeviceFalseOnce(t *testing.T) {
 
 // TestCloudLivenessTrackerSweepCrossPostsFalseToCloud is the sweep-side counterpart of
 // TestCloudLivenessTrackerTouchCrossPostsToCloud: a device going stale must also mark it "false"
-// on the cloud catalogue, qualified by its own ImportedFrom (always this house's own installation
-// name in practice, since relayCloudDevice only ever runs for the self-import case).
+// on the cloud catalogue, under the same bare topic (retired 2026-09-08's installation-qualified
+// segment).
 func TestCloudLivenessTrackerSweepCrossPostsFalseToCloud(t *testing.T) {
 	mainClient := &fakeClient{}
 	cloudClient := &fakeClient{}
@@ -150,7 +134,7 @@ func TestCloudLivenessTrackerSweepCrossPostsFalseToCloud(t *testing.T) {
 
 	tracker.sweepOnce(mainClient, cloudClient, devices)
 
-	wantTopic := "hosts/eriks-macbook-pro-2/junglinster/node/state"
+	wantTopic := "hosts/eriks-macbook-pro-2/node/state"
 	found := false
 	for _, p := range cloudClient.published {
 		if p.topic == wantTopic && string(p.payload) == "false" {
@@ -185,7 +169,7 @@ func TestCloudLivenessTrackerTouchAfterStaleClearsFlag(t *testing.T) {
 	tracker.lastSeen["host.eriks-macbook-pro-2"] = time.Now().Add(-2 * cloudDeviceStaleAfter)
 	tracker.sweepOnce(mainClient, nil, devices) // marks stale, publishes "false"
 
-	tracker.Touch(mainClient, nil, "host.eriks-macbook-pro-2", "hosts/eriks-macbook-pro-2/node/state", "") // traffic resumes
+	tracker.Touch(mainClient, nil, "host.eriks-macbook-pro-2", "hosts/eriks-macbook-pro-2/node/state", false) // traffic resumes
 
 	tracker.mu.Lock()
 	stillStale := tracker.stale["host.eriks-macbook-pro-2"]

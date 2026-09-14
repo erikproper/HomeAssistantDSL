@@ -236,7 +236,20 @@ func automationIntegrationDef() (file, content string) {
 // configuration.yaml is silently ignored (removed outright from 2027.2.0). That setting has to be
 // made via Settings > System > Network in the UI, not generated -- not something this generator
 // can own.
-const remoteInstanceConfigurationYAMLBody = "default_config:\n\nhomeassistant:\n  packages: !include_dir_named integrations\n"
+//
+// Deliberately spells out "default_config"'s own dependency list rather than using
+// "default_config:" itself, omitting "bluetooth" -- found live 2026-09-09 on Vienna's
+// protocols-server-2 (a rootless-Podman-hosted remote instance): "bluetooth" fails its own
+// async_setup with a D-Bus PermissionError in that environment, which aborts "default_config"'s
+// entire setup outright, taking every other dependency it bundles down with it (none of these
+// remote instances have or need a real Bluetooth adapter anyway). "automation"/"script"/"config"/
+// "frontend" aren't in this list because Home Assistant sets those up unconditionally regardless
+// of "default_config" -- confirmed via this exact instance's own core: it isn't this list that
+// provides them. Trade-off, accepted deliberately: this list is a snapshot of "default_config"'s
+// manifest dependencies (homeassistant/components/default_config/manifest.json) at the HA version
+// running 2026-09-09; a future HA upgrade adding a new dependency there won't automatically be
+// picked up here.
+const remoteInstanceConfigurationYAMLBody = "assist_pipeline:\ncloud:\nconversation:\ndhcp:\nenergy:\nfile:\ngo2rtc:\nhistory:\nhomeassistant_alerts:\nlogbook:\nmedia_source:\nmobile_app:\nmy:\nssdp:\nstream:\nsun:\nusage_prediction:\nusb:\nwebhook:\nzeroconf:\n\nhomeassistant:\n  packages: !include_dir_named integrations\n"
 
 // writeRemoteInstanceSkeleton writes the minimal skeleton a remote instance's tree needs around
 // its automation/ content to actually be includable by HA: configuration.yaml (scoped to what
@@ -294,6 +307,9 @@ func generateInstanceAutomationTrees(haOutputDir string, instances map[string]TH
 		// ./generate run wipes this file from any previously-deployed tree, so simply not writing
 		// it here is enough to retire it on next deploy -- no separate cleanup needed.
 		if err := generateHassBridgeEntityReportingAutomations(instanceHAOutputDir, name, hassBridgeDevicesByID, admin); err != nil {
+			return err
+		}
+		if err := generateHassBridgeEntityCommandAutomations(instanceHAOutputDir, name, hassBridgeDevicesByID, admin); err != nil {
 			return err
 		}
 		if deviceInfoReports, hasDeviceInfo := deviceInfoByInstance[name]; hasDeviceInfo {

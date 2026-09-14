@@ -165,7 +165,7 @@ func TestBuildImportedDiscoveryBody(t *testing.T) {
 		DisplayName: "apartment/shower_room/netatmo",
 	}
 
-	body := buildImportedDiscoveryBody(match, payload, "")
+	body := buildImportedDiscoveryBody(match, payload, "", "", nil, "test")
 	if body["default_entity_id"] != "sensor.physical_shower_room_netatmo_temperature" {
 		t.Errorf("default_entity_id = %v, want the Spaces.def-resolved local entity id", body["default_entity_id"])
 	}
@@ -187,8 +187,70 @@ func TestBuildImportedDiscoveryBody(t *testing.T) {
 		t.Errorf("device.name = %v, want the Spaces.def-resolved display name, not anything from the remote", device["name"])
 	}
 	origin, ok := body["origin"].(map[string]interface{})
-	if !ok || origin["name"] != "House Event Bus Coordinator" {
-		t.Errorf("origin = %v, want {\"name\": \"House Event Bus Coordinator\"}", body["origin"])
+	if !ok || origin["name"] != "House Event Bus Coordinator (test)" {
+		t.Errorf("origin = %v, want {\"name\": \"House Event Bus Coordinator (test)\"}", body["origin"])
+	}
+}
+
+// TestBuildImportedDiscoveryBodySetsViaDeviceWhenTargetAlsoImported is PROJECT.md item 3/
+// plans/via-device-inference.md's Phase 2: the exporter's own via_device (Junglinster's local
+// "hass.vienna_livingroom") must be translated into whichever of THIS house's own imports
+// corresponds to that same remote device -- found purely via the (remoteInstallation,
+// RemoteDeviceID) index already built from Physical.def's own import declarations, no new
+// inference on this side at all.
+func TestBuildImportedDiscoveryBodySetsViaDeviceWhenTargetAlsoImported(t *testing.T) {
+	payload := importedDiscoveryPayload{DefaultEntityID: "sensor.infrastructural_vienna_bedroom_battery_level"}
+	payload.Device.Identifiers = []string{"hass.vienna_bedroom"}
+	payload.Device.ViaDevice = "hass.vienna_livingroom"
+	match := importCapabilityMatch{LocalDeviceID: "node.vienna_bedroom", Capability: "battery_level", LocalEntity: "sensor.physical_vienna_bedroom_battery_level"}
+
+	viaDeviceIndex := buildImportViaDeviceIndex(TImportedFile{Devices: map[string]TImportedDevice{
+		"node.vienna_livingroom": {RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_livingroom"},
+	}})
+
+	body := buildImportedDiscoveryBody(match, payload, "", "junglinster", viaDeviceIndex, "vienna")
+	device := body["device"].(map[string]interface{})
+	if device["via_device"] != "node.vienna_livingroom" {
+		t.Errorf("device.via_device = %v, want %q (this house's own import of the same remote device)", device["via_device"], "node.vienna_livingroom")
+	}
+}
+
+// TestBuildImportedDiscoveryBodyOmitsViaDeviceWhenTargetNotImported confirms a correct,
+// unremarkable "nothing to link to" -- the exporter named a real via_device, but this house never
+// imported that specific remote device too, so there's nothing in this house's own HA device
+// registry to point at.
+func TestBuildImportedDiscoveryBodyOmitsViaDeviceWhenTargetNotImported(t *testing.T) {
+	payload := importedDiscoveryPayload{DefaultEntityID: "sensor.infrastructural_vienna_bedroom_battery_level"}
+	payload.Device.Identifiers = []string{"hass.vienna_bedroom"}
+	payload.Device.ViaDevice = "hass.vienna_livingroom"
+	match := importCapabilityMatch{LocalDeviceID: "node.vienna_bedroom", Capability: "battery_level", LocalEntity: "sensor.physical_vienna_bedroom_battery_level"}
+
+	body := buildImportedDiscoveryBody(match, payload, "", "junglinster", buildImportViaDeviceIndex(TImportedFile{}), "vienna")
+	device := body["device"].(map[string]interface{})
+	if _, present := device["via_device"]; present {
+		t.Errorf("device.via_device = %v, want it entirely omitted (target not also imported)", device["via_device"])
+	}
+}
+
+// TestBuildImportViaDeviceIndex confirms the index is keyed on the (RemoteInstallation,
+// RemoteDeviceID) pair, not local device id, and skips a device that isn't a real import (no
+// remote reference at all -- shouldn't happen for a genuinely "import"-kind device, but
+// defensive).
+func TestBuildImportViaDeviceIndex(t *testing.T) {
+	importFile := TImportedFile{Devices: map[string]TImportedDevice{
+		"node.vienna_livingroom": {RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_livingroom"},
+		"node.pro-1":             {RemoteInstallation: "junglinster", RemoteDeviceID: "host.pro-1"},
+		"no-remote-reference":    {},
+	}}
+	index := buildImportViaDeviceIndex(importFile)
+	if len(index) != 2 {
+		t.Fatalf("got %d entries, want 2 (the no-remote-reference device must be skipped): %v", len(index), index)
+	}
+	if index[importRemoteDeviceKey{RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_livingroom"}] != "node.vienna_livingroom" {
+		t.Errorf("index missing/wrong for hass.vienna_livingroom: %v", index)
+	}
+	if index[importRemoteDeviceKey{RemoteInstallation: "junglinster", RemoteDeviceID: "host.pro-1"}] != "node.pro-1" {
+		t.Errorf("index missing/wrong for host.pro-1: %v", index)
 	}
 }
 
@@ -200,7 +262,7 @@ func TestBuildImportedDiscoveryBodyDeviceNameFallsBackToLocalDeviceID(t *testing
 	payload.Device.Identifiers = []string{"hass.vienna_shower_room"}
 	match := importCapabilityMatch{LocalDeviceID: "hass.vienna_shower_room", Capability: "temperature", LocalEntity: "sensor.physical_shower_room_netatmo_temperature"}
 
-	body := buildImportedDiscoveryBody(match, payload, "")
+	body := buildImportedDiscoveryBody(match, payload, "", "", nil, "test")
 	device := body["device"].(map[string]interface{})
 	if device["name"] != "hass.vienna_shower_room" {
 		t.Errorf("device.name = %v, want the fallback bare local device id", device["name"])
@@ -237,7 +299,7 @@ func TestBuildImportedDiscoveryBodyAppliesLocalSuggestedArea(t *testing.T) {
 	payload.Device.Identifiers = []string{"hass.vienna_livingroom"}
 	payload.Device.Manufacturer = "Netatmo" // exporter-learned, must coexist with the local area
 
-	body := buildImportedDiscoveryBody(match, payload, "")
+	body := buildImportedDiscoveryBody(match, payload, "", "", nil, "test")
 	device := body["device"].(map[string]interface{})
 	if device["suggested_area"] != "social/living_room" {
 		t.Errorf("device.suggested_area = %v, want %q", device["suggested_area"], "social/living_room")
@@ -317,7 +379,7 @@ func TestBuildImportedDiscoveryBodyIncludesAvailability(t *testing.T) {
 	match := importCapabilityMatch{LocalDeviceID: "hass.vienna_shower_room", Capability: "temperature", LocalEntity: "sensor.physical_shower_room_netatmo_temperature"}
 	nodeAvailabilityTopic := importedStateTopic("binary_sensor.infrastructural_shower_room_netatmo_node")
 
-	body := buildImportedDiscoveryBody(match, payload, nodeAvailabilityTopic)
+	body := buildImportedDiscoveryBody(match, payload, nodeAvailabilityTopic, "", nil, "test")
 	if body["availability_mode"] != "all" {
 		t.Errorf("availability_mode = %v, want \"all\"", body["availability_mode"])
 	}
@@ -341,7 +403,7 @@ func TestBuildImportedDiscoveryBodySetsLowercasePayloadOnOffForBinarySensor(t *t
 	payload.Device.Identifiers = []string{"hass.vienna_livingroom"}
 	match := importCapabilityMatch{LocalDeviceID: "hass.vienna_livingroom", Capability: "node", LocalEntity: "binary_sensor.infrastructural_apartment_living_room_netatmo_node"}
 
-	body := buildImportedDiscoveryBody(match, payload, "")
+	body := buildImportedDiscoveryBody(match, payload, "", "", nil, "test")
 	if body["payload_on"] != "on" || body["payload_off"] != "off" {
 		t.Errorf("payload_on/payload_off = %v/%v, want on/off", body["payload_on"], body["payload_off"])
 	}
@@ -365,7 +427,7 @@ func TestBuildImportedDiscoveryBodyPreservesHostsKindPayloadOnOff(t *testing.T) 
 	payload.Device.Identifiers = []string{"host.eriks-macbook-pro-2"}
 	match := importCapabilityMatch{LocalDeviceID: "import.eriks-macbook-pro-2", Capability: "node", LocalEntity: "binary_sensor.infrastructural_eriks_macbook_pro_2_node"}
 
-	body := buildImportedDiscoveryBody(match, payload, "")
+	body := buildImportedDiscoveryBody(match, payload, "", "", nil, "test")
 	if body["payload_on"] != "true" || body["payload_off"] != "false" {
 		t.Errorf("payload_on/payload_off = %v/%v, want the remote's own true/false preserved verbatim", body["payload_on"], body["payload_off"])
 	}
@@ -542,13 +604,12 @@ func TestSubscribeImportedDevicesRelaysManyCapabilitiesAfterConfigBurst(t *testi
 // counterpart of TestSubscribeImportedDevicesPublishesLocalDiscoveryAndRelaysValue: two
 // capabilities ("cpu/load", "cpu/temperature") sharing one JSON-blob cloud discovery payload each
 // with their own "value_template" ("hosts"-kind's own shape, homeassistant/discovery.go's
-// buildDiscoveryConfigs) and a bare "state_topic" ("hosts/smarty/cpu/state", not self-qualifying).
-// After their discovery configs arrive, a single incoming JSON-blob message on the real,
-// cross-house-qualified topic ("hosts/smarty/junglinster/cpu/state", exactly what
-// Integrations/cpu/report publishes when installation=junglinster) must fan out to BOTH local
-// relay topics, each carrying just its own extracted field -- confirming the unified importer
-// resolves "hosts"-kind sources purely from the payload's own StateTopic/ValueTemplate fields, with
-// no exporter-side change and no DSL-declared "kind".
+// buildDiscoveryConfigs) and a bare "state_topic" ("hosts/smarty/cpu/state"). After their
+// discovery configs arrive, a single incoming JSON-blob message on that same bare topic (exactly
+// what Integrations/cpu/report publishes -- retired 2026-09-08's installation-qualified segment)
+// must fan out to BOTH local relay topics, each carrying just its own extracted field --
+// confirming the unified importer resolves "hosts"-kind sources purely from the payload's own
+// StateTopic/ValueTemplate fields, with no exporter-side change and no DSL-declared "kind".
 func TestSubscribeImportedDevicesHostsKindQualifiesTopicAndExtractsJSON(t *testing.T) {
 	const loadLocalEntity = "sensor.physical_smarty_cpu_load"
 	const temperatureLocalEntity = "sensor.physical_smarty_cpu_temperature"
@@ -593,13 +654,12 @@ func TestSubscribeImportedDevicesHostsKindQualifiesTopicAndExtractsJSON(t *testi
 		t.Fatalf("subscribeImportedDevices error: %v", err)
 	}
 
-	// The real report script (Integrations/cpu/report) always publishes to the cross-house
-	// qualified topic directly -- "hosts/<host>/<installation>/cpu/state" -- never the bare shape
-	// the discovery payload's own state_topic field carries.
-	qualifiedTopic := "hosts/smarty/junglinster/cpu/state"
+	// The real report script (Integrations/cpu/report) publishes directly to this same bare
+	// topic -- exactly what the discovery payload's own state_topic field already carries.
+	bareTopic := "hosts/smarty/cpu/state"
 	blob := []byte(`{"load": 42.3, "temperature": 19.5}`)
 	for _, h := range cloudClient.subscribedHandlersSnapshot() {
-		h(cloudClient, fakeMessage{topic: qualifiedTopic, payload: blob})
+		h(cloudClient, fakeMessage{topic: bareTopic, payload: blob})
 	}
 
 	published := mainClient.publishedSnapshot()
@@ -624,13 +684,13 @@ func TestSubscribeImportedDevicesHostsKindQualifiesTopicAndExtractsJSON(t *testi
 	// The real deployed report script never publishes a "node" value of its own -- but this side
 	// needs no special handling for that (see TImportedHostsRelay's own doc comment): the
 	// EXPORTING installation's own TCloudLivenessTracker (mqtt_relay.go) computes and cross-posts
-	// it to the SAME qualified topic shape as any other "hosts"-kind attribute, so a plain node
+	// it to the SAME bare topic shape as any other "hosts"-kind attribute, so a plain node
 	// message arriving here must relay exactly like "load"/"temperature" did above -- no
 	// importer-side synthesis involved.
 	wantNodeTopic := importedStateTopic(nodeLocalEntity)
-	nodeQualifiedTopic := "hosts/smarty/junglinster/node/state"
+	nodeBareTopic := "hosts/smarty/node/state"
 	for _, h := range cloudClient.subscribedHandlersSnapshot() {
-		h(cloudClient, fakeMessage{topic: nodeQualifiedTopic, payload: []byte("true")})
+		h(cloudClient, fakeMessage{topic: nodeBareTopic, payload: []byte("true")})
 	}
 	foundNodeTrue := false
 	for _, p := range mainClient.publishedSnapshot() {
@@ -677,9 +737,9 @@ func TestSubscribeImportedDevicesHostsKindRelaysNonJSONPayloadVerbatim(t *testin
 		t.Fatalf("subscribeImportedDevices error: %v", err)
 	}
 
-	qualifiedTopic := "hosts/smarty/junglinster/node/state"
+	bareTopic := "hosts/smarty/node/state"
 	for _, h := range cloudClient.subscribedHandlersSnapshot() {
-		h(cloudClient, fakeMessage{topic: qualifiedTopic, payload: []byte("true")})
+		h(cloudClient, fakeMessage{topic: bareTopic, payload: []byte("true")})
 	}
 
 	wantTopic := importedStateTopic(nodeLocalEntity)
@@ -710,5 +770,150 @@ func TestSubscribeImportedHassBridgeDevicesNoopWithNoCloudClient(t *testing.T) {
 	}
 	if len(mainClient.published) != 0 {
 		t.Errorf("expected a full no-op with no cloud client, got %v", mainClient.published)
+	}
+}
+
+// TestResolveImportedDerivedCapabilityAtomic covers the single-step case: state_topic is the
+// atomic sibling's own local relay topic, template is the bare passthrough "value".
+func TestResolveImportedDerivedCapabilityAtomic(t *testing.T) {
+	device := TImportedDevice{Capabilities: map[string]TImportedCapability{
+		"battery_level": {LocalEntity: "sensor.infrastructural_terrace_netatmo_battery_level"},
+	}}
+	topic, template, ok := resolveImportedDerivedCapability(device, "battery_level", map[string]bool{})
+	if !ok {
+		t.Fatalf("expected a resolved chain")
+	}
+	if topic != importedStateTopic("sensor.infrastructural_terrace_netatmo_battery_level") {
+		t.Errorf("topic = %q, want the atomic capability's own local relay topic", topic)
+	}
+	if template != "value" {
+		t.Errorf("template = %q, want the bare passthrough \"value\"", template)
+	}
+}
+
+// TestResolveImportedDerivedCapabilityComposesChain covers a two-step derivation (a capability
+// derived from another derived capability) -- must collapse to the ultimate atomic ancestor's own
+// topic, with a fully nested, parenthesized template.
+func TestResolveImportedDerivedCapabilityComposesChain(t *testing.T) {
+	device := TImportedDevice{Capabilities: map[string]TImportedCapability{
+		"battery_level":         {LocalEntity: "sensor.infrastructural_terrace_netatmo_battery_level"},
+		"battery_alert":         {Domain: "binary_sensor", DerivedFromCapability: "battery_level", DerivedViaTemplate: "( $ | int(0) < 20 )"},
+		"battery_alert_delayed": {Domain: "binary_sensor", DerivedFromCapability: "battery_alert", DerivedViaTemplate: "not ($)"},
+	}}
+	topic, template, ok := resolveImportedDerivedCapability(device, "battery_alert_delayed", map[string]bool{})
+	if !ok {
+		t.Fatalf("expected a resolved chain")
+	}
+	if topic != importedStateTopic("sensor.infrastructural_terrace_netatmo_battery_level") {
+		t.Errorf("topic = %q, want the ULTIMATE atomic ancestor's own topic", topic)
+	}
+	want := "not ((( (value) | int(0) < 20 )))"
+	if template != want {
+		t.Errorf("template = %q, want %q", template, want)
+	}
+}
+
+// TestResolveImportedDerivedCapabilityDanglingReference covers "derived from" a label the device
+// doesn't declare at all -- must fail cleanly (ok=false), not panic.
+func TestResolveImportedDerivedCapabilityDanglingReference(t *testing.T) {
+	device := TImportedDevice{Capabilities: map[string]TImportedCapability{
+		"battery_alert": {Domain: "binary_sensor", DerivedFromCapability: "battery_level", DerivedViaTemplate: "( $ | int(0) < 20 )"},
+	}}
+	if _, _, ok := resolveImportedDerivedCapability(device, "battery_alert", map[string]bool{}); ok {
+		t.Errorf("expected ok=false: battery_level is not declared on this device")
+	}
+}
+
+// TestBuildDerivedImportedDiscoveryBody covers the discovery config shape for a derived import
+// capability: state_topic/value_template come from the resolved chain, not any exporter payload.
+func TestBuildDerivedImportedDiscoveryBody(t *testing.T) {
+	device := TImportedDevice{
+		DisplayName: "apartment/terrace/netatmo",
+		Capabilities: map[string]TImportedCapability{
+			"battery_alert": {Domain: "binary_sensor", DerivedFromCapability: "battery_level", DerivedViaTemplate: "( $ | int(0) < 20 )"},
+		},
+	}
+	cap := device.Capabilities["battery_alert"]
+	cap.LocalEntity = "binary_sensor.infrastructural_terrace_netatmo_battery_alert"
+	baseTopic := importedStateTopic("sensor.infrastructural_terrace_netatmo_battery_level")
+
+	body := buildDerivedImportedDiscoveryBody("import.vienna_terrace", device, "battery_alert", cap, baseTopic, "( (value) | int(0) < 20 )", "", "test")
+	if body["state_topic"] != baseTopic {
+		t.Errorf("state_topic = %v, want the resolved atomic ancestor's own topic %q", body["state_topic"], baseTopic)
+	}
+	if body["value_template"] != "{{ ( (value) | int(0) < 20 ) }}" {
+		t.Errorf("value_template = %v, want the composed template wrapped in {{ }}", body["value_template"])
+	}
+	if body["default_entity_id"] != cap.LocalEntity {
+		t.Errorf("default_entity_id = %v, want %q", body["default_entity_id"], cap.LocalEntity)
+	}
+	if body["payload_on"] != mqttStateOn || body["payload_off"] != mqttStateOff {
+		t.Errorf("payload_on/off = %v/%v, want the lowercase binary_sensor convention", body["payload_on"], body["payload_off"])
+	}
+	deviceBlock, ok := body["device"].(map[string]interface{})
+	if !ok || deviceBlock["name"] != "apartment/terrace/netatmo" {
+		t.Errorf("device block = %v, want name %q", body["device"], "apartment/terrace/netatmo")
+	}
+}
+
+// TestPublishDerivedImportedDiscoveryEndToEnd is the end-to-end counterpart: a derived capability
+// declared in importFile gets its own discovery config published, with no cloud message involved
+// at all -- unlike every other imported capability's own discovery path.
+func TestPublishDerivedImportedDiscoveryEndToEnd(t *testing.T) {
+	importFile := TImportedFile{Devices: map[string]TImportedDevice{
+		"import.vienna_terrace": {
+			DisplayName: "apartment/terrace/netatmo",
+			Capabilities: map[string]TImportedCapability{
+				"battery_level": {LocalEntity: "sensor.infrastructural_terrace_netatmo_battery_level"},
+				"battery_alert": {Domain: "binary_sensor", DerivedFromCapability: "battery_level", DerivedViaTemplate: "( $ | int(0) < 20 )", LocalEntity: "binary_sensor.infrastructural_terrace_netatmo_battery_alert"},
+			},
+		},
+	}}
+	mainClient := &fakeClient{}
+	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
+
+	if err := publishDerivedImportedDiscovery(mainClient, importFile, publisher, testPrefix, "test"); err != nil {
+		t.Fatalf("publishDerivedImportedDiscovery error: %v", err)
+	}
+
+	wantTopic := discoveryTopic(testPrefix, "binary_sensor", importedUniqueID("binary_sensor.infrastructural_terrace_netatmo_battery_alert"))
+	var got map[string]interface{}
+	found := false
+	for _, p := range mainClient.publishedSnapshot() {
+		if p.topic == wantTopic {
+			found = true
+			if err := json.Unmarshal(p.payload, &got); err != nil {
+				t.Fatalf("unmarshalling published discovery payload: %v", err)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected a discovery config published to %q, got %v", wantTopic, mainClient.publishedSnapshot())
+	}
+	wantStateTopic := importedStateTopic("sensor.infrastructural_terrace_netatmo_battery_level")
+	if got["state_topic"] != wantStateTopic {
+		t.Errorf("state_topic = %v, want the sibling's own local relay topic %q", got["state_topic"], wantStateTopic)
+	}
+}
+
+// TestPublishDerivedImportedDiscoverySkipsUnresolvableChain confirms a dangling "derived from"
+// reference is skipped (no publish, no error), not fatal -- physical_rule_derived_capabilities.go
+// already warns about this at generate time.
+func TestPublishDerivedImportedDiscoverySkipsUnresolvableChain(t *testing.T) {
+	importFile := TImportedFile{Devices: map[string]TImportedDevice{
+		"import.vienna_terrace": {
+			Capabilities: map[string]TImportedCapability{
+				"battery_alert": {Domain: "binary_sensor", DerivedFromCapability: "battery_level", DerivedViaTemplate: "( $ | int(0) < 20 )", LocalEntity: "binary_sensor.infrastructural_terrace_netatmo_battery_alert"},
+			},
+		},
+	}}
+	mainClient := &fakeClient{}
+	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
+
+	if err := publishDerivedImportedDiscovery(mainClient, importFile, publisher, testPrefix, "test"); err != nil {
+		t.Fatalf("publishDerivedImportedDiscovery error: %v", err)
+	}
+	if len(mainClient.publishedSnapshot()) != 0 {
+		t.Errorf("expected no publish for an unresolvable chain, got %v", mainClient.publishedSnapshot())
 	}
 }

@@ -105,7 +105,7 @@ func publishMetaReloadRestartButtons(client mqtt.Client, conceptualPrefix, insta
 				"command_topic":   metaActionTopic(action, target),
 				"payload_press":   "PRESS",
 				"entity_category": "config",
-				"origin":          coordinatorOriginMap(),
+				"origin":          coordinatorOriginMap(installation),
 			}
 			data, err := json.Marshal(body)
 			if err != nil {

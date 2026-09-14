@@ -4,18 +4,24 @@
  * Package:   Main
  * Component: ConceptualDeviceCapabilityEntities
  *
- * Parses and registers the conceptual layer's "entity <local-spec> from <device-id> entity
- * <capability>;" construct -- a unified alternative to the discovery integration's dot-joined
- * "entity <spec> from <gateway-id>.<leaf>;" (Conceptual_DiscoveryEntities.go) and the
- * home_assistant bridge's "entity <spec> as <source> from <device-id>;"
- * (Conceptual_DeviceSourceEntities.go) forms, referencing a device's own already-declared
- * capability by its local label (the LHS of its "<type>.<label>: <source>;" Physical.def line,
- * e.g. "co2" from "sensor.co2: sensor.davids_bedroom_carbon_dioxide;") regardless of which
- * integration kind the device belongs to -- one syntax for "position this specific entity of a
- * device I've already declared," instead of a different keyword per device kind. <capability> may
- * carry a domain prefix ("sensor.co2") for readability at the call site; it's stripped before
- * lookup since neither the discovery gateway's nor the hassbridge device's own Capabilities map
- * is keyed by domain-prefixed names (both are keyed by the bare local label alone).
+ * Parses and registers the conceptual layer's "entity <local-spec> from <device-id> <capability>;"
+ * construct -- a unified alternative to the discovery integration's dot-joined "entity <spec> from
+ * <gateway-id>.<leaf>;" (Conceptual_DiscoveryEntities.go) and the home_assistant bridge's "entity
+ * <spec> as <source> from <device-id>;" (Conceptual_DeviceSourceEntities.go) forms, referencing a
+ * device's own already-declared capability by its local label (the LHS of its "<type>.<label>:
+ * <source>;" Physical.def line, e.g. "co2" from "sensor.co2: sensor.davids_bedroom_carbon_dioxide;")
+ * regardless of which integration kind the device belongs to -- one syntax for "position this
+ * specific entity of a device I've already declared," instead of a different keyword per device
+ * kind. <capability> may carry a domain prefix ("sensor.co2") for readability at the call site;
+ * it's stripped before lookup since neither the discovery gateway's nor the hassbridge device's own
+ * Capabilities map is keyed by domain-prefixed names (both are keyed by the bare local label alone).
+ *
+ * PROJECT.md item 4 (2026-09-09): the RHS used to require a redundant literal "entity" keyword
+ * before <capability> ("entity <spec> from <device-id> <capability>;") -- dropped outright
+ * (no dual-syntax transition period, matching every other grammar retirement this project has done)
+ * once it became clear nothing else could ever occupy that slot: the only other "entity ... from
+ * ...;" shape with a single token after "from" is the discovery gateway's dot-joined form, which is
+ * unambiguous against this construct's two-or-three-token shape regardless of the "entity" keyword.
  *
  * This file owns only the parsing + dispatch; the actual registration work is delegated entirely
  * to each device kind's own existing, unchanged function (registerDiscoveryEntityLink /
@@ -38,7 +44,7 @@ import (
 	"strings"
 )
 
-// TDeviceCapabilityEntityDeclaration is one parsed "entity <local-spec> from <device-id> entity
+// TDeviceCapabilityEntityDeclaration is one parsed "entity <local-spec> from <device-id>
 // <capability>;" line.
 type TDeviceCapabilityEntityDeclaration struct {
 	LocalSpec  string
@@ -46,12 +52,12 @@ type TDeviceCapabilityEntityDeclaration struct {
 	Capability string // e.g. "sensor.co2" -- domain prefix optional, stripped before lookup (bareCapabilityName)
 }
 
-var deviceCapabilityEntityPattern = regexp.MustCompile(`^entity\s+(\S+)\s+from\s+(\S+)\s+entity\s+(\S+);$`)
+var deviceCapabilityEntityPattern = regexp.MustCompile(`^entity\s+(\S+)\s+from\s+(\S+)\s+(\S+);$`)
 
-// extractDeviceCapabilityEntityDeclaration recognises the "entity <spec> from <device-id> entity
+// extractDeviceCapabilityEntityDeclaration recognises the "entity <spec> from <device-id>
 // <capability>;" shape -- distinguished from extractDiscoveryEntityDeclaration's dot-joined
-// "entity <spec> from <gateway-id>.<leaf>;" (exactly one token after "from") by the extra literal
-// "entity" keyword and capability token.
+// "entity <spec> from <gateway-id>.<leaf>;" (exactly one token after "from") by the extra
+// capability token.
 func extractDeviceCapabilityEntityDeclaration(line string) (*TDeviceCapabilityEntityDeclaration, bool) {
 	matches := deviceCapabilityEntityPattern.FindStringSubmatch(line)
 	if matches == nil {
@@ -66,27 +72,35 @@ func extractDeviceCapabilityEntityDeclaration(line string) (*TDeviceCapabilityEn
 
 // forDeviceShorthandPattern is the body-line shape inside a "device <spec> from <device-id>
 // with: ... end;" block (Conceptual_DevicePositioning.go's deviceWithBlockHeaderPattern) -- sugar
-// for a run of "entity <spec> from <device-id> entity <capability>;" lines that all repeat the
-// same device-id. Inside the block, each line drops the repeated device-id ("entity <spec> from
-// entity <capability>;"); parser.go's own main loop tracks "currently inside a with-block, for
-// which device-id" and expands each such line back to deviceCapabilityEntityPattern's full shape
-// before handing it to the ordinary dispatch chain -- so this is purely textual sugar, expanded at
-// the point of parsing, with no new registration path of its own to drift from
+// for a run of "entity <spec> from <device-id> <capability>;" lines that all repeat the same
+// device-id. Inside the block, each line drops the repeated device-id ("entity <spec> from
+// <capability>;"); parser.go's own main loop tracks "currently inside a with-block, for which
+// device-id" and expands each such line back to deviceCapabilityEntityPattern's full shape before
+// handing it to the ordinary dispatch chain -- so this is purely textual sugar, expanded at the
+// point of parsing, with no new registration path of its own to drift from
 // registerDeviceCapabilityEntityLink. (Formerly also the body shape of a standalone "for
 // <device-id>: ... end;" block; that standalone form and its header recognizer were retired
 // 2026-09-01 in favour of the merged construct -- this expansion function is the only part that
 // survived, now reused by the merged construct's own body-line handling.)
-var forDeviceShorthandPattern = regexp.MustCompile(`^entity\s+(\S+)\s+from\s+entity\s+(\S+);$`)
+//
+// No collision risk against the discovery gateway's own dot-joined "entity <spec> from
+// <gateway-id>.<leaf>;" (PROJECT.md item 4, 2026-09-09, dropping this shape's own former "entity"
+// keyword before <capability>): a "device ... with:" block can only ever be opened for a
+// hosts/imported/hassbridge target (registerDevicePositioning, Conceptual_DevicePositioning.go),
+// never a "discovery" gateway one, and parser.go's main loop only ever attempts this expansion
+// while inside such a block (tracked via forDeviceID) -- the discovery pattern is never even
+// consulted for a line reached this way.
+var forDeviceShorthandPattern = regexp.MustCompile(`^entity\s+(\S+)\s+from\s+(\S+);$`)
 
-// expandForDeviceShorthandLine rewrites one "entity <spec> from entity <capability>;" line (found
-// inside a "device <spec> from <deviceID> with: ... end;" block) back to the full "entity <spec>
-// from <deviceID> entity <capability>;" shape deviceCapabilityEntityPattern expects.
+// expandForDeviceShorthandLine rewrites one "entity <spec> from <capability>;" line (found inside a
+// "device <spec> from <deviceID> with: ... end;" block) back to the full "entity <spec> from
+// <deviceID> <capability>;" shape deviceCapabilityEntityPattern expects.
 func expandForDeviceShorthandLine(line, deviceID string) (string, bool) {
 	matches := forDeviceShorthandPattern.FindStringSubmatch(line)
 	if matches == nil {
 		return "", false
 	}
-	return fmt.Sprintf("entity %s from %s entity %s;", matches[1], deviceID, matches[2]), true
+	return fmt.Sprintf("entity %s from %s %s;", matches[1], deviceID, matches[2]), true
 }
 
 // bareCapabilityName strips an optional "<domain>." prefix from ref (e.g. "sensor.co2" -> "co2"),
@@ -116,8 +130,17 @@ func bareCapabilityName(ref string) string {
 // is the one retry after the whole file has been read, where "still not positioned" is final. The
 // discovery/hosts/unknown-device branches never depend on positioning, so they always return
 // deferred=false regardless of finalAttempt.
-func registerDeviceCapabilityEntityLink(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, hostDevicesByID map[string]THostDevice, commandlineDevicesByID map[string]TCommandlineDevice, entitiesPath string, lineNum int, finalAttempt bool) (warnings []string, deferred bool) {
-	provenance := fmt.Sprintf("%s:%d → %s from %s entity %s", filepath.Base(entitiesPath), lineNum, decl.LocalSpec, decl.DeviceID, decl.Capability)
+//
+// deviceNamePath is non-empty only when decl came from inside a "device <spec> from <device-id>
+// with: ... end;" block's body (parser.go tracks this alongside forDeviceID) -- PROJECT.md item 5,
+// see registerDeviceSourceEntityLink's doc comment for the full rationale. Threaded through to
+// whichever branch below resolves decl.LocalSpec via a free-form spec (commandline, hassbridge,
+// imported); the discovery/hosts branches ignore it, since neither derives its naming from
+// decl.LocalSpec's own text (a discovery gateway's naming comes from the dot-joined gateway
+// reference itself, and a "hosts" device's from its own positioning-time deviceIdentity, already
+// fully resolved when it was positioned).
+func registerDeviceCapabilityEntityLink(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, hostDevicesByID map[string]THostDevice, commandlineDevicesByID map[string]TCommandlineDevice, entitiesPath string, lineNum int, finalAttempt bool, deviceNamePath string) (warnings []string, deferred bool) {
+	provenance := fmt.Sprintf("%s:%d → %s from %s %s", filepath.Base(entitiesPath), lineNum, decl.LocalSpec, decl.DeviceID, decl.Capability)
 	bareName := bareCapabilityName(decl.Capability)
 
 	// Checked first, but only actually claims the declaration when this SPECIFIC capability name is
@@ -130,7 +153,7 @@ func registerDeviceCapabilityEntityLink(administration *TAdministrationState, de
 	// capabilities (e.g. "load"/"temperature").
 	if device, found := commandlineDevicesByID[decl.DeviceID]; found {
 		if capability, capFound := device.Capabilities[bareName]; capFound {
-			return registerCommandlineCapabilityEntityLink(administration, decl.LocalSpec, decl.DeviceID, bareName, capability, provenance, finalAttempt)
+			return registerCommandlineCapabilityEntityLink(administration, decl.LocalSpec, decl.DeviceID, bareName, capability, provenance, finalAttempt, deviceNamePath)
 		}
 	}
 
@@ -154,7 +177,7 @@ func registerDeviceCapabilityEntityLink(administration *TAdministrationState, de
 			// value is display-only (the provenance string on a rare error path).
 			Source:   representativeSource(capability.Sources),
 			DeviceID: decl.DeviceID,
-		}, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, lineNum, finalAttempt, bareName)
+		}, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, lineNum, finalAttempt, bareName, deviceNamePath)
 	}
 
 	if importedDevice, found := importedDevicesByID[decl.DeviceID]; found {
@@ -164,7 +187,7 @@ func registerDeviceCapabilityEntityLink(administration *TAdministrationState, de
 		return registerDeviceSourceEntityLink(administration, TDeviceSourceEntityDeclaration{
 			LocalSpec: decl.LocalSpec,
 			DeviceID:  decl.DeviceID,
-		}, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, lineNum, finalAttempt, bareName)
+		}, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, lineNum, finalAttempt, bareName, deviceNamePath)
 	}
 
 	if device, found := hostDevicesByID[decl.DeviceID]; found {

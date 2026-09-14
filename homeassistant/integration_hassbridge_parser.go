@@ -221,6 +221,11 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 	// A bare typing-metadata line inside a capability's own "with: ... end;" block -- same four
 	// keywords as capabilityMetadataPattern, just without the leading path (implied by nesting).
 	capabilityWithMetadataPattern := regexp.MustCompile(`^(unit|icon|device_class|state_class):\s*"([^"]*)"\s*;\s*$`)
+	// "map: "<source-value>" "<target-value>";" -- repeatable (unlike the single-valued keywords
+	// above), inside a capability's own "with: ... end;" block. Translates the source's own raw
+	// reported value before it's published -- see THassBridgeCapability.ValueMap's own doc
+	// comment for why (Roomba's "home"/"run"/... vs. HA's "docked"/"cleaning"/...).
+	capabilityWithValueMapPattern := regexp.MustCompile(`^map:\s*"([^"]*)"\s+"([^"]*)"\s*;\s*$`)
 	// Bare (non-domain-prefixed) metadata lines -- mirrors integration_hosts_parser.go's own
 	// two patterns exactly, tried in the same order (constant-attribute first: a quoted value
 	// with nothing else after it but optional "forced" is unambiguous only if checked before the
@@ -233,6 +238,10 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 	// capability by its bare path (the same key Capabilities is keyed by, no domain prefix
 	// needed since the capability line already established that).
 	capabilityMetadataPattern := regexp.MustCompile(`^(\S+)\s+(unit|icon|device_class|state_class):\s*"([^"]*)"\s*;\s*$`)
+	// Standalone-trailing-line sibling of capabilityWithValueMapPattern -- "<path> map: "<from>"
+	// "<to>";", targeting an already-declared capability by its bare path, same shape
+	// capabilityMetadataPattern uses for the single-valued keywords.
+	capabilityValueMapPattern := regexp.MustCompile(`^(\S+)\s+map:\s*"([^"]*)"\s+"([^"]*)"\s*;\s*$`)
 
 	inDeviceCapabilities := false
 	var current THassBridgeDevice
@@ -267,6 +276,15 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 				current.Capabilities[pendingCapabilityPath] = cap
 				continue
 			}
+			if matches := capabilityWithValueMapPattern.FindStringSubmatch(line); matches != nil {
+				cap := current.Capabilities[pendingCapabilityPath]
+				if cap.ValueMap == nil {
+					cap.ValueMap = map[string]string{}
+				}
+				cap.ValueMap[matches[1]] = matches[2]
+				current.Capabilities[pendingCapabilityPath] = cap
+				continue
+			}
 			warnings = append(warnings, fmt.Sprintf("Physical.def: unrecognised line inside capability %q's \"with:\" block (body line %d): %q", pendingCapabilityPath, lineIdx+1, line))
 			continue
 		}
@@ -275,6 +293,17 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 			if line == "end;" {
 				devices = append(devices, current)
 				inDeviceCapabilities = false
+				continue
+			}
+			// Checked first, before any domain-prefixed capability pattern: "derived" is a
+			// distinct leading keyword, unambiguous against "<domain>.<path>: ...;" -- see
+			// Physical_DerivedCapability.go's own header comment.
+			if decl, ok := parseDerivedCapabilityLine(line); ok {
+				current.Capabilities[decl.Label] = THassBridgeCapability{
+					Domain:                decl.Domain,
+					DerivedFromCapability: decl.FromLabel,
+					DerivedViaTemplate:    decl.Template,
+				}
 				continue
 			}
 			if matches := capabilityWithPattern.FindStringSubmatch(line); matches != nil {
@@ -311,6 +340,20 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 				case "state_class":
 					cap.StateClass = value
 				}
+				current.Capabilities[path] = cap
+				continue
+			}
+			if matches := capabilityValueMapPattern.FindStringSubmatch(line); matches != nil {
+				path, from, to := matches[1], matches[2], matches[3]
+				cap, known := current.Capabilities[path]
+				if !known {
+					warnings = append(warnings, fmt.Sprintf("Physical.def: device %q: \"map\" declared for unknown capability %q; ignored", current.DeviceID, path))
+					continue
+				}
+				if cap.ValueMap == nil {
+					cap.ValueMap = map[string]string{}
+				}
+				cap.ValueMap[from] = to
 				current.Capabilities[path] = cap
 				continue
 			}

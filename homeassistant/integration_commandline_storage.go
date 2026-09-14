@@ -23,6 +23,8 @@
 
 package main
 
+import "fmt"
+
 // TCommandlineCapability is one "<kind>.<name>: <quoted-scripts>;" declaration inside a
 // commandline device's "with: ... end;" block. Which of StatusScript/OnScript/OffScript/
 // PressScript are populated depends on Kind:
@@ -70,6 +72,11 @@ func collectCommandlineDevicesByID(definitionDir string) (map[string]TCommandlin
 		for _, d := range devices {
 			if _, exists := byID[d.DeviceID]; !exists {
 				byID[d.DeviceID] = d
+			} else {
+				// See integration_hosts_storage.go's own "declared more than once" warning for
+				// the real incident (2026-09-10) that prompted adding this across every
+				// integration kind's own collector, not just hassbridge's (which already had it).
+				warnings = append(warnings, fmt.Sprintf("Physical.def: device %q declared more than once within the \"commandline\" integration; keeping the first declaration", d.DeviceID))
 			}
 		}
 	}

@@ -49,6 +49,64 @@ func TestGenerateImportedHassBridgeFile(t *testing.T) {
 	}
 }
 
+// TestGenerateImportedHassBridgeFileWritesDerivedCapabilityFields is a focused test for
+// plans/derived-capability-mechanism.md Phase 2's import/kind-4 runtime path: a "derived"
+// capability's Domain/DerivedFromCapability/DerivedViaTemplate must pass through into
+// imported.yaml verbatim, alongside its own local_entity like any other capability -- an ordinary
+// (non-derived) capability must NOT gain these fields.
+func TestGenerateImportedHassBridgeFileWritesDerivedCapabilityFields(t *testing.T) {
+	devices := []TImportedDevice{
+		{
+			DeviceID: "import.vienna_terrace", RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_terrace",
+			Capabilities: map[string]TImportedCapability{
+				"battery_level": {},
+				"battery_alert": {Domain: "binary_sensor", DerivedFromCapability: "battery_level", DerivedViaTemplate: "( $ | int(0) < 20 )"},
+			},
+		},
+	}
+	admin := newAdministrationState()
+	admin.DeviceConceptualLinks["import.vienna_terrace"] = TDeviceConceptualLink{
+		DisplayName: "terrace/netatmo",
+		AttributeEntityIDs: map[string]TDeviceAttributeLink{
+			"battery_level": {EntityID: "sensor.infrastructural_terrace_netatmo_battery_level"},
+			"battery_alert": {EntityID: "binary_sensor.infrastructural_terrace_netatmo_battery_alert"},
+		},
+	}
+
+	outputRoot := t.TempDir()
+	if err := generateImportedDeviceFile(outputRoot, devices, admin); err != nil {
+		t.Fatalf("generateImportedDeviceFile error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(outputRoot, "coordinator", "imported.yaml"))
+	if err != nil {
+		t.Fatalf("reading generated file: %v", err)
+	}
+	content := string(data)
+	for _, want := range []string{
+		"local_entity: binary_sensor.infrastructural_terrace_netatmo_battery_alert",
+		"domain: binary_sensor",
+		"derived_from: battery_level",
+		"derived_via: \"( $ | int(0) < 20 )\"",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("generated file = %s, want it to contain %q", content, want)
+		}
+	}
+
+	// The ordinary battery_level capability must not gain any of the three derived-only fields.
+	// Capabilities are written in sorted order ("battery_alert" < "battery_level"), so
+	// battery_level's own block runs from its header to the end of the generated file -- the
+	// three derived-only strings above only ever appear inside battery_alert's earlier block.
+	batteryLevelIdx := strings.Index(content, "battery_level:")
+	if batteryLevelIdx < 0 {
+		t.Fatalf("expected battery_level in generated file: %s", content)
+	}
+	batteryLevelBlock := content[batteryLevelIdx:]
+	if strings.Contains(batteryLevelBlock, "domain:") || strings.Contains(batteryLevelBlock, "derived_from:") || strings.Contains(batteryLevelBlock, "derived_via:") {
+		t.Errorf("ordinary capability block = %q, must not contain any derived-only field", batteryLevelBlock)
+	}
+}
+
 // TestGenerateImportedHassBridgeFileSkipsUnpositionedDevice covers the "hasLink" gate: a device
 // declared in Physical.def but never positioned in Spaces.def (no DeviceConceptualLinks entry)
 // must be silently skipped, same as generateHassBridgeFile's own export-side gate.
@@ -74,7 +132,7 @@ func TestGenerateImportedHassBridgeFileSkipsUnpositionedDevice(t *testing.T) {
 
 // TestGenerateImportedHassBridgeFileSkipsUnusedCapability covers the per-capability half of the
 // same gate: a positioned device with an UNUSED declared capability (never referenced via
-// "for <device-id>: entity ... from entity <capability>;") must only emit the capabilities that
+// "for <device-id>: entity ... from <capability>;") must only emit the capabilities that
 // were actually used.
 func TestGenerateImportedHassBridgeFileSkipsUnusedCapability(t *testing.T) {
 	devices := []TImportedDevice{

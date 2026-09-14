@@ -9,7 +9,7 @@ func TestExtractDeviceCapabilityEntityDeclarationToleratesColumnAlignmentSpacing
 	// Spaces.def commonly pads with extra spaces for column alignment (e.g. multiple sensor
 	// lines' "from" clauses lined up) -- a regression test for a real bug where the pattern used
 	// a literal single space instead of \s+, silently failing to match any padded line.
-	decl, ok := extractDeviceCapabilityEntityDeclaration("entity sensor.physical:netatmo/co2                 from hass.davids_bedroom entity sensor.co2;")
+	decl, ok := extractDeviceCapabilityEntityDeclaration("entity sensor.physical:netatmo/co2                 from hass.davids_bedroom sensor.co2;")
 	if !ok {
 		t.Fatalf("expected the padded line to match")
 	}
@@ -20,7 +20,7 @@ func TestExtractDeviceCapabilityEntityDeclarationToleratesColumnAlignmentSpacing
 }
 
 func TestExtractDeviceCapabilityEntityDeclarationSingleSpace(t *testing.T) {
-	decl, ok := extractDeviceCapabilityEntityDeclaration("entity binary_sensor.infrastructural:netatmo/radio from hass.davids_bedroom entity binary_sensor.radio;")
+	decl, ok := extractDeviceCapabilityEntityDeclaration("entity binary_sensor.infrastructural:netatmo/radio from hass.davids_bedroom binary_sensor.radio;")
 	if !ok {
 		t.Fatalf("expected the single-space line to match")
 	}
@@ -40,29 +40,29 @@ func TestBareCapabilityName(t *testing.T) {
 }
 
 func TestExpandForDeviceShorthandLine(t *testing.T) {
-	got, ok := expandForDeviceShorthandLine("entity sensor.status from entity sensor.status;", "hass.laserjet")
+	got, ok := expandForDeviceShorthandLine("entity sensor.status from sensor.status;", "hass.laserjet")
 	if !ok {
 		t.Fatalf("expected the shorthand line to match")
 	}
-	want := "entity sensor.status from hass.laserjet entity sensor.status;"
+	want := "entity sensor.status from hass.laserjet sensor.status;"
 	if got != want {
 		t.Errorf("expandForDeviceShorthandLine = %q, want %q", got, want)
 	}
-	if _, ok := expandForDeviceShorthandLine("entity sensor.status from hass.laserjet entity sensor.status;", "hass.laserjet"); ok {
+	if _, ok := expandForDeviceShorthandLine("entity sensor.status from hass.laserjet sensor.status;", "hass.laserjet"); ok {
 		t.Errorf("expected no match for an already-expanded (non-shorthand) line")
 	}
 }
 
 // TestForDeviceBlockRegistersSameAsExplicitDeviceIDLines is the regression test for the "for
 // <device-id>: ... end;" abbreviation the user asked for 2026-08-28, to avoid repeating a device
-// id on every "entity ... from <device-id> entity <capability>;" line -- confirms the shorthand
+// id on every "entity ... from <device-id> <capability>;" line -- confirms the shorthand
 // (now only reachable inside the merged "device <spec> from <device-id> with: ... end;" block,
 // PROJECT.md unification plan 2026-09-01) registers identically to writing the device id out on
 // every line.
 func TestForDeviceBlockRegistersSameAsExplicitDeviceIDLines(t *testing.T) {
 	const miniDSL = `device infrastructural:laserjet from hass.laserjet with:
-  entity sensor.status   from entity sensor.status;
-  entity sensor.cardrige from entity sensor.cardrige;
+  entity sensor.status   from sensor.status;
+  entity sensor.cardrige from sensor.cardrige;
 end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
@@ -99,8 +99,8 @@ end;`
 // without needing that flag at all.
 func TestForDeviceBlockRegistersHostsCapabilities(t *testing.T) {
 	const miniDSL = `device infrastructural:xanadu from host.xanadu with:
-  entity sensor.infrastructural:xanadu/cpu/load        from entity cpu/load;
-  entity sensor.infrastructural:xanadu/cpu/temperature from entity cpu/temperature;
+  entity sensor.infrastructural:xanadu/cpu/load        from cpu/load;
+  entity sensor.infrastructural:xanadu/cpu/temperature from cpu/temperature;
 end;`
 
 	hostDevicesByID := map[string]THostDevice{
@@ -131,7 +131,7 @@ end;`
 // silently accepted or matched against the wrong thing.
 func TestHostCapabilityEntityLinkRejectsUnknownAttribute(t *testing.T) {
 	const miniDSL = `device infrastructural:xanadu from host.xanadu with:
-  entity sensor.infrastructural:xanadu/bogus from entity bogus;
+  entity sensor.infrastructural:xanadu/bogus from bogus;
 end;`
 
 	hostDevicesByID := map[string]THostDevice{
@@ -154,7 +154,7 @@ end;`
 // an explicit reference would just be a confusing, redundant second path to the same entity.
 func TestHostCapabilityEntityLinkRejectsNode(t *testing.T) {
 	const miniDSL = `device infrastructural:xanadu from host.xanadu with:
-  entity binary_sensor.infrastructural:xanadu/node from entity node;
+  entity binary_sensor.infrastructural:xanadu/node from node;
 end;`
 
 	hostDevicesByID := map[string]THostDevice{
@@ -183,7 +183,7 @@ end;`
 // the single retry ParseEntitiesAndFillAdministration makes after the whole file is read), mirroring
 // the same order-independence the hassbridge/import branches already have.
 func TestHostCapabilityEntityLinkDefersWithoutPriorPositioning(t *testing.T) {
-	const miniDSL = `entity sensor.infrastructural:xanadu/cpu/load from host.xanadu entity cpu/load;
+	const miniDSL = `entity sensor.infrastructural:xanadu/cpu/load from host.xanadu cpu/load;
 device infrastructural:xanadu from host.xanadu;`
 
 	hostDevicesByID := map[string]THostDevice{
@@ -207,7 +207,7 @@ device infrastructural:xanadu from host.xanadu;`
 func TestForDeviceBlockWarnsOnUnrecognisedLineAndKeepsParsing(t *testing.T) {
 	const miniDSL = `device infrastructural:laserjet from hass.laserjet with:
   this is not a valid line;
-  entity sensor.status from entity sensor.status;
+  entity sensor.status from sensor.status;
 end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{

@@ -400,6 +400,40 @@ var recognizedCapabilityKeywords = []struct {
 	{"uptime", "sensor", "uptime"},
 }
 
+// entityLocalName returns entityID's own local name -- everything after the first "." -- or
+// entityID itself if it has no domain prefix at all.
+func entityLocalName(entityID string) string {
+	if idx := strings.Index(entityID, "."); idx >= 0 {
+		return entityID[idx+1:]
+	}
+	return entityID
+}
+
+// commonEntityLocalNamePrefix returns the longest common prefix shared by every one of
+// entityIDs' own local names (entityLocalName) -- computed over a device's ENTIRE entity set,
+// used and not-yet-used alike, so a bare already-declared entity with no attribute suffix at all
+// (e.g. "sensor.bathroom_washing_machine", the device's own base name) correctly clamps the
+// prefix there, rather than a longer one only the not-yet-declared subset happens to share (e.g.
+// "bathroom_washing_machine_wash_", if every undeclared sensor happened to also share "wash_").
+// Returns "" for fewer than two entities or no common prefix at all -- callers treat that as "no
+// suggestion available", not an error.
+func commonEntityLocalNamePrefix(entityIDs []string) string {
+	if len(entityIDs) < 2 {
+		return ""
+	}
+	prefix := entityLocalName(entityIDs[0])
+	for _, id := range entityIDs[1:] {
+		name := entityLocalName(id)
+		for !strings.HasPrefix(name, prefix) {
+			prefix = prefix[:len(prefix)-1]
+			if prefix == "" {
+				return ""
+			}
+		}
+	}
+	return prefix
+}
+
 // recognizeCapability guesses entityID's local capability domain/suffix from a known keyword in
 // its own descriptive name -- suffix is "" if nothing matched (domain still falls back to the
 // entity's own domain prefix, so the suggested line is at least domain-correct even unrecognised).
@@ -510,16 +544,29 @@ func buildSuggestionReportFromExistence(status TEntityExistenceStatusPayload, us
 		}
 		sort.Strings(entityIDs)
 
+		allEntityIDs := make([]string, 0, len(status[deviceID].Entities))
+		for entityID := range status[deviceID].Entities {
+			allEntityIDs = append(allEntityIDs, entityID)
+		}
+		commonPrefix := commonEntityLocalNamePrefix(allEntityIDs)
+
 		type line struct{ lhs, rhs, comment string }
 		var lines []line
 		maxLHS := 0
 		for _, entityID := range entityIDs {
 			domain, suffix := recognizeCapability(entityID)
-			lhs := domain + "." + suffix + ":"
 			comment := ""
 			if suffix == "" {
 				comment = " # not recognized"
+				// Not recognized by keyword, but a guess is still better than an empty label:
+				// strip the prefix every one of this device's own entities (used and unused
+				// alike) shares, so e.g. "bathroom_washing_machine_wash_delay_start" suggests
+				// "wash_delay_start" rather than leaving the DSL author to fill in a blank.
+				if guess := strings.TrimPrefix(strings.TrimPrefix(entityLocalName(entityID), commonPrefix), "_"); guess != "" {
+					suffix = guess
+				}
 			}
+			lhs := domain + "." + suffix + ":"
 			if len(lhs) > maxLHS {
 				maxLHS = len(lhs)
 			}
