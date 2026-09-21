@@ -1106,12 +1106,42 @@ tolerated the same way. Both are narrowly scoped tolerances — any other exit c
 script loudly, since the point is graceful degradation of *known* edge cases, not swallowing real
 failures.
 
-**Not yet covered**: Vienna's `protocols-server-2` (`frame`) has no `/var/lib/home-automation/`
-tree at all today — it only runs the picture-frame slideshow (PROJECT.md item 1's `commandline`
-integration), so this script currently skips it by construction (nothing under that path to
-iterate). Adding it needs its own small design pass first: deciding what's actually worth backing
-up there (X11/slideshow config, `~/commandline`'s own generated secrets, OS-level state) before
-just pointing the same script at an empty root.
+**Update (2026-09-21)**: Vienna's `protocols-server-2` (`frame`) picture-frame `~/bin` folder — the
+hand-tuned, monitor/location-specific `*_slideshow` scripts plus its other utility scripts — is now
+backed up too, without any script change: `/var/lib/home-automation/frame-bin` is a plain symlink
+to `~/erikp/bin`, so the existing per-host iteration over `/var/lib/home-automation/*/` already
+picks it up. This surfaced a real, previously-latent bug: GNU `tar` does **not** dereference a
+symlink given as an archive-member argument by default, so the very first test backup captured
+only the bare `frame-bin` symlink entry, not the real files behind it. Fixed by adding `-h`
+(`--dereference`) to the script's `tar czf` invocation (now `tar czhf`) — deployed identically to
+all four hosts that run this script (Vienna's and Junglinster's `protocols-server-1`/`-2`), keeping
+the "identical everywhere" invariant the script's own header comment already declares. Re-verified
+live: the tarball now contains all of `~/bin`'s real files. The equivalent action for
+Frame@Junglinster (still RaspberryOS, no `~/bin`-worthy state yet) is tracked as PROJECT.md item 3,
+to be done once that machine is migrated to Fedora.
+
+Only Vienna's `protocols-server-2` (as it was still called at the time) needed this treatment —
+it's the one house/host combination where "frame" and a `/var/lib/home-automation/`-backed host
+were the same physical machine (see memory: Vienna frame/protocols-server-2 identity). The rest of
+that host's own state (X11/slideshow config beyond `~/bin`, OS-level state) remained out of scope,
+unchanged from before.
+
+**Update (2026-09-21, same day):** that combination no longer exists. Following the p-s-2→p-s-1 HA
+migration above, this host's role is now purely the picture frame, so its "protocols-server-2"
+identity was retired entirely — Physical.def/Conceptual.def renamed it to `frame` across all four
+places that string played an identity role (the `home_assistant` hassbridge qualifier, the `hosts`
+DeviceID token, the `commandline`/picture-frame routing host, and the Conceptual.def position
+label), matching Junglinster's own naming convention. The `hosts`-kind DeviceID token rename was the
+one genuinely consequential piece (unlike the other three, which are decoupled from `unique_id`) —
+it deliberately orphaned the rack CPU/liveness sensor's old entity history rather than preserving it
+under the new name, a considered choice (the box's role genuinely changed, not just its label) that
+the coordinator's own `RetireMissing` mechanism handled cleanly: the old entities were fully removed
+from HA's registry (not left as disabled stubs) once Physical.def stopped declaring the old
+DeviceID, and the new `frame`-named entities came up live in their place. Vienna's SSH port-forward
+and OS hostname were also realigned to `frame`/1968 that same day, matching Junglinster's own
+port-per-host convention. Deploy scripts (`deploy.d/02_deploy.hass.protocols-server-2`,
+`05_deploy.commandline`) keep their old filenames (a rename churns less than it's worth) but their
+internal targets/variables now point at `frame`.
 
 ---
 

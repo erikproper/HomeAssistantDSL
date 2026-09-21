@@ -636,6 +636,70 @@ func TestRecordStoresLiveTypingOnlyWhenKnownToExist(t *testing.T) {
 	}
 }
 
+// TestRecordAttributeKeysStoresOnExistingEntry confirms RecordAttributeKeys (added 2026-09-21,
+// deliberately additive rather than a new Record parameter -- see that method's own doc comment)
+// stores the given key set on an already-tracked, known-to-exist entry.
+func TestRecordAttributeKeysStoresOnExistingEntry(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.Seed(fixtureBridgeFileForExistence())
+	tracker.Record("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide", true, "412.3", "", "", "", "", "")
+
+	tracker.RecordAttributeKeys("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide", []string{"error", "error_code"})
+
+	byDevice := tracker.snapshotByDevice("protocols-server-2")
+	entry := byDevice["hass.davids_bedroom"]["sensor.davids_bedroom_carbon_dioxide"]
+	if len(entry.AttributeKeys) != 2 || entry.AttributeKeys[0] != "error" || entry.AttributeKeys[1] != "error_code" {
+		t.Errorf("AttributeKeys = %v, want [\"error\", \"error_code\"]", entry.AttributeKeys)
+	}
+}
+
+// TestRecordAttributeKeysNoopForUnknownEntity confirms no panic/crash for an instance or entity
+// this tracker was never seeded with -- same "unknown, ignore" tolerance Record itself has.
+func TestRecordAttributeKeysNoopForUnknownEntity(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.Seed(fixtureBridgeFileForExistence())
+
+	// Neither call should panic; both are simply no-ops.
+	tracker.RecordAttributeKeys("protocols-server-2", "sensor.never_tracked_at_all", []string{"error"})
+	tracker.RecordAttributeKeys("some_other_instance", "sensor.davids_bedroom_carbon_dioxide", []string{"error"})
+}
+
+// TestSubscribeExistenceReplyStoresAttributeKeys is the end-to-end check: an inquiry reply's own
+// attribute_keys field flows through subscribeExistenceReply into the tracker and out through
+// publishStatus's own JSON payload.
+func TestSubscribeExistenceReplyStoresAttributeKeys(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.Seed(fixtureBridgeFileForExistence())
+
+	client := &fakeClient{}
+	if err := tracker.subscribeExistenceReply(client, nil, "junglinster", "protocols-server-2", nil); err != nil {
+		t.Fatalf("subscribeExistenceReply error: %v", err)
+	}
+
+	reply := existenceInquiryReply{EntityID: "sensor.davids_bedroom_carbon_dioxide", Exists: true, State: "412.3", AttributeKeys: []string{"error", "error_code"}}
+	payload, _ := json.Marshal(reply)
+	client.subscribedHandlers[0](client, fakeMessage{topic: existenceReplyTopic("protocols-server-2"), payload: payload})
+
+	byDevice := tracker.snapshotByDevice("protocols-server-2")
+	entry := byDevice["hass.davids_bedroom"]["sensor.davids_bedroom_carbon_dioxide"]
+	if len(entry.AttributeKeys) != 2 {
+		t.Fatalf("AttributeKeys = %v, want 2 entries", entry.AttributeKeys)
+	}
+
+	publish, found := findPublish(client.published, existenceStatusTopic("protocols-server-2"))
+	if !found {
+		t.Fatalf("published = %+v, want a status publish to %q", client.published, existenceStatusTopic("protocols-server-2"))
+	}
+	var status map[string]existenceStatusDevicePayload
+	if err := json.Unmarshal(publish.payload, &status); err != nil {
+		t.Fatalf("status payload is not valid JSON: %v (%s)", err, publish.payload)
+	}
+	entity := status["hass.davids_bedroom"].Entities["sensor.davids_bedroom_carbon_dioxide"]
+	if len(entity.AttributeKeys) != 2 || entity.AttributeKeys[0] != "error" || entity.AttributeKeys[1] != "error_code" {
+		t.Errorf("status entity AttributeKeys = %v, want [\"error\", \"error_code\"]", entity.AttributeKeys)
+	}
+}
+
 func TestEntityExistenceTrackerDiscoverSiblingsAddsNewEntitiesUnderSameDevice(t *testing.T) {
 	tracker := newEntityExistenceTracker("")
 	tracker.Seed(fixtureBridgeFileForExistence())

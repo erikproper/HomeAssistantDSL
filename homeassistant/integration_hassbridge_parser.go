@@ -251,6 +251,27 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 	// "<to>";", targeting an already-declared capability by its bare path, same shape
 	// capabilityMetadataPattern uses for the single-valued keywords.
 	capabilityValueMapPattern := regexp.MustCompile(`^(\S+)\s+map:\s*"([^"]*)"\s+"([^"]*)"\s*;\s*$`)
+	// "attribute <name>: <source>;" -- repeatable, inside a capability's own "with: ... end;"
+	// block. Declares an extra named attribute (source is the same "<entity>[!<attribute>]"
+	// convention Sources uses) to expose on this capability's discovery config via
+	// json_attributes_topic, alongside its own state -- see THassBridgeCapability.Attributes' own
+	// doc comment (2026-09-21, the vacuum "stuck near a cliff" incident: the bridge only ever
+	// relayed vacuum.roomba's bare state, never its "error"/"error_code" attributes). Source is
+	// UNQUOTED (2026-09-21, fixed same day it was first added) -- it's an entity reference, the
+	// same convention Sources/over:-entries use everywhere else in this DSL (unquoted), not an
+	// arbitrary translation value the way map:'s own quoted "<from>" "<to>" strings are.
+	capabilityWithAttributePattern := regexp.MustCompile(`^attribute\s+([A-Za-z_][A-Za-z0-9_]*):\s*(\S+)\s*;\s*$`)
+	// Standalone-trailing-line sibling of capabilityWithAttributePattern -- "<path> attribute
+	// <name>: <source>;", same shape capabilityValueMapPattern uses.
+	capabilityAttributePattern := regexp.MustCompile(`^(\S+)\s+attribute\s+([A-Za-z_][A-Za-z0-9_]*):\s*(\S+)\s*;\s*$`)
+	// "map <name>: "<from>" "<to>";" -- the ATTRIBUTE-scoped sibling of the bare (state-only)
+	// map:/capabilityValueMapPattern above, disambiguated purely by the mandatory identifier
+	// between "map" and ":" (bare "map:" has no token there at all, so the two can never collide).
+	// Translates one declared attribute's own raw reported value, independently of whatever
+	// bare map: does for this capability's own state -- see THassBridgeCapability.AttributeValueMaps.
+	capabilityWithAttributeValueMapPattern := regexp.MustCompile(`^map\s+([A-Za-z_][A-Za-z0-9_]*):\s*"([^"]*)"\s+"([^"]*)"\s*;\s*$`)
+	// Standalone-trailing-line sibling of capabilityWithAttributeValueMapPattern.
+	capabilityAttributeValueMapPattern := regexp.MustCompile(`^(\S+)\s+map\s+([A-Za-z_][A-Za-z0-9_]*):\s*"([^"]*)"\s+"([^"]*)"\s*;\s*$`)
 
 	inDeviceCapabilities := false
 	var current THassBridgeDevice
@@ -291,6 +312,30 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 					cap.ValueMap = map[string]string{}
 				}
 				cap.ValueMap[matches[1]] = matches[2]
+				current.Capabilities[pendingCapabilityPath] = cap
+				continue
+			}
+			if matches := capabilityWithAttributePattern.FindStringSubmatch(line); matches != nil {
+				cap := current.Capabilities[pendingCapabilityPath]
+				if cap.Attributes == nil {
+					cap.Attributes = map[string]map[string]string{}
+				}
+				if cap.Attributes[matches[1]] == nil {
+					cap.Attributes[matches[1]] = map[string]string{}
+				}
+				cap.Attributes[matches[1]][instance] = matches[2]
+				current.Capabilities[pendingCapabilityPath] = cap
+				continue
+			}
+			if matches := capabilityWithAttributeValueMapPattern.FindStringSubmatch(line); matches != nil {
+				cap := current.Capabilities[pendingCapabilityPath]
+				if cap.AttributeValueMaps == nil {
+					cap.AttributeValueMaps = map[string]map[string]string{}
+				}
+				if cap.AttributeValueMaps[matches[1]] == nil {
+					cap.AttributeValueMaps[matches[1]] = map[string]string{}
+				}
+				cap.AttributeValueMaps[matches[1]][matches[2]] = matches[3]
 				current.Capabilities[pendingCapabilityPath] = cap
 				continue
 			}
@@ -367,6 +412,40 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 					cap.ValueMap = map[string]string{}
 				}
 				cap.ValueMap[from] = to
+				current.Capabilities[path] = cap
+				continue
+			}
+			if matches := capabilityAttributePattern.FindStringSubmatch(line); matches != nil {
+				path, name, source := matches[1], matches[2], matches[3]
+				cap, known := current.Capabilities[path]
+				if !known {
+					warnings = append(warnings, fmt.Sprintf("Physical.def: device %q: \"attribute\" declared for unknown capability %q; ignored", current.DeviceID, path))
+					continue
+				}
+				if cap.Attributes == nil {
+					cap.Attributes = map[string]map[string]string{}
+				}
+				if cap.Attributes[name] == nil {
+					cap.Attributes[name] = map[string]string{}
+				}
+				cap.Attributes[name][instance] = source
+				current.Capabilities[path] = cap
+				continue
+			}
+			if matches := capabilityAttributeValueMapPattern.FindStringSubmatch(line); matches != nil {
+				path, name, from, to := matches[1], matches[2], matches[3], matches[4]
+				cap, known := current.Capabilities[path]
+				if !known {
+					warnings = append(warnings, fmt.Sprintf("Physical.def: device %q: \"map %s\" declared for unknown capability %q; ignored", current.DeviceID, name, path))
+					continue
+				}
+				if cap.AttributeValueMaps == nil {
+					cap.AttributeValueMaps = map[string]map[string]string{}
+				}
+				if cap.AttributeValueMaps[name] == nil {
+					cap.AttributeValueMaps[name] = map[string]string{}
+				}
+				cap.AttributeValueMaps[name][from] = to
 				current.Capabilities[path] = cap
 				continue
 			}

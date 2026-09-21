@@ -83,9 +83,9 @@ func TestUsedHassBridgeEntityIDsFiltersByInstanceAndStripsAttributeSuffix(t *tes
 func TestExpandUsedAcrossDiscoverySourcedDeviceGroups(t *testing.T) {
 	status := TEntityExistenceStatusPayload{
 		"hass.discovered_apartment_living_room_signify_dimmer": {Entities: map[string]TEntityExistenceStatusEntry{
-			"event.physical_apartment_living_room_signify_dimmer":                    {Status: existenceStatusKnownToExist},
+			"event.physical_apartment_living_room_signify_dimmer":                       {Status: existenceStatusKnownToExist},
 			"sensor.infrastructural_apartment_living_room_signify_dimmer_battery_level": {Status: existenceStatusKnownToExist},
-			"sensor.apartment_living_room_signify_dimmer_action":                      {Status: existenceStatusKnownToExist},
+			"sensor.apartment_living_room_signify_dimmer_action":                        {Status: existenceStatusKnownToExist},
 		}},
 		"hass.davids_bedroom": {Entities: map[string]TEntityExistenceStatusEntry{
 			"sensor.davids_bedroom_carbon_dioxide": {Status: existenceStatusKnownToExist},
@@ -275,6 +275,184 @@ func TestBuildSuggestionReportFromExistenceSkipsIgnoredDeviceEntirely(t *testing
 	}
 	if !strings.Contains(report, "hass.davids_bedroom") {
 		t.Errorf("expected an unrelated, non-ignored device to still be suggested, got:\n%s", report)
+	}
+}
+
+// TestDeclaredLiveAttributeKeysUsesSourceSuffix confirms the comparison set is built from each
+// declared attribute's own raw HA attribute name (the "!<attr>" suffix on its source), NOT the DSL
+// author's own chosen local attribute name -- the two may legitimately differ.
+func TestDeclaredLiveAttributeKeysUsesSourceSuffix(t *testing.T) {
+	cap := THassBridgeCapability{
+		Attributes: map[string]map[string]string{
+			"fault":      {"protocols-server-2": "vacuum.roomba!error"},
+			"error_code": {"protocols-server-2": "vacuum.roomba!error_code"},
+			"other":      {"some_other_instance": "vacuum.roomba!unrelated"},
+		},
+	}
+	got := declaredLiveAttributeKeys(cap, "protocols-server-2")
+	want := map[string]bool{"error": true, "error_code": true}
+	if len(got) != len(want) {
+		t.Fatalf("declaredLiveAttributeKeys(...) = %v, want %v", got, want)
+	}
+	for key := range want {
+		if !got[key] {
+			t.Errorf("declaredLiveAttributeKeys(...) missing %q, got %v", key, got)
+		}
+	}
+	if got["fault"] {
+		t.Errorf("declaredLiveAttributeKeys(...) = %v, must use the raw HA attribute name (\"error\"), not the DSL author's own local name (\"fault\")", got)
+	}
+	if got["unrelated"] {
+		t.Errorf("declaredLiveAttributeKeys(...) = %v, must not include a different instance's own declaration", got)
+	}
+}
+
+// TestBuildUndeclaredAttributesSuggestionsFlagsUndeclaredKey is the real motivating case
+// (2026-09-21): vacuum.roomba's own live "error"/"error_code" attributes, not yet exposed via any
+// "attribute <name>: ...;" declaration, must be flagged.
+func TestBuildUndeclaredAttributesSuggestionsFlagsUndeclaredKey(t *testing.T) {
+	status := TEntityExistenceStatusPayload{
+		"hass.roomba": {Entities: map[string]TEntityExistenceStatusEntry{
+			"vacuum.roomba": {Status: existenceStatusKnownToExist, AttributeKeys: []string{"error", "error_code"}},
+		}},
+	}
+	devicesByID := map[string]THassBridgeDevice{
+		"hass.roomba": {
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"roomba": {Sources: map[string]string{"protocols-server-2": "vacuum.roomba"}},
+			},
+		},
+	}
+
+	report := buildUndeclaredAttributesSuggestions(status, devicesByID, "protocols-server-2")
+
+	if !containsAll(report,
+		"device hass.roomba, capability \"roomba\" (vacuum.roomba):",
+		`attribute error: vacuum.roomba!error;`,
+		`attribute error_code: vacuum.roomba!error_code;`,
+	) {
+		t.Errorf("report missing expected content:\n%s", report)
+	}
+}
+
+// TestBuildUndeclaredAttributesSuggestionsSuppressesDenylistedKey confirms generic HA-internal
+// attribute keys (e.g. "friendly_name") never get flagged, even when live and undeclared.
+func TestBuildUndeclaredAttributesSuggestionsSuppressesDenylistedKey(t *testing.T) {
+	status := TEntityExistenceStatusPayload{
+		"hass.roomba": {Entities: map[string]TEntityExistenceStatusEntry{
+			"vacuum.roomba": {Status: existenceStatusKnownToExist, AttributeKeys: []string{"friendly_name", "icon"}},
+		}},
+	}
+	devicesByID := map[string]THassBridgeDevice{
+		"hass.roomba": {
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"roomba": {Sources: map[string]string{"protocols-server-2": "vacuum.roomba"}},
+			},
+		},
+	}
+
+	report := buildUndeclaredAttributesSuggestions(status, devicesByID, "protocols-server-2")
+	if report != "" {
+		t.Errorf("report = %q, want empty (both live attribute keys are denylisted)", report)
+	}
+}
+
+// TestBuildUndeclaredExternalEntityAttributesSuggestionsFlagsUndeclaredKey covers the kind-5
+// counterpart of buildUndeclaredAttributesSuggestions (2026-09-21, the user's own real observation:
+// weather.forecast's own unreferenced attributes never showed up in suggestions/home_assistant_
+// main.txt). Kind-5 entities have no owning device, so they're grouped under device id "" in the
+// existence-status payload (publishStatus's own doc comment).
+func TestBuildUndeclaredExternalEntityAttributesSuggestionsFlagsUndeclaredKey(t *testing.T) {
+	status := TEntityExistenceStatusPayload{
+		"": {Entities: map[string]TEntityExistenceStatusEntry{
+			"weather.forecast": {Status: existenceStatusKnownToExist, AttributeKeys: []string{"pressure", "humidity", "wind_speed"}},
+		}},
+	}
+	referencedAttributes := map[string]map[string]bool{
+		"weather.forecast": {"pressure": true},
+	}
+
+	report := buildUndeclaredExternalEntityAttributesSuggestions(status, referencedAttributes, "main")
+
+	if !containsAll(report,
+		"weather.forecast:",
+		"weather.forecast!humidity",
+		"weather.forecast!wind_speed",
+	) {
+		t.Errorf("report missing expected content:\n%s", report)
+	}
+	if strings.Contains(report, "weather.forecast!pressure") {
+		t.Errorf("report = %q, want \"pressure\" excluded -- it's already referenced", report)
+	}
+}
+
+// TestBuildUndeclaredExternalEntityAttributesSuggestionsOnlyAppliesToMain confirms this is a
+// deliberate no-op for every instance except "main" -- kind-5 ("main-instance entity existence")
+// is main-only by definition (SeedMainEntities hard-codes instance "main"), so status[""] for any
+// other instance has nothing to do with kind-5 entities at all.
+func TestBuildUndeclaredExternalEntityAttributesSuggestionsOnlyAppliesToMain(t *testing.T) {
+	status := TEntityExistenceStatusPayload{
+		"": {Entities: map[string]TEntityExistenceStatusEntry{
+			"weather.forecast": {Status: existenceStatusKnownToExist, AttributeKeys: []string{"pressure", "humidity"}},
+		}},
+	}
+	referencedAttributes := map[string]map[string]bool{
+		"weather.forecast": {"pressure": true},
+	}
+
+	if report := buildUndeclaredExternalEntityAttributesSuggestions(status, referencedAttributes, "ha2mqtt"); report != "" {
+		t.Errorf("report = %q, want empty for a non-main instance", report)
+	}
+}
+
+// TestBuildUndeclaredAttributesSuggestionsSuppressesAlreadyDeclaredKey confirms an attribute
+// already exposed via "attribute <name>: ...;" is never re-flagged as undeclared.
+func TestBuildUndeclaredAttributesSuggestionsSuppressesAlreadyDeclaredKey(t *testing.T) {
+	status := TEntityExistenceStatusPayload{
+		"hass.roomba": {Entities: map[string]TEntityExistenceStatusEntry{
+			"vacuum.roomba": {Status: existenceStatusKnownToExist, AttributeKeys: []string{"error"}},
+		}},
+	}
+	devicesByID := map[string]THassBridgeDevice{
+		"hass.roomba": {
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"roomba": {
+					Sources:    map[string]string{"protocols-server-2": "vacuum.roomba"},
+					Attributes: map[string]map[string]string{"error": {"protocols-server-2": "vacuum.roomba!error"}},
+				},
+			},
+		},
+	}
+
+	report := buildUndeclaredAttributesSuggestions(status, devicesByID, "protocols-server-2")
+	if report != "" {
+		t.Errorf("report = %q, want empty (the only live attribute key is already declared)", report)
+	}
+}
+
+// TestBuildUndeclaredAttributesSuggestionsEmptyWhenNothingToReport covers the overwhelming majority
+// case: a capability whose source entity reports no attributes at all (or wasn't inquired yet).
+func TestBuildUndeclaredAttributesSuggestionsEmptyWhenNothingToReport(t *testing.T) {
+	status := TEntityExistenceStatusPayload{
+		"hass.terrace": {Entities: map[string]TEntityExistenceStatusEntry{
+			"sensor.vienna_terrace_temperature": {Status: existenceStatusKnownToExist},
+		}},
+	}
+	devicesByID := map[string]THassBridgeDevice{
+		"hass.terrace": {
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"temperature": {Sources: map[string]string{"protocols-server-2": "sensor.vienna_terrace_temperature"}},
+			},
+		},
+	}
+
+	report := buildUndeclaredAttributesSuggestions(status, devicesByID, "protocols-server-2")
+	if report != "" {
+		t.Errorf("report = %q, want empty", report)
 	}
 }
 

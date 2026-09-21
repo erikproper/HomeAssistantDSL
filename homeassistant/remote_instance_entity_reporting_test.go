@@ -47,13 +47,15 @@ func TestFullyQualifiedEntityNameSingleSegmentPath(t *testing.T) {
 
 func TestEntityReportingAutomationBody(t *testing.T) {
 	identity := TEntityIdentity{Domain: "sensor", Sphere: "infrastructural", Path: "netatmo/co2"}
-	body := entityReportingAutomationBody(identity, "sensor.davids_bedroom_carbon_dioxide", "homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_netatmo_co2/state", "states('sensor.davids_bedroom_carbon_dioxide')")
+	body := entityReportingAutomationBody(identity, []string{"sensor.davids_bedroom_carbon_dioxide"}, "homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_netatmo_co2/state", "states('sensor.davids_bedroom_carbon_dioxide')", "")
 
 	if !strings.Contains(body, `alias: "reporting/sensor/infrastructural/netatmo/co2"`) {
 		t.Errorf("body = %s, want the slash-joined alias", body)
 	}
-	if !strings.Contains(body, "entity_id: sensor.davids_bedroom_carbon_dioxide") {
-		t.Errorf("body = %s, want a state trigger on the bare source entity", body)
+	// entity_id is now always a YAML list (2026-09-21, to support the attributes-reporting
+	// automation's own possible multi-entity trigger) -- a single-item list, not a scalar.
+	if !strings.Contains(body, "entity_id:\n      - sensor.davids_bedroom_carbon_dioxide\n") {
+		t.Errorf("body = %s, want a state trigger listing the bare source entity", body)
 	}
 	if !strings.Contains(body, "platform: homeassistant") || !strings.Contains(body, "event: start") {
 		t.Errorf("body = %s, want a homeassistant-start trigger", body)
@@ -227,5 +229,149 @@ end;`
 	}
 	if !strings.Contains(string(body), "int(0) < 20") {
 		t.Errorf("derived automation = %q, want the derived template composed into the payload expression", body)
+	}
+}
+
+// TestResolveHassBridgeCapabilityAttributeExprsSingleTrigger covers the common case (2026-09-21):
+// every declared attribute sourced from the SAME entity as the capability's own state -- exactly
+// one trigger entity, ValueMap-applied per attribute.
+func TestResolveHassBridgeCapabilityAttributeExprsSingleTrigger(t *testing.T) {
+	device := THassBridgeDevice{Capabilities: map[string]THassBridgeCapability{
+		"roomba": {
+			Domain:  "vacuum",
+			Sources: map[string]string{"protocols-server-2": "vacuum.roomba"},
+			Attributes: map[string]map[string]string{
+				"error":      {"protocols-server-2": "vacuum.roomba!error"},
+				"error_code": {"protocols-server-2": "vacuum.roomba!error_code"},
+			},
+			AttributeValueMaps: map[string]map[string]string{
+				"error": {"Stuck near a cliff": "stuck_cliff"},
+			},
+		},
+	}}
+	exprsByName, triggers, ok := resolveHassBridgeCapabilityAttributeExprs(device, "roomba", "protocols-server-2")
+	if !ok {
+		t.Fatalf("expected a resolved attribute set")
+	}
+	if len(triggers) != 1 || triggers[0] != "vacuum.roomba" {
+		t.Errorf("triggers = %v, want exactly [\"vacuum.roomba\"]", triggers)
+	}
+	if !strings.Contains(exprsByName["error"], "state_attr('vacuum.roomba', 'error')") || !strings.Contains(exprsByName["error"], "'stuck_cliff'") {
+		t.Errorf(`exprsByName["error"] = %q, want a state_attr read with the ValueMap applied`, exprsByName["error"])
+	}
+	if exprsByName["error_code"] != "state_attr('vacuum.roomba', 'error_code')" {
+		t.Errorf(`exprsByName["error_code"] = %q, want the plain state_attr read (no ValueMap declared for it)`, exprsByName["error_code"])
+	}
+}
+
+// TestResolveHassBridgeCapabilityAttributeExprsMultipleTriggerEntities covers the less common case:
+// declared attributes sourced from DIFFERENT underlying entities -- both must end up in the sorted,
+// deduplicated trigger list, so the generated automation republishes on either changing.
+func TestResolveHassBridgeCapabilityAttributeExprsMultipleTriggerEntities(t *testing.T) {
+	device := THassBridgeDevice{Capabilities: map[string]THassBridgeCapability{
+		"roomba": {
+			Domain:  "vacuum",
+			Sources: map[string]string{"protocols-server-2": "vacuum.roomba"},
+			Attributes: map[string]map[string]string{
+				"error":       {"protocols-server-2": "vacuum.roomba!error"},
+				"battery_low": {"protocols-server-2": "sensor.roomba_battery!low"},
+			},
+		},
+	}}
+	_, triggers, ok := resolveHassBridgeCapabilityAttributeExprs(device, "roomba", "protocols-server-2")
+	if !ok {
+		t.Fatalf("expected a resolved attribute set")
+	}
+	want := []string{"sensor.roomba_battery", "vacuum.roomba"}
+	if len(triggers) != len(want) {
+		t.Fatalf("triggers = %v, want %v", triggers, want)
+	}
+	for i, entity := range want {
+		if triggers[i] != entity {
+			t.Errorf("triggers[%d] = %q, want %q (sorted)", i, triggers[i], entity)
+		}
+	}
+}
+
+// TestResolveHassBridgeCapabilityAttributeExprsNoneDeclared confirms ok=false, no panic, for the
+// overwhelming majority of capabilities that declare no Attributes at all -- unchanged behaviour.
+func TestResolveHassBridgeCapabilityAttributeExprsNoneDeclared(t *testing.T) {
+	device := THassBridgeDevice{Capabilities: map[string]THassBridgeCapability{
+		"roomba": {Domain: "vacuum", Sources: map[string]string{"protocols-server-2": "vacuum.roomba"}},
+	}}
+	if _, _, ok := resolveHassBridgeCapabilityAttributeExprs(device, "roomba", "protocols-server-2"); ok {
+		t.Errorf("expected ok=false: no Attributes declared")
+	}
+}
+
+func TestBuildAttributesPayloadExprSortsKeys(t *testing.T) {
+	got := buildAttributesPayloadExpr(map[string]string{
+		"error_code": "state_attr('vacuum.roomba', 'error_code')",
+		"error":      "state_attr('vacuum.roomba', 'error')",
+	})
+	want := "{'error': (state_attr('vacuum.roomba', 'error')), 'error_code': (state_attr('vacuum.roomba', 'error_code'))} | tojson"
+	if got != want {
+		t.Errorf("buildAttributesPayloadExpr(...) = %q, want %q", got, want)
+	}
+}
+
+// TestGenerateHassBridgeEntityReportingAutomationsWritesAttributesFile is the end-to-end
+// counterpart: a capability with declared Attributes gets a second, sibling
+// "reporting_attributes_*" automation file alongside its ordinary state one, publishing to a
+// sibling ".../attributes" topic -- and a capability with none declared gets no such file at all.
+func TestGenerateHassBridgeEntityReportingAutomationsWritesAttributesFile(t *testing.T) {
+	const miniDSL = `space social:living_room with:
+  device infrastructural:vacuum from hass.roomba;
+  entity vacuum.physical:vacuum from hass.roomba vacuum.roomba;
+end;`
+
+	hassBridgeDevicesByID := map[string]THassBridgeDevice{
+		"hass.roomba": {
+			DeviceID:  "hass.roomba",
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"roomba": {
+					Domain:  "vacuum",
+					Sources: map[string]string{"protocols-server-2": "vacuum.roomba"},
+					Attributes: map[string]map[string]string{
+						"error":      {"protocols-server-2": "vacuum.roomba!error"},
+						"error_code": {"protocols-server-2": "vacuum.roomba!error_code"},
+					},
+				},
+			},
+		},
+	}
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	outputDir := t.TempDir()
+	if err := generateHassBridgeEntityReportingAutomations(outputDir, "protocols-server-2", hassBridgeDevicesByID, result.Administration); err != nil {
+		t.Fatalf("generateHassBridgeEntityReportingAutomations error: %v", err)
+	}
+
+	attrFile := filepath.Join(outputDir, "automation", "infrastructural", "automation.reporting_attributes_vacuum_physical_living_room_vacuum.yaml")
+	body, err := os.ReadFile(attrFile)
+	if err != nil {
+		t.Fatalf("expected the sibling attributes automation file to exist: %v", err)
+	}
+	if !strings.Contains(string(body), `topic: "homeassistant_instances/protocols-server-2/bridge/vacuum.physical_living_room_vacuum/attributes"`) {
+		t.Errorf("attributes automation = %q, want the sibling .../attributes topic", body)
+	}
+	if !strings.Contains(string(body), "state_attr('vacuum.roomba', 'error')") || !strings.Contains(string(body), "state_attr('vacuum.roomba', 'error_code')") {
+		t.Errorf("attributes automation = %q, want both declared attributes in the payload", body)
+	}
+	if !strings.Contains(string(body), "| tojson") {
+		t.Errorf("attributes automation = %q, want a tojson-wrapped payload", body)
+	}
+	// The alias must differ from the sibling state automation's own (both share the same identity)
+	// -- otherwise HA auto-suffixes one entity_id with "_2" on load, confusing in the UI even
+	// though functionally harmless (real lesson from this same session's netatmo battery_alert
+	// collision).
+	if !strings.Contains(string(body), `alias: "reporting/vacuum/physical/living_room/vacuum/attributes"`) {
+		t.Errorf("attributes automation = %q, want a distinct \"/attributes\"-suffixed alias", body)
 	}
 }

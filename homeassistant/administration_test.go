@@ -167,3 +167,35 @@ func TestDeriveBinarySensorSubdomainAggregatesOnlyTracksBackedSubdomains(t *test
 		t.Errorf("did not expect a derived aggregate for untracked subdomain %q -- no generation step backs it with a real entity", "windy")
 	}
 }
+
+// TestRegisterExternalEntityReferenceRecordsAttributeSuffix covers the "!attribute" tracking added
+// 2026-09-21 (buildUndeclaredExternalEntityAttributesSuggestions' own data source): registering
+// "weather.forecast!pressure" must record "pressure" against "weather.forecast" in
+// ExternalEntityReferencedAttributes, while a bare reference (no "!") records nothing.
+func TestRegisterExternalEntityReferenceRecordsAttributeSuffix(t *testing.T) {
+	state := newAdministrationState()
+
+	state.RegisterExternalEntityReference("social", "weather.forecast!pressure", "test")
+	state.RegisterExternalEntityReference("social", "weather.forecast", "test")
+
+	got := state.ExternalEntityReferencedAttributes["weather.forecast"]
+	if len(got) != 1 || !got["pressure"] {
+		t.Errorf("ExternalEntityReferencedAttributes[weather.forecast] = %v, want exactly {pressure: true}", got)
+	}
+}
+
+// TestRegisterExternalEntityReferenceAccumulatesMultipleAttributes covers the real live case
+// (environment.weather's own "node" and "pressure" capabilities both referencing weather.forecast,
+// one bare and one with "!pressure") extended one step further: two DIFFERENT attribute suffixes
+// referenced for the same entity across separate calls must both accumulate, not overwrite.
+func TestRegisterExternalEntityReferenceAccumulatesMultipleAttributes(t *testing.T) {
+	state := newAdministrationState()
+
+	state.RegisterExternalEntityReference("social", "weather.forecast!pressure", "test")
+	state.RegisterExternalEntityReference("social", "weather.forecast!humidity", "test")
+
+	got := state.ExternalEntityReferencedAttributes["weather.forecast"]
+	if len(got) != 2 || !got["pressure"] || !got["humidity"] {
+		t.Errorf("ExternalEntityReferencedAttributes[weather.forecast] = %v, want {pressure: true, humidity: true}", got)
+	}
+}

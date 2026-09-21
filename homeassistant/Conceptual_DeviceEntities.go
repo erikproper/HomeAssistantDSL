@@ -125,7 +125,7 @@ func namingSpacePath(spec string, spacePath []string, deviceNamePath string) []s
 	if deviceNamePath == "" || !specHasExplicitSpherePath(spec) {
 		return spacePath
 	}
-	if hasEmptyDeviceLeafOverride(spec) {
+	if hasDeviceLeafOverride(spec) {
 		return spacePath
 	}
 	if dotIdx := strings.Index(spec, "."); dotIdx > 0 {
@@ -155,28 +155,42 @@ func specHasExplicitSpherePath(spec string) bool {
 	return strings.Contains(spec[dotIdx+1:], ":")
 }
 
-// hasEmptyDeviceLeafOverride reports whether spec uses the "sphere::path" double-colon form
-// (2026-09-19) -- an explicit request to attach to the enclosing space's own context while
-// skipping the enclosing device's own leaf entirely, e.g. "sensor.social::wind_speed" under a
-// "device infrastructural:netatmo_windmeter with: ...;" block resolving to
-// "sensor.social_terrace_wind_speed" (space context "terrace" only), not the usual
-// "..._terrace_netatmo_windmeter_wind_speed" namingSpacePath would otherwise produce. Needs no
-// change in normalizeEntityFullName itself: once namingSpacePath (this file) stops folding
-// deviceNamePath in, that function's own existing "any leftover colon becomes a path separator,
-// then a leading empty segment is trimmed" handling already resolves the second colon to nothing
-// on its own. See project_device_leaf_naming_conceptual_mismatch_gap.md for the design context
-// and the deferred "sphere:leaf:path" explicit-override form this doesn't yet cover.
-func hasEmptyDeviceLeafOverride(spec string) bool {
+// hasDeviceLeafOverride reports whether spec's sphere-prefixed remainder carries a SECOND colon
+// beyond the one separating the sphere itself -- covering two related forms that both mean
+// "don't fold the enclosing device's own leaf name into this entity's path," differing only in
+// what (if anything) replaces it:
+//
+//   - "sphere::path" (double colon, empty leaf-override segment, 2026-09-19): the enclosing
+//     device's own leaf is dropped entirely, e.g. "sensor.social::wind_speed" under a "device
+//     infrastructural:netatmo_windmeter with: ...;" block resolves to
+//     "sensor.social_terrace_wind_speed" (space context "terrace" only), not the usual
+//     "..._terrace_netatmo_windmeter_wind_speed" namingSpacePath would otherwise produce.
+//   - "sphere:leaf:path" (explicit replacement leaf, 2026-09-21): the enclosing device's own leaf
+//     is replaced with an author-chosen alternative, e.g. "sensor.social:terrace:pressure" under
+//     "device environment.weather with: ...;" (a ROOT-level device, no enclosing space of its own)
+//     resolves to "sensor.social_terrace_pressure" -- "terrace" standing in for the (here
+//     nonexistent/inapplicable) space context, not "weather" (the device's own internal name, which
+//     the DSL author never wants exposed as a location word this outdoor reading didn't come from).
+//
+// Both forms need no special handling in normalizeEntityFullName itself: once namingSpacePath
+// (this file) stops folding deviceNamePath in, that function's own existing "every remaining colon
+// in the path portion becomes a '/' separator" logic already produces the right result from spec's
+// own remainder alone -- an empty leading segment for the double-colon form (trimmed away), or the
+// literal "leaf/path" segments for the explicit-override form. See
+// project_device_leaf_naming_conceptual_mismatch_gap.md for the design history; both forms it
+// describes are now implemented (the explicit-override one was deferred until this session's real
+// environment.weather case needed it).
+func hasDeviceLeafOverride(spec string) bool {
 	dotIdx := strings.Index(spec, ".")
 	if dotIdx <= 0 || dotIdx >= len(spec)-1 {
 		return false
 	}
 	remainder := spec[dotIdx+1:]
 	colonIdx := strings.Index(remainder, ":")
-	if colonIdx < 0 || colonIdx+1 >= len(remainder) {
+	if colonIdx < 0 {
 		return false
 	}
-	return remainder[colonIdx+1] == ':'
+	return strings.Contains(remainder[colonIdx+1:], ":")
 }
 
 func deviceDisplayName(spaceName, sphere, path string) string {

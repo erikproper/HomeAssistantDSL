@@ -1158,3 +1158,169 @@ func TestSubscribeHassBridgeSetsCommandTopicForCommandableCapability(t *testing.
 		t.Fatalf("expected a cloud-exported discovery config, got %v", cloudClient.published)
 	}
 }
+
+func TestHassBridgeEntityAttributesTopic(t *testing.T) {
+	got := hassBridgeEntityAttributesTopic("protocols-server-2", "vacuum.social_apartment_living_room")
+	want := "homeassistant_instances/protocols-server-2/bridge/vacuum.social_apartment_living_room/attributes"
+	if got != want {
+		t.Errorf("hassBridgeEntityAttributesTopic(...) = %q, want %q", got, want)
+	}
+}
+
+// TestSubscribeHassBridgeSetsJSONAttributesTopicWhenDeclared confirms a capability whose
+// generator-side "attribute <name>: ...;" declarations resolved to HasAttributes: true gets a
+// json_attributes_topic pointing at the sibling ".../attributes" topic -- real motivating case
+// (2026-09-21): vacuum.roomba's "error"/"error_code" going unreported during a live fault.
+func TestSubscribeHassBridgeSetsJSONAttributesTopicWhenDeclared(t *testing.T) {
+	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
+		"hass.roomba": {
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"roomba": {
+					SourceEntities: map[string]string{"protocols-server-2": "vacuum.roomba"},
+					LocalEntity:    "vacuum.social_apartment_living_room",
+					HasAttributes:  true,
+				},
+			},
+		},
+	}}
+
+	localTopic := "homeassistant_instances/protocols-server-2/bridge/vacuum.social_apartment_living_room/state"
+	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte(`{"state": "error"}`)}}}
+	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
+	store := NewLiveDeviceInfoStore("", nil)
+
+	if err := subscribeHassBridge(client, nil, "", bridgeFile, store, publisher, testPrefix, nil); err != nil {
+		t.Fatalf("subscribeHassBridge error: %v", err)
+	}
+
+	wantTopic, ok := hassBridgeDiscoveryTopic("vacuum.social_apartment_living_room", testPrefix)
+	if !ok {
+		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
+	}
+	wantAttributesTopic := "homeassistant_instances/protocols-server-2/bridge/vacuum.social_apartment_living_room/attributes"
+
+	found := false
+	for _, p := range client.published {
+		if p.topic != wantTopic {
+			continue
+		}
+		found = true
+		var body map[string]interface{}
+		if err := json.Unmarshal(p.payload, &body); err != nil {
+			t.Fatalf("unmarshalling discovery payload: %v", err)
+		}
+		if body["json_attributes_topic"] != wantAttributesTopic {
+			t.Errorf("json_attributes_topic = %v, want %q", body["json_attributes_topic"], wantAttributesTopic)
+		}
+	}
+	if !found {
+		t.Fatalf("expected a discovery config published to %q, got %v", wantTopic, client.published)
+	}
+}
+
+// TestSubscribeHassBridgeOmitsJSONAttributesTopicWhenNotDeclared is the regression guard: a
+// capability with no declared attributes (HasAttributes: false, unchanged default) must NOT get a
+// json_attributes_topic at all -- confirms every existing hassbridge capability's discovery config
+// is unaffected by this feature.
+func TestSubscribeHassBridgeOmitsJSONAttributesTopicWhenNotDeclared(t *testing.T) {
+	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
+		"hass.terrace": {
+			Instances: []string{"protocols-server-2"},
+			Capabilities: map[string]THassBridgeCapability{
+				"temperature": {
+					SourceEntities: map[string]string{"protocols-server-2": "sensor.vienna_terrace_temperature"},
+					LocalEntity:    "sensor.infrastructural_vienna_terrace_temperature",
+				},
+			},
+		},
+	}}
+
+	localTopic := "homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_vienna_terrace_temperature/state"
+	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte("21.4")}}}
+	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
+	store := NewLiveDeviceInfoStore("", nil)
+
+	if err := subscribeHassBridge(client, nil, "", bridgeFile, store, publisher, testPrefix, nil); err != nil {
+		t.Fatalf("subscribeHassBridge error: %v", err)
+	}
+
+	wantTopic, ok := hassBridgeDiscoveryTopic("sensor.infrastructural_vienna_terrace_temperature", testPrefix)
+	if !ok {
+		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
+	}
+
+	found := false
+	for _, p := range client.published {
+		if p.topic != wantTopic {
+			continue
+		}
+		found = true
+		var body map[string]interface{}
+		if err := json.Unmarshal(p.payload, &body); err != nil {
+			t.Fatalf("unmarshalling discovery payload: %v", err)
+		}
+		if _, has := body["json_attributes_topic"]; has {
+			t.Errorf("body = %v, want no json_attributes_topic at all when no attributes were declared", body)
+		}
+	}
+	if !found {
+		t.Fatalf("expected a discovery config published to %q, got %v", wantTopic, client.published)
+	}
+}
+
+// TestSubscribeHassBridgeExportCrossPostsAttributesTopicToCloud mirrors
+// TestSubscribeHassBridgeExportCrossPostsToCloud for the new json_attributes_topic field: the
+// cloud-exported discovery config's own attributes topic must be qualifier-prefixed and
+// roaming-canonicalized the same way its state_topic already is, not left as the bare local one.
+func TestSubscribeHassBridgeExportCrossPostsAttributesTopicToCloud(t *testing.T) {
+	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
+		"hass.roomba": {
+			Instances: []string{"protocols-server-2"},
+			Export:    true,
+			Capabilities: map[string]THassBridgeCapability{
+				"roomba": {
+					SourceEntities: map[string]string{"protocols-server-2": "vacuum.roomba"},
+					LocalEntity:    "vacuum.social_apartment_living_room",
+					HasAttributes:  true,
+				},
+			},
+		},
+	}}
+
+	localTopic := "homeassistant_instances/protocols-server-2/bridge/vacuum.social_apartment_living_room/state"
+	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte(`{"state": "error"}`)}}}
+	cloudClient := &fakeClient{}
+	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
+	store := NewLiveDeviceInfoStore("", nil)
+
+	if err := subscribeHassBridge(client, cloudClient, "vienna", bridgeFile, store, publisher, testPrefix, nil); err != nil {
+		t.Fatalf("subscribeHassBridge error: %v", err)
+	}
+
+	stableID := exportStableID("vienna", "hass.roomba", "roomba")
+	discoveryTopic, ok := hassBridgeCloudDiscoveryTopic("vacuum.social_apartment_living_room", stableID, testPrefix)
+	if !ok {
+		t.Fatalf("hassBridgeCloudDiscoveryTopic returned ok=false")
+	}
+	wantCloudDiscoveryTopic := "vienna/" + discoveryTopic
+	wantAttributesTopic := "vienna/homeassistant_instances/protocols-server-2/bridge/vacuum.social_apartment_living_room/attributes"
+
+	found := false
+	for _, p := range cloudClient.published {
+		if p.topic != wantCloudDiscoveryTopic {
+			continue
+		}
+		found = true
+		var body map[string]interface{}
+		if err := json.Unmarshal(p.payload, &body); err != nil {
+			t.Fatalf("unmarshalling cloud discovery payload: %v", err)
+		}
+		if body["json_attributes_topic"] != wantAttributesTopic {
+			t.Errorf("cloud json_attributes_topic = %v, want the qualifier-prefixed topic %q", body["json_attributes_topic"], wantAttributesTopic)
+		}
+	}
+	if !found {
+		t.Fatalf("expected a discovery config published to cloud at %q, got %v", wantCloudDiscoveryTopic, cloudClient.published)
+	}
+}

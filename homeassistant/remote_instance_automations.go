@@ -288,7 +288,20 @@ func generateInstanceAutomationTrees(haOutputDir string, instances map[string]TH
 	for _, name := range names {
 		instanceHAOutputDir := haOutputDir
 		if name != "main" {
-			instanceHAOutputDir = filepath.Join(hassRootDir, name)
+			// filepath.Join(hassRootDir, instances[name].Name) -- NOT name (the qualifier) -- to
+			// match resolveMainIncarnationName's own convention for "main" (hass/<home_assistant
+			// main's own right-hand value>/, e.g. hass/vienna/): the output directory names WHERE
+			// this instance is physically deployed/incarnated, while every OTHER use of `name`
+			// below (MQTT topic construction: homeassistant_instances/<name>/bridge/...,
+			// .../inquire, meta/reload/<name>/..., deviceInfoByInstance's own keys) correctly stays
+			// the qualifier, since that's what the coordinator and homeassistant_bridge.yaml key by.
+			// Real bug found live 2026-09-21 (Vienna's "frame"->"ha2mqtt" instance-identifier
+			// rename): this line used the qualifier for BOTH purposes, an asymmetry with
+			// resolveMainIncarnationName that stayed invisible for as long as the qualifier and the
+			// incarnation value happened to be the identical string "frame" -- the moment they
+			// diverged, deploy scripts kept rsync'ing a now-stale, orphaned hass/<old-qualifier>/
+			// tree instead of the fresh hass/<incarnation>/ one.
+			instanceHAOutputDir = filepath.Join(hassRootDir, instances[name].Name)
 			if err := os.RemoveAll(instanceHAOutputDir); err != nil {
 				return err
 			}

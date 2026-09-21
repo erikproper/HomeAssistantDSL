@@ -66,6 +66,10 @@ const fetchExistenceTimeout = 5 * time.Second
 type TEntityExistenceStatusEntry struct {
 	Status string `json:"status"`
 	State  string `json:"state,omitempty"`
+	// AttributeKeys (added 2026-09-21) is the source entity's own live-reported HA attribute key
+	// set, only meaningful when Status is known-to-exist -- feeds
+	// buildUndeclaredAttributesSuggestions.
+	AttributeKeys []string `json:"attribute_keys,omitempty"`
 }
 
 // TEntityExistenceStatusDevice is one device's entities, keyed by their source entity_id -- the
@@ -703,6 +707,206 @@ func buildSuggestionReportFromExistence(status TEntityExistenceStatusPayload, us
 	return sb.String()
 }
 
+// undeclaredAttributesDenylist: HA-internal/generic attribute keys almost never meaningful
+// application data on their own -- never flagged by buildUndeclaredAttributesSuggestions even when
+// live and undeclared, to keep the report signal-to-noise reasonable.
+var undeclaredAttributesDenylist = map[string]bool{
+	"friendly_name": true, "icon": true, "device_class": true, "unit_of_measurement": true,
+	"state_class": true, "supported_features": true, "assumed_state": true, "attribution": true,
+	"restored": true, "supported_color_modes": true, "editable": true, "entity_picture": true,
+}
+
+// declaredLiveAttributeKeys returns cap's own declared attribute SOURCE keys (the raw HA attribute
+// name after "!", e.g. "error" from "vacuum.roomba!error") for instance -- NOT the DSL author's
+// own chosen local attribute name (cap.Attributes' own map key), which may legitimately differ
+// (e.g. "attribute fault: \"vacuum.roomba!error\";" declares the local name "fault" for the live
+// key "error"). Comparison against a live inquiry reply's own AttributeKeys (raw HA names) must use
+// this, not cap.Attributes' own keys directly.
+func declaredLiveAttributeKeys(cap THassBridgeCapability, instance string) map[string]bool {
+	declared := map[string]bool{}
+	for _, perInstance := range cap.Attributes {
+		source, ok := perInstance[instance]
+		if !ok {
+			continue
+		}
+		if bangIdx := strings.Index(source, "!"); bangIdx > 0 {
+			declared[source[bangIdx+1:]] = true
+		}
+	}
+	return declared
+}
+
+// buildUndeclaredAttributesSuggestions is the live-attribute counterpart to
+// buildSuggestionReportFromExistence's own "unclaimed entity" suggestions -- that one is about
+// entities with no capability at all yet; this is about an ALREADY-declared capability whose own
+// source entity's live inquiry reply (status[...].Entities[...].AttributeKeys) carries an
+// attribute this capability hasn't separately exposed via "attribute <name>: ...;"
+// (integration_hassbridge_parser.go). Real motivating case (2026-09-21): vacuum.roomba went into a
+// real fault ("stuck near a cliff") that never reached HA's more-info dialog, because only its bare
+// state was ever bridged, never its "error"/"error_code" attributes -- this flags a similar gap on
+// OTHER capabilities before someone hits it live too.
+//
+// Kind-3 (hassbridge) only -- confirmed the only integration kind with a live per-entity round trip
+// capable of seeing a source entity's own attribute set at all (kind-2/discovery is passive, never
+// sees full entity state; kind-4/import only ever carries a bare stableID->status string, no state;
+// kind-5/main-instance bare entities have no capability/attribute DSL construct to declare against
+// in the first place).
+//
+// Advisory only, appended to the SAME suggestions/home_assistant_<name>.txt file
+// generateEntityCatalogueSuggestions already writes -- never a hard error, and knowingly imprecise
+// in one direction: a flagged key may already be semantically redundant with an ALREADY-declared
+// SIBLING entity (e.g. this same vacuum's own "bin_full" attribute duplicating an already-declared
+// "binary_sensor.roomba_bin_full" capability) -- this check has no way to know the two are the same
+// concept. undeclaredAttributesDenylist covers the other, more mechanical false-positive category
+// (generic HA-internal keys). Use judgement, same as every other suggestion in this file.
+func buildUndeclaredAttributesSuggestions(status TEntityExistenceStatusPayload, hassBridgeDevicesByID map[string]THassBridgeDevice, instanceName string) string {
+	type finding struct {
+		deviceID, capability, bareEntity string
+		keys                             []string
+	}
+	var findings []finding
+
+	deviceIDs := make([]string, 0, len(hassBridgeDevicesByID))
+	for id := range hassBridgeDevicesByID {
+		deviceIDs = append(deviceIDs, id)
+	}
+	sort.Strings(deviceIDs)
+
+	for _, deviceID := range deviceIDs {
+		device := hassBridgeDevicesByID[deviceID]
+		if !containsString(device.Instances, instanceName) {
+			continue
+		}
+		deviceStatus, hasDevice := status[deviceID]
+		if !hasDevice {
+			continue
+		}
+		capNames := make([]string, 0, len(device.Capabilities))
+		for name := range device.Capabilities {
+			capNames = append(capNames, name)
+		}
+		sort.Strings(capNames)
+		for _, capName := range capNames {
+			cap := device.Capabilities[capName]
+			source, declaredHere := cap.Sources[instanceName]
+			if !declaredHere {
+				continue
+			}
+			bareEntity := bareEntityFromSource(source)
+			entry, hasEntry := deviceStatus.Entities[bareEntity]
+			if !hasEntry || len(entry.AttributeKeys) == 0 {
+				continue
+			}
+			declared := declaredLiveAttributeKeys(cap, instanceName)
+			var undeclared []string
+			for _, key := range entry.AttributeKeys {
+				if !declared[key] && !undeclaredAttributesDenylist[key] {
+					undeclared = append(undeclared, key)
+				}
+			}
+			if len(undeclared) == 0 {
+				continue
+			}
+			sort.Strings(undeclared)
+			findings = append(findings, finding{deviceID: deviceID, capability: capName, bareEntity: bareEntity, keys: undeclared})
+		}
+	}
+	if len(findings) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("# Already-declared capabilities whose source entity also live-reports attributes not\n")
+	sb.WriteString("# currently exposed via \"attribute <name>: ...;\" -- advisory only, use judgement (a key\n")
+	sb.WriteString("# may already be redundant with an already-declared SIBLING entity, e.g. a vacuum's own\n")
+	sb.WriteString("# \"bin_full\" attribute duplicating an already-declared binary_sensor.*_bin_full):\n")
+	for _, f := range findings {
+		sb.WriteString(fmt.Sprintf("# device %s, capability %q (%s):\n", f.deviceID, f.capability, f.bareEntity))
+		for _, key := range f.keys {
+			// Unquoted (2026-09-21, matching integration_hassbridge_parser.go's own unquoted
+			// "attribute <name>: <source>;" grammar -- a source is an entity reference, not an
+			// arbitrary value, so it doesn't take "map:"'s own quoting convention).
+			sb.WriteString(fmt.Sprintf("#   attribute %s: %s!%s;\n", key, f.bareEntity, key))
+		}
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+// buildUndeclaredExternalEntityAttributesSuggestions is buildUndeclaredAttributesSuggestions' own
+// kind-5 counterpart (2026-09-21, the user's own follow-up observation after the "ha2mqtt" rename
+// work: "in the main suggestions file I see none, and I know the weather.forecast entity has a few
+// more"). A literal external entity_id referenced via Logical.def's "over:"/IsAvailable
+// Entity/EnablerEntity fallback (RegisterExternalEntityReference, administration.go) has no
+// "capability"/"Sources map" of its own to check declared attribute keys against the way a
+// hassbridge capability does -- referencedAttributes (TAdministrationState.
+// ExternalEntityReferencedAttributes) instead records which "!attribute" suffixes have actually
+// been referenced anywhere in Logical.def for that entity_id, built up as a side effect of every
+// RegisterExternalEntityReference call.
+//
+// Kind-5 main-instance entities are grouped under device id "" in the existence-status payload
+// (publishStatus's own doc comment, entity_existence.go) -- the same "no owning device" bucket a
+// hassbridge entity with no device would use, but in practice only ever populated by kind-5 here.
+// Kind-5 ("main-instance entity existence", main_entities.go) is main-only by definition (its own
+// SeedMainEntities hard-codes instance "main"), so this is a deliberate no-op for every other
+// instance -- there's nothing to look up in status[""] for them.
+func buildUndeclaredExternalEntityAttributesSuggestions(status TEntityExistenceStatusPayload, referencedAttributes map[string]map[string]bool, instanceName string) string {
+	if instanceName != "main" || len(referencedAttributes) == 0 {
+		return ""
+	}
+	deviceStatus, hasDevice := status[""]
+	if !hasDevice {
+		return ""
+	}
+
+	type finding struct {
+		bareEntity string
+		keys       []string
+	}
+	var findings []finding
+
+	entityIDs := make([]string, 0, len(referencedAttributes))
+	for id := range referencedAttributes {
+		entityIDs = append(entityIDs, id)
+	}
+	sort.Strings(entityIDs)
+
+	for _, entityID := range entityIDs {
+		entry, hasEntry := deviceStatus.Entities[entityID]
+		if !hasEntry || len(entry.AttributeKeys) == 0 {
+			continue
+		}
+		declared := referencedAttributes[entityID]
+		var undeclared []string
+		for _, key := range entry.AttributeKeys {
+			if !declared[key] && !undeclaredAttributesDenylist[key] {
+				undeclared = append(undeclared, key)
+			}
+		}
+		if len(undeclared) == 0 {
+			continue
+		}
+		sort.Strings(undeclared)
+		findings = append(findings, finding{bareEntity: entityID, keys: undeclared})
+	}
+	if len(findings) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("# Literal external entities referenced via Logical.def's \"over:\"/\"is available\" fallback\n")
+	sb.WriteString("# that also live-report attributes no \"over:\" entry currently reads -- advisory only, use\n")
+	sb.WriteString("# judgement (a key may already be redundant with an existing derived capability):\n")
+	for _, f := range findings {
+		sb.WriteString(fmt.Sprintf("# %s:\n", f.bareEntity))
+		for _, key := range f.keys {
+			sb.WriteString(fmt.Sprintf("#   %s!%s\n", f.bareEntity, key))
+		}
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
 // generateEntityCatalogueSuggestions fetches each declared instance's own existence status
 // (fetchEntityExistence -- fresh over MQTT when possible, this house's own local cache otherwise)
 // and writes <outputRoot>/suggestions/home_assistant_<name>.txt for it. Soft-fails (a printed
@@ -714,7 +918,7 @@ func buildSuggestionReportFromExistence(status TEntityExistenceStatusPayload, us
 // into instance "main"'s own `used` set -- without this, every already-declared bare entity would
 // be suggested right back as if unclaimed, since usedHassBridgeEntityIDs only knows about
 // hassbridge-declared sources, not kind-5's own flat list.
-func generateEntityCatalogueSuggestions(definitionDir, outputRoot string, instances map[string]THomeAssistantInstance, hassBridgeDevicesByID map[string]THassBridgeDevice, hostDevicesByID map[string]THostDevice, mainEntityIDs []string, discoveryImpliedEntityIDs []string, ctx TPhysicalGenerationContext) error {
+func generateEntityCatalogueSuggestions(definitionDir, outputRoot string, instances map[string]THomeAssistantInstance, hassBridgeDevicesByID map[string]THassBridgeDevice, hostDevicesByID map[string]THostDevice, mainEntityIDs []string, discoveryImpliedEntityIDs []string, externalEntityReferencedAttributes map[string]map[string]bool, ctx TPhysicalGenerationContext) error {
 	if !ctx.HasMQTTSecrets || len(instances) == 0 {
 		return nil
 	}
@@ -775,6 +979,8 @@ func generateEntityCatalogueSuggestions(definitionDir, outputRoot string, instan
 			expandUsedAcrossDiscoverySourcedDeviceGroups(status, discoveryImpliedEntityIDs, used)
 		}
 		report := buildSuggestionReportFromExistence(status, used, declared, ignoredDeviceIDs)
+		report += buildUndeclaredAttributesSuggestions(status, hassBridgeDevicesByID, name)
+		report += buildUndeclaredExternalEntityAttributesSuggestions(status, externalEntityReferencedAttributes, name)
 		suggestionPath := filepath.Join(outputRoot, "suggestions", "home_assistant_"+name+".txt")
 		if strings.TrimSpace(report) == "" {
 			// Unlike a fetch failure, this *is* an authoritative "nothing to suggest right now" --

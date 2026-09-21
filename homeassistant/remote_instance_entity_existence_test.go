@@ -34,6 +34,11 @@ func TestEntityExistenceInquiryAutomationBody(t *testing.T) {
 	if !strings.Contains(body, "'sibling_entities'") {
 		t.Errorf("body = %s, want sibling_entities in the reply payload", body)
 	}
+	// Regression test, 2026-09-21: feeds the "undeclared live attributes" suggestion check --
+	// s.attributes' own full key set, not any specific value.
+	if !strings.Contains(body, "'attribute_keys'") || !strings.Contains(body, "s.attributes.keys() | list") {
+		t.Errorf("body = %s, want attribute_keys (the source entity's own live attribute key set) in the reply payload", body)
+	}
 	if !strings.Contains(body, "device_attr(did, 'name')") || !strings.Contains(body, "'device_name'") {
 		t.Errorf("body = %s, want device_name (device_attr lookup) in the reply payload, for grouping a discovered device's suggestion entry", body)
 	}

@@ -97,6 +97,52 @@ func TestGenerateInstanceAutomationTreesWritesMainAndRemoteTrees(t *testing.T) {
 	}
 }
 
+// TestGenerateInstanceAutomationTreesUsesIncarnationValueForOutputDirNotQualifier covers the real
+// bug found live 2026-09-21 (Vienna's "frame"->"ha2mqtt" instance rename): the output directory for
+// a non-"main" instance must be named after its own "home_assistant <qualifier>: <name>;" RIGHT-hand
+// value (matching resolveMainIncarnationName's own convention for "main" -- hass/vienna/, not
+// hass/main/), while the MQTT topics inside that tree must still use the LEFT-hand qualifier (what
+// the coordinator and homeassistant_bridge.yaml key by). This only surfaces once the two differ --
+// the existing fixture above uses "protocols-server-2" for both, which would pass even with the bug.
+func TestGenerateInstanceAutomationTreesUsesIncarnationValueForOutputDirNotQualifier(t *testing.T) {
+	admin := newAdministrationState()
+	hassBridgeDevicesByID := map[string]THassBridgeDevice{
+		"hass.laserjet": {DeviceID: "hass.laserjet", Instances: []string{"ha2mqtt"}, Capabilities: map[string]THassBridgeCapability{
+			"status": {Domain: "sensor", Sources: map[string]string{"ha2mqtt": "sensor.laserjet_status"}},
+		}},
+	}
+	positioningDecl := TDevicePositioningDeclaration{Spec: "infrastructural:laserjet", DeviceID: "hass.laserjet"}
+	registerDevicePositioning(admin, positioningDecl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, "Spaces.def", 1)
+	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:laserjet/status", DeviceID: "hass.laserjet", Capability: "status"}
+	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, "Spaces.def", 1, true, ""); len(warnings) != 0 || deferred {
+		t.Fatalf("unexpected warnings/deferred positioning the fixture device: warnings=%v deferred=%v", warnings, deferred)
+	}
+
+	instances := map[string]THomeAssistantInstance{
+		"main":    {Name: "vienna"},
+		"ha2mqtt": {Name: "protocols-server-1"},
+	}
+
+	root := t.TempDir()
+	haOutputDir := filepath.Join(root, "hass", "vienna")
+
+	if err := generateInstanceAutomationTrees(haOutputDir, instances, hassBridgeDevicesByID, admin); err != nil {
+		t.Fatalf("generateInstanceAutomationTrees error: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(root, "hass", "ha2mqtt")); !os.IsNotExist(err) {
+		t.Errorf("expected no hass/ha2mqtt/ output directory -- the qualifier must not be used as the output directory name")
+	}
+
+	reporting, err := os.ReadFile(filepath.Join(root, "hass", "protocols-server-1", "automation", "infrastructural", "automation.reporting_sensor_infrastructural_laserjet_status.yaml"))
+	if err != nil {
+		t.Fatalf("expected the output tree at hass/protocols-server-1/ (the qualifier's own incarnation value), not hass/ha2mqtt/: %v", err)
+	}
+	if !strings.Contains(string(reporting), `topic: "homeassistant_instances/ha2mqtt/bridge/sensor.infrastructural_laserjet_status/state"`) {
+		t.Errorf("reporting automation = %q, want the topic to still use the qualifier \"ha2mqtt\", not the incarnation value \"protocols-server-1\"", reporting)
+	}
+}
+
 func TestHassBridgeReportingAutomationBodyDeviceInfo(t *testing.T) {
 	deviceInfoReports := []THassBridgeDeviceInfoReport{
 		{

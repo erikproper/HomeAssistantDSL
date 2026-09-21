@@ -2128,23 +2128,37 @@ func coverAwayPathSuffix(rec TEntityRecord) string {
 // positions to move to while away (closed_position_when_away and its mirror,
 // opened_position_when_away), and an input_select letting the cover opt out of the
 // default away behaviour (Follow/Open/Closed/Ignore).
+//
+// None of the three declare an "initial:" value (real bug found live 2026-09-21, present since
+// 2026-08-19 -- reported by the user as "does_when_away resets after restart", confirmed to
+// actually hit all three entities, on EVERY restart or homeassistant.reload_all, not just
+// restarts, since this project's own meta-reload mechanism calls that service on every deploy).
+// Per Home Assistant's own input_number/input_select source (homeassistant/components/
+// input_number|input_select/__init__.py): async_added_to_hass only ever attempts its own
+// RestoreEntity lookup when the entity's value/option is still None going in -- __init__ sets it
+// immediately from config["initial"] when present, so a configured "initial:" permanently
+// disables restore, not just on first setup. Dropping it here lets a user's own choice survive
+// every future reload/restart, matching how these helpers are meant to behave.
+//
+// The one real trade-off: without "initial:", a genuinely NEW entity (never seen before, nothing
+// to restore) falls back to each domain's own default -- input_select uses options[0], input_number
+// uses its own configured min. options is ordered "Ignore" first specifically so a brand-new
+// cover's does_when_away starts on the safe do-nothing choice, same as before this fix. The two
+// input_numbers have no equivalent "reorder" trick (opened_position_when_away's own sensible new-
+// entity default would be its max, 100, not its min, 0) -- left as min-on-first-setup regardless,
+// since it's operationally inert either way: does_when_away already defaults to "Ignore" for that
+// same new cover, so nothing ever reads these two positions until a user deliberately switches
+// away from "Ignore" -- at which point they'd naturally set/check the positions too.
 func generateCoverAwayEntities(outputDir string, admin *TAdministrationState) error {
 	for _, rec := range allEntityRecordsByDomain(admin, "cover") {
 		sphere := rec.Identity.Sphere
 		pathSuffix := coverAwayPathSuffix(rec)
 
-		// HA cover position convention: 0 = fully closed, 100 = fully open. So
-		// closed_position_when_away defaults to 0%; its mirror, opened_position_when_away,
-		// defaults to 100%.
-		positionInitials := []struct{ name, initial string }{
-			{"closed_position_when_away", "0"},
-			{"opened_position_when_away", "100"},
-		}
-		for _, p := range positionInitials {
-			positionID := toHomeAssistantEntityID("input_number." + sphere + "/" + pathSuffix + "/" + p.name)
+		for _, name := range []string{"closed_position_when_away", "opened_position_when_away"} {
+			positionID := toHomeAssistantEntityID("input_number." + sphere + "/" + pathSuffix + "/" + name)
 			positionKey := strings.TrimPrefix(positionID, "input_number.")
-			positionDisplay := sphere + "/" + pathSuffix + "/" + p.name
-			positionContent := buildInputNumberYAML(positionKey, positionDisplay, "0", "100", "1", "\"%\"", "mdi:blinds-horizontal", p.initial)
+			positionDisplay := sphere + "/" + pathSuffix + "/" + name
+			positionContent := buildInputNumberYAML(positionKey, positionDisplay, "0", "100", "1", "\"%\"", "mdi:blinds-horizontal", "")
 			numberDir := filepath.Join(outputDir, "entities", "input_number", sphere)
 			if err := writeYAMLFile(filepath.Join(numberDir, positionID+".yaml"), positionContent); err != nil {
 				return err
@@ -2154,7 +2168,7 @@ func generateCoverAwayEntities(outputDir string, admin *TAdministrationState) er
 		selectID := toHomeAssistantEntityID("input_select." + sphere + "/" + pathSuffix + "/does_when_away")
 		selectKey := strings.TrimPrefix(selectID, "input_select.")
 		selectDisplay := pathSuffix
-		selectContent := buildInputSelectYAML(selectKey, selectDisplay, []string{"Follow", "Open", "Closed", "Ignore"}, "mdi:airplane", "Ignore")
+		selectContent := buildInputSelectYAML(selectKey, selectDisplay, []string{"Ignore", "Follow", "Open", "Closed"}, "mdi:airplane", "")
 		selectDir := filepath.Join(outputDir, "entities", "input_select", sphere)
 		if err := writeYAMLFile(filepath.Join(selectDir, selectID+".yaml"), selectContent); err != nil {
 			return err

@@ -149,6 +149,97 @@ type TAdministrationState struct {
 	// capability's already-resolved entity_id (for its own availability field), the same reverse
 	// lookup discovery's derived/availability capabilities already do against DiscoveryEntityLinks.
 	LogicalEntityLinks map[string]TLogicalEntityLink
+
+	// RegisteredExternalEntityReferences dedups RegisterExternalEntityReference's own calls --
+	// see that method's own doc comment for why a plain AppendEntityRecord call per reference
+	// isn't safe here.
+	RegisteredExternalEntityReferences map[string]bool
+
+	// ExternalEntityReferencedAttributes records, per external entity_id RegisterExternalEntityReference
+	// has seen, which "!attribute" suffixes have already been referenced somewhere in Logical.def
+	// (e.g. "weather.forecast!pressure" records "pressure" against "weather.forecast") -- read by
+	// mqtt_entity_existence.go's buildUndeclaredExternalEntityAttributesSuggestions to advise on the
+	// entity's OTHER live-reported attributes nothing references yet, the kind-5 counterpart to
+	// buildUndeclaredAttributesSuggestions' own hassbridge-capability check.
+	ExternalEntityReferencedAttributes map[string]map[string]bool
+}
+
+// RegisterExternalEntityReference records a literal, already-qualified HA entity_id used verbatim
+// as a Logical.def capability's own source (the "over:"/IsAvailable Entity/EnablerEntity literal
+// fallback, 2026-09-19) -- e.g. "weather.forecast" in "condition ... over: weather.forecast!pressure;".
+// Real gap found live 2026-09-21 (the user's own observation, Vienna's environment.weather): such a
+// reference was previously invisible to BOTH main_entities.go's collectMainEntityIDs (so the
+// coordinator never actually confirmed it lives on "main" the way it does for every genuinely
+// "imported"/hassbridge-declared entity) and presence.go's local checkEntityReferences (so
+// generate always printed a permanent, unconfirmable "[presence] unaccounted" note for it, with no
+// way to ever resolve it) -- despite this being EXACTLY the kind of entity kind-5 exists to track:
+// "assumed to already exist on main," just spelled as a literal in Logical.def instead of a bare
+// Conceptual.def "entity ...;" line. Registering it as an ordinary TEntityRecord with
+// HasDefinitionOrImport: false satisfies both checks at once (collectMainEntityIDs' own exclusion
+// is "!HasDefinitionOrImport && !DiscoveryImplied"; buildDeclaredEntityIDSet doesn't filter on
+// either flag at all).
+//
+// Deliberately NOT routed through AppendEntityRecord directly: that method warns loudly on a
+// second registration of the same Name within a space, which is the right behaviour for a genuine
+// DSL-authoring mistake but wrong here -- the same literal entity_id legitimately gets referenced
+// from multiple "over:" lists (e.g. environment.weather's own "node" and "pressure" capabilities
+// both reference "weather.forecast"). RegisteredExternalEntityReferences dedups by bare entity_id
+// alone (not per-space) instead, silently no-opping a repeat: unlike a real DSL entity, this
+// reference has no "space" of its own to conflict within, and re-registering it under whichever
+// space each new referencing device happens to sit in would otherwise reintroduce that same
+// spurious warning.
+//
+// Also skips silently when entityID already matches some OTHER, already-registered entity's own
+// final HA id -- real regression found live 2026-09-21, first time this ran against Vienna's full
+// Conceptual.def: an IsAvailable capability's own Entity is very often NOT a purely-external
+// reference at all -- e.g. appliance.sonos_complement's own "node" capability's Entity is
+// media_player.social_apartment_living_room_sonos, the EXACT SAME final id the device's own bare
+// "entity media_player.social:sonos;" shorthand line (positioned separately, just above the device
+// block) already legitimately declares. Registering both unconditionally tripped
+// validateNoDuplicateFinalEntityIDs for every media_player_device (sonos/apple_tv/tv) and the
+// sonos_roam/washing_machine "absorb" cases. If a real declaration already claims this final id,
+// this reference is redundant -- that entity is already tracked (and will already be live-checked
+// by whichever mechanism governs its own real declaration) -- so there is nothing left to register.
+//
+// rawToken is the ORIGINAL, unstripped source token (e.g. "weather.forecast!pressure"), not just
+// the bare entity_id -- callers used to pre-strip it via bareEntityFromSource before this existed,
+// discarding the "!attribute" suffix entirely. Recording it in ExternalEntityReferencedAttributes
+// (2026-09-21) is what lets buildUndeclaredExternalEntityAttributesSuggestions tell "pressure" (a
+// weather.forecast attribute already referenced from Logical.def) apart from weather.forecast's
+// OTHER live-reported attributes (temperature/humidity/wind_speed/...) nothing references yet.
+func (state *TAdministrationState) RegisterExternalEntityReference(spaceName, rawToken, provenance string) {
+	entityID := bareEntityFromSource(rawToken)
+	if bangIdx := strings.Index(rawToken, "!"); bangIdx > 0 {
+		if state.ExternalEntityReferencedAttributes == nil {
+			state.ExternalEntityReferencedAttributes = map[string]map[string]bool{}
+		}
+		if state.ExternalEntityReferencedAttributes[entityID] == nil {
+			state.ExternalEntityReferencedAttributes[entityID] = map[string]bool{}
+		}
+		state.ExternalEntityReferencedAttributes[entityID][rawToken[bangIdx+1:]] = true
+	}
+
+	if state.RegisteredExternalEntityReferences == nil {
+		state.RegisteredExternalEntityReferences = map[string]bool{}
+	}
+	if state.RegisteredExternalEntityReferences[entityID] {
+		return
+	}
+	for _, records := range state.EntityRecordsBySpace {
+		for _, rec := range records {
+			if toHomeAssistantEntityID(rec.Name) == entityID {
+				state.RegisteredExternalEntityReferences[entityID] = true
+				return
+			}
+		}
+	}
+	state.RegisteredExternalEntityReferences[entityID] = true
+	state.AppendEntityRecord(spaceName, TEntityRecord{
+		Name:       entityID,
+		Identity:   extractEntityIdentity(entityID),
+		NoCollect:  true,
+		Provenance: provenance,
+	})
 }
 
 // TLogicalEntityLink records, for one of our own HA entity ids, which Logical.def device and

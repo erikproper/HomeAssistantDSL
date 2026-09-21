@@ -96,6 +96,13 @@ type TEntityExistenceEntry struct {
 	// carried it through). Same fallback tier as Unit/DeviceClass: only used when neither
 	// Physical.def's own explicit declaration nor Defaults.def/code-level rules set one.
 	Icon string
+	// AttributeKeys (added 2026-09-21) is the remote entity's own live-reported HA attribute key
+	// set -- feeds the generator's "undeclared live attributes" suggestion check
+	// (homeassistant/mqtt_entity_existence.go's buildUndeclaredAttributesSuggestions), only
+	// meaningful when Status == StatusKnownToExist. Deliberately NOT threaded through Record's own
+	// signature (that already has 9 positional args and ~35 existing test call sites across this
+	// package) -- set via the separate, additive RecordAttributeKeys instead.
+	AttributeKeys []string
 }
 
 // TEntityExistenceTracker holds, per named HA instance, every hassbridge-referenced source
@@ -587,6 +594,29 @@ func (t *TEntityExistenceTracker) Record(instance, sourceEntity string, exists b
 	return result
 }
 
+// RecordAttributeKeys stores sourceEntity's live-reported HA attribute key set (added 2026-09-21).
+// Kept separate from Record deliberately, not a new Record parameter -- Record already has 9
+// positional args and ~35 existing test call sites across this package's own tests; a 10th
+// parameter would force a purely mechanical edit to every one of them for a field only the
+// generator's undeclared-attributes suggestion check (homeassistant/mqtt_entity_existence.go) ever
+// reads. Pure live-data cache, same tier as Unit/DeviceClass/Icon -- no persist(), no onChange()
+// (this never affects StatusKnownNotToExist, the only thing either of those cares about). A no-op
+// (same "unknown instance/entity, ignore" tolerance Record itself has) when instance/sourceEntity
+// isn't already tracked.
+func (t *TEntityExistenceTracker) RecordAttributeKeys(instance, sourceEntity string, keys []string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	byEntity, ok := t.entries[instance]
+	if !ok {
+		return
+	}
+	entry, ok := byEntity[sourceEntity]
+	if !ok {
+		return
+	}
+	entry.AttributeKeys = keys
+}
+
 // LiveTyping returns instance's own last-reported unit_of_measurement/device_class/icon for
 // sourceEntity, "" for any not resolved to known-to-exist, or unknown to this tracker entirely --
 // discoveryhassbridge.go's own fallback typing source, behind Physical.def's explicit declaration
@@ -832,6 +862,9 @@ type existenceInquiryReply struct {
 	SerialNumber    string   `json:"serial_number"`
 	ViaDeviceID     string   `json:"via_device_id"`
 	SiblingEntities []string `json:"sibling_entities"`
+	// AttributeKeys (added 2026-09-21) is the source entity's own live-reported HA attribute key
+	// set -- see TEntityExistenceEntry.AttributeKeys' own doc comment.
+	AttributeKeys []string `json:"attribute_keys"`
 }
 
 // deviceInfoFields returns reply's own manufacturer/model/... fields as a knownLiveDeviceInfoFields-
@@ -867,6 +900,10 @@ type existenceStatusDevicePayload struct {
 type existenceStatusEntityPayload struct {
 	Status string `json:"status"`
 	State  string `json:"state,omitempty"`
+	// AttributeKeys (added 2026-09-21) is the source entity's own live-reported HA attribute key
+	// set -- see TEntityExistenceEntry.AttributeKeys' own doc comment. Omitted when empty, same
+	// convention State already follows.
+	AttributeKeys []string `json:"attribute_keys,omitempty"`
 }
 
 // publishStatus publishes instance's current status snapshot to mainClient (bare topic) and --
@@ -888,7 +925,7 @@ func (t *TEntityExistenceTracker) publishStatus(mainClient, cloudClient mqtt.Cli
 	for deviceID, entities := range byDevice {
 		entityPayloads := make(map[string]existenceStatusEntityPayload, len(entities))
 		for entity, entry := range entities {
-			entityPayloads[entity] = existenceStatusEntityPayload{Status: string(entry.Status), State: entry.State}
+			entityPayloads[entity] = existenceStatusEntityPayload{Status: string(entry.Status), State: entry.State, AttributeKeys: entry.AttributeKeys}
 		}
 		payload[deviceID] = existenceStatusDevicePayload{Entities: entityPayloads}
 	}
@@ -932,6 +969,9 @@ func (t *TEntityExistenceTracker) subscribeExistenceReply(mainClient, cloudClien
 			return
 		}
 		deviceID := t.Record(instance, reply.EntityID, reply.Exists, reply.State, reply.Unit, reply.DeviceClass, reply.Icon, reply.DeviceID, reply.ViaDeviceID)
+		if reply.Exists {
+			t.RecordAttributeKeys(instance, reply.EntityID, reply.AttributeKeys)
+		}
 		fmt.Printf("[existence] %s: %s -> exists=%v\n", instance, reply.EntityID, reply.Exists)
 		if reply.Exists && len(reply.SiblingEntities) > 0 {
 			t.DiscoverSiblings(instance, reply.EntityID, reply.DeviceID, reply.DeviceName, reply.SiblingEntities)

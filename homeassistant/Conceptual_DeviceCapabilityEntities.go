@@ -137,22 +137,27 @@ var forDeviceBareEntityPattern = regexp.MustCompile(`^entity\s+(\S+?)(?:\s+with\
 // deviceSpecLeafPath returns "") -- there is nothing to infer a capability from in that case, so
 // the caller must keep using the explicit "from <capability>;" form.
 //
-// A leading ":" is trimmed off the inferred capability (2026-09-19 fix): deviceSpecLeafPath only
-// ever strips up to the FIRST colon, so a spec using the "sphere::path" empty-leaf-override form
-// (hasEmptyDeviceLeafOverride, Conceptual_DeviceEntities.go) -- e.g. "binary_sensor.social::daylight"
-// -- would otherwise infer capability ":daylight" (the second colon still attached), which can
-// never match a real Physical.def capability name. The reconstructed "entity <spec> from ...;"
-// line still passes the ORIGINAL spec (with its "::" intact) through unchanged, so the naming
-// resolution itself is unaffected -- only the inferred capability name needed the fix. Real bug
-// found live 2026-09-19 combining this shorthand with the double-colon form for the first time
-// (Vienna's daylight entity).
+// Only the LAST ":"-separated segment of the leaf path is used as the inferred capability
+// (2026-09-19 fix, generalised 2026-09-21): deviceSpecLeafPath only ever strips up to the FIRST
+// colon, so a spec using either "sphere::path" (empty leaf-override, hasDeviceLeafOverride,
+// Conceptual_DeviceEntities.go) -- e.g. "binary_sensor.social::daylight" -- or "sphere:leaf:path"
+// (explicit replacement leaf) -- e.g. "sensor.social:terrace:pressure" -- would otherwise infer a
+// capability name still carrying the leftover colon-separated segment(s) (":daylight" or
+// "terrace:pressure"), which can never match a real Physical.def/Logical.def capability name (a
+// bare label, never colon- or slash-containing). The reconstructed "entity <spec> from ...;" line
+// still passes the ORIGINAL spec (with its colons intact) through unchanged, so the naming
+// resolution itself is unaffected -- only the inferred capability name needed the fix. Real bugs
+// found live: 2026-09-19 (Vienna's daylight entity, double-colon form), 2026-09-21
+// (environment.weather's pressure capability, explicit-leaf-override form).
 func expandForDeviceBareEntityLine(line, deviceID string) (string, bool) {
 	matches := forDeviceBareEntityPattern.FindStringSubmatch(line)
 	if matches == nil {
 		return "", false
 	}
 	spec := matches[1]
-	capability := strings.TrimPrefix(deviceSpecLeafPath(spec), ":")
+	leaf := deviceSpecLeafPath(spec)
+	leafSegments := strings.Split(leaf, ":")
+	capability := leafSegments[len(leafSegments)-1]
 	if capability == "" {
 		return "", false
 	}

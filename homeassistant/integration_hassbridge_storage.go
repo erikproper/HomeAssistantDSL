@@ -77,6 +77,30 @@ type THassBridgeCapability struct {
 	// (physical_rule_derived_capabilities.go).
 	DerivedFromCapability string
 	DerivedViaTemplate    string
+	// Attributes (added 2026-09-21) declares extra named attributes this capability exposes
+	// alongside its own state, via "attribute <name>: <source>;" (repeatable, same two places
+	// map:/unit:/... can go, source unquoted -- an entity reference, not an arbitrary value) --
+	// source is the same "<entity>[!<attribute>]" convention Sources
+	// uses. Keyed attribute-name -> per-instance source, for the same per-instance reason Sources
+	// itself is keyed that way (see Sources' own doc comment). Feeds a sibling "attributes"
+	// MQTT-publish reporting automation (remote_instance_entity_reporting.go) and the coordinator's
+	// json_attributes_topic (house_event_bus_coordinator/discoveryhassbridge.go) -- real motivating
+	// case: vacuum.roomba going into a real fault ("stuck near a cliff") that never reached main
+	// HA's frontend, since only its bare state was ever bridged, never its "error"/"error_code"
+	// attributes. Empty/nil means this capability exposes no attributes beyond its own state --
+	// unchanged behaviour for every capability declared before this field existed.
+	Attributes map[string]map[string]string
+	// AttributeValueMaps is ValueMap's per-attribute sibling -- "map <attribute-name>: "<from>"
+	// "<to>";" (repeatable), keyed by attribute name, disambiguated from the bare (state-only)
+	// "map: "<from>" "<to>";" purely by the mandatory name token between "map" and ":"
+	// (integration_hassbridge_parser.go's capabilityWithAttributeValueMapPattern/
+	// capabilityAttributeValueMapPattern). ValueMap itself stays reserved for this capability's own
+	// STATE only, exactly as before this field existed -- no behaviour change for any existing
+	// declaration. An entry naming an attribute this capability never actually declared via
+	// Attributes is silently inert (never applied, never an error), the same "translation table,
+	// not an enum whitelist" tolerance ValueMap already has -- avoids a parse-order dependency
+	// between "attribute NAME: ...;" and "map NAME: ...;" lines appearing in either order.
+	AttributeValueMaps map[string]map[string]string
 }
 
 // THassBridgeDevice is one "device <id> with: ... end;" declaration inside Physical.def's

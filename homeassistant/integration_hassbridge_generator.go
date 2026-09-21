@@ -107,6 +107,16 @@ func generateHassBridgeFile(outputRoot string, hassBridgeDevicesByID map[string]
 			if attr.Icon != "" {
 				capLines.WriteString("        icon: " + attr.Icon + "\n")
 			}
+			// has_attributes (added 2026-09-21): true when this capability declared >=1 "attribute
+			// <name>: ...;" -- the coordinator never needs the attribute names/values themselves
+			// (fully resolved into the sibling reporting automation's own Jinja payload here,
+			// generator-side, exactly like ValueMap already is), only this yes/no signal, to decide
+			// whether to set json_attributes_topic on this capability's discovery config (computing
+			// the topic itself, mirroring how it already computes state_topic -- see
+			// house_event_bus_coordinator/discoveryhassbridge.go's hassBridgeEntityAttributesTopic).
+			if len(device.Capabilities[name].Attributes) > 0 {
+				capLines.WriteString("        has_attributes: true\n")
+			}
 			// commands/discovery_extra (added 2026-09-09): fully resolved here, off this
 			// capability's own Domain, so the coordinator stays domain-agnostic -- it only ever
 			// merges whatever this file already says into a discovery config, with no per-domain

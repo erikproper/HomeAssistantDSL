@@ -216,7 +216,7 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 	for _, w := range hostDeviceWarnings {
 		fmt.Printf("[physical] %s\n", w)
 	}
-	if err := generateEntityCatalogueSuggestions(definitionDir, outputRoot, instances, hassBridgeDevicesByID, hostDevicesByID, mainEntityIDs, collectDiscoveryImpliedEntityIDs(admin), ctx); err != nil {
+	if err := generateEntityCatalogueSuggestions(definitionDir, outputRoot, instances, hassBridgeDevicesByID, hostDevicesByID, mainEntityIDs, collectDiscoveryImpliedEntityIDs(admin), admin.ExternalEntityReferencedAttributes, ctx); err != nil {
 		return err
 	}
 	// PROJECT.md 1.8: kind-2's own suggestion report, mirroring the kind-3 one just above --

@@ -79,6 +79,19 @@ type THassBridgeCapability struct {
 	// beyond command_topic/payload_* (e.g. vacuum's "supported_features") -- merged into the
 	// discovery body verbatim, opaque to this coordinator.
 	DiscoveryExtra map[string]interface{} `yaml:"discovery_extra"`
+	// HasAttributes (added 2026-09-21): true when this capability declared >=1
+	// "attribute <name>: ...;" (homeassistant/integration_hassbridge_parser.go). This coordinator
+	// never needs the attribute names/values themselves -- fully resolved generator-side into the
+	// sibling "attributes" reporting automation's own Jinja payload
+	// (homeassistant/remote_instance_entity_reporting.go), exactly like ValueMap already is -- only
+	// this yes/no signal, to decide whether to set json_attributes_topic on this capability's
+	// discovery config. The TOPIC itself is computed here (hassBridgeEntityAttributesTopic,
+	// mirroring hassBridgeEntityStateTopic exactly), not read from this file, since it's a pure
+	// function of instance+local-entity this coordinator already knows how to build. Deliberately
+	// NOT routed through DiscoveryExtra above: that field is only merged when the entity is
+	// commandable (buildHassBridgeEntityDiscoveryBody's own command-gated block) -- irrelevant to
+	// json_attributes_topic, which has nothing to do with commands.
+	HasAttributes bool `yaml:"has_attributes,omitempty"`
 }
 
 // TCapabilityCommand is one command a capability accepts, from homeassistant_bridge.yaml's own
@@ -242,6 +255,14 @@ func hassBridgeEntityStateTopic(instance, localEntity string) string {
 	return "homeassistant_instances/" + instance + "/bridge/" + localEntity + "/state"
 }
 
+// hassBridgeEntityAttributesTopic is hassBridgeEntityStateTopic's sibling for the
+// json_attributes_topic feature (2026-09-21) -- the same convention the generator's own sibling
+// "attributes" reporting automation (homeassistant/remote_instance_entity_reporting.go) publishes
+// to when a capability declares >=1 "attribute <name>: ...;".
+func hassBridgeEntityAttributesTopic(instance, localEntity string) string {
+	return "homeassistant_instances/" + instance + "/bridge/" + localEntity + "/attributes"
+}
+
 // hassBridgeEntityCommandTopic is the one shared command topic for every command a bridged
 // entity accepts -- must stay in lock-step with homeassistant/remote_instance_entity_commands.go's
 // own hassBridgeEntityCommandTopic (generator side), whose generated automations subscribe to
@@ -397,7 +418,7 @@ func hassBridgeAvailabilityTopics(device THassBridgeDevice, capability string) [
 // found.Commands is non-empty; when both are set, this function fills in command_topic plus every
 // found.Commands[*].DiscoveryKey: Payload pair and every found.DiscoveryExtra field verbatim --
 // all fully resolved by the generator (hassbridge_commands.go), never domain-specific logic here.
-func buildHassBridgeEntityDiscoveryBody(stableID, localEntity string, found hassBridgeMatch, stateTopic string, devBlock TDiscoveryDevice, nodeAvailabilityTopics []string, liveUnit, liveDeviceClass, liveIcon, commandTopic, installation string) map[string]interface{} {
+func buildHassBridgeEntityDiscoveryBody(stableID, localEntity string, found hassBridgeMatch, stateTopic, attributesTopic string, devBlock TDiscoveryDevice, nodeAvailabilityTopics []string, liveUnit, liveDeviceClass, liveIcon, commandTopic, installation string) map[string]interface{} {
 	// name: devBlock.Name alone when DisplaySuffix is empty -- an intentional signal (see
 	// TDeviceAttributeLink.DisplaySuffix's own doc comment) that the device's own display name
 	// already conveys everything (its own leaf equals the entity's domain), not "field absent."
@@ -445,6 +466,11 @@ func buildHassBridgeEntityDiscoveryBody(stableID, localEntity string, found hass
 		for key, value := range found.DiscoveryExtra {
 			body[key] = value
 		}
+	}
+	// json_attributes_topic (2026-09-21): deliberately set OUTSIDE the command-gated block above --
+	// unlike Commands/DiscoveryExtra, it has nothing to do with whether this entity is commandable.
+	if found.HasAttributes && attributesTopic != "" {
+		body["json_attributes_topic"] = attributesTopic
 	}
 	applyProxiedBinarySensorPayload(body, localEntity)
 	buildAvailabilityFields(body, stateTopic, nodeAvailabilityTopics...)
@@ -638,7 +664,7 @@ func subscribeHassBridge(client, cloudClient mqtt.Client, ownInstallation string
 		}
 		devBlock := buildHassBridgeDeviceBlock(found.DeviceID, device, store.Snapshot(found.DeviceID), viaDeviceID)
 		availabilityTopics := hassBridgeAvailabilityTopics(device, found.Capability)
-		body := buildHassBridgeEntityDiscoveryBody(hassBridgeUniqueID(localEntity), localEntity, found, msg.Topic(), devBlock, availabilityTopics, liveUnit, liveDeviceClass, liveIcon, hassBridgeEntityCommandTopic(parts[1], localEntity), ownInstallation)
+		body := buildHassBridgeEntityDiscoveryBody(hassBridgeUniqueID(localEntity), localEntity, found, msg.Topic(), hassBridgeEntityAttributesTopic(parts[1], localEntity), devBlock, availabilityTopics, liveUnit, liveDeviceClass, liveIcon, hassBridgeEntityCommandTopic(parts[1], localEntity), ownInstallation)
 		data, err := json.Marshal(body)
 		if err != nil {
 			fmt.Printf("[hass-bridge] marshalling discovery payload for %s: %v\n", localEntity, err)
@@ -667,10 +693,11 @@ func subscribeHassBridge(client, cloudClient mqtt.Client, ownInstallation string
 				cloudAvailabilityTopics = append(cloudAvailabilityTopics, qualifier+"/"+canonicalizeRoamingBridgeTopic(topic, device))
 			}
 			stableID := exportStableID(qualifier, found.DeviceID, found.Capability)
+			cloudAttributesBareTopic := canonicalizeRoamingBridgeTopic(hassBridgeEntityAttributesTopic(parts[1], localEntity), device)
 			// devBlock.withoutSuggestedArea(): which area a device sits in is always this house's
 			// own local Spaces.def positioning, never a fact for an importing house to inherit --
 			// see TDiscoveryDevice.withoutSuggestedArea's own doc comment.
-			cloudBody := buildHassBridgeEntityDiscoveryBody(stableID, localEntity, found, qualifier+"/"+cloudBareTopic, devBlock.withoutSuggestedArea(), cloudAvailabilityTopics, liveUnit, liveDeviceClass, liveIcon, "", ownInstallation)
+			cloudBody := buildHassBridgeEntityDiscoveryBody(stableID, localEntity, found, qualifier+"/"+cloudBareTopic, qualifier+"/"+cloudAttributesBareTopic, devBlock.withoutSuggestedArea(), cloudAvailabilityTopics, liveUnit, liveDeviceClass, liveIcon, "", ownInstallation)
 			cloudBody["installation"] = qualifier
 			cloudData, err := json.Marshal(cloudBody)
 			if err != nil {
@@ -743,7 +770,7 @@ func republishHassBridgeDeviceCapabilities(client, cloudClient mqtt.Client, ownI
 				liveUnit, liveDeviceClass, liveIcon = existenceTracker.LiveTyping(hassBridgeDefaultInstance(device), source)
 			}
 		}
-		body := buildHassBridgeEntityDiscoveryBody(hassBridgeUniqueID(cap.LocalEntity), cap.LocalEntity, found, hassBridgeEntityStateTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), devBlock, availabilityTopics, liveUnit, liveDeviceClass, liveIcon, hassBridgeEntityCommandTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), ownInstallation)
+		body := buildHassBridgeEntityDiscoveryBody(hassBridgeUniqueID(cap.LocalEntity), cap.LocalEntity, found, hassBridgeEntityStateTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), hassBridgeEntityAttributesTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), devBlock, availabilityTopics, liveUnit, liveDeviceClass, liveIcon, hassBridgeEntityCommandTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), ownInstallation)
 		data, err := json.Marshal(body)
 		if err != nil {
 			fmt.Printf("[hass-bridge] marshalling discovery payload for %s: %v\n", cap.LocalEntity, err)
@@ -754,6 +781,7 @@ func republishHassBridgeDeviceCapabilities(client, cloudClient mqtt.Client, ownI
 		}
 		if exportToCloud {
 			cloudStateTopic := qualifier + "/" + canonicalizeRoamingBridgeTopic(hassBridgeEntityStateTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), device)
+			cloudAttributesTopic := qualifier + "/" + canonicalizeRoamingBridgeTopic(hassBridgeEntityAttributesTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), device)
 			var cloudAvailabilityTopics []string
 			for _, topic := range availabilityTopics {
 				cloudAvailabilityTopics = append(cloudAvailabilityTopics, qualifier+"/"+canonicalizeRoamingBridgeTopic(topic, device))
@@ -761,7 +789,7 @@ func republishHassBridgeDeviceCapabilities(client, cloudClient mqtt.Client, ownI
 			stableID := exportStableID(qualifier, deviceID, capability)
 			// devBlock.withoutSuggestedArea(): see the identical comment in subscribeHassBridge's
 			// own handler above.
-			cloudBody := buildHassBridgeEntityDiscoveryBody(stableID, cap.LocalEntity, found, cloudStateTopic, devBlock.withoutSuggestedArea(), cloudAvailabilityTopics, liveUnit, liveDeviceClass, liveIcon, "", ownInstallation)
+			cloudBody := buildHassBridgeEntityDiscoveryBody(stableID, cap.LocalEntity, found, cloudStateTopic, cloudAttributesTopic, devBlock.withoutSuggestedArea(), cloudAvailabilityTopics, liveUnit, liveDeviceClass, liveIcon, "", ownInstallation)
 			cloudBody["installation"] = qualifier
 			cloudData, err := json.Marshal(cloudBody)
 			if err != nil {

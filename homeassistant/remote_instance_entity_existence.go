@@ -39,7 +39,16 @@ import "strings"
 // "homeassistant_instances/<name>/inquire/reply" with
 // {"entity_id", "exists", "state", "unit_of_measurement", "device_class", "icon", "device_id",
 // "device_name", "manufacturer", "model", "model_id", "sw_version", "hw_version",
-// "serial_number", "via_device_id", "sibling_entities"} as JSON.
+// "serial_number", "via_device_id", "sibling_entities", "attribute_keys"} as JSON.
+//
+// attribute_keys (added 2026-09-21) is s.attributes' own full key set, not any specific value --
+// feeds the "undeclared live attributes" suggestion check (homeassistant/mqtt_entity_existence.go's
+// buildUndeclaredAttributesSuggestions): an ALREADY-declared capability whose live source entity
+// carries attributes never exposed via "attribute <name>: ...;" (homeassistant/
+// integration_hassbridge_parser.go). Real motivating case: vacuum.roomba's own "error"/
+// "error_code" attributes going unreported during a live fault ("stuck near a cliff") until this
+// session's own json_attributes_topic feature was built to expose them -- this field lets future
+// suggestion reports flag a similar gap on OTHER capabilities before someone hits it live.
 //
 // via_device_id (added 2026-09-14, PROJECT.md item 3/plans/via-device-inference.md) piggybacks on
 // this same device_attr(did, ...) lookup -- a real, standard Home Assistant device-registry field
@@ -101,6 +110,6 @@ func entityExistenceInquiryAutomationBody(name string) string {
 	sb.WriteString("    data:\n")
 	sb.WriteString("      topic: \"homeassistant_instances/" + name + "/inquire/reply\"\n")
 	sb.WriteString("      payload: >-\n")
-	sb.WriteString("        {% set s = states[trigger.payload] %}{% set did = device_id(trigger.payload) if s else none %}{{ {'entity_id': trigger.payload, 'exists': s is not none, 'state': (s.state if s else none), 'unit_of_measurement': (s.attributes.get('unit_of_measurement') if s else none), 'device_class': (s.attributes.get('device_class') if s else none), 'icon': (s.attributes.get('icon') if s else none), 'device_id': did, 'device_name': (device_attr(did, 'name') if did else none), 'manufacturer': (device_attr(did, 'manufacturer') if did else none), 'model': (device_attr(did, 'model') if did else none), 'model_id': (device_attr(did, 'model_id') if did else none), 'sw_version': (device_attr(did, 'sw_version') if did else none), 'hw_version': (device_attr(did, 'hw_version') if did else none), 'serial_number': (device_attr(did, 'serial_number') if did else none), 'via_device_id': (device_attr(did, 'via_device_id') if did else none), 'sibling_entities': (device_entities(did) if did else [])} | tojson }}\n")
+	sb.WriteString("        {% set s = states[trigger.payload] %}{% set did = device_id(trigger.payload) if s else none %}{{ {'entity_id': trigger.payload, 'exists': s is not none, 'state': (s.state if s else none), 'unit_of_measurement': (s.attributes.get('unit_of_measurement') if s else none), 'device_class': (s.attributes.get('device_class') if s else none), 'icon': (s.attributes.get('icon') if s else none), 'device_id': did, 'device_name': (device_attr(did, 'name') if did else none), 'manufacturer': (device_attr(did, 'manufacturer') if did else none), 'model': (device_attr(did, 'model') if did else none), 'model_id': (device_attr(did, 'model_id') if did else none), 'sw_version': (device_attr(did, 'sw_version') if did else none), 'hw_version': (device_attr(did, 'hw_version') if did else none), 'serial_number': (device_attr(did, 'serial_number') if did else none), 'via_device_id': (device_attr(did, 'via_device_id') if did else none), 'sibling_entities': (device_entities(did) if did else []), 'attribute_keys': (s.attributes.keys() | list if s else [])} | tojson }}\n")
 	return sb.String()
 }

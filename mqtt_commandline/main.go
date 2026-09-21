@@ -209,17 +209,22 @@ func publishStatus(client mqtt.Client, host, name, statusScript, topic string) {
 }
 
 // handleSwitchCommand runs on_script/off_script for a "1"/"0" command payload (matching the
-// already-deployed check_slideshow-style scripts' own convention verbatim). On success, it
-// publishes the COMMANDED (target) state immediately, rather than re-running status_script to
-// confirm it -- status_script can be slow (e.g. check_slideshow's own "sudo xrandr" call), and
-// waiting on it here would leave HA's switch UI sitting in a pending state for no good reason. This
-// is deliberately optimistic: if the command didn't actually take effect, the target state
-// published here is wrong until statusPollInterval's next periodic poll re-runs status_script and
-// corrects it -- "eventually reflects reality," not "reflects reality immediately," a relaxation
-// from mqtt_relay.go's own stricter principle that's fine here since the correction window is
-// short and bounded. On failure, nothing is published at all -- the retained state is left exactly
-// as it was, for the same periodic poll to resolve. An unrecognised payload is logged and ignored,
-// not treated as either on or off.
+// already-deployed check_slideshow-style scripts' own convention verbatim). It publishes the
+// COMMANDED (target) state FIRST, then runs the script in the background -- status_script (and, it
+// turns out, on_script/off_script themselves) can take a couple of seconds (e.g. check_slideshow's
+// own "sudo xrandr"/X round-trip), and waiting on either here would leave HA's switch UI sitting in
+// a pending/stale state for no good reason (real bug found live 2026-09-21: an earlier version of
+// this function ran the script FIRST and only published afterwards, so the UI's own confirmation was
+// blocked behind however long the script took -- HA's switch is non-optimistic, so it visibly sat
+// showing the OLD state for that whole window before flipping, exactly matching this function's own
+// doc comment's stated intent, which the code itself didn't actually implement). This is
+// deliberately optimistic: the target state published here may be wrong if the command script then
+// fails, or even if it succeeds but the underlying state ends up different from assumed -- so once
+// the script finishes (success or failure), status_script is re-run and republished to true up
+// against reality, tightening the correction window from statusPollInterval's own up-to-60s cadence
+// down to "as soon as the command script is done" (still bounded by that same periodic poll as a
+// backstop if this immediate re-check itself somehow fails). An unrecognised payload is logged and
+// ignored, not treated as either on or off.
 func handleSwitchCommand(client mqtt.Client, host, name string, cfg TSwitchConfig) mqtt.MessageHandler {
 	return func(_ mqtt.Client, msg mqtt.Message) {
 		payload := strings.TrimSpace(string(msg.Payload()))
@@ -233,13 +238,15 @@ func handleSwitchCommand(client mqtt.Client, host, name string, cfg TSwitchConfi
 			fmt.Printf("[mqtt_commandline] %s/%s: unrecognised command payload %q; ignored\n", host, name, payload)
 			return
 		}
-		if err := runCommandScript(script); err != nil {
-			fmt.Printf("[mqtt_commandline] %s/%s: command script failed: %v\n", host, name, err)
-			return
-		}
 		if err := publishRetained(client, stateTopic(host, name), payload); err != nil {
 			fmt.Printf("[mqtt_commandline] %v\n", err)
 		}
+		go func() {
+			if err := runCommandScript(script); err != nil {
+				fmt.Printf("[mqtt_commandline] %s/%s: command script failed: %v\n", host, name, err)
+			}
+			publishStatus(client, host, name, cfg.StatusScript, stateTopic(host, name))
+		}()
 	}
 }
 

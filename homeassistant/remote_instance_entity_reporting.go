@@ -75,21 +75,35 @@ func fullyQualifiedEntityNameSlashed(identity TEntityIdentity) string {
 // very automation triggers -- also republishes current state immediately, rather than leaving the
 // entity stuck on whatever it last reported until either a real restart or the next incidental
 // source state-change; confirmed live 2026-08-29: a newly-redeployed reporting automation sat on
-// "unknown" for a while with no reload-triggered republish at all), and whenever the underlying
-// source entity changes -- one trigger/action pair, one entity, per PROJECT.md 1.1's naming. The
+// "unknown" for a while with no reload-triggered republish at all), and whenever any of
+// bareTriggerEntities changes -- one trigger/action pair per entity/attributes topic, per
+// PROJECT.md 1.1's naming. bareTriggerEntities is almost always exactly one entity (the source this
+// automation reports on), but the "attributes" sibling automation (added 2026-09-21, see
+// resolveHassBridgeCapabilityAttributeExprs) may need to trigger on several distinct source
+// entities at once if its declared attributes come from more than one -- a plain YAML list handles
+// both cases uniformly, HA's own state trigger accepts N>=1 entity_ids there identically. The
 // reload trigger is the "event" platform, not "homeassistant" -- HA's own homeassistant trigger
 // platform only ever supports start/shutdown, never reload; HA's automation integration fires a
 // separate "automation_reloaded" event on the generic event bus instead, whenever automations.yaml
 // is reloaded (UI action or the automation.reload service). topic and payloadExpr carry over
 // unchanged from the shared-automation predecessor (hassBridgeReportingAutomationBody):
 // homeassistant_instances/<name>/bridge/<local_entity>/state, a Jinja expression built by
-// sourceToJinja2.
-func entityReportingAutomationBody(identity TEntityIdentity, bareTriggerEntity, topic, payloadExpr string) string {
+// sourceToJinja2. aliasSuffix distinguishes this automation's own alias from any sibling reporting
+// on the SAME identity -- "" for the ordinary state automation (unchanged alias text from before
+// this parameter existed), "/attributes" for the sibling attributes automation (added 2026-09-21):
+// without it, both automations would render the exact same alias text, and HA auto-suffixes the
+// second one's own entity_id with "_2" on load (the identical collision-avoidance behaviour that
+// bit us for real earlier this same session, netatmo battery_alert) -- confusing in the UI even
+// though functionally harmless, so this avoids it outright rather than living with it.
+func entityReportingAutomationBody(identity TEntityIdentity, bareTriggerEntities []string, topic, payloadExpr, aliasSuffix string) string {
 	var sb strings.Builder
-	sb.WriteString("- alias: \"reporting/" + fullyQualifiedEntityNameSlashed(identity) + "\"\n")
+	sb.WriteString("- alias: \"reporting/" + fullyQualifiedEntityNameSlashed(identity) + aliasSuffix + "\"\n")
 	sb.WriteString("  trigger:\n")
 	sb.WriteString("  - platform: state\n")
-	sb.WriteString("    entity_id: " + bareTriggerEntity + "\n")
+	sb.WriteString("    entity_id:\n")
+	for _, entity := range bareTriggerEntities {
+		sb.WriteString("      - " + entity + "\n")
+	}
 	sb.WriteString("  - platform: homeassistant\n")
 	sb.WriteString("    event: start\n")
 	sb.WriteString("  - platform: event\n")
@@ -169,6 +183,67 @@ func resolveHassBridgeCapabilityExpr(device THassBridgeDevice, label, instance s
 	return substituteDerivedTemplate(cap.DerivedViaTemplate, baseExpr), baseTriggerEntity, true
 }
 
+// resolveHassBridgeCapabilityAttributeExprs resolves capability label's own declared Attributes
+// (added 2026-09-21) for instance into (attribute name -> ValueMap-applied Jinja expr), plus the
+// sorted, deduplicated set of bare trigger entities across all of them -- almost always exactly
+// one (every attribute sourced from the SAME entity as the capability's own state, e.g.
+// vacuum.roomba's "error"/"error_code"), but not assumed: an attribute MAY be declared against a
+// different source entity than its own capability's state. Attributes only ever apply to an
+// atomic (Sources-bearing) capability, never resolved through a "derived" chain the way
+// resolveHassBridgeCapabilityExpr's own state resolution is -- a capability with
+// DerivedFromCapability set is expected to declare no Attributes of its own (not validated here,
+// same tolerance the rest of this file extends to declaration mistakes). ok is false when the
+// capability declares no Attributes at all for this instance.
+func resolveHassBridgeCapabilityAttributeExprs(device THassBridgeDevice, label, instance string) (exprsByName map[string]string, triggerEntities []string, ok bool) {
+	cap, known := device.Capabilities[label]
+	if !known || len(cap.Attributes) == 0 {
+		return nil, nil, false
+	}
+	names := make([]string, 0, len(cap.Attributes))
+	for name := range cap.Attributes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	exprsByName = map[string]string{}
+	triggerSet := map[string]bool{}
+	for _, name := range names {
+		source, declaredHere := cap.Attributes[name][instance]
+		if !declaredHere {
+			continue
+		}
+		exprsByName[name] = applyValueMap(cap.AttributeValueMaps[name], sourceToJinja2(source))
+		triggerSet[bareEntityFromSource(source)] = true
+	}
+	if len(exprsByName) == 0 {
+		return nil, nil, false
+	}
+	triggerEntities = make([]string, 0, len(triggerSet))
+	for entity := range triggerSet {
+		triggerEntities = append(triggerEntities, entity)
+	}
+	sort.Strings(triggerEntities)
+	return exprsByName, triggerEntities, true
+}
+
+// buildAttributesPayloadExpr renders exprsByName as one Jinja dict literal -- "{'error': (...),
+// 'error_code': (...)} | tojson", sorted keys for deterministic output (mirrors applyValueMap's own
+// determinism convention). Unlike applyValueMap, this is a straight literal, no get()/fallback --
+// there is no "unmapped value" concept for an attribute NAME the way there is for a translated
+// VALUE.
+func buildAttributesPayloadExpr(exprsByName map[string]string) string {
+	names := make([]string, 0, len(exprsByName))
+	for name := range exprsByName {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	pairs := make([]string, 0, len(names))
+	for _, name := range names {
+		pairs = append(pairs, jinjaStringLiteral(name)+": ("+exprsByName[name]+")")
+	}
+	return "{" + strings.Join(pairs, ", ") + "} | tojson"
+}
+
 // generateHassBridgeEntityReportingAutomations writes one reporting automation file per positioned
 // hassbridge capability bridged from the named instance -- same "must be positioned" filter
 // collectHassBridgeCapabilitiesByInstance already applies elsewhere (an unpositioned bridge device
@@ -212,7 +287,7 @@ func generateHassBridgeEntityReportingAutomations(instanceHAOutputDir, name stri
 			}
 			topic := "homeassistant_instances/" + name + "/bridge/" + attr.EntityID + "/state"
 			payloadExpr := applyStatePayloadTemplate(cap.Domain, mappedExpr)
-			body := entityReportingAutomationBody(attr.Identity, triggerEntity, topic, payloadExpr)
+			body := entityReportingAutomationBody(attr.Identity, []string{triggerEntity}, topic, payloadExpr, "")
 			// "infrastructural" regardless of the reported entity's own conceptual sphere
 			// (physical/social/whatever it is) -- this automation is physical-layer plumbing
 			// (how the value gets from the remote instance onto MQTT), not a conceptual placement
@@ -221,6 +296,23 @@ func generateHassBridgeEntityReportingAutomations(instanceHAOutputDir, name stri
 			automationID := "reporting_" + fullyQualifiedEntityNameUnderscored(attr.Identity)
 			if err := writeAutomationFile(instanceHAOutputDir, "infrastructural", automationID, generatorHeader+body); err != nil {
 				return err
+			}
+
+			// Sibling "attributes" reporting automation (added 2026-09-21): only written when this
+			// capability declared >=1 "attribute <name>: ...;" for this instance -- publishes a
+			// JSON object of all of them to a sibling ".../attributes" topic, which the
+			// coordinator's own json_attributes_topic (discoveryhassbridge.go) then points HA's
+			// discovery config at, alongside the state topic above. See PROJECT.md's
+			// json-attributes-topic work, 2026-09-21: vacuum.roomba's own "error"/"error_code"
+			// going unreported during a live fault was the motivating case.
+			if attrExprsByName, attrTriggerEntities, attrOk := resolveHassBridgeCapabilityAttributeExprs(device, capability, name); attrOk {
+				attrTopic := "homeassistant_instances/" + name + "/bridge/" + attr.EntityID + "/attributes"
+				attrPayloadExpr := buildAttributesPayloadExpr(attrExprsByName)
+				attrBody := entityReportingAutomationBody(attr.Identity, attrTriggerEntities, attrTopic, attrPayloadExpr, "/attributes")
+				attrAutomationID := "reporting_attributes_" + fullyQualifiedEntityNameUnderscored(attr.Identity)
+				if err := writeAutomationFile(instanceHAOutputDir, "infrastructural", attrAutomationID, generatorHeader+attrBody); err != nil {
+					return err
+				}
 			}
 		}
 	}

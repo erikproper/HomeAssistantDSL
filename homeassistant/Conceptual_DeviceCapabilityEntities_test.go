@@ -117,7 +117,7 @@ func TestExpandForDeviceBareEntityLineNoCollectSuffix(t *testing.T) {
 
 // TestExpandForDeviceBareEntityLineDoubleColonForm is the regression test for a real bug found
 // live 2026-09-19 (Vienna's daylight entity): combining this shorthand with the "sphere::path"
-// empty-leaf-override form (hasEmptyDeviceLeafOverride, Conceptual_DeviceEntities.go) used to
+// empty-leaf-override form (hasDeviceLeafOverride, Conceptual_DeviceEntities.go) used to
 // infer capability ":daylight" (deviceSpecLeafPath only strips up to the FIRST colon, leaving the
 // second one attached), which could never match a real Physical.def capability -- the correct
 // inferred capability is "daylight", with the original spec's own "::" passed through unchanged
@@ -128,6 +128,24 @@ func TestExpandForDeviceBareEntityLineDoubleColonForm(t *testing.T) {
 		t.Fatalf("expected the bare-entity line to match")
 	}
 	want := "entity binary_sensor.social::daylight from environment.sun daylight;"
+	if got != want {
+		t.Errorf("expandForDeviceBareEntityLine = %q, want %q", got, want)
+	}
+}
+
+// TestExpandForDeviceBareEntityLineExplicitLeafOverrideForm is the regression test for the
+// 2026-09-21 case (environment.weather's own "pressure" capability): combining this shorthand with
+// the "sphere:leaf:path" explicit-replacement-leaf form (hasDeviceLeafOverride,
+// Conceptual_DeviceEntities.go) must infer capability "pressure", not the leftover
+// "terrace:pressure" (deviceSpecLeafPath only strips up to the FIRST colon, leaving the second
+// colon-separated segment attached) -- mirrors TestExpandForDeviceBareEntityLineDoubleColonForm's
+// own reasoning for the sibling double-colon form.
+func TestExpandForDeviceBareEntityLineExplicitLeafOverrideForm(t *testing.T) {
+	got, ok := expandForDeviceBareEntityLine("entity sensor.social:terrace:pressure;", "environment.weather")
+	if !ok {
+		t.Fatalf("expected the bare-entity line to match")
+	}
+	want := "entity sensor.social:terrace:pressure from environment.weather pressure;"
 	if got != want {
 		t.Errorf("expandForDeviceBareEntityLine = %q, want %q", got, want)
 	}

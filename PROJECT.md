@@ -1,12 +1,20 @@
 ** TODO 
 
-1 Adding by Erik:
-- check suggested in Vie, HA main (remotes)
-- check node and alert tabs and icons
-
-1b. Adding by Erik:
+1. Adding by Erik in Junglinster:
+- DONE (2026-09-21, Vienna): weather.forecast => pressure + node, via new environment.weather
+  Logical.def device (sensor.social_forecast_pressure, binary_sensor.social_node). Still open here:
+  the same for Junglinster.
 - terrace/garden/tuya
 - house/server_room/rack/tuya
+- BEFORE migrating JLI: apply the same "frame"->"ha2mqtt" rename there first (done for Vienna
+  2026-09-21) -- whatever Junglinster's own secondary HA instance (hassbridge bridging) is
+  currently called, rename its Physical.def "home_assistant <qualifier>: <name>;" qualifier to
+  something describing what it actually does, not where it happened to run. The generator's own
+  output-directory bug this exposed (remote_instance_automations.go's generateInstanceAutomationTrees
+  keying hass/<X>/ by the qualifier instead of the right-hand incarnation value) is already fixed,
+  so Junglinster won't hit that specific pitfall -- but the rename itself (Physical.def qualifier +
+  deploy script filename/content + coordinator redeploy + a container restart to force a fresh
+  state republish) still needs doing by hand there too.
 - migrate JLI
 - check suggested in JLI
 - sun in JLI
@@ -15,13 +23,6 @@
 - envoy-wifi vs envoy
 - device names in JLI
 - complete conceptual import
-
-1c. Frame@Vienna should also be backed up. At least the bin folder?
-Add the same action for Frame@Junglinster for when we have migrated to Fedora.
-
-1d. EP: powerboard + USB hub in place
-
-1e. EP: Stick migration for Frame @ Vienna
 
 2. Stick migration for Pi3 and PiB:
 - Copy the pi3 stick in vienna to one of these sticks
@@ -43,6 +44,28 @@ Add the same action for Frame@Junglinster for when we have migrated to Fedora.
     better-resourced machine): a 4GB disk-backed /swapfile at priority -1, alongside zram at its
     default priority 100 (zram absorbs load first, the swapfile is overflow) -- exact commands in
     memory: project_ps2_swap_fix_procedure.md.
+
+sudo growpart /dev/sda 3
+sudo pvresize /dev/sda3
+sudo lvextend -l +100%FREE /dev/systemVG/LVRoot
+sudo xfs_growfs /
+
+Confirmed working on the first clone (frame @ Junglinster) 2026-09-21: root grown from 26.19G to
+118G (XFS, not ext4 -- xfs_growfs takes the mountpoint, not the device). Same commands apply
+verbatim to the next stick.
+
+And sudo hostnamectl set-hostname <name> for the rename — also trivially safe once it's the only one running. 
+
+3. Once Frame@Junglinster is migrated to Fedora (item 2): 
+==> As we will use a cloned USB stick, the things below might already
+work "out of the stick".
+back up its `~/bin` folder the same way
+   as Frame@Vienna's own frame host (done 2026-09-21, see Architecture.md 11.3) -- a
+   `sudo ln -s ~/bin /var/lib/home-automation/frame-bin` symlink, so the existing
+   `backup-home-automation` script (already fixed+redeployed everywhere to dereference such
+   symlinks) picks it up with zero script changes. NOT just the `*_slideshow` scripts -- the whole
+   folder, since it holds various hand-tuned, monitor/location-specific scripts that would be
+   painful to reconstruct.
 
 4. MQTT (local) broker in container on p-s-1 @JLI
 
@@ -404,6 +427,8 @@ Also adjust the names of generated automations.
 
 13. Check aggregation of sensors. If one is down, what do we do with data?
 
+13b. Jointly check the consistency and cleanliness of the DSL.
+
 14. Code cleaning (dead code, superseded generator logic, parser)
 - Rename the `homeassistant_instances/...` MQTT topic tree (bootstrap/bridge protocol,
   discoveryhassbridge.go) to `homeassistant.instances/...`, matching this project's own
@@ -542,6 +567,45 @@ Also adjust the names of generated automations.
     reshaping a value/payload between two representations) -- worth considering together if/when
     this item is actually designed, rather than as two unrelated mechanisms.
 
+    A second, concrete motivating case (2026-09-21): the same vacuum went into a real fault
+    ("stuck near a cliff" -- the Roomba's own iRobot integration exposes this as a detailed error
+    reason, likely an attribute alongside its bare `state`) that the bridge today has no way to
+    surface at all, since `domainStatePayloadTemplate`'s `{"state": "$"}` wrapping only ever
+    carries the one `state` field through -- the detailed reason is silently dropped, main HA only
+    ever sees the generic "error" state with no explanation. Once this item's own topic/JSON
+    rewriting mechanism exists, relaying that extra field becomes straightforward; on top of that,
+    a further (separate, later) step would be a notification/alert layer that actually surfaces a
+    vacuum (or any device) entering an error state to the user proactively, rather than requiring
+    someone to notice a stalled cleaning cycle and go check the app -- not designed either, but
+    worth keeping in mind as the actual end goal this data would serve.
+
+23. Future refinement (2026-09-21, not yet designed, long-run/end-of-list item -- deliberately
+    parked behind publishing): replace item 8's own Overkiz-through-HA approach (the Somfy
+    Connexoon gateway currently integrated via Home Assistant's Overkiz integration, then bridged
+    out to MQTT via hassbridge) with a small, dedicated MQTT gateway built directly on the
+    `pyoverkiz` Python API -- using HA merely as an Overkiz-to-MQTT relay introduces unnecessary
+    overhead once a purpose-built adapter is an option. FHEM also has an Overkiz integration and
+    could expose the devices via MQTT instead, but FHEM itself is an increasingly legacy platform,
+    not a direction worth building on.
+
+    The gateway would talk to Connexoon/Overkiz directly, publish device state and availability via
+    MQTT, and translate canonical MQTT commands (open/close/stop/position) into the corresponding
+    Overkiz calls -- a lightweight protocol adapter analogous to the existing Z-Wave and Zigbee
+    gateways, keeping every Overkiz-specific detail out of the DSL/generator and out of Home
+    Assistant entirely. Once built, item 8's own hassbridge-based SOMFY cover wiring would need
+    replacing with a plain discovery-kind integration talking to this new gateway instead.
+
+    Should follow the Zigbee2MQTT/zwave2mqtt pattern completely, not just the state/command halves --
+    i.e. the gateway publishes its own HA MQTT Discovery config topics too, self-describing each
+    device the same way Z2M/zwave2mqtt already do, rather than requiring this project's own
+    generator/coordinator to hand-author that config. That's what makes it useful beyond this
+    project's own "federated via coordinator" architecture -- a plain singleton HA setup (no
+    coordinator at all) can point its MQTT integration straight at this gateway and get working
+    Overkiz devices with zero project-specific glue, the same way anyone can already point a bare HA
+    instance at a Zigbee2MQTT broker. MQTT was designed for exactly this kind of IoT device
+    integration -- worth leaning into that as far as it goes, rather than building another
+    project-specific adapter shape.
+
 ---------------
 # Raspberry Pi fleet storage migration strategy
 
@@ -627,6 +691,20 @@ root.
   proper rebuild/copy, not a block clone.
 
 ## 5. Migration plan for `protocols-server-2`
+
+**Update (2026-09-21, planned for this evening):** Step 1 below may end up unnecessary. EP is
+cloning frame@Vienna's already-validated Fedora-on-stick installation (its own stick migration,
+item 1b -- Vienna's frame previously had its HA-container role stripped off it entirely this same
+day, see Architecture.md 11.3) three times: one stays as frame@Vienna's own replacement stick, one
+becomes the base for Frame@Junglinster's Fedora migration (item 2), and one gets its hostname set to
+`protocols-server-2` tonight to serve as the starting point for *this* migration -- already a
+working, validated Fedora/UEFI/GRUB-on-stick image, so Step 1's own "build and validate a test
+stick from scratch" work is likely already done by the time this migration is picked up. What
+remains for this migration at that point: strip the picture-frame-specific pieces (X11/feh,
+`*_slideshow` scripts, `mqtt_commandline`) that came along from the clone, and transfer the actual
+`protocols-server-2`-specific state (its own local HA container + integrations -- Envoy, printer,
+Bermuda BLE cache -- see PROJECT.md's own Vienna/Junglinster protocols-server-2 distinction) from
+the current SSD-based install onto the stick, i.e. go straight to (an adapted) Step 2 onward.
 
 ### Step 1 — Build and validate a test stick
 
