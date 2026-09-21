@@ -115,6 +115,16 @@ type TImportedDevice struct {
 	DisplayName        string                         `yaml:"display_name"`
 	Capabilities       map[string]TImportedCapability `yaml:"capabilities"`
 	ConstantAttributes map[string]TConceptualConstant `yaml:"constant_attributes"`
+	// DependsOnAvailability (2026-09-16, PROJECT.md's logical-layer work) is every extra raw MQTT
+	// topic this device's own capabilities' availability must additionally AND in, resolved
+	// generator-side from a Logical.def "dependency on <other-id>;" declaration sharing this same
+	// device's own id (homeassistant/integration_logical_storage.go's
+	// resolveDependencyAvailabilityTopics) -- already flattened across the full transitive
+	// dependency chain and cycle-checked there, so this coordinator never walks that graph itself.
+	// Passed straight through to buildAvailabilityFields alongside the device's own node topic.
+	// Empty for a device with no matching Logical.def declaration -- unchanged behaviour from
+	// before this field existed.
+	DependsOnAvailability []string `yaml:"depends_on_availability"`
 }
 
 // TImportedFile is the top-level shape of a generated coordinator/imported.yaml.
@@ -285,19 +295,28 @@ func matchImportedCapabilityByStableID(importFile TImportedFile, remoteInstallat
 	return importCapabilityMatch{}, false
 }
 
-// importedAvailabilityTopic resolves match's own device's "node" (connectivity) capability's
-// LOCAL relay state topic, then applies the shared availabilityTopicFor gate (discovery.go) --
-// mirrors hassBridgeAvailabilityTopic's own reasoning (discoveryhassbridge.go) one hop further
+// importedAvailabilityTopics resolves match's own device's "node" (connectivity) capability's
+// LOCAL relay state topic (via the shared availabilityTopicFor gate, discovery.go -- mirrors
+// hassBridgeAvailabilityTopic's own reasoning, discoveryhassbridge.go, one hop further
 // downstream: an imported device's other entities go unavailable exactly when its imported "node"
-// entity does.
-func importedAvailabilityTopic(importFile TImportedFile, match importCapabilityMatch) string {
-	nodeTopic := ""
-	if device, ok := importFile.Devices[match.LocalDeviceID]; ok {
-		if node, ok := device.Capabilities["node"]; ok && node.LocalEntity != "" {
-			nodeTopic = importedStateTopic(node.LocalEntity)
-		}
+// entity does), plus (2026-09-16) any "dependency on" topics the device itself carries
+// (TImportedDevice.DependsOnAvailability) -- both fed straight into buildAvailabilityFields as its
+// own variadic nodeTopics, ANDed together unconditionally regardless of which (if either) is
+// actually present.
+func importedAvailabilityTopics(importFile TImportedFile, match importCapabilityMatch) []string {
+	device, ok := importFile.Devices[match.LocalDeviceID]
+	if !ok {
+		return nil
 	}
-	return availabilityTopicFor(nodeTopic, match.Capability)
+	nodeTopic := ""
+	if node, ok := device.Capabilities["node"]; ok && node.LocalEntity != "" {
+		nodeTopic = importedStateTopic(node.LocalEntity)
+	}
+	var topics []string
+	if own := availabilityTopicFor(nodeTopic, match.Capability); own != "" {
+		topics = append(topics, own)
+	}
+	return append(topics, device.DependsOnAvailability...)
 }
 
 // importRemoteDeviceKey identifies one remote device by (exporting installation, that
@@ -356,7 +375,7 @@ func buildImportViaDeviceIndex(importFile TImportedFile) map[importRemoteDeviceK
 // THIS house's own imports, if any, corresponds to that same remote device. No new inference here
 // at all: buildImportViaDeviceIndex is built once from Physical.def's own already-declared
 // (RemoteInstallation, RemoteDeviceID) pairs.
-func buildImportedDiscoveryBody(match importCapabilityMatch, payload importedDiscoveryPayload, nodeAvailabilityTopic, remoteInstallation string, viaDeviceIndex map[importRemoteDeviceKey]string, installation string) map[string]interface{} {
+func buildImportedDiscoveryBody(match importCapabilityMatch, payload importedDiscoveryPayload, nodeAvailabilityTopics []string, remoteInstallation string, viaDeviceIndex map[importRemoteDeviceKey]string, installation string) map[string]interface{} {
 	deviceName := match.DisplayName
 	if deviceName == "" {
 		deviceName = match.LocalDeviceID
@@ -435,7 +454,7 @@ func buildImportedDiscoveryBody(match importCapabilityMatch, payload importedDis
 	} else {
 		applyProxiedBinarySensorPayload(body, match.LocalEntity)
 	}
-	buildAvailabilityFields(body, stateTopic, nodeAvailabilityTopic)
+	buildAvailabilityFields(body, stateTopic, nodeAvailabilityTopics...)
 	return body
 }
 
@@ -497,7 +516,7 @@ func substituteImportedDerivedTemplate(template, baseExpr string) string {
 // exactly, just reading device/cap directly (no exporter payload to draw device-info fields from --
 // a derived capability's own device block is exactly its LOCAL device's own, nothing remote to
 // learn).
-func buildDerivedImportedDiscoveryBody(localDeviceID string, device TImportedDevice, capability string, cap TImportedCapability, baseTopic, template, nodeAvailabilityTopic, installation string) map[string]interface{} {
+func buildDerivedImportedDiscoveryBody(localDeviceID string, device TImportedDevice, capability string, cap TImportedCapability, baseTopic, template string, nodeAvailabilityTopics []string, installation string) map[string]interface{} {
 	deviceName := device.DisplayName
 	if deviceName == "" {
 		deviceName = localDeviceID
@@ -519,7 +538,7 @@ func buildDerivedImportedDiscoveryBody(localDeviceID string, device TImportedDev
 		"origin":            coordinatorOriginMap(installation),
 	}
 	applyProxiedBinarySensorPayload(body, cap.LocalEntity)
-	buildAvailabilityFields(body, baseTopic, nodeAvailabilityTopic)
+	buildAvailabilityFields(body, baseTopic, nodeAvailabilityTopics...)
 	return body
 }
 
@@ -540,8 +559,8 @@ func publishDerivedImportedDiscovery(client mqtt.Client, importFile TImportedFil
 				fmt.Printf("[discovery-import] device %q: \"derived\" capability %q could not be resolved (dangling reference or cycle); skipping\n", deviceID, capability)
 				continue
 			}
-			nodeAvailabilityTopic := importedAvailabilityTopic(importFile, importCapabilityMatch{LocalDeviceID: deviceID, Capability: capability})
-			body := buildDerivedImportedDiscoveryBody(deviceID, device, capability, cap, baseTopic, template, nodeAvailabilityTopic, installation)
+			nodeAvailabilityTopics := importedAvailabilityTopics(importFile, importCapabilityMatch{LocalDeviceID: deviceID, Capability: capability})
+			body := buildDerivedImportedDiscoveryBody(deviceID, device, capability, cap, baseTopic, template, nodeAvailabilityTopics, installation)
 			dotIdx := strings.Index(cap.LocalEntity, ".")
 			if dotIdx < 0 {
 				continue
@@ -712,7 +731,7 @@ func subscribeImportedDevices(mainClient, cloudClient mqtt.Client, ownInstallati
 				hostsRelayIndex.register(payload.StateTopic, TImportedHostsRelay{LocalEntity: match.LocalEntity, ExtractionField: extractionField})
 			}
 
-			body := buildImportedDiscoveryBody(match, payload, importedAvailabilityTopic(importFile, match), remoteInstallation, viaDeviceIndex, ownInstallation)
+			body := buildImportedDiscoveryBody(match, payload, importedAvailabilityTopics(importFile, match), remoteInstallation, viaDeviceIndex, ownInstallation)
 			dotIdx := strings.Index(match.LocalEntity, ".")
 			if dotIdx < 0 {
 				return

@@ -45,7 +45,7 @@ entity switch.social:apartment/living_room/picture_frame from host.frame slidesh
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, frameCommandlineDevicesByID(), nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, frameCommandlineDevicesByID(), nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -86,7 +86,7 @@ entity binary_sensor.social:apartment/living_room/picture_frame from host.frame 
 
 	var report strings.Builder
 	output := captureStderr(t, func() {
-		_, _ = ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, frameCommandlineDevicesByID(), nil)
+		_, _ = ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, frameCommandlineDevicesByID(), nil, nil)
 	})
 	if !strings.Contains(output, "must match") {
 		t.Fatalf("expected a domain-mismatch warning, got: %q", output)

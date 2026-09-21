@@ -109,12 +109,33 @@ func deviceSpecLeafPath(spec string) string {
 // name the way "washing_machine"/"picture_frame" are) shouldn't have that domain repeated a
 // second time in the entity's own path, purely redundant with the domain prefix already there --
 // "vacuum.social_apartment_living_room_vacuum" should read "vacuum.social_apartment_living_room".
+//
+// The same suppression also fires when the domain matches only deviceNamePath's own LAST "/"
+// segment (2026-09-15, generalising the exact rule above to a compound deviceNamePath) -- lets a
+// device leaf like "main/light" carry the "light" discriminator ONLY where something else needs
+// it to disambiguate (e.g. the auto-implied "node" capability's own path, which has no domain of
+// its own to fall back on: "infrastructural/.../main/light/node"), while the light entity itself
+// -- whose domain word already says "light" -- doesn't repeat it: "light.social:main" (explicit
+// path "main", suppression makes deviceNamePath contribute nothing) resolves to plain ".../main",
+// not the redundant ".../main/light". Real precedent: Vienna's hallway ceiling light, migrated off
+// the old "call light_device light.social:main;" macro (whose own "providing ${entity.path}/light;"
+// node-naming had exactly this same intent, by hand, before this rule existed to do it for a
+// device-block positioning).
 func namingSpacePath(spec string, spacePath []string, deviceNamePath string) []string {
 	if deviceNamePath == "" || !specHasExplicitSpherePath(spec) {
 		return spacePath
 	}
-	if dotIdx := strings.Index(spec, "."); dotIdx > 0 && spec[:dotIdx] == deviceNamePath {
+	if hasEmptyDeviceLeafOverride(spec) {
 		return spacePath
+	}
+	if dotIdx := strings.Index(spec, "."); dotIdx > 0 {
+		domain := spec[:dotIdx]
+		if domain == deviceNamePath {
+			return spacePath
+		}
+		if lastSlash := strings.LastIndex(deviceNamePath, "/"); lastSlash >= 0 && domain == deviceNamePath[lastSlash+1:] {
+			return spacePath
+		}
 	}
 	extended := make([]string, len(spacePath), len(spacePath)+1)
 	copy(extended, spacePath)
@@ -132,6 +153,30 @@ func specHasExplicitSpherePath(spec string) bool {
 		return false
 	}
 	return strings.Contains(spec[dotIdx+1:], ":")
+}
+
+// hasEmptyDeviceLeafOverride reports whether spec uses the "sphere::path" double-colon form
+// (2026-09-19) -- an explicit request to attach to the enclosing space's own context while
+// skipping the enclosing device's own leaf entirely, e.g. "sensor.social::wind_speed" under a
+// "device infrastructural:netatmo_windmeter with: ...;" block resolving to
+// "sensor.social_terrace_wind_speed" (space context "terrace" only), not the usual
+// "..._terrace_netatmo_windmeter_wind_speed" namingSpacePath would otherwise produce. Needs no
+// change in normalizeEntityFullName itself: once namingSpacePath (this file) stops folding
+// deviceNamePath in, that function's own existing "any leftover colon becomes a path separator,
+// then a leading empty segment is trimmed" handling already resolves the second colon to nothing
+// on its own. See project_device_leaf_naming_conceptual_mismatch_gap.md for the design context
+// and the deferred "sphere:leaf:path" explicit-override form this doesn't yet cover.
+func hasEmptyDeviceLeafOverride(spec string) bool {
+	dotIdx := strings.Index(spec, ".")
+	if dotIdx <= 0 || dotIdx >= len(spec)-1 {
+		return false
+	}
+	remainder := spec[dotIdx+1:]
+	colonIdx := strings.Index(remainder, ":")
+	if colonIdx < 0 || colonIdx+1 >= len(remainder) {
+		return false
+	}
+	return remainder[colonIdx+1] == ':'
 }
 
 func deviceDisplayName(spaceName, sphere, path string) string {
@@ -178,7 +223,7 @@ func registerHostAttributeEntity(administration *TAdministrationState, mat THost
 		group = mat.AttributeSuffix
 	}
 	attrFullName := fmt.Sprintf("%s.%s/%s/%s/%s", mat.AttributeDomain, deviceIdentity.Sphere, deviceIdentity.Path, group, leaf)
-	administration.RegisterDiscoveryImpliedEntity(spaceName, attrFullName, provenance, device.DeviceID+"!"+attr)
+	administration.RegisterDiscoveryImpliedEntity(spaceName, attrFullName, provenance, device.DeviceID+"!"+attr, false)
 	// Seed any field the hardwired spec (cpuAttributeSpecs etc.) leaves unset from
 	// a "defaults: for ...;" rule or the code-level postfix table -- same
 	// resolveCapabilityDefaults precedence as hassbridge capabilities.
@@ -217,7 +262,7 @@ func registerHostAttributeEntity(administration *TAdministrationState, mat THost
 // any) and writing the link into administration.DeviceConceptualLinks.
 func registerHostNodeEntity(administration *TAdministrationState, mat THostsEntityMaterialization, device THostDevice, deviceIdentity TEntityIdentity, spaceName, displayName, provenance string) (TDeviceConceptualLink, []string) {
 	nodeFullName := fmt.Sprintf("%s.%s/%s/%s", mat.NodeDomain, deviceIdentity.Sphere, deviceIdentity.Path, mat.NodeSuffix)
-	administration.RegisterDiscoveryImpliedEntity(spaceName, nodeFullName, provenance, device.DeviceID+"!node")
+	administration.RegisterDiscoveryImpliedEntity(spaceName, nodeFullName, provenance, device.DeviceID+"!node", false)
 	nodeDeviceClass, _, _, nodeIcon := resolveCapabilityDefaults(administration.CapabilityDefaults, mat.NodeDomain, mat.NodeSuffix)
 
 	constantAttrs, warnings := mergedConstantAttributes(mat, device)
@@ -252,7 +297,7 @@ func registerHostNodeEntity(administration *TAdministrationState, mat THostsEnti
 func registerHassBridgeAttributeEntity(administration *TAdministrationState, device THassBridgeDevice, deviceIdentity TEntityIdentity, spaceName, provenance string, link TDeviceConceptualLink, attr string) {
 	cap := device.Capabilities[attr]
 	attrFullName := fmt.Sprintf("%s.%s/%s/%s", cap.Domain, deviceIdentity.Sphere, deviceIdentity.Path, attr)
-	administration.RegisterDiscoveryImpliedEntity(spaceName, attrFullName, provenance, device.DeviceID+"!"+attr)
+	administration.RegisterDiscoveryImpliedEntity(spaceName, attrFullName, provenance, device.DeviceID+"!"+attr, false)
 	// Seed any of device_class/unit/state_class/icon the DSL left unset -- first from
 	// Physical.def's/Defaults.def's own "defaults: for <domain>.<pattern>: ...;
 	// end;" rules (user-declared), then from the capability path's code-level

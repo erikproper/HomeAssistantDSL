@@ -160,6 +160,19 @@ func TestCapabilityDefaultsForFirstMatchWinsPerField(t *testing.T) {
 	}
 }
 
+// TestResolveCapabilityDefaultsFallsBackToDomainIcon is the regression test for a real bug found
+// live 2026-09-17: a discovery-migrated "cover" entity with an empty path (no Defaults.def rule,
+// no subdomainIcons match) silently lost its "mdi:blinds-horizontal" domain-default icon --
+// generateCustomizationFiles' own domainDefaultIcons fallback (iconForEntity) is skipped entirely
+// for discovery-implied entities, and the discovery pipeline only ever calls
+// resolveCapabilityDefaults, which never consulted that table.
+func TestResolveCapabilityDefaultsFallsBackToDomainIcon(t *testing.T) {
+	_, _, _, icon := resolveCapabilityDefaults(nil, "cover", "kitchen")
+	if icon != "mdi:blinds-horizontal" {
+		t.Errorf("Icon = %q, want the domain-level default \"mdi:blinds-horizontal\"", icon)
+	}
+}
+
 func TestRegisterHassBridgeAttributeEntityUsesCapabilityDefaultsRules(t *testing.T) {
 	admin := newAdministrationState()
 	admin.CapabilityDefaults = []TCapabilityDefaultRule{
@@ -174,11 +187,11 @@ func TestRegisterHassBridgeAttributeEntityUsesCapabilityDefaultsRules(t *testing
 	}
 
 	positioningDecl := TDevicePositioningDeclaration{Spec: "infrastructural:junglinster", DeviceID: "host.junglinster"}
-	if warnings := registerDevicePositioning(admin, positioningDecl, nil, hassBridgeDevicesByID, nil, nil, "Spaces.def", 1); len(warnings) != 0 {
+	if warnings, _ := registerDevicePositioning(admin, positioningDecl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, "Spaces.def", 1); len(warnings) != 0 {
 		t.Fatalf("unexpected warnings positioning the fixture device: %v", warnings)
 	}
 	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:junglinster/cpu/load", DeviceID: "host.junglinster", Capability: "cpu/load"}
-	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, "Spaces.def", 1, true, ""); len(warnings) != 0 || deferred {
+	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, "Spaces.def", 1, true, ""); len(warnings) != 0 || deferred {
 		t.Fatalf("unexpected warnings/deferred: warnings=%v deferred=%v", warnings, deferred)
 	}
 

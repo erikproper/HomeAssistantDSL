@@ -116,6 +116,10 @@ func fetchImportExistencePreferringCloud(ctx TPhysicalGenerationContext, remoteI
 // remoteInstallation, so this must match that exactly. Pass "" for the local broker, whose copy
 // stays bare.
 func fetchImportExistenceFromBroker(secrets TMQTTBrokerSecrets, remoteInstallation, ownInstallation string) (TImportExistenceStatusPayload, error) {
+	if err, known := brokerKnownUnreachable(secrets); known {
+		return nil, fmt.Errorf("broker %s:%s already known unreachable this run: %w", secrets.Server, secrets.Port, err)
+	}
+
 	topic := importExistenceGeneratorStatusTopic(remoteInstallation)
 	if ownInstallation != "" {
 		topic = ownInstallation + "/" + topic
@@ -131,14 +135,21 @@ func fetchImportExistenceFromBroker(secrets TMQTTBrokerSecrets, remoteInstallati
 	opts.SetUsername(secrets.Login)
 	opts.SetPassword(secrets.Password)
 	opts.SetConnectTimeout(fetchImportExistenceTimeout)
+	// See mqtt_discovery_existence.go's identical call for why: a one-shot fetch client must
+	// never keep retrying in the background after this function itself has given up.
+	opts.SetAutoReconnect(false)
 
 	client := mqtt.NewClient(opts)
 	token := client.Connect()
 	if !token.WaitTimeout(fetchImportExistenceTimeout) || token.Error() != nil {
-		if err := token.Error(); err != nil {
-			return nil, fmt.Errorf("connecting to MQTT broker %s:%s: %w", secrets.Server, secrets.Port, err)
+		var err error
+		if tokenErr := token.Error(); tokenErr != nil {
+			err = fmt.Errorf("connecting to MQTT broker %s:%s: %w", secrets.Server, secrets.Port, tokenErr)
+		} else {
+			err = fmt.Errorf("connecting to MQTT broker %s:%s: timed out", secrets.Server, secrets.Port)
 		}
-		return nil, fmt.Errorf("connecting to MQTT broker %s:%s: timed out", secrets.Server, secrets.Port)
+		markBrokerUnreachable(secrets, err)
+		return nil, err
 	}
 	defer client.Disconnect(250)
 
@@ -169,12 +180,16 @@ func fetchImportExistenceFromBroker(secrets TMQTTBrokerSecrets, remoteInstallati
 }
 
 // checkImportKnownNotToExistErrors fetches (fetch-then-cache-fallback) existence status for every
-// distinct remote installation a declared import capability references, and returns a combined
-// error listing every one the coordinator has confirmed known-not-to-exist -- the same rule every
-// other existence mechanism already follows: this is the *only* status that blocks generation;
-// not-known-to-exist and known-to-exist both generate optimistically. Soft-fails (a warning) per
-// installation when neither a fresh read nor a cache is available.
-func checkImportKnownNotToExistErrors(definitionDir string, importedDevices []TImportedDevice, ctx TPhysicalGenerationContext) error {
+// distinct remote installation a declared import capability references, and returns every one the
+// coordinator has confirmed known-not-to-exist. not-known-to-exist and known-to-exist both generate
+// optimistically. Soft-fails (a warning) per installation when neither a fresh read nor a cache is
+// available.
+//
+// Returns problems for the caller to fold into a TMissingEntitiesReport (missing_entities_report.go)
+// rather than an error -- PROJECT.md item 1a (2026-09-21, "stable ID-based link" architecture): see
+// checkDiscoveryKnownNotToExistErrors' own doc comment (mqtt_discovery_existence.go) for the full
+// rationale, identical here.
+func checkImportKnownNotToExistErrors(definitionDir string, importedDevices []TImportedDevice, ctx TPhysicalGenerationContext) []string {
 	installations := map[string]bool{}
 	for _, device := range importedDevices {
 		if len(device.Capabilities) > 0 && device.RemoteInstallation != "" {
@@ -228,11 +243,10 @@ func checkImportKnownNotToExistErrors(definitionDir string, importedDevices []TI
 		}
 	}
 
-	if len(problems) == 0 {
-		return nil
+	if len(problems) > 0 {
+		fmt.Printf("[physical] import existence check: the coordinator has confirmed %d declared shorthand capability/capabilities reference an entity that does not exist -- see suggestions/missing.txt\n", len(problems))
 	}
-	return fmt.Errorf("import existence check failed -- the coordinator has confirmed %d declared shorthand capability/capabilities reference an entity that does not exist:\n  %s",
-		len(problems), strings.Join(problems, "\n  "))
+	return problems
 }
 
 // exportStableIDGen mirrors house_event_bus_coordinator/discoveryhassbridge.go's own exportStableID

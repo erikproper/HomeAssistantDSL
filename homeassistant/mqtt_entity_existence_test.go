@@ -73,6 +73,46 @@ func TestUsedHassBridgeEntityIDsFiltersByInstanceAndStripsAttributeSuffix(t *tes
 	}
 }
 
+// TestExpandUsedAcrossDiscoverySourcedDeviceGroups is the regression test for a real bug found
+// live 2026-09-21 (Vienna): signify_dimmer's own Conceptual.def positions only its "event" domain
+// leaf, never the "sensor" domain mirror Zigbee2MQTT ALSO publishes for the same shared unique_id
+// -- a pre-migration relay of that sensor-domain leaf left a real, now permanently "unavailable"
+// orphaned entity grouped by HA's own device registry alongside the two properly-declared discovery
+// entities (event + battery_level), which kept reappearing as a "hass.discovered_..." hassbridge
+// suggestion even though it's discovery-sourced, not a hassbridge candidate at all.
+func TestExpandUsedAcrossDiscoverySourcedDeviceGroups(t *testing.T) {
+	status := TEntityExistenceStatusPayload{
+		"hass.discovered_apartment_living_room_signify_dimmer": {Entities: map[string]TEntityExistenceStatusEntry{
+			"event.physical_apartment_living_room_signify_dimmer":                    {Status: existenceStatusKnownToExist},
+			"sensor.infrastructural_apartment_living_room_signify_dimmer_battery_level": {Status: existenceStatusKnownToExist},
+			"sensor.apartment_living_room_signify_dimmer_action":                      {Status: existenceStatusKnownToExist},
+		}},
+		"hass.davids_bedroom": {Entities: map[string]TEntityExistenceStatusEntry{
+			"sensor.davids_bedroom_carbon_dioxide": {Status: existenceStatusKnownToExist},
+		}},
+	}
+	// Only the event entity is actually discovery-implied -- battery_level and the orphaned action
+	// sensor are not named here at all, mirroring the real case exactly (discoveryImpliedEntityIDs
+	// only lists what's CURRENTLY declared; the orphan was never declared at all).
+	discoveryImpliedEntityIDs := []string{"event.physical_apartment_living_room_signify_dimmer"}
+	used := map[string]bool{}
+
+	expandUsedAcrossDiscoverySourcedDeviceGroups(status, discoveryImpliedEntityIDs, used)
+
+	for _, id := range []string{
+		"event.physical_apartment_living_room_signify_dimmer",
+		"sensor.infrastructural_apartment_living_room_signify_dimmer_battery_level",
+		"sensor.apartment_living_room_signify_dimmer_action",
+	} {
+		if !used[id] {
+			t.Errorf("expected %q to be marked used (shares a device grouping with a discovery-implied entity), got %v", id, used)
+		}
+	}
+	if used["sensor.davids_bedroom_carbon_dioxide"] {
+		t.Errorf("expected an unrelated device's entity to be untouched, got %v", used)
+	}
+}
+
 func TestBuildSuggestionReportFromExistenceExcludesUsedAndUnresolved(t *testing.T) {
 	status := TEntityExistenceStatusPayload{
 		"hass.davids_bedroom": {Entities: map[string]TEntityExistenceStatusEntry{
@@ -88,17 +128,17 @@ func TestBuildSuggestionReportFromExistenceExcludesUsedAndUnresolved(t *testing.
 	}
 	used := map[string]bool{"sensor.davids_bedroom_already_used": true}
 
-	report := buildSuggestionReportFromExistence(status, used, nil)
+	report := buildSuggestionReportFromExistence(status, used, nil, nil)
 
 	if !containsAll(report,
 		"device hass.davids_bedroom with:",
-		"sensor.co2:",
+		"sensor.co2",
 		"sensor.davids_bedroom_carbon_dioxide;",
-		"sensor.health_index:",
+		"sensor.health_index",
 		"sensor.davids_bedroom_health_index;",
 		"# not recognized",
 		"end;",
-		"# entities with no known device grouping:",
+		"# entities with no known device grouping -- likely orphaned",
 		"# sensor.standalone_thing",
 	) {
 		t.Errorf("report missing expected content:\n%s", report)
@@ -126,18 +166,18 @@ func TestBuildSuggestionReportFromExistenceGuessesTailWhenNoKeywordMatches(t *te
 	}
 	used := map[string]bool{"sensor.bathroom_washing_machine": true}
 
-	report := buildSuggestionReportFromExistence(status, used, nil)
+	report := buildSuggestionReportFromExistence(status, used, nil, nil)
 
 	if !containsAll(report,
-		"sensor.wash_delay_start:",
+		"sensor.wash_delay_start",
 		"sensor.bathroom_washing_machine_wash_delay_start;",
 		"# not recognized",
-		"sensor.temperature:",
+		"sensor.temperature",
 		"sensor.bathroom_washing_machine_wash_temperature;",
 	) {
 		t.Errorf("report missing expected content:\n%s", report)
 	}
-	if strings.Contains(report, "sensor.:") {
+	if strings.Contains(report, "sensor. sensor.bathroom_washing_machine_wash_delay_start") {
 		t.Errorf("report should have guessed a non-empty tail, not left it blank:\n%s", report)
 	}
 }
@@ -148,7 +188,7 @@ func TestBuildSuggestionReportFromExistenceEmptyWhenNothingToSuggest(t *testing.
 			"sensor.davids_bedroom_carbon_dioxide": {Status: "not-known-to-exist"},
 		}},
 	}
-	if report := buildSuggestionReportFromExistence(status, nil, nil); strings.TrimSpace(report) != "" {
+	if report := buildSuggestionReportFromExistence(status, nil, nil, nil); strings.TrimSpace(report) != "" {
 		t.Errorf("expected an empty report when nothing is known-to-exist, got:\n%s", report)
 	}
 }
@@ -180,12 +220,12 @@ func TestBuildSuggestionReportFromExistenceOverridesSyntheticDeviceIDWithDeclare
 		"sensor.office_garden_humidity":            "hass.office_garden",
 	}
 
-	report := buildSuggestionReportFromExistence(status, used, declared)
+	report := buildSuggestionReportFromExistence(status, used, declared, nil)
 
 	if !containsAll(report,
 		"device hass.office_garden with:",
 		"sensor.office_garden_rf_strength;",
-		"sensor.temperature:",
+		"sensor.temperature",
 		"sensor.office_garden_temperature;",
 	) {
 		t.Errorf("report missing expected content:\n%s", report)
@@ -197,6 +237,44 @@ func TestBuildSuggestionReportFromExistenceOverridesSyntheticDeviceIDWithDeclare
 		if strings.Contains(report, unwanted) {
 			t.Errorf("report must exclude already-declared %q, got:\n%s", unwanted, report)
 		}
+	}
+}
+
+// TestBuildSuggestionReportFromExistenceSkipsIgnoredDeviceEntirely is the regression test for the
+// "ignore other capabilities;" directive (THassBridgeDevice/THostDevice.IgnoreOtherCapabilities,
+// 2026-09-21): a device the user has flagged as known noise (e.g. a FRITZ!Box's own auto-generated
+// diagnostic image/firmware-update entities) must never appear in the suggestion report at all,
+// checked against both its resolved displayDeviceID (a real declared name) and its bare deviceID
+// (already a real name with no override needed).
+func TestBuildSuggestionReportFromExistenceSkipsIgnoredDeviceEntirely(t *testing.T) {
+	status := TEntityExistenceStatusPayload{
+		"utility.fritz_box": {Entities: map[string]TEntityExistenceStatusEntry{
+			"button.fritz_box_7590_ax_firmware_update": {Status: existenceStatusKnownToExist},
+		}},
+		"hass.discovered_node_fritz_box": {Entities: map[string]TEntityExistenceStatusEntry{
+			"image.fritz_box_7590_ax_carvalhoproperrockrobo": {Status: existenceStatusKnownToExist},
+		}},
+		"hass.davids_bedroom": {Entities: map[string]TEntityExistenceStatusEntry{
+			"sensor.davids_bedroom_carbon_dioxide": {Status: existenceStatusKnownToExist},
+		}},
+	}
+	declared := map[string]string{
+		"image.fritz_box_7590_ax_carvalhoproperrockrobo": "node.fritz_box",
+	}
+	ignoredDeviceIDs := map[string]bool{
+		"utility.fritz_box": true, // matches bare deviceID directly
+		"node.fritz_box":    true, // matches the resolved displayDeviceID override
+	}
+
+	report := buildSuggestionReportFromExistence(status, nil, declared, ignoredDeviceIDs)
+
+	for _, unwanted := range []string{"utility.fritz_box", "node.fritz_box", "firmware_update", "carvalhoproperrockrobo"} {
+		if strings.Contains(report, unwanted) {
+			t.Errorf("report must not mention ignored device %q at all, got:\n%s", unwanted, report)
+		}
+	}
+	if !strings.Contains(report, "hass.davids_bedroom") {
+		t.Errorf("expected an unrelated, non-ignored device to still be suggested, got:\n%s", report)
 	}
 }
 
@@ -279,15 +357,16 @@ func TestCheckKnownNotToExistErrorsFlagsConfirmedAbsence(t *testing.T) {
 	}
 
 	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
-	err := checkKnownNotToExistErrors(definitionDir, hassBridgeDevicesByID, ctx)
-	if err == nil {
-		t.Fatalf("expected an error for the confirmed-absent co2 capability")
+	problems := checkKnownNotToExistErrors(definitionDir, hassBridgeDevicesByID, ctx)
+	if len(problems) == 0 {
+		t.Fatalf("expected a problem for the confirmed-absent co2 capability")
 	}
-	if !strings.Contains(err.Error(), "co2") || !strings.Contains(err.Error(), "sensor.davids_bedroom_carbon_dioxide") {
-		t.Errorf("error = %v, want it to name the co2 capability and its source entity", err)
+	joined := strings.Join(problems, "\n")
+	if !strings.Contains(joined, "co2") || !strings.Contains(joined, "sensor.davids_bedroom_carbon_dioxide") {
+		t.Errorf("problems = %v, want it to name the co2 capability and its source entity", problems)
 	}
-	if strings.Contains(err.Error(), "humidity") {
-		t.Errorf("error = %v, want it to NOT flag humidity -- it's known-to-exist", err)
+	if strings.Contains(joined, "humidity") {
+		t.Errorf("problems = %v, want it to NOT flag humidity -- it's known-to-exist", problems)
 	}
 }
 
@@ -309,15 +388,16 @@ func TestCheckMainEntityKnownNotToExistErrorsFlagsConfirmedAbsence(t *testing.T)
 
 	mainEntityIDs := []string{"sensor.physical_door_aqara_multi_temperature", "sensor.physical_door_aqara_multi_humidity"}
 	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
-	err := checkMainEntityKnownNotToExistErrors(definitionDir, mainEntityIDs, ctx)
-	if err == nil {
-		t.Fatalf("expected an error for the confirmed-absent temperature entity")
+	problems := checkMainEntityKnownNotToExistErrors(definitionDir, mainEntityIDs, ctx)
+	if len(problems) == 0 {
+		t.Fatalf("expected a problem for the confirmed-absent temperature entity")
 	}
-	if !strings.Contains(err.Error(), "sensor.physical_door_aqara_multi_temperature") {
-		t.Errorf("error = %v, want it to name the confirmed-absent entity", err)
+	joined := strings.Join(problems, "\n")
+	if !strings.Contains(joined, "sensor.physical_door_aqara_multi_temperature") {
+		t.Errorf("problems = %v, want it to name the confirmed-absent entity", problems)
 	}
-	if strings.Contains(err.Error(), "humidity") {
-		t.Errorf("error = %v, want it to NOT flag humidity -- it's known-to-exist", err)
+	if strings.Contains(joined, "humidity") {
+		t.Errorf("problems = %v, want it to NOT flag humidity -- it's known-to-exist", problems)
 	}
 }
 
@@ -330,17 +410,17 @@ func TestCheckMainEntityKnownNotToExistErrorsOptimisticWhenUnresolved(t *testing
 	})
 
 	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
-	err := checkMainEntityKnownNotToExistErrors(definitionDir, []string{"sensor.physical_door_aqara_multi_temperature"}, ctx)
-	if err != nil {
-		t.Errorf("unresolved status must not block generation, got: %v", err)
+	problems := checkMainEntityKnownNotToExistErrors(definitionDir, []string{"sensor.physical_door_aqara_multi_temperature"}, ctx)
+	if len(problems) != 0 {
+		t.Errorf("unresolved status must not be reported as a problem, got: %v", problems)
 	}
 }
 
 func TestCheckMainEntityKnownNotToExistErrorsNoEntitiesIsNoop(t *testing.T) {
 	definitionDir := t.TempDir()
 	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
-	if err := checkMainEntityKnownNotToExistErrors(definitionDir, nil, ctx); err != nil {
-		t.Errorf("no main entities at all must be a no-op (no fetch attempted), got: %v", err)
+	if problems := checkMainEntityKnownNotToExistErrors(definitionDir, nil, ctx); len(problems) != 0 {
+		t.Errorf("no main entities at all must be a no-op (no fetch attempted), got: %v", problems)
 	}
 }
 
@@ -363,8 +443,8 @@ func TestCheckKnownNotToExistErrorsOptimisticWhenUnresolved(t *testing.T) {
 	}
 
 	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
-	if err := checkKnownNotToExistErrors(definitionDir, hassBridgeDevicesByID, ctx); err != nil {
-		t.Errorf("unresolved status must not block generation, got: %v", err)
+	if problems := checkKnownNotToExistErrors(definitionDir, hassBridgeDevicesByID, ctx); len(problems) != 0 {
+		t.Errorf("unresolved status must not be reported as a problem, got: %v", problems)
 	}
 }
 
@@ -397,15 +477,15 @@ func TestCheckKnownNotToExistErrorsSkipsRoamingDevices(t *testing.T) {
 	}
 
 	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
-	if err := checkKnownNotToExistErrors(definitionDir, hassBridgeDevicesByID, ctx); err != nil {
-		t.Errorf("a roaming device's own known-not-to-exist status (from THIS house's local instances alone) must never block generation, got: %v", err)
+	if problems := checkKnownNotToExistErrors(definitionDir, hassBridgeDevicesByID, ctx); len(problems) != 0 {
+		t.Errorf("a roaming device's own known-not-to-exist status (from THIS house's local instances alone) must never be reported as a problem, got: %v", problems)
 	}
 }
 
 func TestCheckKnownNotToExistErrorsNoInstancesIsNoop(t *testing.T) {
 	definitionDir := t.TempDir()
 	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
-	if err := checkKnownNotToExistErrors(definitionDir, map[string]THassBridgeDevice{}, ctx); err != nil {
-		t.Errorf("no hassbridge devices at all must be a no-op, got: %v", err)
+	if problems := checkKnownNotToExistErrors(definitionDir, map[string]THassBridgeDevice{}, ctx); len(problems) != 0 {
+		t.Errorf("no hassbridge devices at all must be a no-op, got: %v", problems)
 	}
 }

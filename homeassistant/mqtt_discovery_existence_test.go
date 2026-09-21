@@ -8,17 +8,17 @@ import (
 	"testing"
 )
 
-func TestDiscoveryGatewayExistenceStatusTopic(t *testing.T) {
-	got := discoveryGatewayExistenceStatusTopic("discovery.ems_esp")
-	want := "discovery_gateways/discovery.ems_esp/existence/state"
+func TestDiscoveryExistenceAggregateStatusTopic(t *testing.T) {
+	got := discoveryExistenceAggregateStatusTopic()
+	want := "discovery_existence/state"
 	if got != want {
-		t.Errorf("discoveryGatewayExistenceStatusTopic() = %q, want %q", got, want)
+		t.Errorf("discoveryExistenceAggregateStatusTopic() = %q, want %q", got, want)
 	}
 }
 
-func seedDiscoveryExistenceCache(t *testing.T, definitionDir, gatewayID string, payload TDiscoveryExistenceStatusPayload) {
+func seedDiscoveryExistenceAggregateCache(t *testing.T, definitionDir string, payload TDiscoveryExistenceAggregatePayload) {
 	t.Helper()
-	cachePath := discoveryExistenceCachePath(definitionDir, gatewayID)
+	cachePath := discoveryExistenceAggregateCachePath(definitionDir)
 	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -31,35 +31,76 @@ func seedDiscoveryExistenceCache(t *testing.T, definitionDir, gatewayID string, 
 	}
 }
 
-func TestFetchDiscoveryExistenceFallsBackToLocalCacheOnFetchFailure(t *testing.T) {
+func TestFetchDiscoveryExistenceAggregateFallsBackToLocalCacheOnFetchFailure(t *testing.T) {
 	definitionDir := t.TempDir()
-	seedDiscoveryExistenceCache(t, definitionDir, "discovery.ems_esp", TDiscoveryExistenceStatusPayload{
-		"boiler_outdoortemp": "known-to-exist",
+	seedDiscoveryExistenceAggregateCache(t, definitionDir, TDiscoveryExistenceAggregatePayload{
+		"discovery.ems_esp": {"boiler_outdoortemp": "known-to-exist"},
 	})
 
-	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
-	status, err := fetchDiscoveryExistence(definitionDir, ctx, "discovery.ems_esp")
-	if err != nil {
-		t.Fatalf("fetchDiscoveryExistence error: %v -- want it to fall back to the cache instead", err)
+	ctx := TPhysicalGenerationContext{
+		MQTTSecrets:                 TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"},
+		DiscoveryExistenceAggregate: &tDiscoveryExistenceFetchResult{},
 	}
-	if status["boiler_outdoortemp"] != "known-to-exist" {
+	status, err := fetchDiscoveryExistenceAggregate(definitionDir, ctx)
+	if err != nil {
+		t.Fatalf("fetchDiscoveryExistenceAggregate error: %v -- want it to fall back to the cache instead", err)
+	}
+	if status["discovery.ems_esp"]["boiler_outdoortemp"] != "known-to-exist" {
 		t.Errorf("got %+v, want the cached entry", status)
 	}
 }
 
-func TestFetchDiscoveryExistenceFailsWhenNeitherFetchNorCacheAvailable(t *testing.T) {
+func TestFetchDiscoveryExistenceAggregateFailsWhenNeitherFetchNorCacheAvailable(t *testing.T) {
 	definitionDir := t.TempDir()
-	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
-	if _, err := fetchDiscoveryExistence(definitionDir, ctx, "discovery.ems_esp"); err == nil {
+	ctx := TPhysicalGenerationContext{
+		MQTTSecrets:                 TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"},
+		DiscoveryExistenceAggregate: &tDiscoveryExistenceFetchResult{},
+	}
+	if _, err := fetchDiscoveryExistenceAggregate(definitionDir, ctx); err == nil {
 		t.Errorf("expected an error when neither a live fetch nor a cache file is available")
+	}
+}
+
+func TestFetchDiscoveryExistenceAggregateMemoizesWithinOneContext(t *testing.T) {
+	definitionDir := t.TempDir()
+	seedDiscoveryExistenceAggregateCache(t, definitionDir, TDiscoveryExistenceAggregatePayload{
+		"discovery.ems_esp": {"boiler_outdoortemp": "known-to-exist"},
+	})
+
+	shared := &tDiscoveryExistenceFetchResult{}
+	ctx := TPhysicalGenerationContext{
+		MQTTSecrets:                 TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"},
+		DiscoveryExistenceAggregate: shared,
+	}
+	if _, err := fetchDiscoveryExistenceAggregate(definitionDir, ctx); err != nil {
+		t.Fatalf("first fetch: %v", err)
+	}
+	if !shared.fetched {
+		t.Fatalf("expected the shared result to be marked fetched after the first call")
+	}
+
+	// Removing the cache file after the first (successful) fetch proves the second call reuses the
+	// memoized result rather than fetching again -- a second real fetch would fail with no cache and
+	// no reachable broker.
+	if err := os.Remove(discoveryExistenceAggregateCachePath(definitionDir)); err != nil {
+		t.Fatalf("removing cache: %v", err)
+	}
+	status, err := fetchDiscoveryExistenceAggregate(definitionDir, ctx)
+	if err != nil {
+		t.Fatalf("second (memoized) fetch: %v", err)
+	}
+	if status["discovery.ems_esp"]["boiler_outdoortemp"] != "known-to-exist" {
+		t.Errorf("got %+v, want the memoized entry", status)
 	}
 }
 
 func TestCheckDiscoveryKnownNotToExistErrorsFlagsConfirmedAbsence(t *testing.T) {
 	definitionDir := t.TempDir()
-	seedDiscoveryExistenceCache(t, definitionDir, "discovery.ems_esp", TDiscoveryExistenceStatusPayload{
-		"boiler_outdoortemp":  "known-not-to-exist",
-		"thermostat_lastcode": "known-to-exist",
+	seedDiscoveryExistenceAggregateCache(t, definitionDir, TDiscoveryExistenceAggregatePayload{
+		"discovery.ems_esp": {
+			"boiler_outdoortemp":  "known-not-to-exist",
+			"thermostat_lastcode": "known-to-exist",
+		},
 	})
 
 	discoveryEntityLinks := map[string]TDiscoveryEntityLink{
@@ -67,40 +108,51 @@ func TestCheckDiscoveryKnownNotToExistErrorsFlagsConfirmedAbsence(t *testing.T) 
 		"sensor.physical:garage_door/lastcode":    {GatewayDeviceID: "discovery.ems_esp", Leaf: "thermostat_lastcode"},
 	}
 
-	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
-	err := checkDiscoveryKnownNotToExistErrors(definitionDir, discoveryEntityLinks, ctx)
-	if err == nil {
-		t.Fatalf("expected an error for the confirmed-absent boiler_outdoortemp leaf")
+	ctx := TPhysicalGenerationContext{
+		MQTTSecrets:                 TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"},
+		DiscoveryExistenceAggregate: &tDiscoveryExistenceFetchResult{},
 	}
-	if !strings.Contains(err.Error(), "boiler_outdoortemp") {
-		t.Errorf("error = %v, want it to name the boiler_outdoortemp leaf", err)
+	problems := checkDiscoveryKnownNotToExistErrors(definitionDir, discoveryEntityLinks, ctx)
+	if len(problems) == 0 {
+		t.Fatalf("expected a problem for the confirmed-absent boiler_outdoortemp leaf")
 	}
-	if strings.Contains(err.Error(), "thermostat_lastcode") {
-		t.Errorf("error = %v, want it to NOT flag thermostat_lastcode -- it's known-to-exist", err)
+	joined := strings.Join(problems, "\n")
+	if !strings.Contains(joined, "boiler_outdoortemp") {
+		t.Errorf("problems = %v, want it to name the boiler_outdoortemp leaf", problems)
+	}
+	if strings.Contains(joined, "thermostat_lastcode") {
+		t.Errorf("problems = %v, want it to NOT flag thermostat_lastcode -- it's known-to-exist", problems)
 	}
 }
 
 func TestCheckDiscoveryKnownNotToExistErrorsOptimisticWhenUnresolved(t *testing.T) {
 	definitionDir := t.TempDir()
-	seedDiscoveryExistenceCache(t, definitionDir, "discovery.ems_esp", TDiscoveryExistenceStatusPayload{
+	seedDiscoveryExistenceAggregateCache(t, definitionDir, TDiscoveryExistenceAggregatePayload{
 		// No entry at all for boiler_outdoortemp -- the coordinator hasn't observed it yet.
+		"discovery.ems_esp": {},
 	})
 
 	discoveryEntityLinks := map[string]TDiscoveryEntityLink{
 		"sensor.physical:garage_door/temperature": {GatewayDeviceID: "discovery.ems_esp", Leaf: "boiler_outdoortemp"},
 	}
 
-	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
-	if err := checkDiscoveryKnownNotToExistErrors(definitionDir, discoveryEntityLinks, ctx); err != nil {
-		t.Errorf("unresolved status must not block generation, got: %v", err)
+	ctx := TPhysicalGenerationContext{
+		MQTTSecrets:                 TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"},
+		DiscoveryExistenceAggregate: &tDiscoveryExistenceFetchResult{},
+	}
+	if problems := checkDiscoveryKnownNotToExistErrors(definitionDir, discoveryEntityLinks, ctx); len(problems) != 0 {
+		t.Errorf("unresolved status must not be reported as a problem, got: %v", problems)
 	}
 }
 
 func TestCheckDiscoveryKnownNotToExistErrorsNoLinksIsNoop(t *testing.T) {
 	definitionDir := t.TempDir()
-	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
-	if err := checkDiscoveryKnownNotToExistErrors(definitionDir, map[string]TDiscoveryEntityLink{}, ctx); err != nil {
-		t.Errorf("no discovery entity links at all must be a no-op, got: %v", err)
+	ctx := TPhysicalGenerationContext{
+		MQTTSecrets:                 TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"},
+		DiscoveryExistenceAggregate: &tDiscoveryExistenceFetchResult{},
+	}
+	if problems := checkDiscoveryKnownNotToExistErrors(definitionDir, map[string]TDiscoveryEntityLink{}, ctx); len(problems) != 0 {
+		t.Errorf("no discovery entity links at all must be a no-op, got: %v", problems)
 	}
 }
 
@@ -149,7 +201,7 @@ func TestBuildDiscoverySuggestionReportExcludesUsedAndUnresolved(t *testing.T) {
 		"sensor.physical:garage_door/temperature": {GatewayDeviceID: "discovery.ems_esp_boiler", Leaf: "boiler_outdoortemp"},
 	}
 
-	report := buildDiscoverySuggestionReport(statusByGateway, links)
+	report := buildDiscoverySuggestionReport(statusByGateway, links, nil)
 	if !strings.Contains(report, "device discovery.ems_esp_boiler with:") {
 		t.Errorf("report missing device block:\n%s", report)
 	}
@@ -163,11 +215,54 @@ func TestBuildDiscoverySuggestionReportExcludesUsedAndUnresolved(t *testing.T) {
 	}
 }
 
+// TestBuildDiscoverySuggestionReportRHSIsBareLeaf is a regression test for a real bug found live
+// 2026-09-16: the RHS used to be domain-prefixed ("sensor.boiler_heatingpump;"), but a real
+// Physical.def capability line's own RHS is always the bare leaf value with no domain prefix at
+// all (e.g. "switch.core 0xc4988600000fbf8e_switch_zigbee2mqtt;") -- copy-pasting a suggestion
+// verbatim produced a syntactically broken line.
+func TestBuildDiscoverySuggestionReportRHSIsBareLeaf(t *testing.T) {
+	statusByGateway := map[string]TDiscoveryExistenceStatusPayload{
+		"discovery.ems_esp_boiler": {"boiler_heatingpump": "known-to-exist"},
+	}
+	report := buildDiscoverySuggestionReport(statusByGateway, nil, nil)
+	if !strings.Contains(report, " boiler_heatingpump;") {
+		t.Errorf("expected the bare leaf as RHS with no domain prefix, got:\n%s", report)
+	}
+	if strings.Contains(report, "sensor.boiler_heatingpump") {
+		t.Errorf("RHS must not be domain-prefixed, got:\n%s", report)
+	}
+}
+
+// TestBuildDiscoverySuggestionReportExcludesDeclaredButUnpositionedLeaf is the regression test for
+// a real bug found live 2026-09-17: a leaf already given a real, hand-chosen Physical.def label
+// (e.g. "sensor.color_options 0x..._color_options_zigbee2mqtt;") but deliberately left
+// unpositioned at the conceptual layer (a diagnostic-only capability, the desktop/nespresso
+// precedent) kept reappearing in this report forever, always as "sensor. <leaf>; # not
+// recognized" -- confusingly suggesting it had never been labelled at all, when it had.
+func TestBuildDiscoverySuggestionReportExcludesDeclaredButUnpositionedLeaf(t *testing.T) {
+	statusByGateway := map[string]TDiscoveryExistenceStatusPayload{
+		"discovery.vidja_left_1": {"0x84b4dbfffefbb43a_color_options_zigbee2mqtt": "known-to-exist"},
+	}
+	gateways := map[string]TDiscoveryGatewayDevice{
+		"discovery.vidja_left_1": {
+			DeviceID: "discovery.vidja_left_1",
+			Capabilities: map[string]TDiscoveryCapability{
+				"color_options": {Domain: "sensor", Leaf: "0x84b4dbfffefbb43a_color_options_zigbee2mqtt"},
+			},
+		},
+	}
+	// No discoveryEntityLinks at all -- the capability is declared but never positioned.
+	report := buildDiscoverySuggestionReport(statusByGateway, nil, gateways)
+	if strings.TrimSpace(report) != "" {
+		t.Errorf("expected an already-declared (even if unpositioned) leaf to be excluded, got:\n%s", report)
+	}
+}
+
 func TestBuildDiscoverySuggestionReportEmptyWhenNothingToSuggest(t *testing.T) {
 	statusByGateway := map[string]TDiscoveryExistenceStatusPayload{
 		"discovery.ems_esp_boiler": {"boiler_outdoortemp": "not-known-to-exist"},
 	}
-	if report := buildDiscoverySuggestionReport(statusByGateway, nil); strings.TrimSpace(report) != "" {
+	if report := buildDiscoverySuggestionReport(statusByGateway, nil, nil); strings.TrimSpace(report) != "" {
 		t.Errorf("expected an empty report when nothing is known-to-exist, got:\n%s", report)
 	}
 }
@@ -175,16 +270,20 @@ func TestBuildDiscoverySuggestionReportEmptyWhenNothingToSuggest(t *testing.T) {
 func TestGenerateDiscoverySuggestionsWritesFileFromCache(t *testing.T) {
 	definitionDir := t.TempDir()
 	outputRoot := t.TempDir()
-	seedDiscoveryExistenceCache(t, definitionDir, "discovery.ems_esp_boiler", TDiscoveryExistenceStatusPayload{
-		"boiler_outdoortemp": "known-to-exist",
+	seedDiscoveryExistenceAggregateCache(t, definitionDir, TDiscoveryExistenceAggregatePayload{
+		"discovery.ems_esp_boiler": {"boiler_outdoortemp": "known-to-exist"},
 	})
 
 	gateways := map[string]TDiscoveryGatewayDevice{
 		"discovery.ems_esp_boiler": {DeviceID: "discovery.ems_esp_boiler", Capabilities: map[string]TDiscoveryCapability{}},
 	}
-	ctx := TPhysicalGenerationContext{HasMQTTSecrets: true, MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
+	ctx := TPhysicalGenerationContext{
+		HasMQTTSecrets:              true,
+		MQTTSecrets:                 TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"},
+		DiscoveryExistenceAggregate: &tDiscoveryExistenceFetchResult{},
+	}
 
-	if err := generateDiscoverySuggestions(definitionDir, outputRoot, gateways, nil, ctx); err != nil {
+	if err := generateDiscoverySuggestions(definitionDir, outputRoot, gateways, nil, nil, ctx); err != nil {
 		t.Fatalf("generateDiscoverySuggestions error: %v", err)
 	}
 
@@ -200,8 +299,12 @@ func TestGenerateDiscoverySuggestionsWritesFileFromCache(t *testing.T) {
 func TestGenerateDiscoverySuggestionsNoGatewaysIsNoop(t *testing.T) {
 	definitionDir := t.TempDir()
 	outputRoot := t.TempDir()
-	ctx := TPhysicalGenerationContext{HasMQTTSecrets: true, MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
-	if err := generateDiscoverySuggestions(definitionDir, outputRoot, map[string]TDiscoveryGatewayDevice{}, nil, ctx); err != nil {
+	ctx := TPhysicalGenerationContext{
+		HasMQTTSecrets:              true,
+		MQTTSecrets:                 TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"},
+		DiscoveryExistenceAggregate: &tDiscoveryExistenceFetchResult{},
+	}
+	if err := generateDiscoverySuggestions(definitionDir, outputRoot, map[string]TDiscoveryGatewayDevice{}, nil, nil, ctx); err != nil {
 		t.Errorf("no declared gateways at all must be a no-op, got: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(outputRoot, "suggestions", "discovery.txt")); !os.IsNotExist(err) {

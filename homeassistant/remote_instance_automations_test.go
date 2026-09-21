@@ -15,9 +15,9 @@ func TestGenerateInstanceAutomationTreesWritesMainAndRemoteTrees(t *testing.T) {
 		}},
 	}
 	positioningDecl := TDevicePositioningDeclaration{Spec: "infrastructural:laserjet", DeviceID: "hass.laserjet"}
-	registerDevicePositioning(admin, positioningDecl, nil, hassBridgeDevicesByID, nil, nil, "Spaces.def", 370)
+	registerDevicePositioning(admin, positioningDecl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, "Spaces.def", 370)
 	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:laserjet/status", DeviceID: "hass.laserjet", Capability: "status"}
-	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, "Spaces.def", 370, true, ""); len(warnings) != 0 || deferred {
+	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, "Spaces.def", 370, true, ""); len(warnings) != 0 || deferred {
 		t.Fatalf("unexpected warnings/deferred positioning the fixture device: warnings=%v deferred=%v", warnings, deferred)
 	}
 

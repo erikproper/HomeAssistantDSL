@@ -64,6 +64,40 @@ func collectMainEntityIDs(admin *TAdministrationState) []string {
 	return entityIDs
 }
 
+// collectDiscoveryImpliedEntityIDs returns the deduplicated, sorted set of real HA entity ids for
+// every entity record RegisterDiscoveryImpliedEntity (administration.go) marked DiscoveryImplied --
+// i.e. every entity kind-1/2/3/4/commandline's own discovery relay will materialise on "main" all
+// by itself, with no hassbridge/kind-5 declaration involved at all. This is the exact inverse
+// selection of collectMainEntityIDs' own DiscoveryImplied exclusion (see that function's own header
+// comment): kind-5's file must NOT list these (they're not "assumed to exist," the coordinator
+// relays them), but generateEntityCatalogueSuggestions' own "what's still unclaimed on main" report
+// must NOT suggest them either -- they're already fully claimed, just via a different mechanism
+// than a hassbridge cross-post. Real bug found live 2026-09-20: every discovery-declared device's
+// own entities (e.g. bedroom_bed_moes' event/battery_level) kept reappearing in
+// suggestions/home_assistant_main.txt as "hass.discovered_..." blocks, since neither
+// usedHassBridgeEntityIDs nor mainEntityIDs ever covered discovery-kind entities at all.
+func collectDiscoveryImpliedEntityIDs(admin *TAdministrationState) []string {
+	seen := map[string]bool{}
+	for _, records := range admin.EntityRecordsBySpace {
+		for _, rec := range records {
+			if !rec.DiscoveryImplied {
+				continue
+			}
+			id := toHomeAssistantEntityID(rec.Name)
+			if id == "" {
+				continue
+			}
+			seen[id] = true
+		}
+	}
+	entityIDs := make([]string, 0, len(seen))
+	for id := range seen {
+		entityIDs = append(entityIDs, id)
+	}
+	sort.Strings(entityIDs)
+	return entityIDs
+}
+
 // generateMainEntitiesFile writes <outputRoot>/coordinator/main_entities.yaml -- mirrors
 // generateHomeAssistantInstancesFile's own flat-list shape exactly. Unconditional (even an empty
 // list is written, same "baseline always exists" convention generateCoordinatorDevicesFile

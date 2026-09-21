@@ -136,7 +136,7 @@ func TestDrainDiscoveryRelayQueueProcessesEverythingCurrentlyQueued(t *testing.T
 }
 
 // TestNewDiscoveryRelayQueueThrottles is the regression test for the real design requirement
-// (2026-09-14, PROJECT.md item 4): jobs must be spaced out, not fired back-to-back as fast as
+// (2026-09-14, PROJECT.md item 7): jobs must be spaced out, not fired back-to-back as fast as
 // possible, even off the MQTT message-dispatch path -- a burst of publishes in a tight loop still
 // saturates the shared broker/network right when a remote instance's own MQTT client may be
 // processing the very same backlog (confirmed live: HA's own log showed "No ACK from MQTT server

@@ -125,6 +125,38 @@ type TEntityExistenceTracker struct {
 	// look, to Seed alone, exactly like an orphan. See SeedMainEntities' own doc comment for the
 	// full mutual-protection contract and the call-order requirement it depends on.
 	mainEntities map[string]bool
+
+	// onChange (2026-09-21, PROJECT.md item 1a) fires, unconditionally with no arguments, whenever
+	// any tracked entity (kind-3 hassbridge OR kind-5 main-instance, both share this one tracker)
+	// transitions into or out of StatusKnownNotToExist -- mirrors
+	// TDiscoveryExistenceTracker.onChange exactly (discovery_existence.go), same locking
+	// discipline (read/cleared while locked, invoked only after an explicit unlock).
+	onChange func()
+}
+
+// SetOnChange (re)sets the tracker's onChange callback -- see that field's own doc comment.
+func (t *TEntityExistenceTracker) SetOnChange(onChange func()) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.onChange = onChange
+}
+
+// KnownNotToExistItems returns a sorted "<instance>/<sourceEntity>" snapshot of every entry
+// currently StatusKnownNotToExist -- feeds TMissingDeclaredEntitiesPublisher's own live aggregate
+// indicator, covering kind-3 and kind-5 both (whichever instances/entities this tracker holds).
+func (t *TEntityExistenceTracker) KnownNotToExistItems() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var items []string
+	for instance, byEntity := range t.entries {
+		for sourceEntity, entry := range byEntity {
+			if entry.Status == StatusKnownNotToExist {
+				items = append(items, instance+"/"+sourceEntity)
+			}
+		}
+	}
+	sort.Strings(items)
+	return items
 }
 
 // newEntityExistenceTracker loads path's previously persisted state, if any (loadPersisted --
@@ -512,15 +544,17 @@ func (t *TEntityExistenceTracker) nextToInquire(instance string) string {
 // device's reported via_device_id against it.
 func (t *TEntityExistenceTracker) Record(instance, sourceEntity string, exists bool, state, unit, deviceClass, icon, remoteDeviceID, remoteViaDeviceID string) (deviceID string) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	byEntity, ok := t.entries[instance]
 	if !ok {
+		t.mu.Unlock()
 		return ""
 	}
 	entry, ok := byEntity[sourceEntity]
 	if !ok {
+		t.mu.Unlock()
 		return ""
 	}
+	wasMissing := entry.Status == StatusKnownNotToExist
 	if exists {
 		entry.Status = StatusKnownToExist
 		entry.State = state
@@ -540,7 +574,17 @@ func (t *TEntityExistenceTracker) Record(instance, sourceEntity string, exists b
 		entry.RemoteViaDeviceID = ""
 	}
 	t.persist()
-	return entry.DeviceID
+	nowMissing := entry.Status == StatusKnownNotToExist
+	result := entry.DeviceID
+	onChange := t.onChange
+	t.mu.Unlock()
+	// Only a genuine transition needs to fire onChange -- most Record calls are ordinary
+	// known-to-exist confirmations/refreshes that never touched StatusKnownNotToExist at all, and
+	// TMissingDeclaredEntitiesPublisher's own aggregate has nothing to update for those.
+	if wasMissing != nowMissing && onChange != nil {
+		onChange()
+	}
+	return result
 }
 
 // LiveTyping returns instance's own last-reported unit_of_measurement/device_class/icon for

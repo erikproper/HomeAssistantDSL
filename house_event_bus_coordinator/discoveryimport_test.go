@@ -165,7 +165,7 @@ func TestBuildImportedDiscoveryBody(t *testing.T) {
 		DisplayName: "apartment/shower_room/netatmo",
 	}
 
-	body := buildImportedDiscoveryBody(match, payload, "", "", nil, "test")
+	body := buildImportedDiscoveryBody(match, payload, nil, "", nil, "test")
 	if body["default_entity_id"] != "sensor.physical_shower_room_netatmo_temperature" {
 		t.Errorf("default_entity_id = %v, want the Spaces.def-resolved local entity id", body["default_entity_id"])
 	}
@@ -208,7 +208,7 @@ func TestBuildImportedDiscoveryBodySetsViaDeviceWhenTargetAlsoImported(t *testin
 		"node.vienna_livingroom": {RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_livingroom"},
 	}})
 
-	body := buildImportedDiscoveryBody(match, payload, "", "junglinster", viaDeviceIndex, "vienna")
+	body := buildImportedDiscoveryBody(match, payload, nil, "junglinster", viaDeviceIndex, "vienna")
 	device := body["device"].(map[string]interface{})
 	if device["via_device"] != "node.vienna_livingroom" {
 		t.Errorf("device.via_device = %v, want %q (this house's own import of the same remote device)", device["via_device"], "node.vienna_livingroom")
@@ -225,7 +225,7 @@ func TestBuildImportedDiscoveryBodyOmitsViaDeviceWhenTargetNotImported(t *testin
 	payload.Device.ViaDevice = "hass.vienna_livingroom"
 	match := importCapabilityMatch{LocalDeviceID: "node.vienna_bedroom", Capability: "battery_level", LocalEntity: "sensor.physical_vienna_bedroom_battery_level"}
 
-	body := buildImportedDiscoveryBody(match, payload, "", "junglinster", buildImportViaDeviceIndex(TImportedFile{}), "vienna")
+	body := buildImportedDiscoveryBody(match, payload, nil, "junglinster", buildImportViaDeviceIndex(TImportedFile{}), "vienna")
 	device := body["device"].(map[string]interface{})
 	if _, present := device["via_device"]; present {
 		t.Errorf("device.via_device = %v, want it entirely omitted (target not also imported)", device["via_device"])
@@ -262,7 +262,7 @@ func TestBuildImportedDiscoveryBodyDeviceNameFallsBackToLocalDeviceID(t *testing
 	payload.Device.Identifiers = []string{"hass.vienna_shower_room"}
 	match := importCapabilityMatch{LocalDeviceID: "hass.vienna_shower_room", Capability: "temperature", LocalEntity: "sensor.physical_shower_room_netatmo_temperature"}
 
-	body := buildImportedDiscoveryBody(match, payload, "", "", nil, "test")
+	body := buildImportedDiscoveryBody(match, payload, nil, "", nil, "test")
 	device := body["device"].(map[string]interface{})
 	if device["name"] != "hass.vienna_shower_room" {
 		t.Errorf("device.name = %v, want the fallback bare local device id", device["name"])
@@ -299,7 +299,7 @@ func TestBuildImportedDiscoveryBodyAppliesLocalSuggestedArea(t *testing.T) {
 	payload.Device.Identifiers = []string{"hass.vienna_livingroom"}
 	payload.Device.Manufacturer = "Netatmo" // exporter-learned, must coexist with the local area
 
-	body := buildImportedDiscoveryBody(match, payload, "", "", nil, "test")
+	body := buildImportedDiscoveryBody(match, payload, nil, "", nil, "test")
 	device := body["device"].(map[string]interface{})
 	if device["suggested_area"] != "social/living_room" {
 		t.Errorf("device.suggested_area = %v, want %q", device["suggested_area"], "social/living_room")
@@ -326,10 +326,10 @@ func TestImportedAvailabilityTopicPointsAtDevicesNode(t *testing.T) {
 	}}
 	match := importCapabilityMatch{LocalDeviceID: "hass.vienna_terrace", Capability: "temperature", LocalEntity: "sensor.physical_terrace_netatmo_temperature"}
 
-	got := importedAvailabilityTopic(importFile, match)
+	got := importedAvailabilityTopics(importFile, match)
 	want := importedStateTopic("binary_sensor.infrastructural_terrace_netatmo_node")
-	if got != want {
-		t.Errorf("importedAvailabilityTopic = %q, want %q", got, want)
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("importedAvailabilityTopics = %v, want [%q]", got, want)
 	}
 }
 
@@ -345,8 +345,8 @@ func TestImportedAvailabilityTopicAvoidsCircularReferenceForNodeItself(t *testin
 	}}
 	match := importCapabilityMatch{LocalDeviceID: "hass.vienna_terrace", Capability: "node", LocalEntity: "binary_sensor.infrastructural_terrace_netatmo_node"}
 
-	if got := importedAvailabilityTopic(importFile, match); got != "" {
-		t.Errorf("importedAvailabilityTopic for the node capability itself = %q, want \"\" (no self-reference)", got)
+	if got := importedAvailabilityTopics(importFile, match); len(got) != 0 {
+		t.Errorf("importedAvailabilityTopics for the node capability itself = %v, want none (no self-reference)", got)
 	}
 }
 
@@ -363,8 +363,43 @@ func TestImportedAvailabilityTopicEmptyWhenDeviceHasNoNodeCapability(t *testing.
 	}}
 	match := importCapabilityMatch{LocalDeviceID: "hass.vienna_terrace", Capability: "temperature", LocalEntity: "sensor.physical_terrace_netatmo_temperature"}
 
-	if got := importedAvailabilityTopic(importFile, match); got != "" {
-		t.Errorf("importedAvailabilityTopic with no declared node capability = %q, want \"\"", got)
+	if got := importedAvailabilityTopics(importFile, match); len(got) != 0 {
+		t.Errorf("importedAvailabilityTopics with no declared node capability = %v, want none", got)
+	}
+}
+
+// TestImportedAvailabilityTopicsIncludesDependencyTopics is the coordinator-side half of the
+// logical layer's "dependency on" mechanism (2026-09-16): a device's own DependsOnAvailability
+// (decoded from coordinator/imported.yaml's "depends_on_availability" field, resolved
+// generator-side) must be ANDed in alongside its own node topic, for every capability including
+// the node capability itself (a dependency going down must mark THIS device's own node
+// unavailable too, not just its other capabilities -- unlike the device's own self-referential
+// node topic, which correctly excludes itself).
+func TestImportedAvailabilityTopicsIncludesDependencyTopics(t *testing.T) {
+	importFile := TImportedFile{Devices: map[string]TImportedDevice{
+		"node.vienna_livingroom": {
+			Capabilities: map[string]TImportedCapability{
+				"node":        {LocalEntity: "binary_sensor.infrastructural_apartment_living_room_netatmo_node"},
+				"temperature": {LocalEntity: "sensor.physical_apartment_living_room_netatmo_temperature"},
+			},
+			DependsOnAvailability: []string{"hosts/netatmo/node/state"},
+		},
+	}}
+
+	temperatureMatch := importCapabilityMatch{LocalDeviceID: "node.vienna_livingroom", Capability: "temperature"}
+	got := importedAvailabilityTopics(importFile, temperatureMatch)
+	wantOwn := importedStateTopic("binary_sensor.infrastructural_apartment_living_room_netatmo_node")
+	if len(got) != 2 || got[0] != wantOwn || got[1] != "hosts/netatmo/node/state" {
+		t.Errorf("importedAvailabilityTopics(temperature) = %v, want [%q, %q]", got, wantOwn, "hosts/netatmo/node/state")
+	}
+
+	// The node capability's own config excludes its OWN topic (no self-reference) but must still
+	// carry the dependency topic -- host.netatmo going down marks node.vienna_livingroom's own
+	// node unavailable too, per the user's own explicit requirement.
+	nodeMatch := importCapabilityMatch{LocalDeviceID: "node.vienna_livingroom", Capability: "node"}
+	got = importedAvailabilityTopics(importFile, nodeMatch)
+	if len(got) != 1 || got[0] != "hosts/netatmo/node/state" {
+		t.Errorf("importedAvailabilityTopics(node) = %v, want [%q]", got, "hosts/netatmo/node/state")
 	}
 }
 
@@ -379,7 +414,7 @@ func TestBuildImportedDiscoveryBodyIncludesAvailability(t *testing.T) {
 	match := importCapabilityMatch{LocalDeviceID: "hass.vienna_shower_room", Capability: "temperature", LocalEntity: "sensor.physical_shower_room_netatmo_temperature"}
 	nodeAvailabilityTopic := importedStateTopic("binary_sensor.infrastructural_shower_room_netatmo_node")
 
-	body := buildImportedDiscoveryBody(match, payload, nodeAvailabilityTopic, "", nil, "test")
+	body := buildImportedDiscoveryBody(match, payload, []string{nodeAvailabilityTopic}, "", nil, "test")
 	if body["availability_mode"] != "all" {
 		t.Errorf("availability_mode = %v, want \"all\"", body["availability_mode"])
 	}
@@ -403,7 +438,7 @@ func TestBuildImportedDiscoveryBodySetsLowercasePayloadOnOffForBinarySensor(t *t
 	payload.Device.Identifiers = []string{"hass.vienna_livingroom"}
 	match := importCapabilityMatch{LocalDeviceID: "hass.vienna_livingroom", Capability: "node", LocalEntity: "binary_sensor.infrastructural_apartment_living_room_netatmo_node"}
 
-	body := buildImportedDiscoveryBody(match, payload, "", "", nil, "test")
+	body := buildImportedDiscoveryBody(match, payload, nil, "", nil, "test")
 	if body["payload_on"] != "on" || body["payload_off"] != "off" {
 		t.Errorf("payload_on/payload_off = %v/%v, want on/off", body["payload_on"], body["payload_off"])
 	}
@@ -427,7 +462,7 @@ func TestBuildImportedDiscoveryBodyPreservesHostsKindPayloadOnOff(t *testing.T) 
 	payload.Device.Identifiers = []string{"host.eriks-macbook-pro-2"}
 	match := importCapabilityMatch{LocalDeviceID: "import.eriks-macbook-pro-2", Capability: "node", LocalEntity: "binary_sensor.infrastructural_eriks_macbook_pro_2_node"}
 
-	body := buildImportedDiscoveryBody(match, payload, "", "", nil, "test")
+	body := buildImportedDiscoveryBody(match, payload, nil, "", nil, "test")
 	if body["payload_on"] != "true" || body["payload_off"] != "false" {
 		t.Errorf("payload_on/payload_off = %v/%v, want the remote's own true/false preserved verbatim", body["payload_on"], body["payload_off"])
 	}
@@ -837,7 +872,7 @@ func TestBuildDerivedImportedDiscoveryBody(t *testing.T) {
 	cap.LocalEntity = "binary_sensor.infrastructural_terrace_netatmo_battery_alert"
 	baseTopic := importedStateTopic("sensor.infrastructural_terrace_netatmo_battery_level")
 
-	body := buildDerivedImportedDiscoveryBody("import.vienna_terrace", device, "battery_alert", cap, baseTopic, "( (value) | int(0) < 20 )", "", "test")
+	body := buildDerivedImportedDiscoveryBody("import.vienna_terrace", device, "battery_alert", cap, baseTopic, "( (value) | int(0) < 20 )", nil, "test")
 	if body["state_topic"] != baseTopic {
 		t.Errorf("state_topic = %v, want the resolved atomic ancestor's own topic %q", body["state_topic"], baseTopic)
 	}

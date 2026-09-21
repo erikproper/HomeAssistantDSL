@@ -28,6 +28,30 @@ func TestParseImportIntegrationBody(t *testing.T) {
 	}
 }
 
+// TestParseImportIntegrationBodyShorthandRemoteDeviceID covers the 2026-09-16 shorthand: omitting
+// <remote-device-id> when it's identical to <local-id> (e.g. "device node.vienna_livingroom from
+// junglinster with: ...;" instead of spelling "node.vienna_livingroom" out twice).
+func TestParseImportIntegrationBodyShorthandRemoteDeviceID(t *testing.T) {
+	devices, warnings := parseImportIntegrationBody([]string{
+		"device node.vienna_livingroom from junglinster with:",
+		"  sensor.temperature;",
+		"end;",
+	})
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("got %d devices, want 1", len(devices))
+	}
+	d := devices[0]
+	if d.DeviceID != "node.vienna_livingroom" || d.RemoteInstallation != "junglinster" || d.RemoteDeviceID != "node.vienna_livingroom" {
+		t.Errorf("got %+v, want DeviceID=RemoteDeviceID=node.vienna_livingroom RemoteInstallation=junglinster", d)
+	}
+	if _, ok := d.Capabilities["temperature"]; !ok {
+		t.Errorf("Capabilities = %+v, want a declared \"temperature\" entry", d.Capabilities)
+	}
+}
+
 func TestParseImportIntegrationBodyWarnsOnMalformedLine(t *testing.T) {
 	devices, warnings := parseImportIntegrationBody([]string{
 		"device import.remote_macbook junglinster;", // missing "from"/remote-device-id/"with:"

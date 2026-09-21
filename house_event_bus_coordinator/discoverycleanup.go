@@ -58,7 +58,7 @@ var discoveryOrphanWatchSettleWindow = 3 * time.Second
 
 // TTopicManifest is the coordinator's own on-disk record of the last-published content of every
 // discovery topic it manages -- scoped strictly to its own devices.yaml/discovery.yaml entries,
-// plus (Passthrough) the one deliberate exception to that scoping: PROJECT.md item 4's
+// plus (Passthrough) the one deliberate exception to that scoping: PROJECT.md item 7's
 // discovery_passthrough relay, whose topic set is inherently dynamic and can never appear in any
 // generator-computed expected set -- see RetireMissing's own doc comment for why that distinction
 // is load-bearing, not bookkeeping.
@@ -345,7 +345,7 @@ func (p *TDiscoveryPublisher) Publish(client mqtt.Client, broker, topic string, 
 // retired, for logging/testing.
 //
 // Skips anything marked passthrough (PublishPassthrough) unconditionally, regardless of expected --
-// real incident, 2026-09-14: discovery_passthrough (PROJECT.md item 4) relays not-yet-migrated
+// real incident, 2026-09-14: discovery_passthrough (PROJECT.md item 7) relays not-yet-migrated
 // Zigbee2MQTT devices under topics no generator-computed expectedTopics set can ever contain (their
 // whole point is that no Physical.def declaration exists yet), but plain Publish still recorded
 // them as "known". Every coordinator restart's RetireMissing therefore deleted every single
@@ -386,7 +386,7 @@ func (p *TDiscoveryPublisher) RetireMissing(client mqtt.Client, broker string, e
 }
 
 // PublishPassthrough is Publish's passthrough-relay counterpart (discoverybridge.go, PROJECT.md
-// item 4): identical publish/retire-on-change behaviour, but additionally marks topic exempt from
+// item 7): identical publish/retire-on-change behaviour, but additionally marks topic exempt from
 // RetireMissing's static startup sweep (see that method's own doc comment for the real incident
 // this exists to prevent a repeat of).
 func (p *TDiscoveryPublisher) PublishPassthrough(client mqtt.Client, broker, topic string, payload []byte) error {

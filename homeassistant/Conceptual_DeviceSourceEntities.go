@@ -59,7 +59,7 @@ type TDeviceSourceEntityDeclaration struct {
 // deviceSourceEntityPattern requires an explicit " as " clause -- this is what distinguishes it
 // from "entity <spec> from <gateway-id>.<leaf>;" (Conceptual_DiscoveryEntities.go), which has no
 // "as" clause at all, so there's no ambiguity between the two shapes.
-var deviceSourceEntityPattern = regexp.MustCompile(`^entity (\S+) as (\S+) from (\S+);$`)
+var deviceSourceEntityPattern = regexp.MustCompile(`^entity\s+(\S+)\s+as\s+(\S+)\s+from\s+(\S+);$`)
 
 func extractDeviceSourceEntityDeclaration(line string) (*TDeviceSourceEntityDeclaration, bool) {
 	matches := deviceSourceEntityPattern.FindStringSubmatch(line)
@@ -162,7 +162,7 @@ func registerDeviceSourceEntityLink(administration *TAdministrationState, decl T
 		// detect reuse.
 		sourceCapability = decl.Source
 	}
-	administration.RegisterDiscoveryImpliedEntity(spaceName, fullName, provenance, decl.DeviceID+"!"+sourceCapability)
+	administration.RegisterDiscoveryImpliedEntity(spaceName, fullName, provenance, decl.DeviceID+"!"+sourceCapability, false)
 	if device.Capabilities == nil {
 		device.Capabilities = map[string]THassBridgeCapability{}
 		hassBridgeDevicesByID[decl.DeviceID] = device
@@ -288,7 +288,7 @@ func registerImportedDeviceSourceEntityLink(administration *TAdministrationState
 	}
 
 	spaceName := administration.CurrentSpaceName()
-	administration.RegisterDiscoveryImpliedEntity(spaceName, fullName, provenance, decl.DeviceID+"!"+capabilityKey)
+	administration.RegisterDiscoveryImpliedEntity(spaceName, fullName, provenance, decl.DeviceID+"!"+capabilityKey, false)
 
 	link.AttributeEntityIDs[capabilityKey] = TDeviceAttributeLink{EntityID: entityID, Identity: identity}
 	administration.DeviceConceptualLinks[decl.DeviceID] = link

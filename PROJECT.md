@@ -1,24 +1,27 @@
 ** TODO 
 
+1 Adding by Erik:
+- check suggested in Vie, HA main (remotes)
+- check node and alert tabs and icons
 
-1 Adding:
-- complete candy; ICONS?
-- complete vacuum
+1b. Adding by Erik:
+- terrace/garden/tuya
+- house/server_room/rack/tuya
+- migrate JLI
 - check suggested in JLI
-- check suggested in VIE
+- sun in JLI
+- fritzbox JLI
 - dsmr-gateway
 - envoy-wifi vs envoy
-- Hosts:
-  - espressif = candy
-  - irobot
-- fritz box @ Vienna (temp, ++)
-      entity sensor.infrastructural:fritz_box_7590_ax_gb_received with call providing :fritz_box;
-      entity sensor.infrastructural:fritz_box_7590_ax_gb_sent;
-- fritz box @ Junglinster (temp, ++)
-- sun via ps2
-- roomba via ps2
-- Migrate terrace + rack sensors.
+- device names in JLI
+- complete conceptual import
 
+1c. Frame@Vienna should also be backed up. At least the bin folder?
+Add the same action for Frame@Junglinster for when we have migrated to Fedora.
+
+1d. EP: powerboard + USB hub in place
+
+1e. EP: Stick migration for Frame @ Vienna
 
 2. Stick migration for Pi3 and PiB:
 - Copy the pi3 stick in vienna to one of these sticks
@@ -41,93 +44,9 @@
     default priority 100 (zram absorbs load first, the swapfile is overflow) -- exact commands in
     memory: project_ps2_swap_fix_procedure.md.
 
-3. NOT FULLY DONE (checked 2026-09-14 -- eriks-mac-mini's own dangling-job check, below, is still
-   outstanding). Otherwise done as of 2026-09-11, and the outcome reverses this item's own
-   original premise -- kept the
-   generic cpu-report-cloud-client LaunchAgent for eriks-mac-studio rather than switching it to the
-   per-installation com.erikproper.cpu-report-junglinster.plist (local-broker) one.
-   Real macOS-specific obstacle found live: switching to the local-broker plist worked for exactly
-   the first one or two runs (confirmed via `log show`'s kernel/NECP trace -- real TCP connections
-   completing to the local broker), then macOS's Local Network privacy permission subsystem started
-   silently dropping every subsequent connection ("tcp drop outgoing ... reason: NECP") -- a bare
-   CLI binary (mosquitto_pub) launched via a LaunchAgent has no real app-bundle identity for macOS
-   to associate a granted permission with, so it never gets an interactive consent prompt and
-   defaults to deny. The OLD cloud-client job never hit this because it talks to an EXTERNAL host
-   (mqtt.erikproper.eu) -- Local Network permission only gates LAN/RFC1918 destinations, which the
-   local-broker plist's "junglinster" target (a bare local hostname) is.
-   Decision (the user, 2026-09-11): ALL macOS-based hosts should report to the cloud directly, not
-   through a house's own local broker.
-   - eriks-mac-studio: reverted to cloud-client, confirmed live (real load/temperature/device-info
-     data flowing through Junglinster's coordinator, both its local "main" relay and its
-     cloud-broker cross-post).
-   - eriks-macbook-pro-2: found running BOTH jobs at once -- the 2026-09-08 local-delivery
-     migration had left a genuinely working "com.erikproper.cpu-report" (local-broker) job loaded
-     (confirmed live data), even though its own LaunchAgents plist file had since been removed from
-     disk (a dangling loaded job, config gone but launchd still running it -- the earlier migration
-     never did its own `launchctl bootout` step). `launchctl bootout` on the dangling job, confirmed
-     `com.erikproper.cpu-report-cloud-client` is now the only one loaded; confirmed live via the
-     coordinator log that traffic switched from "via_device": "junglinster" to
-     "via_device": "mqtt.erikproper.eu" within the same minute.
-   - eriks-mac-mini: per the user (2026-09-11), already reporting to the cloud correctly -- the
-     earlier "no retained data" finding here was just the machine being off, not a real problem
-     (an earlier note wrongly speculated it might be silently permission-broken like studio was;
-     wrong guess, corrected). Still worth checking for eriks-mac-mini's OWN "double reporting"
-     issue [corrected 2026-09-14 -- this previously (wrongly) said "eriks-macbook-pro-2's own",
-     but macbook-pro-2's own dangling job was already found+fixed two bullets up, in this same
-     item; the still-open check has always been about mac-mini] -- a dangling local-broker job
-     left loaded (config file already gone) from the same 2026-09-08 migration that never called
-     its own `launchctl bootout` -- queued for whenever it's next reachable: `launchctl list | grep
-     cpu-report` should show ONLY `com.erikproper.cpu-report-cloud-client`, `bootout` anything else
-     found loaded.
-     [CHECKED 2026-09-14: re-verified macbook-pro-2 itself (`launchctl list | grep cpu-report`)
-     still shows only `com.erikproper.cpu-report-cloud-client` loaded -- that part remains fine.
-     mac-mini's own check is STILL not done -- attempted from this session but mac-mini isn't
-     reachable on this network (no SSH config entry, `eriks-mac-mini.local` doesn't resolve here).
-     This item can't be marked fully DONE until that check actually happens.]
-   Unrelated, noticed but not investigated: eriks-mac-studio's own reported load values are
-   implausible (300%+) -- likely a macOS `GetLoad`/`sysctl vm.loadavg` parsing issue on this
-   specific host, or a genuine load spike; not touched.
+4. MQTT (local) broker in container on p-s-1 @JLI
 
-4. Zigbee2MQTT (legacy-to-conceptual MQTT passthrough, so entities migrate gradually) migration of devices in Vienna
-Passthrough is needed because we will need to shift the discovery topic of Z2M from homeassistant to homeassistant.physical,
-and relay the not-migrated ones to the homeassistant topic. 
-To this end, the coordinator would need to:
-- pass on any config entry with a topic starting a state or command topic starting with "zigbee2mqtt/"
-- unless, the config entry pertains to an already migrated device (which would be declared in the physical.def file
-  in the discovery integration).
-As this migration capability should be a generic one, for given "topic prefixes", we should allow for (in the physical layer) 
-an entry:
-   discovery_passthrough "zigbee2mqtt/" from "homeassistant.physical";
-
-   [Coordinator mechanism DONE + tested 2026-09-14, migration itself still to do: the bare
-   top-level statement above (mirroring mqtt_discovery_clean's own "generic, repeatable
-   mechanism" precedent, homeassistant/mqtt_discovery_cleanup.go) is parsed by the new
-   homeassistant/discovery_passthrough.go, writing coordinator/discovery_passthrough.yaml.
-   generateDiscoveryPrefixBaselineFile (integration_discovery_generator.go) now also writes
-   physical_prefix to discovery.yaml unconditionally whenever ${mqtt_discovery_physical} is set --
-   needed since passthrough must work even for a house with zero "integration discovery with:
-   device ..." blocks declared yet, which generateDiscoveryIntegrationOutputs' own
-   gateway-triggered write never covered. house_event_bus_coordinator/discoverybridge.go's
-   existing subscribeDiscoveryBridge (already subscribed to <physical_prefix>/+/+/+/config for the
-   EMS-ESP-style gateway relay) now also: relays a message byte-for-byte onto conceptualPrefix
-   (same topic tail, just the prefix segment swapped) whenever its device matches no declared
-   gateway but its state_topic/command_topic matches a declared passthrough prefix; retires that
-   raw copy (TDiscoveryPublisher.RetireOne, guarded by a new Publisher.Knows check so it's only
-   attempted for a topic actually relayed before) the moment the SAME device starts matching a
-   declared gateway, so a migrated device never shows twice; and relays upstream retraction (an
-   empty payload) through too, so a Zigbee2MQTT device being fully removed cleans up HA's copy as
-   well. Fully unit-tested (9 new tests: generator-side parse/dedupe/sort/emit,
-   coordinator-side pass-through/no-match/already-migrated/retire-on-migrate/
-   retire-on-retraction/command_topic-matching). NOT yet deployed anywhere live -- no house has
-   Zigbee2MQTT reconfigured to publish under ${mqtt_discovery_physical} yet, so there's nothing to
-   verify against real traffic. Still open: actually reconfiguring Zigbee2MQTT's own MQTT discovery
-   prefix (outside this repo), adding "discovery_passthrough ...;" to Vienna's Physical.def, and
-   the device-by-device migration itself (declaring each device as it moves, per this item's own
-   title).]
-
-5. MQTT (local) broker in container on p-s-1 @JLI
-
-6. Z-Wave migration from winsock to MQTT. Also on a device per device base, but no MQTT passthrough needed.
+5. Z-Wave migration from winsock to MQTT. Also on a device per device base, but no MQTT passthrough needed.
    Pre-work notes from the original roadmap: new environment is Home Assistant Green + a
    Raspberry Pi running Podman + Z-Wave JS UI + Aeotec ZWA-2 controller + two Aeotec ZW117 range
    extenders; mesh validation confirmed a Fibaro module excluded/included successfully through
@@ -142,7 +61,7 @@ an entry:
    RF coverage acceptable throughout and doesn't require every device to be physically reachable
    from the new controller during migration.
 
-7. Migration of Zigbee2MQTT app from Green to p-s-1 in JLI, plus antenna migration.
+6. Migration of Zigbee2MQTT app from Green to p-s-1 in JLI, plus antenna migration.
 
     Unlike Vienna's move (same physical Sonoff dongle, just relocated -- DONE + VERIFIED LIVE
     2026-09-08, real network/73 devices preserved intact), Junglinster is also swapping the radio
@@ -194,12 +113,67 @@ an entry:
     - [ ] Only decommission/repurpose the old Sonoff dongle once the above is verified stable, not
           immediately.
 
-8. Zigbee2MQTT (legacy-to-conceptual MQTT passthrough, so entities migrate gradually) migration of devices in Junglinster.
+7. Zigbee2MQTT (legacy-to-conceptual MQTT passthrough, so entities migrate gradually) migration of devices in Junglinster.
     [FLAGGED 2026-09-12: no body yet, unlike item 4's own detailed "discovery_migration"
     design -- likely shares that same mechanism, but Junglinster's own specifics (which
     devices/topics) aren't written down here yet.]
 
-9. Overkiz-based SOMFY cover control: homeassistant@protocols-server-2 -> MQTT.
+    [Notes added 2026-09-14, from Vienna's own live test of this same mechanism (item 4):
+
+    - The coordinator mechanism itself (discovery_passthrough, throttled relay queue) is now
+      DONE and safe -- but only as of the RetireMissing passthrough-exemption fix (same date):
+      RetireMissing used to retire ANY manifest-known topic absent from the current run's
+      static expectedTopics, which passthrough-relayed topics can never be part of by design.
+      Every coordinator restart during Vienna's live test therefore deleted every currently
+      passthrough-relayed entity (and any manual HA rename on it), which Zigbee2MQTT then
+      recreated fresh under its own raw/unqualified naming a moment later. Junglinster's
+      Physical.def already has "discovery_passthrough zigbee2mqtt/ from homeassistant.physical;"
+      declared (dormant, since Z2M here still publishes to plain "homeassistant") -- BEFORE
+      actually flipping Junglinster's own Z2M discovery topic to ${mqtt_discovery_physical},
+      confirm the deployed coordinator binary on Junglinster's p-s-1 includes this fix (a normal
+      `./deploy` run rebuilds+restarts it from current source automatically, so this should
+      already be true by the time this item is picked up -- just don't skip the deploy step and
+      assume the binary in place is new enough).
+
+    - Vienna's real device-by-device migration (item 4's own "still to do" half) hasn't started
+      yet either -- do NOT flip Junglinster's Z2M prefix and consider the passthrough mechanism
+      itself "the migration"; passthrough only keeps existing entities visible unqualified while
+      untouched, it does not rename/reposition anything. The actual migration step is declaring
+      each device in Physical.def's "integration discovery with: device ... with: identifiers
+      ...; end;" block + a matching Spaces.def "entity ... from <gateway>.<leaf>;" link, which is
+      what makes the coordinator author a properly conceptual-named discovery config instead of
+      relaying raw. Untested on any real Zigbee device anywhere yet (only ever exercised for
+      EMS-ESP); Vienna's own first real attempt at this is still pending too.
+
+    - Before starting: run the same "undeclared {social,physical,infrastructural}_... entity"
+      audit done for Vienna (2026-09-14) -- diff every live entity_id matching that naming
+      pattern against what's actually generated under hass/junglinster/ (a file named exactly
+      "<entity_id>.yaml" existing anywhere in that tree, minus switch_as_x backing switches and
+      non-positionable domains like automation/script/scene). Vienna's own run of this came back
+      clean and actionable (21 entities, all genuinely never-positioned devices). Junglinster's
+      own run the same day came back far noisier (~600+ hits) BECAUSE Junglinster's own
+      hass/junglinster/ output is itself ~1586 files behind its current Definitions (a separate,
+      pre-existing backlog, unrelated to this item) and because Junglinster is a much older
+      instance with several rounds of past space-hierarchy reorganisation -- a lot of the hits
+      there look like orphaned leftovers of an OLD space path (e.g. "_space" template switches
+      under a space name that no longer exists) rather than devices that were genuinely never
+      positioned. Don't treat that raw hit list as a ready-to-position batch the way Vienna's
+      was -- each one needs a quick check against current Spaces.def first. This is also a real
+      opportunity: since Junglinster carries much more accumulated legacy than Vienna ever did,
+      this same audit doubles as a way to find and clean out genuinely dead/renamed-away
+      entities while going through the migration, not just find gaps to fill.
+
+    - Real mistake made and recovered from during Vienna's test, worth avoiding here: don't
+      assume a Zigbee2MQTT-native "Group" entity with an unqualified/raw-looking friendly name is
+      an orphaned duplicate just because no matching Physical.def declaration exists for it --
+      check its entity_id's own history (HAOS backup, if needed) before deleting. A manually
+      renamed group entity looks identical, from the discovery config alone, to a genuine legacy
+      orphan. If a group ever does need recreating, Zigbee2MQTT's `bridge/request/group/add`
+      accepts an explicit "id" -- reusing the original numeric id keeps the resulting unique_id
+      identical to what it was before, which at least avoids adding an extra rename step on top
+      of the recovery.]
+
+8. Overkiz-based SOMFY cover control: homeassistant@protocols-server-2 -> MQTT.
       DONE (2026-09-09): the command-automation question this item used to flag as open --
       "which commands a capability/domain supports, and how one maps to a remote service call on
       the bridged instance" -- is resolved for the same-broker case: homeassistant/
@@ -212,21 +186,48 @@ an entry:
       exports of commands would still work") is explicitly NOT built yet -- deferred as Phase 2,
       same plan.
 
-10. Volvo integration's cloud auth is broken on the "main" (Junglinster) HA incarnation (401
+      [Note added 2026-09-14: when this item's own "protocols-server-2 -> MQTT" migration is
+      picked up, house_event_bus_coordinator/discoverybridge.go's buildRelayedDiscoveryConfig now
+      clones a declared gateway device's ENTIRE original discovery payload (only overriding
+      unique_id/default_entity_id/name/state_topic/command_topic/origin), rather than
+      reconstructing a narrow subset of fields from scratch -- built for item 4's Zigbee light
+      migration (position/brightness/color-mode-shaped fields silently dropped before this fix),
+      but the same "a cover has several capability-specific fields a hand-picked reconstruction
+      would risk dropping (position, tilt, device_class, ...)" problem applies here too. Vienna's
+      own Zigbee-based blinds/covers, once migrated under item 4, are a real worked example to
+      copy the pattern from for these SOMFY covers.]
+
+9. Volvo integration's cloud auth is broken on the "main" (Junglinster) HA incarnation (401
     Unauthorized, confirmed 2026-08-24 via the assumed-entities warning system flagging 18 missing
     `sensor.social_cars_xc40_*`/etc. entities) -- needs re-authenticating in HA's own UI. Not a
     code issue -- just a standing operational reminder for whenever you're next in that UI.
 
-11. Ensure we have now all the integrations we need.
+9b. Maybe replace ":" with "|"?
+
+10. Ensure we have now all the integrations we need.
 Then also re-enable the checking of locally (on main HA) assumed entities via the inquiry process. So, using the three values approach, triggering the inquiry of assumed to exist local entities (on main) via the coordinator. 
 Also: Check for more of the existing integrations, like fritzbox, ems-esp, etc.
 Also: EMS heater device -- not started, design/syntax not yet worked out.
 
-12. Logical layer + available nuances in relation to "via device"  (netatmo radio module via main module) and aggregation.
+11. Logical layer + available nuances in relation to "via device"  (netatmo radio module via main module) and aggregation.
+- Deal with the "physical" sphere. Should be empty, where contributing sensors need a conceptual name as well based on the location the material (= real physical) world. 
 - Node/battery_alert rules: DONE -- Rule 1 (node required, live since 2026-09-10) and Rule 2
   (battery_level iff battery_alert, live since 2026-09-11 once both houses' real macro-driven
   usages were migrated to `derived`); see
   /Users/erikproper/.claude/plans/derived-capability-mechanism.md for full history.
+- Logical.def + first mechanism ("dependency on <device-id>;"): DONE 2026-09-16, not yet deployed
+  -- a logical device (same id as a physical one = extension, not a second device) can declare
+  `dependency on <other-id>;` (repeatable, transitive, cycle-detected) so its own availability
+  ANDs in another device's own liveness; `hosts`-kind dependency targets only so far. Vienna's
+  `node.vienna_livingroom depends on host.netatmo` is the first real usage, replacing the old
+  `netatmo_module` placeholder device. QUEUED remaining work for whenever this item is picked back
+  up: two more dependency-target forms, `dependency on entity <entity-id>;` (raw state) and
+  `dependency on availability of entity <entity-id>;` (raw availability) -- both name an
+  already-existing "main" HA entity directly rather than a Physical.def device id, needing (a) a
+  new generator-authored automation on main publishing that entity's state/availability to MQTT
+  (only when the dependent device is actually positioned/exported -- mirror the existing
+  `hasLink`-style gating), and (b) adding the referenced entity to kind-5's existence-check list.
+  Full design/implementation detail: memory/project_logical_layer_dependency_on.md.
 - complement device DDD with:
     from DDDx:
       CCCx [as CCCy];
@@ -381,8 +382,7 @@ Also adjust the names of generated automations.
 
 12c. Can we add more DSL syntax for the generation of WHEN-IF-THEN rules?
 
-
-13. Installation-level status binary_sensors (meta sphere): one (discovery-created) binary_sensor per HA
+12. Installation-level status binary_sensors (meta sphere): one (discovery-created) binary_sensor per HA
       instance signalling (1) a configuration problem on that instance, and (2) updates available
       for it -- purely passive/informational (dashboard-visible), deliberately decoupled from item
       2's reload/restart meta-command mechanism rather than gating it synchronously (see item 2's
@@ -402,9 +402,9 @@ Also adjust the names of generated automations.
      protocols-server-2, if still bare Container) has no update entity to poll at all -- needs its
      own per-install-type sourcing story before this can be built uniformly.
 
-14. Check aggregation of sensors. If one is down, what do we do with data?
+13. Check aggregation of sensors. If one is down, what do we do with data?
 
-15. Code cleaning (dead code, superseded generator logic, parser)
+14. Code cleaning (dead code, superseded generator logic, parser)
 - Rename the `homeassistant_instances/...` MQTT topic tree (bootstrap/bridge protocol,
   discoveryhassbridge.go) to `homeassistant.instances/...`, matching this project's own
   dot-separated discovery-prefix convention (`homeassistant.physical`/`homeassistant.conceptual`)
@@ -438,7 +438,7 @@ Also adjust the names of generated automations.
   not designed, genuinely speculative, only worth resurfacing once the migration above reveals
   whether it's actually still needed.
 
-16. Architectural review, code review and documenting
+15. Architectural review, code review and documenting
    - Note (2026-09-05): GO_CONVENTIONS.md §7/§8 specifies a three-layer parser architecture
      (character stream -> tokeniser -> recursive-descent, CDL1 bool-returning style, no `error`
      returns from parse functions). The DSL frontend (Physical.def/Spaces.def parsing) does not
@@ -450,15 +450,19 @@ Also adjust the names of generated automations.
      stayed in the existing regexp style rather than migrating just the one file it touched) --
      needs its own dedicated pass given the scope (the whole DSL frontend, not one file).
 
-17. Test if the meta call to reset HA's works.
+16. Test if the meta call to reset HA's works.
 
-18. Check completeness of reported meta data
+17. Check completeness of reported meta data
 
-19. Maybe introduce some macro mechanism to make standard derivations (like adjustments and battery levels easier and standardized)
+18. Maybe introduce some macro mechanism to make standard derivations (like adjustments and battery levels easier and standardized)
 
-20. FHEM/FS20 integration
+19b. Check syntax and with/from logic
 
-21. Publish -- Architecture.md should be ready for others to read, alongside an up-to-date
+19c. RAW mqtt as integration; also see notes below on MQTT/JSON structures. So, a situation in which we have MQTT topics, but no discovery data. Then this integration needs to combine this into a discovery compliant topic structure. Sometimes easy to do based on topic and payload. But take the vacuum. If the composed state is represented as a different topics these need to be joint by the coordinator.
+
+19. FHEM/FS20 integration
+
+20. Publish -- Architecture.md should be ready for others to read, alongside an up-to-date
     README.md, on GitHub.
 
     Before then: `metaOptionalReloadServices`'s Jinja-templated "try every optional reload service,
@@ -481,7 +485,22 @@ Also adjust the names of generated automations.
     else is the reason our automations didn't see the event; parked per the user's own instruction,
     not investigated further this session. Worth checking specifically when this item is picked up.
 
-22. Future refinement (2026-08-23, not yet designed): replace the `.def` files with an integrated
+    Also before then (2026-09-15): a "pretty printing" option for the `.def` files themselves --
+    both houses' Physical.def/Spaces.def have drifted into inconsistent column-alignment/spacing
+    by hand over many editing sessions (e.g. the ad hoc aligned-colon padding used for `device ...
+    with:` blocks). A generator-provided formatter would make the DSL source itself presentable
+    alongside the generated output once this is public.
+
+20b. Future refinement (2026-09-20, not yet designed, long-run/end-of-list item -- deliberately
+    parked behind publishing): formulate automations themselves in a "conceptual style", akin to
+    SBVR (Semantics of Business Vocabulary and Rules) rules, rather than as HA's own
+    trigger/condition/action YAML trees. Genuinely speculative at this point -- no concrete syntax
+    or mechanism sketched yet, just the observation (prompted by the bj/moes/shortcut event-trigger
+    migration, 2026-09-20) that today's automations.yaml is still hand/generator-authored HA-native
+    shape, one layer less abstracted than the DSL's own physical/conceptual/logical layers already
+    are for entities.
+
+21. Future refinement (2026-08-23, not yet designed): replace the `.def` files with an integrated
     database representing the coordinator+transformer's actual current understanding of the
     conceptual and physical layers -- physical-layer content populated/kept live from what the
     integrations themselves discover (MQTT discovery, device_attr(), live-reported metadata),
@@ -499,7 +518,7 @@ Also adjust the names of generated automations.
     orthogonal to item 16's own parser-rewrite scope (that's about HOW the DSL is parsed; this is
     about WHAT the source of truth even is).
 
-23. Future refinement (2026-09-09, not yet designed): a generic, reversible rewriting strategy
+22. Future refinement (2026-09-09, not yet designed): a generic, reversible rewriting strategy
     between "one topic, one JSON payload with several fields" and "several topics, one atomic
     value each, one topic per field" -- treating a JSON payload's own field names as if they were
     additional trailing topic-path segments, e.g. `a/b/c {"k": "1", "l": "2"}` <-> `a/b/c/k 1` +

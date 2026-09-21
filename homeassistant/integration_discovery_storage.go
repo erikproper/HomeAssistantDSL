@@ -44,7 +44,53 @@ import (
 // TDiscoveryCapability is one named leaf a discovery gateway (sub-)device exposes.
 type TDiscoveryCapability struct {
 	Domain string
-	Leaf   string
+	Leaf   string // raw gateway leaf id -- empty when AvailabilityOf is set instead
+
+	// SourceDomain (2026-09-15), when non-empty, is an optional "<raw-domain>:" qualifier on Leaf
+	// (e.g. "event" in "event.core: event:0x..._action_zigbee2mqtt;") -- disambiguates a leaf id
+	// the gateway publishes under more than one raw MQTT discovery domain for the same underlying
+	// property (real case: a Moes scene remote's "action", published as both a "sensor" text
+	// mirror and a richer "event" entity, identical unique_id). Propagated to
+	// TDiscoveryEntityLink/discovery.yaml so the coordinator's own relay matching
+	// (subscribeDiscoveryBridge, discoverybridge.go) can require the incoming raw message's own
+	// topic domain to match, not just (gateway, leaf). Empty (the default, unaffected by this)
+	// matches whichever raw domain publishes the leaf, exactly as before -- required for the
+	// existing, deliberate cross-domain pattern (e.g. "fan.core: 0x..._switch_zigbee2mqtt;",
+	// relaying a switch-domain-published leaf under a different declared conceptual domain).
+	SourceDomain string
+
+	// AvailabilityOf/AvailabilityOfDomain, when AvailabilityOf is non-empty, name a SIBLING
+	// capability (this same device's own local label, e.g. "core", plus the domain it was
+	// declared under, e.g. "light") this one tracks the availability of -- from a capability
+	// line's own "<domain>.<label> is available;" sugar (e.g. "binary_sensor.node:
+	// light.core is available;"), rather than a raw gateway leaf. The domain is required
+	// (2026-09-15), not inferred, matching "derived DDD.NNN from EEE.MMM via TTT;"'s own
+	// always-domain-qualified "from" side -- self-documenting, and guards against a future
+	// same-named-different-domain capability being referenced ambiguously; resolution
+	// (registerDiscoveryAvailabilityEntityLink) checks the sibling's own Domain matches.
+	// Mutually exclusive with Leaf and DerivedFromCapability.
+	AvailabilityOf       string
+	AvailabilityOfDomain string
+
+	// DerivedFromCapability/DerivedViaTemplate (2026-09-15): "derived DDD.NNN from EEE.MMM via
+	// TTT;" declares this capability's value as a function of a SIBLING capability of the same
+	// gateway device, exactly the same grammar/semantics as home_assistant/hassbridge's own
+	// "derived" (Physical_DerivedCapability.go) -- DerivedFromCapability holds EEE.MMM's own map
+	// key (MMM), DerivedViaTemplate is TTT ("$" stands for the sibling's own resolved value).
+	// Mutually exclusive with Leaf and AvailabilityOf. Resolved into a real entity the same way
+	// AvailabilityOf is -- a local condition/template entity (registerDiscoveryDerivedEntityLink,
+	// Conceptual_DiscoveryEntities.go), never a raw MQTT relay, since the value has to be computed
+	// locally from a sibling rather than read off the wire.
+	DerivedFromCapability string
+	DerivedViaTemplate    string
+
+	// Hidden (2026-09-15), from an optional leading "hidden " qualifier on the capability line,
+	// marks an internal-only intermediate value -- fully usable as another capability's own
+	// "derived ... from ...;" source (a raw Capabilities map lookup, unaffected by this flag), but
+	// refused if a Spaces.def "entity ... from <label>;" line tries to position it directly (the
+	// conceptual/logical layers should never see it). The motivating case: a sensor's raw,
+	// unadjusted reading that only exists to feed a "derived" capability applying an offset/scale.
+	Hidden bool
 }
 
 // TDiscoveryGatewayDevice is one "device <id> with: ... end;" declaration inside "integration
@@ -61,6 +107,21 @@ type TDiscoveryGatewayDevice struct {
 	ParentDeviceID string
 	Identifiers    []string
 	Capabilities   map[string]TDiscoveryCapability
+
+	// IgnoreOtherCapabilities (2026-09-21), from an "ignore other capabilities;" body line, tells
+	// the coordinator's own matchingGateway (house_event_bus_coordinator/discoverybridge.go) to
+	// match THIS device by its own declared Identifiers only, never via another device's
+	// via_device pointing at one of them (the "one-hop" rule this whole struct's own doc comment
+	// describes, built for e.g. EMS-ESP's "ems-esp-thermostat" via_device: "ems-esp"). That rule
+	// silently breaks for a device that's genuinely the ROOT of an entire network rather than one
+	// narrow multi-facet gateway: real bug found live 2026-09-21 (Vienna) -- declaring
+	// "node.zigbee2mqtt_bridge" with the bridge's own identifier made EVERY other Zigbee2MQTT
+	// device match it too (Zigbee2MQTT sets every single device's own via_device to the bridge),
+	// so every other device's undeclared leaves started appearing lumped under this one gateway in
+	// suggestions/discovery.txt. Scoped to suggestion/existence-tracking's own gateway attribution
+	// only -- this device's OWN declared capabilities still resolve normally either way, since
+	// those already match via direct Identifiers, never needing the one-hop rule at all.
+	IgnoreOtherCapabilities bool
 }
 
 // inferredDiscoveryIdentifier derives a device's default HA device identifier from its own DSL
@@ -81,6 +142,9 @@ func inferredDiscoveryIdentifier(deviceID string) string {
 // matching collectHostsDevicesByID's policy.
 func collectDiscoveryGatewaysByID(definitionDir string) (map[string]TDiscoveryGatewayDevice, []string) {
 	physicalContent, mergedLineNos, warnings := collectLayerContent(definitionDir, []string{"Physical.def"}, LayerPhysical)
+	var jinjaWarnings []string
+	physicalContent, jinjaWarnings = resolveJinjaTemplateCallsInDerivedLines(physicalContent, loadJinjaTemplateDefinitions(definitionDir))
+	warnings = append(warnings, jinjaWarnings...)
 	blocks, blockWarnings := parseIntegrationBlocks(physicalContent, mergedLineNos)
 	warnings = append(warnings, blockWarnings...)
 

@@ -5,6 +5,38 @@ import (
 	"testing"
 )
 
+// TestRegisterDevicePositioningWarnsOnDuplicatePositioning is a regression test for a real bug
+// found live 2026-09-16: Vienna's Conceptual.def declared "device infrastructural:sonos/left from
+// appliance.sonos-left;" TWICE, verbatim, with no warning at all -- the second positioning's own
+// auto-implied "node" silently no-opped via RegisterDiscoveryImpliedEntity's identical-entityName
+// short-circuit (administration.go), which is by design for a DIFFERENT, harmless case (two
+// distinct capability lines resolving to the same entity) and produces no warning of its own. A
+// repeated DEVICE POSITIONING is always a mistake -- no legitimate DSL construct does this.
+func TestRegisterDevicePositioningWarnsOnDuplicatePositioning(t *testing.T) {
+	const dsl = `device infrastructural:sonos/left from appliance.sonos-left;
+device infrastructural:sonos/left from appliance.sonos-left;`
+
+	hostDevicesByID := map[string]THostDevice{
+		"appliance.sonos-left": {DeviceID: "appliance.sonos-left", HostName: "sonoszp-left", IntegrationType: "ping"},
+	}
+
+	var report strings.Builder
+	var result TExpansionParseResult
+	var err error
+	stderr := captureStderr(t, func() {
+		result, err = ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil)
+	})
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if !strings.Contains(stderr, `device "appliance.sonos-left" is already positioned`) {
+		t.Errorf("expected a duplicate-positioning warning, got stderr: %s", stderr)
+	}
+	if _, ok := result.Administration.DeviceConceptualLinks["appliance.sonos-left"]; !ok {
+		t.Errorf("expected the FIRST positioning to still register DeviceConceptualLinks[appliance.sonos-left]")
+	}
+}
+
 // TestRegisterDevicePositioningForStandaloneCommandlineDevice is a regression test for a real gap
 // found live 2026-09-10: a "commandline" integration device with no sibling "hosts"/"home_assistant"
 // device sharing its DeviceID (e.g. a picture frame modelled as its own appliance.picture_frame
@@ -31,7 +63,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, nil, commandlineDevicesByID, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, nil, commandlineDevicesByID, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -85,11 +117,11 @@ end;`
 	}
 
 	var reportA, reportB strings.Builder
-	resultA, errA := ParseEntitiesAndFillAdministration(strings.Split(twoStatementDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &reportA, hostDevicesByID, nil, nil, nil, nil, nil)
+	resultA, errA := ParseEntitiesAndFillAdministration(strings.Split(twoStatementDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &reportA, hostDevicesByID, nil, nil, nil, nil, nil, nil)
 	if errA != nil {
 		t.Fatalf("two-statement parse error: %v", errA)
 	}
-	resultB, errB := ParseEntitiesAndFillAdministration(strings.Split(mergedDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &reportB, hostDevicesByID, nil, nil, nil, nil, nil)
+	resultB, errB := ParseEntitiesAndFillAdministration(strings.Split(mergedDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &reportB, hostDevicesByID, nil, nil, nil, nil, nil, nil)
 	if errB != nil {
 		t.Fatalf("merged-form parse error: %v", errB)
 	}
@@ -131,11 +163,11 @@ end;`
 	}
 
 	var reportA, reportB strings.Builder
-	resultA, errA := ParseEntitiesAndFillAdministration(strings.Split(twoStatementDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &reportA, nil, nil, hassBridgeDevicesByID, nil, nil, nil)
+	resultA, errA := ParseEntitiesAndFillAdministration(strings.Split(twoStatementDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &reportA, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil)
 	if errA != nil {
 		t.Fatalf("two-statement parse error: %v", errA)
 	}
-	resultB, errB := ParseEntitiesAndFillAdministration(strings.Split(mergedDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &reportB, nil, nil, hassBridgeDevicesByID, nil, nil, nil)
+	resultB, errB := ParseEntitiesAndFillAdministration(strings.Split(mergedDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &reportB, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil)
 	if errB != nil {
 		t.Fatalf("merged-form parse error: %v", errB)
 	}
@@ -194,7 +226,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -240,7 +272,7 @@ func TestRegisterDevicePositioningWarnsWhenNoNodeCapabilityDeclared(t *testing.T
 	}
 	decl := TDevicePositioningDeclaration{Spec: "infrastructural:no_node", DeviceID: "hass.no_node"}
 
-	warnings := registerDevicePositioning(administration, decl, nil, hassBridgeDevicesByID, nil, nil, "test.def", 1)
+	warnings, _ := registerDevicePositioning(administration, decl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, "test.def", 1)
 	if len(warnings) != 1 {
 		t.Fatalf("got %d warnings, want 1: %v", len(warnings), warnings)
 	}
@@ -286,7 +318,7 @@ func TestRegisterDevicePositioningInheritsEnclosingAreaFromNestedSpace(t *testin
 	}
 	decl := TDevicePositioningDeclaration{Spec: "infrastructural:netatmo", DeviceID: "hass.living_room_terrace"}
 
-	warnings := registerDevicePositioning(administration, decl, nil, hassBridgeDevicesByID, nil, nil, "test.def", 1)
+	warnings, _ := registerDevicePositioning(administration, decl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, "test.def", 1)
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
@@ -319,7 +351,7 @@ func TestRegisterDevicePositioningExplicitSuggestedAreaWinsOverEnclosingArea(t *
 	}
 	decl := TDevicePositioningDeclaration{Spec: "infrastructural:netatmo", DeviceID: "hass.living_room_terrace"}
 
-	warnings := registerDevicePositioning(administration, decl, nil, hassBridgeDevicesByID, nil, nil, "test.def", 1)
+	warnings, _ := registerDevicePositioning(administration, decl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, "test.def", 1)
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
@@ -343,7 +375,7 @@ func TestRegisterDevicePositioningNoWarningWhenNodeCapabilityDeclared(t *testing
 	}
 	decl := TDevicePositioningDeclaration{Spec: "infrastructural:netatmo", DeviceID: "hass.davids_bedroom"}
 
-	warnings := registerDevicePositioning(administration, decl, nil, hassBridgeDevicesByID, nil, nil, "test.def", 1)
+	warnings, _ := registerDevicePositioning(administration, decl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, "test.def", 1)
 	if len(warnings) != 0 {
 		t.Errorf("expected no warnings when a \"node\" capability is declared, got %v", warnings)
 	}

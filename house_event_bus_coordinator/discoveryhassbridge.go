@@ -132,6 +132,15 @@ type THassBridgeDevice struct {
 	// TImportedDevice/discoveryimport.go, which would create a structurally distinct,
 	// duplicate discovery entity instead of feeding the existing one. Added 2026-09-02.
 	SelfImportFrom string `yaml:"self_import_from,omitempty"`
+	// DependsOnAvailability (2026-09-16, PROJECT.md's logical-layer work) mirrors
+	// TImportedDevice's own identically-named field (discoveryimport.go) exactly -- every extra raw
+	// MQTT topic this device's own capabilities' availability must additionally AND in, resolved
+	// generator-side from a Logical.def "dependency on <other-id>;" declaration sharing this same
+	// device's own id, already flattened across the full transitive dependency chain and
+	// cycle-checked there. Passed straight through to buildAvailabilityFields alongside the
+	// device's own node topic (hassBridgeAvailabilityTopics). Empty for a device with no matching
+	// Logical.def declaration -- unchanged behaviour from before this field existed.
+	DependsOnAvailability []string `yaml:"depends_on_availability"`
 }
 
 // THassBridgeFile is the top-level shape of a generated coordinator/homeassistant_bridge.yaml
@@ -333,14 +342,23 @@ func hassBridgeOwnSourceEntities(device THassBridgeDevice, instance string) []st
 	return entities
 }
 
-func hassBridgeAvailabilityTopic(device THassBridgeDevice, capability string) string {
+// hassBridgeAvailabilityTopics (renamed from the singular hassBridgeAvailabilityTopic, 2026-09-16)
+// additionally appends device.DependsOnAvailability -- a Logical.def "dependency on <other-id>;"
+// declaration sharing this device's own id (e.g. Vienna's "node.fritz_box" depending on
+// "node.fritz.box," a "hosts"/ping device for the same physical router) -- mirrors
+// importedAvailabilityTopics' own identical reasoning (discoveryimport.go), one file over.
+func hassBridgeAvailabilityTopics(device THassBridgeDevice, capability string) []string {
 	nodeTopic := ""
 	if len(device.Instances) == 1 {
 		if node, ok := device.Capabilities["node"]; ok && node.LocalEntity != "" {
 			nodeTopic = hassBridgeEntityStateTopic(device.Instances[0], node.LocalEntity)
 		}
 	}
-	return availabilityTopicFor(nodeTopic, capability)
+	var topics []string
+	if own := availabilityTopicFor(nodeTopic, capability); own != "" {
+		topics = append(topics, own)
+	}
+	return append(topics, device.DependsOnAvailability...)
 }
 
 // buildHassBridgeEntityDiscoveryBody builds one capability's discovery config payload -- shared by
@@ -348,8 +366,8 @@ func hassBridgeAvailabilityTopic(device THassBridgeDevice, capability string) st
 // so the two can't drift on which fields a hassbridge entity's config carries. Typing metadata
 // fields (device_class/unit_of_measurement/state_class/icon) are omitted when empty -- HA treats
 // an absent one as "generic," same convention TSensorDiscoveryPayload's own omitempty tags use.
-// nodeAvailabilityTopic is "" for the node capability itself, or when its device declares no
-// "node" capability -- see hassBridgeAvailabilityTopic. Availability is always set (via the shared
+// nodeAvailabilityTopics is empty for the node capability itself when its device declares no
+// "node" capability and no Logical.def dependency -- see hassBridgeAvailabilityTopics. Availability is always set (via the shared
 // buildAvailabilityFields, discovery.go) -- refined live 2026-08-31 to AND the device's own node
 // connectivity (when applicable) with the capability's own last-reported value never being the
 // literal string "unavailable": node being reachable doesn't guarantee this specific reading is
@@ -379,7 +397,7 @@ func hassBridgeAvailabilityTopic(device THassBridgeDevice, capability string) st
 // found.Commands is non-empty; when both are set, this function fills in command_topic plus every
 // found.Commands[*].DiscoveryKey: Payload pair and every found.DiscoveryExtra field verbatim --
 // all fully resolved by the generator (hassbridge_commands.go), never domain-specific logic here.
-func buildHassBridgeEntityDiscoveryBody(stableID, localEntity string, found hassBridgeMatch, stateTopic string, devBlock TDiscoveryDevice, nodeAvailabilityTopic, liveUnit, liveDeviceClass, liveIcon, commandTopic, installation string) map[string]interface{} {
+func buildHassBridgeEntityDiscoveryBody(stableID, localEntity string, found hassBridgeMatch, stateTopic string, devBlock TDiscoveryDevice, nodeAvailabilityTopics []string, liveUnit, liveDeviceClass, liveIcon, commandTopic, installation string) map[string]interface{} {
 	// name: devBlock.Name alone when DisplaySuffix is empty -- an intentional signal (see
 	// TDeviceAttributeLink.DisplaySuffix's own doc comment) that the device's own display name
 	// already conveys everything (its own leaf equals the entity's domain), not "field absent."
@@ -429,7 +447,7 @@ func buildHassBridgeEntityDiscoveryBody(stableID, localEntity string, found hass
 		}
 	}
 	applyProxiedBinarySensorPayload(body, localEntity)
-	buildAvailabilityFields(body, stateTopic, nodeAvailabilityTopic)
+	buildAvailabilityFields(body, stateTopic, nodeAvailabilityTopics...)
 	return body
 }
 
@@ -619,8 +637,8 @@ func subscribeHassBridge(client, cloudClient mqtt.Client, ownInstallation string
 			}
 		}
 		devBlock := buildHassBridgeDeviceBlock(found.DeviceID, device, store.Snapshot(found.DeviceID), viaDeviceID)
-		availabilityTopic := hassBridgeAvailabilityTopic(device, found.Capability)
-		body := buildHassBridgeEntityDiscoveryBody(hassBridgeUniqueID(localEntity), localEntity, found, msg.Topic(), devBlock, availabilityTopic, liveUnit, liveDeviceClass, liveIcon, hassBridgeEntityCommandTopic(parts[1], localEntity), ownInstallation)
+		availabilityTopics := hassBridgeAvailabilityTopics(device, found.Capability)
+		body := buildHassBridgeEntityDiscoveryBody(hassBridgeUniqueID(localEntity), localEntity, found, msg.Topic(), devBlock, availabilityTopics, liveUnit, liveDeviceClass, liveIcon, hassBridgeEntityCommandTopic(parts[1], localEntity), ownInstallation)
 		data, err := json.Marshal(body)
 		if err != nil {
 			fmt.Printf("[hass-bridge] marshalling discovery payload for %s: %v\n", localEntity, err)
@@ -644,15 +662,15 @@ func subscribeHassBridge(client, cloudClient mqtt.Client, ownInstallation string
 			qualifier := exportQualifier(device, ownInstallation)
 			cloudBareTopic := canonicalizeRoamingBridgeTopic(msg.Topic(), device)
 			crossPostHassBridgeToCloud(cloudClient, qualifier, cloudBareTopic, msg.Payload())
-			cloudAvailabilityTopic := ""
-			if availabilityTopic != "" {
-				cloudAvailabilityTopic = qualifier + "/" + canonicalizeRoamingBridgeTopic(availabilityTopic, device)
+			var cloudAvailabilityTopics []string
+			for _, topic := range availabilityTopics {
+				cloudAvailabilityTopics = append(cloudAvailabilityTopics, qualifier+"/"+canonicalizeRoamingBridgeTopic(topic, device))
 			}
 			stableID := exportStableID(qualifier, found.DeviceID, found.Capability)
 			// devBlock.withoutSuggestedArea(): which area a device sits in is always this house's
 			// own local Spaces.def positioning, never a fact for an importing house to inherit --
 			// see TDiscoveryDevice.withoutSuggestedArea's own doc comment.
-			cloudBody := buildHassBridgeEntityDiscoveryBody(stableID, localEntity, found, qualifier+"/"+cloudBareTopic, devBlock.withoutSuggestedArea(), cloudAvailabilityTopic, liveUnit, liveDeviceClass, liveIcon, "", ownInstallation)
+			cloudBody := buildHassBridgeEntityDiscoveryBody(stableID, localEntity, found, qualifier+"/"+cloudBareTopic, devBlock.withoutSuggestedArea(), cloudAvailabilityTopics, liveUnit, liveDeviceClass, liveIcon, "", ownInstallation)
 			cloudBody["installation"] = qualifier
 			cloudData, err := json.Marshal(cloudBody)
 			if err != nil {
@@ -718,14 +736,14 @@ func republishHassBridgeDeviceCapabilities(client, cloudClient mqtt.Client, ownI
 			continue
 		}
 		found := hassBridgeMatch{Capability: capability, DeviceID: deviceID, THassBridgeCapability: cap}
-		availabilityTopic := hassBridgeAvailabilityTopic(device, capability)
+		availabilityTopics := hassBridgeAvailabilityTopics(device, capability)
 		liveUnit, liveDeviceClass, liveIcon := "", "", ""
 		if existenceTracker != nil {
 			if source, ok := cap.SourceEntities[hassBridgeDefaultInstance(device)]; ok {
 				liveUnit, liveDeviceClass, liveIcon = existenceTracker.LiveTyping(hassBridgeDefaultInstance(device), source)
 			}
 		}
-		body := buildHassBridgeEntityDiscoveryBody(hassBridgeUniqueID(cap.LocalEntity), cap.LocalEntity, found, hassBridgeEntityStateTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), devBlock, availabilityTopic, liveUnit, liveDeviceClass, liveIcon, hassBridgeEntityCommandTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), ownInstallation)
+		body := buildHassBridgeEntityDiscoveryBody(hassBridgeUniqueID(cap.LocalEntity), cap.LocalEntity, found, hassBridgeEntityStateTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), devBlock, availabilityTopics, liveUnit, liveDeviceClass, liveIcon, hassBridgeEntityCommandTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), ownInstallation)
 		data, err := json.Marshal(body)
 		if err != nil {
 			fmt.Printf("[hass-bridge] marshalling discovery payload for %s: %v\n", cap.LocalEntity, err)
@@ -736,14 +754,14 @@ func republishHassBridgeDeviceCapabilities(client, cloudClient mqtt.Client, ownI
 		}
 		if exportToCloud {
 			cloudStateTopic := qualifier + "/" + canonicalizeRoamingBridgeTopic(hassBridgeEntityStateTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), device)
-			cloudAvailabilityTopic := ""
-			if availabilityTopic != "" {
-				cloudAvailabilityTopic = qualifier + "/" + canonicalizeRoamingBridgeTopic(availabilityTopic, device)
+			var cloudAvailabilityTopics []string
+			for _, topic := range availabilityTopics {
+				cloudAvailabilityTopics = append(cloudAvailabilityTopics, qualifier+"/"+canonicalizeRoamingBridgeTopic(topic, device))
 			}
 			stableID := exportStableID(qualifier, deviceID, capability)
 			// devBlock.withoutSuggestedArea(): see the identical comment in subscribeHassBridge's
 			// own handler above.
-			cloudBody := buildHassBridgeEntityDiscoveryBody(stableID, cap.LocalEntity, found, cloudStateTopic, devBlock.withoutSuggestedArea(), cloudAvailabilityTopic, liveUnit, liveDeviceClass, liveIcon, "", ownInstallation)
+			cloudBody := buildHassBridgeEntityDiscoveryBody(stableID, cap.LocalEntity, found, cloudStateTopic, devBlock.withoutSuggestedArea(), cloudAvailabilityTopics, liveUnit, liveDeviceClass, liveIcon, "", ownInstallation)
 			cloudBody["installation"] = qualifier
 			cloudData, err := json.Marshal(cloudBody)
 			if err != nil {

@@ -16,7 +16,7 @@
  * it's stripped before lookup since neither the discovery gateway's nor the hassbridge device's own
  * Capabilities map is keyed by domain-prefixed names (both are keyed by the bare local label alone).
  *
- * PROJECT.md item 4 (2026-09-09): the RHS used to require a redundant literal "entity" keyword
+ * PROJECT.md item 7 (2026-09-09): the RHS used to require a redundant literal "entity" keyword
  * before <capability> ("entity <spec> from <device-id> <capability>;") -- dropped outright
  * (no dual-syntax transition period, matching every other grammar retirement this project has done)
  * once it became clear nothing else could ever occupy that slot: the only other "entity ... from
@@ -50,14 +50,22 @@ type TDeviceCapabilityEntityDeclaration struct {
 	LocalSpec  string
 	DeviceID   string
 	Capability string // e.g. "sensor.co2" -- domain prefix optional, stripped before lookup (bareCapabilityName)
+	// NoCollect excludes this entity from its space's domain-specific aggregate collections
+	// (mirrors the plain-entity "no_collect" suffix, TEntityRecord.NoCollect) -- e.g. a smart
+	// plug's own PCB temperature reading, which shares a "/temperature" subdomain with real room
+	// climate sensors but must stay out of the room's aggregated group sensor. Written as a
+	// trailing "with no_collect;" -- the same single-property "with <X>;" shorthand a bare "entity
+	// <spec> with <X>;" declaration already uses (analyzeEntityDefinitionContext) -- rather than a
+	// bare trailing word, so "no_collect" is never mistaken for a second capability token.
+	NoCollect bool
 }
 
-var deviceCapabilityEntityPattern = regexp.MustCompile(`^entity\s+(\S+)\s+from\s+(\S+)\s+(\S+);$`)
+var deviceCapabilityEntityPattern = regexp.MustCompile(`^entity\s+(\S+)\s+from\s+(\S+)\s+(\S+?)(?:\s+with\s+no_collect)?;$`)
 
 // extractDeviceCapabilityEntityDeclaration recognises the "entity <spec> from <device-id>
-// <capability>;" shape -- distinguished from extractDiscoveryEntityDeclaration's dot-joined
-// "entity <spec> from <gateway-id>.<leaf>;" (exactly one token after "from") by the extra
-// capability token.
+// <capability> [with no_collect];" shape -- distinguished from extractDiscoveryEntityDeclaration's
+// dot-joined "entity <spec> from <gateway-id>.<leaf>;" (exactly one token after "from") by the
+// extra capability token.
 func extractDeviceCapabilityEntityDeclaration(line string) (*TDeviceCapabilityEntityDeclaration, bool) {
 	matches := deviceCapabilityEntityPattern.FindStringSubmatch(line)
 	if matches == nil {
@@ -67,6 +75,7 @@ func extractDeviceCapabilityEntityDeclaration(line string) (*TDeviceCapabilityEn
 		LocalSpec:  matches[1],
 		DeviceID:   matches[2],
 		Capability: matches[3],
+		NoCollect:  strings.HasSuffix(line, "with no_collect;"),
 	}, true
 }
 
@@ -84,23 +93,74 @@ func extractDeviceCapabilityEntityDeclaration(line string) (*TDeviceCapabilityEn
 // survived, now reused by the merged construct's own body-line handling.)
 //
 // No collision risk against the discovery gateway's own dot-joined "entity <spec> from
-// <gateway-id>.<leaf>;" (PROJECT.md item 4, 2026-09-09, dropping this shape's own former "entity"
+// <gateway-id>.<leaf>;" (PROJECT.md item 7, 2026-09-09, dropping this shape's own former "entity"
 // keyword before <capability>): a "device ... with:" block can only ever be opened for a
 // hosts/imported/hassbridge target (registerDevicePositioning, Conceptual_DevicePositioning.go),
 // never a "discovery" gateway one, and parser.go's main loop only ever attempts this expansion
 // while inside such a block (tracked via forDeviceID) -- the discovery pattern is never even
 // consulted for a line reached this way.
-var forDeviceShorthandPattern = regexp.MustCompile(`^entity\s+(\S+)\s+from\s+(\S+);$`)
+var forDeviceShorthandPattern = regexp.MustCompile(`^entity\s+(\S+)\s+from\s+(\S+?)(?:\s+with\s+no_collect)?;$`)
 
-// expandForDeviceShorthandLine rewrites one "entity <spec> from <capability>;" line (found inside a
-// "device <spec> from <deviceID> with: ... end;" block) back to the full "entity <spec> from
-// <deviceID> <capability>;" shape deviceCapabilityEntityPattern expects.
+// expandForDeviceShorthandLine rewrites one "entity <spec> from <capability> [with no_collect];"
+// line (found inside a "device <spec> from <deviceID> with: ... end;" block) back to the full
+// "entity <spec> from <deviceID> <capability> [with no_collect];" shape
+// deviceCapabilityEntityPattern expects.
 func expandForDeviceShorthandLine(line, deviceID string) (string, bool) {
 	matches := forDeviceShorthandPattern.FindStringSubmatch(line)
 	if matches == nil {
 		return "", false
 	}
-	return fmt.Sprintf("entity %s from %s %s;", matches[1], deviceID, matches[2]), true
+	suffix := ""
+	if strings.HasSuffix(line, "with no_collect;") {
+		suffix = " with no_collect"
+	}
+	return fmt.Sprintf("entity %s from %s %s%s;", matches[1], deviceID, matches[2], suffix), true
+}
+
+// forDeviceBareEntityPattern is a SECOND, even shorter body-line shape inside the same "device
+// <spec> from <device-id> with: ... end;" block (2026-09-19) -- "entity <spec> [with no_collect];"
+// with no "from <capability>" clause at all. Only a shorthand for the ALREADY-shorthand
+// forDeviceShorthandPattern above, not a separate mechanism: expandForDeviceBareEntityLine
+// auto-infers the capability as <spec>'s own explicit path (the text after the sphere's ":",
+// deviceSpecLeafPath) and re-expands through the exact same full "entity <spec> from <device-id>
+// <capability> [with no_collect];" shape -- so this can only ever fire when the desired local path
+// and the device's own capability name are IDENTICAL text. A rename (local path differs from the
+// capability, e.g. "main" positioned from capability "core") still requires the explicit
+// "entity <spec> from <capability>;" form -- this pattern doesn't even try to match a line that
+// already has a "from" clause, so there's no ambiguity between the two shapes.
+var forDeviceBareEntityPattern = regexp.MustCompile(`^entity\s+(\S+?)(?:\s+with\s+no_collect)?;$`)
+
+// expandForDeviceBareEntityLine rewrites one "entity <spec> [with no_collect];" line (no "from"
+// clause) into the full "entity <spec> from <deviceID> <capability> [with no_collect];" shape,
+// inferring <capability> as deviceSpecLeafPath(spec) -- see forDeviceBareEntityPattern's own doc
+// comment. Returns false (no match) when spec has no explicit path at all (e.g. "switch.social:",
+// deviceSpecLeafPath returns "") -- there is nothing to infer a capability from in that case, so
+// the caller must keep using the explicit "from <capability>;" form.
+//
+// A leading ":" is trimmed off the inferred capability (2026-09-19 fix): deviceSpecLeafPath only
+// ever strips up to the FIRST colon, so a spec using the "sphere::path" empty-leaf-override form
+// (hasEmptyDeviceLeafOverride, Conceptual_DeviceEntities.go) -- e.g. "binary_sensor.social::daylight"
+// -- would otherwise infer capability ":daylight" (the second colon still attached), which can
+// never match a real Physical.def capability name. The reconstructed "entity <spec> from ...;"
+// line still passes the ORIGINAL spec (with its "::" intact) through unchanged, so the naming
+// resolution itself is unaffected -- only the inferred capability name needed the fix. Real bug
+// found live 2026-09-19 combining this shorthand with the double-colon form for the first time
+// (Vienna's daylight entity).
+func expandForDeviceBareEntityLine(line, deviceID string) (string, bool) {
+	matches := forDeviceBareEntityPattern.FindStringSubmatch(line)
+	if matches == nil {
+		return "", false
+	}
+	spec := matches[1]
+	capability := strings.TrimPrefix(deviceSpecLeafPath(spec), ":")
+	if capability == "" {
+		return "", false
+	}
+	suffix := ""
+	if strings.HasSuffix(line, "with no_collect;") {
+		suffix = " with no_collect"
+	}
+	return fmt.Sprintf("entity %s from %s %s%s;", spec, deviceID, capability, suffix), true
 }
 
 // bareCapabilityName strips an optional "<domain>." prefix from ref (e.g. "sensor.co2" -> "co2"),
@@ -139,7 +199,20 @@ func bareCapabilityName(ref string) string {
 // decl.LocalSpec's own text (a discovery gateway's naming comes from the dot-joined gateway
 // reference itself, and a "hosts" device's from its own positioning-time deviceIdentity, already
 // fully resolved when it was positioned).
-func registerDeviceCapabilityEntityLink(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, hostDevicesByID map[string]THostDevice, commandlineDevicesByID map[string]TCommandlineDevice, entitiesPath string, lineNum int, finalAttempt bool, deviceNamePath string) (warnings []string, deferred bool) {
+func registerDeviceCapabilityEntityLink(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, hostDevicesByID map[string]THostDevice, commandlineDevicesByID map[string]TCommandlineDevice, logicalDevicesByID map[string]TLogicalDevice, entitiesPath string, lineNum int, finalAttempt bool, deviceNamePath string) (warnings []string, deferred bool) {
+	return registerDeviceCapabilityEntityLinkAllowingHidden(administration, decl, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, deviceNamePath, false)
+}
+
+// registerDeviceCapabilityEntityLinkAllowingHidden is registerDeviceCapabilityEntityLink's real
+// body, with one extra parameter: allowHidden. Every ordinary DSL-authored "entity ... from
+// <device-id> <capability>;" line (parser.go's main dispatch loop and its deferred retry pass) goes
+// through the public wrapper above with allowHidden always false -- a hidden discovery capability
+// (integration_discovery_storage.go) may never be positioned directly by Spaces.def. The one
+// exception is registerDevicePositioning's own auto-implied registration of a hidden capability's
+// underlying entity (Conceptual_DevicePositioning.go) -- that registration is what MAKES the
+// capability's value readable at all (a "derived" sibling's own reverse lookup needs a real
+// DiscoveryEntityLinks entry to find), so it calls this allowing-hidden entry point directly.
+func registerDeviceCapabilityEntityLinkAllowingHidden(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, hostDevicesByID map[string]THostDevice, commandlineDevicesByID map[string]TCommandlineDevice, logicalDevicesByID map[string]TLogicalDevice, entitiesPath string, lineNum int, finalAttempt bool, deviceNamePath string, allowHidden bool) (warnings []string, deferred bool) {
 	provenance := fmt.Sprintf("%s:%d → %s from %s %s", filepath.Base(entitiesPath), lineNum, decl.LocalSpec, decl.DeviceID, decl.Capability)
 	bareName := bareCapabilityName(decl.Capability)
 
@@ -157,17 +230,72 @@ func registerDeviceCapabilityEntityLink(administration *TAdministrationState, de
 		}
 	}
 
-	if _, found := discoveryGatewaysByID[decl.DeviceID]; found {
-		return registerDiscoveryEntityLink(administration, TDiscoveryEntityDeclaration{
+	if gateway, found := discoveryGatewaysByID[decl.DeviceID]; found {
+		discoveryDecl := TDiscoveryEntityDeclaration{
 			EntitySpec:      decl.LocalSpec,
 			GatewayDeviceID: decl.DeviceID,
 			Leaf:            bareName,
-		}, discoveryGatewaysByID, entitiesPath, lineNum), false
+			NoCollect:       decl.NoCollect,
+		}
+		// Fall through to this SAME device id's Logical.def overlay before erroring -- mirrors the
+		// hassbridge/import branches' own identical fallback (2026-09-18: a discovery-kind device
+		// id, e.g. sensors.terrace_motion, can now ALSO carry real Logical.def capabilities --
+		// first real case: "sunny_threshold"/"sunny" alongside the plain discovery-relayed
+		// illuminance/temperature/motion/battery_level capabilities).
+		if _, capFound := gateway.Capabilities[bareName]; !capFound {
+			if logicalDevice, logicalFound := logicalDevicesByID[decl.DeviceID]; logicalFound {
+				if _, logicalCapFound := logicalDevice.Capabilities[bareName]; logicalCapFound {
+					return dispatchLogicalCapability(administration, decl, logicalDevice, bareName, deviceNamePath, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, provenance)
+				}
+			}
+		}
+		// A capability whose own source is "... is available;" (capability.AvailabilityOf set)
+		// tracks a SIBLING capability's availability rather than a raw gateway leaf -- needs
+		// registerDiscoveryAvailabilityEntityLink's own deferred-capable resolution (the sibling
+		// may not be positioned yet), not registerDiscoveryEntityLink's raw-leaf path. Unknown
+		// capability names fall through to registerDiscoveryEntityLink unchanged, which already
+		// reports the "declares no ... capability" warning itself.
+		if capability, capFound := gateway.Capabilities[bareName]; capFound && capability.AvailabilityOf != "" {
+			return registerDiscoveryAvailabilityEntityLink(administration, discoveryDecl, capability, discoveryGatewaysByID, deviceNamePath, entitiesPath, lineNum, finalAttempt)
+		}
+		// A "derived DDD.NNN from EEE.MMM via TTT;" capability (DerivedFromCapability set) computes
+		// its own value from a SIBLING capability rather than a raw gateway leaf. Two shapes:
+		// (1) the sibling is a "hidden" plain raw leaf of the SAME gateway -- relay it directly
+		// under this capability's own entity, TTT folded into the MQTT value_template
+		// (registerDiscoveryDerivedFromRawLeafEntityLink), no deferral possible or needed.
+		// (2) anything else (a real, independently-positioned/materialized capability, or the
+		// sibling is itself AvailabilityOf/Derived) -- the sibling's own resolved HA entity_id has
+		// to be read via states(...), needing registerDiscoveryDerivedEntityLink's own
+		// deferred-capable reverse lookup instead.
+		if capability, capFound := gateway.Capabilities[bareName]; capFound && capability.DerivedFromCapability != "" {
+			siblingCapability, siblingFound := gateway.Capabilities[capability.DerivedFromCapability]
+			if siblingFound && siblingCapability.Hidden && siblingCapability.Leaf != "" && siblingCapability.AvailabilityOf == "" && siblingCapability.DerivedFromCapability == "" {
+				return registerDiscoveryDerivedFromRawLeafEntityLink(administration, discoveryDecl, capability, siblingCapability, deviceNamePath, entitiesPath, lineNum), false
+			}
+			return registerDiscoveryDerivedEntityLink(administration, discoveryDecl, capability, discoveryGatewaysByID, deviceNamePath, entitiesPath, lineNum, finalAttempt)
+		}
+		return registerDiscoveryEntityLink(administration, discoveryDecl, discoveryGatewaysByID, entitiesPath, lineNum, deviceNamePath, allowHidden), false
 	}
 
 	if device, found := hassBridgeDevicesByID[decl.DeviceID]; found {
 		capability, capFound := device.Capabilities[bareName]
 		if !capFound {
+			// Fall through to this SAME device id's Logical.def overlay before erroring -- since
+			// the "absorb" operation (2026-09-18) a hassbridge device id can ALSO carry its own
+			// Logical.def entry (e.g. appliance.washing_machine's own absorbed "power"/"energy"/
+			// "consumes"/"switch.core" from a separate ROBB plug's discovery gateway, plus a
+			// wrapping enabler-aware "available" capability referencing this SAME device's own
+			// already-positioned raw node) -- dispatchLogicalCapability (below) is the exact same
+			// switch the pure-logical branch uses. The imported-device and discovery-gateway
+			// branches below have the identical fallback (sensors.vienna_terrace_wind's own
+			// "windy_threshold"/"windy", sensors.terrace_motion's own "sunny_threshold"/"sunny",
+			// both 2026-09-18); hosts doesn't need it yet (no real case), matching commandline's
+			// own pre-existing fall-through above for its own dual-kind case.
+			if logicalDevice, logicalFound := logicalDevicesByID[decl.DeviceID]; logicalFound {
+				if _, logicalCapFound := logicalDevice.Capabilities[bareName]; logicalCapFound {
+					return dispatchLogicalCapability(administration, decl, logicalDevice, bareName, deviceNamePath, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, provenance)
+				}
+			}
 			return []string{fmt.Sprintf("%s: device %q declares no %q capability; add a \"<type>.%s: <source>;\" line to its Physical.def declaration", provenance, decl.DeviceID, bareName, bareName)}, false
 		}
 		return registerDeviceSourceEntityLink(administration, TDeviceSourceEntityDeclaration{
@@ -182,6 +310,16 @@ func registerDeviceCapabilityEntityLink(administration *TAdministrationState, de
 
 	if importedDevice, found := importedDevicesByID[decl.DeviceID]; found {
 		if _, capFound := importedDevice.Capabilities[bareName]; !capFound {
+			// Fall through to this SAME device id's Logical.def overlay before erroring -- mirrors
+			// the hassbridge branch's own identical fallback above (2026-09-18: an imported device
+			// id, e.g. sensors.vienna_terrace_wind, can now ALSO carry real Logical.def capabilities
+			// -- first real case: "windy_threshold"/"windy" alongside the plain imported radio/
+			// battery_level/wind_direction/wind_speed capabilities).
+			if logicalDevice, logicalFound := logicalDevicesByID[decl.DeviceID]; logicalFound {
+				if _, logicalCapFound := logicalDevice.Capabilities[bareName]; logicalCapFound {
+					return dispatchLogicalCapability(administration, decl, logicalDevice, bareName, deviceNamePath, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, provenance)
+				}
+			}
 			return []string{fmt.Sprintf("%s: imported device %q declares no %q capability; add a \"%s: <remote-local-entity>;\" line to its Physical.def import declaration", provenance, decl.DeviceID, bareName, bareName)}, false
 		}
 		return registerDeviceSourceEntityLink(administration, TDeviceSourceEntityDeclaration{
@@ -194,7 +332,38 @@ func registerDeviceCapabilityEntityLink(administration *TAdministrationState, de
 		return registerHostCapabilityEntityLink(administration, device, decl.DeviceID, bareName, provenance, finalAttempt)
 	}
 
-	return []string{fmt.Sprintf("%s: device %q not found in Physical.def's \"discovery\" or \"home_assistant\" integrations, or as a \"hassbridge\"-form import", provenance, decl.DeviceID)}, false
+	if device, found := logicalDevicesByID[decl.DeviceID]; found {
+		return dispatchLogicalCapability(administration, decl, device, bareName, deviceNamePath, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, provenance)
+	}
+
+	return []string{fmt.Sprintf("%s: device %q not found in Physical.def's \"discovery\" or \"home_assistant\" integrations, Logical.def, or as a \"hassbridge\"-form import", provenance, decl.DeviceID)}, false
+}
+
+// dispatchLogicalCapability is the Logical.def device's own capability-shape switch, shared by two
+// callers: registerDeviceCapabilityEntityLinkAllowingHidden's own "logicalDevicesByID" branch above
+// (a purely logical device id, e.g. appliance.tv), and the hassbridge branch's fallback just above
+// (a hassbridge device id that ALSO carries a Logical.def entry -- the "absorb" operation,
+// 2026-09-18). Factored out rather than duplicated so both entry points stay byte-identical in
+// behaviour as new capability shapes get added here.
+func dispatchLogicalCapability(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, device TLogicalDevice, bareName, deviceNamePath string, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, hostDevicesByID map[string]THostDevice, commandlineDevicesByID map[string]TCommandlineDevice, logicalDevicesByID map[string]TLogicalDevice, entitiesPath string, lineNum int, finalAttempt bool, provenance string) (warnings []string, deferred bool) {
+	capability, capFound := device.Capabilities[bareName]
+	if !capFound {
+		return []string{fmt.Sprintf("%s: logical device %q declares no %q capability; add a \"<type>.%s: <value>;\" line to its Logical.def declaration", provenance, decl.DeviceID, bareName, bareName)}, false
+	}
+	switch {
+	case capability.AbsorbedFromDeviceID != "":
+		return registerLogicalAbsorbedCapability(administration, decl, capability, bareName, deviceNamePath, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt)
+	case capability.IsDefinedInputNumber:
+		return registerLogicalDefinedInputNumberCapability(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum), false
+	case capability.IsDerivedCondition:
+		return registerLogicalDerivedConditionCapability(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum, finalAttempt, discoveryGatewaysByID)
+	case capability.IsAvailable:
+		return registerLogicalIsAvailableCapability(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum, hostDevicesByID), false
+	case capability.Domain == "switch":
+		return registerLogicalMediaSwitchCapability(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum), false
+	default:
+		return []string{fmt.Sprintf("%s: logical device %q's %q capability isn't a supported shape yet (only \"is available\" conditions, switch<-media_player coercions, absorbed capabilities, defined input_numbers, and derived conditions are built)", provenance, decl.DeviceID, bareName)}, false
+	}
 }
 
 // registerHostCapabilityEntityLink is registerDeviceCapabilityEntityLink's "hosts"-kind branch

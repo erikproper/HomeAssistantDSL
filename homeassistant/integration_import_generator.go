@@ -114,6 +114,19 @@ func generateImportedDeviceFile(outputRoot string, devices []TImportedDevice, ad
 		if link.DisplayName != "" {
 			sb.WriteString("    display_name: " + link.DisplayName + "\n")
 		}
+		// depends_on_availability (2026-09-16, PROJECT.md's logical-layer work): a Logical.def
+		// "device <this-id> with: dependency on <other-id>; end;" declaration sharing deviceID's own
+		// id -- resolved once, generator-side, into the raw MQTT topics the coordinator must
+		// additionally AND into every one of this device's own capabilities' availability
+		// (integration_logical_storage.go's resolveDependencyAvailabilityTopics, already flattened
+		// across the transitive dependency chain and cycle-checked). Absent entirely for a device
+		// with no matching Logical.def declaration -- unchanged behaviour from before this existed.
+		if len(device.DependsOnAvailabilityTopics) > 0 {
+			sb.WriteString("    depends_on_availability:\n")
+			for _, topic := range device.DependsOnAvailabilityTopics {
+				sb.WriteString("      - \"" + topic + "\"\n")
+			}
+		}
 		sb.WriteString("    capabilities:\n")
 		sb.WriteString(capLines.String())
 

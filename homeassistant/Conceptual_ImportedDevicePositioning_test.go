@@ -37,7 +37,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, importedDevicesByID, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, importedDevicesByID, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -59,6 +59,53 @@ end;`
 	co2, ok := link.AttributeEntityIDs["co2"]
 	if !ok || co2.EntityID != "sensor.physical_shower_room_netatmo_co2" {
 		t.Errorf("co2 = %+v, ok=%v, want EntityID sensor.physical_shower_room_netatmo_co2", co2, ok)
+	}
+}
+
+// TestImportedDevicePositioningStillAutoRegistersNodeWhenLogicalDependencyOnlyShares its id is a
+// regression test for a real bug found live 2026-09-16 (Vienna's node.vienna_livingroom, first
+// deployed "dependency on" case): registerDevicePositioning's logical-layer branch used to
+// intercept ANY id present in logicalDevicesByID unconditionally, including a "dependency
+// on"-only entry with no declared Capabilities -- silently skipping this device's own real
+// import-kind registration (and therefore its own auto-implied "node" capability) entirely.
+// Confirmed live: coordinator/imported.yaml had no "node:" key at all for node.vienna_livingroom
+// even though Physical.def still declared "binary_sensor.node;" for it. Fixed by requiring
+// logical.Capabilities to be non-empty before intercepting -- a dependency-only logical device now
+// falls through to its real physical-kind branch, exactly as if it had no Logical.def entry.
+func TestImportedDevicePositioningStillAutoRegistersNodeWhenLogicalDependencyOnlyShares(t *testing.T) {
+	const miniDSL = `space social:shower_room with:
+  device infrastructural:netatmo from hass.vienna_shower_room with:
+    entity sensor.physical:temperature from temperature;
+  end;
+end;`
+
+	importedDevicesByID := map[string]TImportedDevice{
+		"hass.vienna_shower_room": {
+			DeviceID: "hass.vienna_shower_room", RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_shower_room",
+			Capabilities: map[string]TImportedCapability{
+				"node":        {},
+				"temperature": {},
+			},
+		},
+	}
+	logicalDevicesByID := map[string]TLogicalDevice{
+		"hass.vienna_shower_room": {DeviceID: "hass.vienna_shower_room", DependsOn: []string{"host.netatmo"}},
+	}
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, importedDevicesByID, nil, logicalDevicesByID, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	admin := result.Administration
+
+	link, ok := admin.DeviceConceptualLinks["hass.vienna_shower_room"]
+	if !ok {
+		t.Fatalf("expected DeviceConceptualLinks[hass.vienna_shower_room] to be populated")
+	}
+	node, ok := link.AttributeEntityIDs["node"]
+	if !ok || node.EntityID != "binary_sensor.infrastructural_shower_room_netatmo_node" {
+		t.Errorf("node auto-registration = %+v, ok=%v, want EntityID binary_sensor.infrastructural_shower_room_netatmo_node -- a dependency-only Logical.def entry must not suppress it", node, ok)
 	}
 }
 
@@ -88,7 +135,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, importedDevicesByID, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, importedDevicesByID, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -138,7 +185,7 @@ func TestRegisterDeviceCapabilityEntityLinkWarnsOnUndeclaredImportedCapability(t
 	}
 	decl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.physical:netatmo/pressure", DeviceID: "hass.vienna_shower_room", Capability: "pressure"}
 
-	warnings, deferred := registerDeviceCapabilityEntityLink(administration, decl, nil, nil, importedDevicesByID, nil, nil, "test.def", 1, true, "")
+	warnings, deferred := registerDeviceCapabilityEntityLink(administration, decl, nil, nil, importedDevicesByID, nil, nil, nil, "test.def", 1, true, "")
 	if deferred {
 		t.Fatalf("expected deferred=false")
 	}
@@ -161,7 +208,7 @@ func TestRegisterImportedDevicePositioningWarnsWhenNoNodeCapabilityDeclared(t *t
 	}
 	decl := TDevicePositioningDeclaration{Spec: "infrastructural:no_node", DeviceID: "hass.no_node"}
 
-	warnings := registerDevicePositioning(administration, decl, nil, nil, importedDevicesByID, nil, "test.def", 1)
+	warnings, _ := registerDevicePositioning(administration, decl, nil, nil, nil, importedDevicesByID, nil, nil, "test.def", 1)
 	if len(warnings) != 1 {
 		t.Fatalf("got %d warnings, want 1: %v", len(warnings), warnings)
 	}

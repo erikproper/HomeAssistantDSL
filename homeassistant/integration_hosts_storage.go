@@ -90,6 +90,15 @@ type THostDevice struct {
 	// too (see mqtt_relay.go, coordinator side) -- no separate "local alias" concept, to keep this
 	// from growing yet another name to track.
 	ImportedFrom string
+
+	// IgnoreOtherCapabilities (2026-09-21), from an "ignore other capabilities;" body line inside
+	// this device's own "with: ... end;" block, tells generateEntityCatalogueSuggestions
+	// (mqtt_entity_existence.go) to never suggest any further unclaimed entity for this device in
+	// suggestions/home_assistant_main.txt. Mirrors THassBridgeDevice's own identically-named field
+	// exactly -- see its own doc comment for the full rationale (same directive, same underlying
+	// user request, applied to the "hosts" integration's own devices too since a "hosts" device's
+	// entities live on "main" exactly like a hassbridge device's do).
+	IgnoreOtherCapabilities bool
 }
 
 // dedupedHostNames returns every device's HostName, deduplicated and sorted, regardless

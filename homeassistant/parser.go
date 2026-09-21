@@ -109,7 +109,7 @@ type TExpansionParseResult struct {
 // number in entitiesPath. It must be used for every reported line number instead of i+1 --
 // entityLines is layer-extracted content with blank/comment lines already stripped, so the two
 // no longer coincide. Pass nil to fall back to i+1 (entityLines is the raw, unstripped file).
-func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, entitiesPath string, ctx *TMacroExpansionContext, report *strings.Builder, hostDevicesByID map[string]THostDevice, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, commandlineDevicesByID map[string]TCommandlineDevice, capabilityDefaults []TCapabilityDefaultRule) (TExpansionParseResult, error) {
+func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, entitiesPath string, ctx *TMacroExpansionContext, report *strings.Builder, hostDevicesByID map[string]THostDevice, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, commandlineDevicesByID map[string]TCommandlineDevice, logicalDevicesByID map[string]TLogicalDevice, capabilityDefaults []TCapabilityDefaultRule) (TExpansionParseResult, error) {
 	sourceLine := func(i int) int {
 		if lineNos != nil && i >= 0 && i < len(lineNos) {
 			return lineNos[i]
@@ -152,6 +152,11 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 		lineNum        int
 		spacePath      []string
 		deviceNamePath string
+		// allowHidden is true only for registerDevicePositioning's own auto-implied registrations
+		// (Conceptual_DevicePositioning.go's tDeferredAutoCapabilityLink) -- never for an ordinary
+		// DSL-authored "entity ... from <device-id> <capability>;" line, which must still be
+		// refused if it names a hidden discovery capability.
+		allowHidden bool
 	}
 	type pendingSourceLink struct {
 		decl      TDeviceSourceEntityDeclaration
@@ -236,14 +241,30 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			}
 			expanded, ok := expandForDeviceShorthandLine(trimmed, forDeviceID)
 			if !ok {
+				// 2026-09-19: try the even-shorter "entity <spec>;" shape (no "from" at all) --
+				// only matches when it wasn't a "from"-having line to begin with, so there's no
+				// ambiguity between the two; see expandForDeviceBareEntityLine's own doc comment.
+				expanded, ok = expandForDeviceBareEntityLine(trimmed, forDeviceID)
+			}
+			if !ok {
 				fmt.Fprintf(os.Stderr, "[WARNING] %s line %d: inside \"for %s:\" block, expected \"entity <spec> from <capability>;\", got %q; ignored\n", entitiesPath, sourceLine(i), forDeviceID, trimmed)
 				continue
 			}
 			trimmed = expanded
 		} else if withBlockDecl, ok := extractDeviceWithBlockHeader(trimmed); ok {
 			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
-			for _, w := range registerDevicePositioning(administration, *withBlockDecl, hostDevicesByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, entitiesPath, sourceLine(i)) {
+			warnings, deferredAuto := registerDevicePositioning(administration, *withBlockDecl, discoveryGatewaysByID, hostDevicesByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, logicalDevicesByID, entitiesPath, sourceLine(i))
+			for _, w := range warnings {
 				fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
+			}
+			for _, deferred := range deferredAuto {
+				pendingCapabilityLinks = append(pendingCapabilityLinks, pendingCapabilityLink{
+					decl:           deferred.decl,
+					lineNum:        sourceLine(i),
+					spacePath:      append([]string{}, administration.SpacePath...),
+					deviceNamePath: deferred.deviceNamePath,
+					allowHidden:    true,
+				})
 			}
 			forDeviceID = withBlockDecl.DeviceID
 			forDeviceNamePath = deviceSpecLeafPath(withBlockDecl.Spec)
@@ -258,15 +279,25 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 
 		if positioningDecl, ok := extractDevicePositioningDeclaration(trimmed); ok {
 			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
-			for _, w := range registerDevicePositioning(administration, *positioningDecl, hostDevicesByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, entitiesPath, sourceLine(i)) {
+			warnings, deferredAuto := registerDevicePositioning(administration, *positioningDecl, discoveryGatewaysByID, hostDevicesByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, logicalDevicesByID, entitiesPath, sourceLine(i))
+			for _, w := range warnings {
 				fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
+			}
+			for _, deferred := range deferredAuto {
+				pendingCapabilityLinks = append(pendingCapabilityLinks, pendingCapabilityLink{
+					decl:           deferred.decl,
+					lineNum:        sourceLine(i),
+					spacePath:      append([]string{}, administration.SpacePath...),
+					deviceNamePath: deferred.deviceNamePath,
+					allowHidden:    true,
+				})
 			}
 			continue
 		}
 
 		if capabilityDecl, ok := extractDeviceCapabilityEntityDeclaration(trimmed); ok {
 			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
-			warnings, deferred := registerDeviceCapabilityEntityLink(administration, *capabilityDecl, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, entitiesPath, sourceLine(i), false, forDeviceNamePath)
+			warnings, deferred := registerDeviceCapabilityEntityLink(administration, *capabilityDecl, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, logicalDevicesByID, entitiesPath, sourceLine(i), false, forDeviceNamePath)
 			if deferred {
 				pendingCapabilityLinks = append(pendingCapabilityLinks, pendingCapabilityLink{
 					decl:           *capabilityDecl,
@@ -284,7 +315,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 
 		if discoveryDecl, ok := extractDiscoveryEntityDeclaration(trimmed); ok {
 			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
-			for _, w := range registerDiscoveryEntityLink(administration, *discoveryDecl, discoveryGatewaysByID, entitiesPath, sourceLine(i)) {
+			for _, w := range registerDiscoveryEntityLink(administration, *discoveryDecl, discoveryGatewaysByID, entitiesPath, sourceLine(i), forDeviceNamePath, false) {
 				fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
 			}
 			continue
@@ -874,7 +905,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 	origSpacePath := administration.SpacePath
 	for _, pending := range pendingCapabilityLinks {
 		administration.SpacePath = pending.spacePath
-		warnings, _ := registerDeviceCapabilityEntityLink(administration, pending.decl, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, entitiesPath, pending.lineNum, true, pending.deviceNamePath)
+		warnings, _ := registerDeviceCapabilityEntityLinkAllowingHidden(administration, pending.decl, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, logicalDevicesByID, entitiesPath, pending.lineNum, true, pending.deviceNamePath, pending.allowHidden)
 		for _, w := range warnings {
 			fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
 		}

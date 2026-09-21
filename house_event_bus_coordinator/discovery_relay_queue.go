@@ -4,7 +4,7 @@
  * Package:   Main
  * Component: DiscoveryRelayQueue
  *
- * Real incident, 2026-09-14 (PROJECT.md item 4): discoverybridge.go's message handler used to call
+ * Real incident, 2026-09-14 (PROJECT.md item 7): discoverybridge.go's message handler used to call
  * publisher.Publish/RetireOne synchronously, directly inside the MQTT client's own message-dispatch
  * callback -- each one a blocking, ack-waiting network round trip (up to 10s). The initial subscribe
  * to a physical-prefix topic replays the ENTIRE currently-retained backlog at once; for a

@@ -13,6 +13,16 @@
  *      ...
  *    end;"
  *
+ * <remote-device-id> may be omitted (2026-09-16) when it's identical to <local-id> -- the common
+ * case, since keeping a local device's id matching its remote counterpart is the obvious default
+ * (e.g. Vienna's own "node.vienna_livingroom" importing Junglinster's identically-named device):
+ *
+ *   "device <local-id> from <remote-installation> with: ... end;"
+ *
+ * is exactly "device <local-id> from <remote-installation> <local-id> with: ... end;". Purely a
+ * DSL-authoring convenience (importHeaderShorthandPattern) -- TImportedDevice.RemoteDeviceID is
+ * always populated either way, nothing downstream needs to know which spelling was used.
+ *
  * <remote-device-id> is the remote installation's own DeviceID for the device (the key its own
  * cloud-published discovery payloads' "device.identifiers[0]" carry). <domain> is captured but
  * never stored -- it exists purely for readability/convention consistency with hassbridge's own
@@ -63,6 +73,11 @@ import (
 )
 
 var importHeaderPattern = regexp.MustCompile(`^device\s+(\S+)\s+from\s+(\S+)\s+(\S+)\s+with:\s*$`)
+
+// importHeaderShorthandPattern is importHeaderPattern's own header comment's "<remote-device-id>
+// omitted" form -- checked only once importHeaderPattern itself fails to match, so a genuine
+// 3-token "from <installation> <remote-device-id>" line is never misread as this 2-token one.
+var importHeaderShorthandPattern = regexp.MustCompile(`^device\s+(\S+)\s+from\s+(\S+)\s+with:\s*$`)
 
 // importCapabilityPattern matches "<domain>.<capability>;" -- see this file's own header comment
 // for the full rationale.
@@ -125,6 +140,14 @@ func parseImportIntegrationBody(bodyLines []string) ([]TImportedDevice, []string
 		if matches := importHeaderPattern.FindStringSubmatch(line); matches != nil {
 			current = TImportedDevice{
 				DeviceID: matches[1], RemoteInstallation: matches[2], RemoteDeviceID: matches[3],
+				Capabilities: map[string]TImportedCapability{},
+			}
+			inCapabilities = true
+			continue
+		}
+		if matches := importHeaderShorthandPattern.FindStringSubmatch(line); matches != nil {
+			current = TImportedDevice{
+				DeviceID: matches[1], RemoteInstallation: matches[2], RemoteDeviceID: matches[1],
 				Capabilities: map[string]TImportedCapability{},
 			}
 			inCapabilities = true

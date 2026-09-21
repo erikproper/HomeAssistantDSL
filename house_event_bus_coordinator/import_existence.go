@@ -35,6 +35,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"os"
 	"sync"
 
@@ -47,6 +48,41 @@ type TImportExistenceTracker struct {
 	mu      sync.Mutex
 	path    string
 	entries map[string]map[string]TEntityExistenceStatus // remoteInstallation -> stableID -> status
+
+	// onChange (2026-09-21, PROJECT.md item 1a) mirrors TDiscoveryExistenceTracker.onChange/
+	// TEntityExistenceTracker.onChange exactly, for consistency across all three existence kinds --
+	// though as of this writing kind-4 has no mechanism that ever sets StatusKnownNotToExist at all
+	// (MarkKnown only ever sets StatusKnownToExist; Seed only ever seeds StatusNotKnownToExist), so
+	// KnownNotToExistItems is currently always empty and this callback currently never fires. Wired
+	// up anyway so TMissingDeclaredEntitiesPublisher can include this tracker unconditionally,
+	// without a special case, and so a future kind-4 retraction mechanism slots in without needing
+	// to touch the publisher at all.
+	onChange func()
+}
+
+// SetOnChange (re)sets the tracker's onChange callback -- see that field's own doc comment.
+func (t *TImportExistenceTracker) SetOnChange(onChange func()) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.onChange = onChange
+}
+
+// KnownNotToExistItems returns a sorted "<installation>/<stableID>" snapshot of every entry
+// currently StatusKnownNotToExist -- see this tracker's own onChange doc comment for why this is
+// currently always empty in practice.
+func (t *TImportExistenceTracker) KnownNotToExistItems() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var items []string
+	for installation, stableIDs := range t.entries {
+		for stableID, status := range stableIDs {
+			if status == StatusKnownNotToExist {
+				items = append(items, installation+"/"+stableID)
+			}
+		}
+	}
+	sort.Strings(items)
+	return items
 }
 
 // newImportExistenceTracker loads path's previously persisted state, if any -- mirrors

@@ -25,12 +25,16 @@ import (
 
 var commandlineWithDevicePattern = regexp.MustCompile(`^device\s+(\S+)\s+(\S+)\s+with:\s*$`)
 
-// commandlineCapabilityPattern matches "<kind>.<name>: <quoted-scripts>;" -- Kind/name mirror the
+// commandlineCapabilityPattern matches "<kind>.<name> <quoted-scripts>;" -- Kind/name mirror the
 // "home_assistant"/"discovery" integrations' own mandatory-explicit-domain capability lines
 // (e.g. integration_discovery_parser.go's discoveryCapabilityPattern); scripts are captured
 // greedily as one raw string, split into individual quoted values by commandlineScriptPattern
-// below.
-var commandlineCapabilityPattern = regexp.MustCompile(`^(switch|sensor|button)\.([A-Za-z_][A-Za-z0-9_]*):\s*(.+?)\s*;\s*$`)
+// below. Whitespace-separated, no colon between <name> and <quoted-scripts> (2026-09-19 -- a
+// colon-optional trial ran first, then both houses' Physical.def/Logical.def were rewritten to
+// the colon-less form and verified byte-identical on regenerate, so the colon alternative was
+// dropped here outright) -- see logicalCapabilityPattern's own identical change for the full
+// rationale.
+var commandlineCapabilityPattern = regexp.MustCompile(`^(switch|sensor|button)\.([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s*;\s*$`)
 var commandlineScriptPattern = regexp.MustCompile(`"([^"]*)"`)
 
 // commandlineScriptCountByKind is how many quoted scripts each capability kind requires, and in

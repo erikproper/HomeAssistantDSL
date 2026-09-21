@@ -16,9 +16,9 @@ func TestExtractDeviceSourceEntityDeclaration(t *testing.T) {
 }
 
 func TestExtractDeviceSourceEntityDeclarationDoesNotMatchDiscoveryShape(t *testing.T) {
-	// "entity <spec> from <gateway>.<leaf>;" (Conceptual_DiscoveryEntities.go) has no "as" clause
-	// -- must not be swallowed by this construct's pattern.
-	if _, ok := extractDeviceSourceEntityDeclaration("entity sensor.physical:garage_door/temperature from discovery.ems_esp.boiler_outdoortemp;"); ok {
+	// "entity <spec> from <gateway> with <leaf>;" (Conceptual_DiscoveryEntities.go) has no "as"
+	// clause -- must not be swallowed by this construct's pattern.
+	if _, ok := extractDeviceSourceEntityDeclaration("entity sensor.physical:garage_door/temperature from discovery.ems_esp with boiler_outdoortemp;"); ok {
 		t.Fatalf("expected no match for the discovery-gateway shape")
 	}
 }
@@ -34,7 +34,7 @@ entity binary_sensor.infrastructural:laserjet/jammed as switch.laserjet_jam_sens
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -85,7 +85,7 @@ entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, capabilityDefaults)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, capabilityDefaults)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -133,7 +133,7 @@ entity binary_sensor.physical:vacuum/battery_alert from hass.roomba battery_aler
 	}
 
 	var report strings.Builder
-	_, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil)
+	_, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -167,7 +167,7 @@ entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, capabilityDefaults)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, capabilityDefaults)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestDeviceSourceEntityWarnsWithoutPriorDevicePositioning(t *testing.T) {
 	}
 
 	var report strings.Builder
-	_, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil)
+	_, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -258,7 +258,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}

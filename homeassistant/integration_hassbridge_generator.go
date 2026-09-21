@@ -164,6 +164,15 @@ func generateHassBridgeFile(outputRoot string, hassBridgeDevicesByID map[string]
 		if link.DisplayName != "" {
 			sb.WriteString("    display_name: " + link.DisplayName + "\n")
 		}
+		// depends_on_availability (2026-09-16, PROJECT.md's logical-layer work) -- mirrors
+		// integration_import_generator.go's own identical field exactly. See
+		// applyResolvedDependencyTopicsToHassBridge's own doc comment for how this gets populated.
+		if len(device.DependsOnAvailabilityTopics) > 0 {
+			sb.WriteString("    depends_on_availability:\n")
+			for _, topic := range device.DependsOnAvailabilityTopics {
+				sb.WriteString("      - \"" + topic + "\"\n")
+			}
+		}
 		sb.WriteString("    capabilities:\n")
 		sb.WriteString(capLines.String())
 

@@ -70,7 +70,7 @@ func registerCommandlineCapabilityEntityLink(administration *TAdministrationStat
 	}
 
 	spaceName := administration.CurrentSpaceName()
-	administration.RegisterDiscoveryImpliedEntity(spaceName, fullName, provenance, deviceID+"!"+bareName)
+	administration.RegisterDiscoveryImpliedEntity(spaceName, fullName, provenance, deviceID+"!"+bareName, false)
 
 	if link.AttributeEntityIDs == nil {
 		link.AttributeEntityIDs = map[string]TDeviceAttributeLink{}

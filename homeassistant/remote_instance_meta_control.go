@@ -14,37 +14,33 @@
  * instance target, or via the coordinator's own installation-/"all"-scoped fan-out for a broader
  * one -- this file only ever needs to know its own instance name, never which scope was pressed.
  *
- * "reload" calls every YAML-backed domain's own "<domain>.reload" service plus
- * homeassistant.reload_core_config -- the same set the UI's own "Reload all YAML configuration"
- * quick action calls, bundled into one automation rather than one topic per domain (considered and
- * set aside as overkill, 2026-09-05). continue_on_error on every step: an instance that doesn't
- * have e.g. the "group" integration configured at all must not let that one failing reload abort
- * the rest of the list. "restart" is a single homeassistant.restart call -- heavier, for changes
- * reload alone can't reach (new custom component, structural config changes).
+ * "reload" calls homeassistant.reload_all -- confirmed live present on Vienna (HA Core 2026.9.2,
+ * 2026-09-17) and, per HA's own service description, the actual backend of the UI's "Reload all
+ * YAML configuration" quick action: it iterates HA's own internal reload-hook registry
+ * (helpers/reload.py's async_setup_reload_service, the same registry every "<domain>.reload"
+ * service is itself registered into), so it can never miss a domain and never needs a
+ * hand-maintained list of "<domain>.reload" service names here. "restart" is a single
+ * homeassistant.restart call -- heavier, for changes reload alone can't reach (new custom
+ * component, structural config changes).
  *
- * automation.reload is deliberately the LAST service called, not the first -- real bug found live
- * 2026-09-08 (protocols-server-2, dormant since some earlier day, only surfaced when reload was
- * actually exercised against it): automation.reload reloads and recreates EVERY automation
- * entity, including this automation itself, mid-run -- HA cancels its own currently-executing
- * script as a direct consequence (asyncio.CancelledError, then a second exception,
- * InvalidStateError, from the entity's own removal-future being resolved twice). When
- * automation.reload was called FIRST, every action after it (script.reload, every optional
- * domain reload, homeassistant.reload_core_config) silently never ran once that cancellation hit
- * -- the whole point of "reload," gone, with no visible error to a casual glance (the automation
- * still shows as "triggered" in the UI's own logbook). The botched teardown also left a corrupted
- * duplicate automation entity behind ("already exists - ignoring" on the next reload), which
- * persisted until the instance was next restarted. Calling automation.reload last means the same
- * self-cancellation still happens (unavoidable -- there is no way to reload automations from
- * within one without this), but by then every other reload has already completed, so nothing of
- * value is lost; the ERROR-level traceback it still logs is cosmetic, not functional, from here on.
+ * REPLACES a much more complex prior design (SEVERAL independent automations, one per
+ * "<domain>.reload" service, sharing one trigger topic) that existed ONLY to work around
+ * reload_all's own absence being unknown at the time: HA's script engine RE-RAISES ServiceNotFound
+ * regardless of continue_on_error, so a single automation hand-calling every "<domain>.reload"
+ * aborted entirely at the first domain not configured on a given instance (real bug found live
+ * 2026-09-15, protocols-server-2 missing "template"), and automation.reload itself needed a
+ * separate, delayed automation since it reloads and recreates every automation entity including
+ * whichever one is calling it, self-cancelling mid-run (real bug found live 2026-09-08). Calling
+ * reload_all instead sidesteps this whole problem class structurally: it's HA's own first-party
+ * orchestration of exactly this sequencing, not a hand-rolled reimplementation of it.
  *
- * Deliberately fire-and-forget, no reply topic: considered and set aside as overkill for now (same
- * 2026-09-05 discussion) -- unlike the entity-existence inquiry's request/reply shape, there is no
+ * Deliberately fire-and-forget, no reply topic: considered and set aside as overkill for now
+ * (2026-09-05 discussion) -- unlike the entity-existence inquiry's request/reply shape, there is no
  * per-press consumer waiting on a specific answer.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 05.09.2026
+ * Version of: 17.09.2026
  *
  */
 
@@ -59,44 +55,11 @@ import "strings"
 func metaReloadRequestTopic(name string) string  { return "meta/reload/" + name + "/request" }
 func metaRestartRequestTopic(name string) string { return "meta/restart/" + name + "/request" }
 
-// metaReloadServices is every ALWAYS-registered core reload service this automation calls
-// unconditionally, in a fixed order -- script is core (default_config, never absent). Called with
-// a plain static "service:" string since it's never at risk of HA's own static schema validation
-// flagging it as an unknown action. automation.reload is deliberately NOT in this list -- see
-// metaReloadAutomationBody's own doc comment for why it must be called dead last instead.
-var metaReloadServices = []string{
-	"script.reload",
-}
-
-// metaOptionalReloadServices is every OTHER YAML-backed domain's own "<domain>.reload" service --
-// mirrors HA's own "Reload all YAML configuration" quick action, but each of these is only
-// actually REGISTERED when that domain has at least one entity/use configured on the target
-// instance (e.g. no YAML template entities anywhere -> no template.reload service at all). Real
-// bug found live 2026-09-06: HA statically validates a literal "service: template.reload" at
-// automation-LOAD time, not run time, so an instance without any template entities got a
-// PERSISTENT "unknown action" Repair issue that continue_on_error can't help with at all (that
-// only guards a runtime failure, never a load-time validation error). Fixed by wrapping the
-// service name in a trivial Jinja template ("{{ '<service>' }}") -- HA can't statically validate
-// a templated service name, so it defers the check to execution time, where continue_on_error
-// then correctly skips a genuinely-absent one instead of blocking the whole automation from
-// loading.
-var metaOptionalReloadServices = []string{
-	"scene.reload",
-	"template.reload",
-	"group.reload",
-	"input_boolean.reload",
-	"input_datetime.reload",
-	"input_number.reload",
-	"input_select.reload",
-	"input_text.reload",
-	"command_line.reload",
-}
-
-// metaReloadAutomationBody returns the "reload every YAML-backed domain" automation for a named
-// instance -- triggered by an MQTT command on metaReloadRequestTopic(name), payload ignored (a
-// button press carries no meaningful content, only the topic identifies the target).
-// automation.reload is called dead last, after everything else has already reloaded -- see this
-// file's own header comment for the live 2026-09-08 bug this ordering fixes.
+// metaReloadAutomationBody returns the single "reload" automation for a named instance, triggered
+// by an MQTT command on metaReloadRequestTopic(name) (payload ignored, a button press carries no
+// meaningful content, only the topic identifies the target). One call to homeassistant.reload_all
+// -- see this file's own header comment for why that's sufficient and preferable to hand-listing
+// every "<domain>.reload" service.
 func metaReloadAutomationBody(name string) string {
 	var sb strings.Builder
 	sb.WriteString("- alias: \"Coordinator meta: reload\"\n")
@@ -106,18 +69,7 @@ func metaReloadAutomationBody(name string) string {
 	sb.WriteString("  - platform: mqtt\n")
 	sb.WriteString("    topic: \"" + metaReloadRequestTopic(name) + "\"\n")
 	sb.WriteString("  action:\n")
-	for _, service := range metaReloadServices {
-		sb.WriteString("  - service: " + service + "\n")
-		sb.WriteString("    continue_on_error: true\n")
-	}
-	for _, service := range metaOptionalReloadServices {
-		sb.WriteString("  - service: \"{{ '" + service + "' }}\"\n")
-		sb.WriteString("    continue_on_error: true\n")
-	}
-	sb.WriteString("  - service: homeassistant.reload_core_config\n")
-	sb.WriteString("    continue_on_error: true\n")
-	sb.WriteString("  - service: automation.reload\n")
-	sb.WriteString("    continue_on_error: true\n")
+	sb.WriteString("  - service: homeassistant.reload_all\n")
 	return sb.String()
 }
 

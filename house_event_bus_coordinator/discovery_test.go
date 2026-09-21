@@ -85,6 +85,36 @@ func TestBuildAvailabilityFieldsNodeFactorAcceptsBothOnOffConventions(t *testing
 	}
 }
 
+// TestBuildAvailabilityFieldsAndsMultipleNodeTopics is the coordinator-side half of the
+// logical layer's "dependency on" mechanism (2026-09-16): a device's own node topic AND any
+// number of dependency topics (already flattened across the transitive chain, generator-side --
+// the coordinator never walks that graph itself) must all AND together via one shared
+// availability_mode "all" list, and an empty topic in the middle of the list (a caller passing its
+// own possibly-"" node topic straight through) must be skipped rather than producing a bogus
+// empty-topic entry.
+func TestBuildAvailabilityFieldsAndsMultipleNodeTopics(t *testing.T) {
+	body := map[string]interface{}{}
+	buildAvailabilityFields(body, "state/topic", "", "hosts/netatmo/node/state", "hosts/other/node/state")
+
+	if body["availability_mode"] != "all" {
+		t.Fatalf("availability_mode = %v, want \"all\"", body["availability_mode"])
+	}
+	entries, ok := body["availability"].([]map[string]interface{})
+	if !ok {
+		t.Fatalf("availability = %v, want []map[string]interface{}", body["availability"])
+	}
+	// 1 (own state) + 2 (the two non-empty node topics) -- the empty "" node topic must be skipped.
+	if len(entries) != 3 {
+		t.Fatalf("got %d availability entries, want 3: %+v", len(entries), entries)
+	}
+	if findAvailabilityEntry(body, "hosts/netatmo/node/state") == nil {
+		t.Errorf("missing availability entry for hosts/netatmo/node/state: %+v", entries)
+	}
+	if findAvailabilityEntry(body, "hosts/other/node/state") == nil {
+		t.Errorf("missing availability entry for hosts/other/node/state: %+v", entries)
+	}
+}
+
 // TestAvailabilityTopicForGatesOnNodeCapability covers the shared rule every device kind with a
 // node/connectivity entity follows (generalised live 2026-08-31 from what started as hosts-only
 // duplicated logic): every other capability's availability_topic points at the node topic, the

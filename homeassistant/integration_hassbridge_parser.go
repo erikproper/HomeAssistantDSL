@@ -75,6 +75,9 @@ func parseHassBridgeDeviceHeaderKeywords(line string) (rest string, export, roam
 // inside the lower-level parser.
 func collectHassBridgeDevicesByID(definitionDir string) (map[string]THassBridgeDevice, []string) {
 	physicalContent, mergedLineNos, warnings := collectLayerContent(definitionDir, []string{"Physical.def"}, LayerPhysical)
+	var jinjaWarnings []string
+	physicalContent, jinjaWarnings = resolveJinjaTemplateCallsInDerivedLines(physicalContent, loadJinjaTemplateDefinitions(definitionDir))
+	warnings = append(warnings, jinjaWarnings...)
 	blocks, blockWarnings := scanGroupClauseBlocks(splitLines(physicalContent), "Physical.def", hassBridgeIntegrationHeaderPattern)
 	warnings = append(warnings, blockWarnings...)
 
@@ -210,14 +213,20 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 	// greedily up to the trailing ";" (not \S+) so it can carry a multi-word "<entity> is
 	// available" suffix (sourceToJinja2's sugar for the standard liveness-check boilerplate),
 	// not just a single bare entity reference.
-	capabilityPattern := regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*):\s*(.+?)\s*;\s*$`)
+	// "<path>" and "<source>" are whitespace-separated, no colon between them (2026-09-19 -- a
+	// colon-optional trial ran first, then both houses' Physical.def/Logical.def were rewritten
+	// to the colon-less form and verified byte-identical on regenerate, so the colon alternative
+	// was dropped here outright) -- see logicalCapabilityPattern's own identical change for the
+	// full rationale.
+	capabilityPattern := regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+(.+?)\s*;\s*$`)
 	// Same capability line, but opening a nested "with: ... end;" block of its own typing
 	// metadata instead of terminating with ";" -- an alternative to the bare
 	// "<path> <keyword>: ...;" trailing-line form (capabilityMetadataPattern) that keeps a
 	// capability's overrides grouped with its declaration instead of repeating the path prefix
 	// once per field. Checked before capabilityPattern since the two are mutually exclusive by
-	// trailing token ("with:" vs ";") but both start the same way.
-	capabilityWithPattern := regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*):\s*(.+?)\s*with:\s*$`)
+	// trailing token ("with:" vs ";") but both start the same way. Same colon-dropped grammar as
+	// capabilityPattern just above.
+	capabilityWithPattern := regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+(.+?)\s*with:\s*$`)
 	// A bare typing-metadata line inside a capability's own "with: ... end;" block -- same four
 	// keywords as capabilityMetadataPattern, just without the leading path (implied by nesting).
 	capabilityWithMetadataPattern := regexp.MustCompile(`^(unit|icon|device_class|state_class):\s*"([^"]*)"\s*;\s*$`)
@@ -293,6 +302,10 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 			if line == "end;" {
 				devices = append(devices, current)
 				inDeviceCapabilities = false
+				continue
+			}
+			if line == "ignore other capabilities;" {
+				current.IgnoreOtherCapabilities = true
 				continue
 			}
 			// Checked first, before any domain-prefixed capability pattern: "derived" is a

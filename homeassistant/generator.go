@@ -44,10 +44,19 @@ func runGenerationFromDefFile(cwd, defPath string) error {
 	fullDefPath := filepath.Join(cwd, defPath)
 	definitionDir := filepath.Dir(fullDefPath)
 	sharedDefinitionDir := filepath.Clean(filepath.Join(definitionDir, "..", "..", "Shared", "Definitions"))
-	outputDir := filepath.Join(cwd, "hass")
-	if incarnation := resolveMainIncarnationName(definitionDir); incarnation != "" {
-		outputDir = filepath.Join(outputDir, incarnation)
+	// Both houses have adopted "home_assistant main: <name>;" (PROJECT.md item 4/5), so a failure
+	// to resolve it today means Physical.def was empty/unreadable or the directive didn't match at
+	// the moment this ran (e.g. a concurrent editor save) -- not the "house hasn't adopted
+	// Physical.def yet" steady state resolveMainIncarnationName's own doc comment describes.
+	// Silently falling back to writing a full generation into bare hass/ instead of
+	// hass/<incarnation>/ produced a real, repeatedly-recurring stale-directory confusion (found
+	// live 2026-09-16) -- refuse to write anywhere rather than degrade to that wrong location
+	// (explicit user decision, 2026-09-16: abort over warn-and-fall-back).
+	incarnation := resolveMainIncarnationName(definitionDir)
+	if incarnation == "" {
+		return fmt.Errorf("no \"home_assistant main: <name>;\" found (or Physical.def unreadable) -- refusing to write to bare hass/")
 	}
+	outputDir := filepath.Join(cwd, "hass", incarnation)
 	listOutputDir := cwd
 	label := filepath.Base(cwd)
 
@@ -113,12 +122,17 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 		fmt.Printf("[physical] %s\n", w)
 	}
 
+	logicalByID, logicalWarnings := collectLogicalDevicesByID(definitionDir, ctx.Settings)
+	for _, w := range logicalWarnings {
+		fmt.Printf("[logical] %s\n", w)
+	}
+
 	commandlineDevicesByID, commandlineDeviceWarnings := collectCommandlineDevicesByID(definitionDir)
 	for _, w := range commandlineDeviceWarnings {
 		fmt.Printf("[physical] %s\n", w)
 	}
 
-	for _, w := range validateNoConflictingDeviceNames(hostDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID) {
+	for _, w := range validateNoConflictingDeviceNames(hostDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, logicalByID) {
 		fmt.Printf("[physical] %s\n", w)
 	}
 
@@ -126,11 +140,19 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 		fmt.Printf("[physical] %s\n", w)
 	}
 
-	for _, w := range validateDerivedCapabilities(hassBridgeDevicesByID, importedDevicesByID) {
+	for _, w := range validateHassBridgeAvailabilitySources(hassBridgeDevicesByID) {
 		fmt.Printf("[physical] %s\n", w)
 	}
 
-	for _, w := range validateBatteryLevelAlertBiconditional(hassBridgeDevicesByID, importedDevicesByID) {
+	for _, w := range validateDerivedCapabilities(hassBridgeDevicesByID, importedDevicesByID, discoveryGatewaysByID) {
+		fmt.Printf("[physical] %s\n", w)
+	}
+
+	for _, w := range validateBatteryLevelAlertBiconditional(hassBridgeDevicesByID, importedDevicesByID, discoveryGatewaysByID) {
+		fmt.Printf("[physical] %s\n", w)
+	}
+
+	for _, w := range validatePowerImpliesConsumes(hassBridgeDevicesByID, importedDevicesByID, discoveryGatewaysByID) {
 		fmt.Printf("[physical] %s\n", w)
 	}
 
@@ -139,8 +161,8 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 		fmt.Printf("[physical] %s\n", w)
 	}
 
-	entitiesPath := filepath.Join(definitionDir, "Spaces.def")
-	entitiesContent, entitiesLineNos, layerWarnings := collectLayerContent(definitionDir, []string{"Spaces.def"}, LayerConceptual)
+	entitiesPath := filepath.Join(definitionDir, "Conceptual.def")
+	entitiesContent, entitiesLineNos, layerWarnings := collectLayerContent(definitionDir, []string{"Conceptual.def"}, LayerConceptual)
 	for _, w := range layerWarnings {
 		fmt.Printf("[conceptual] %s\n", w)
 	}
@@ -150,11 +172,23 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 
 	var report strings.Builder
 	parseResult, err := ParseEntitiesAndFillAdministration(
-		strings.Split(entitiesContent, "\n"), entitiesLineNos, entitiesPath, ctx, &report, hostDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, capabilityDefaults)
+		strings.Split(entitiesContent, "\n"), entitiesLineNos, entitiesPath, ctx, &report, hostDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, logicalByID, capabilityDefaults)
 	if err != nil {
 		return nil, err
 	}
 	admin := parseResult.Administration
+	for id := range logicalByID {
+		topics, w := resolveDependencyAvailabilityTopics(id, logicalByID, hostDevicesByID)
+		for _, warning := range w {
+			fmt.Printf("[logical] %s\n", warning)
+		}
+		if len(topics) > 0 {
+			admin.DependsOnAvailabilityTopics[id] = topics
+		}
+	}
+	for _, w := range validateNoDuplicateFinalEntityIDs(admin) {
+		fmt.Printf("[conceptual] %s\n", w)
+	}
 	return admin, nil
 }
 
@@ -1814,7 +1848,7 @@ func generateMediaSwitches(outputDir string, admin *TAdministrationState) error 
 			}
 			displayName := rec.Name[len("switch."):]
 			playerEntityID := toHomeAssistantEntityID(rec.MediaSwitchPlayerName)
-			content := buildLeafMediaSwitchYAML(entityID, displayName, playerEntityID, rec.MediaSwitchNoPlayInput)
+			content := buildLeafMediaSwitchYAML(entityID, displayName, playerEntityID, rec.MediaSwitchNoPlayInput, rec.MediaSwitchAvailabilityEntityID)
 			dir := filepath.Join(outputDir, "entities", "template", "switch", rec.Identity.Sphere)
 			if err := writeYAMLFile(filepath.Join(dir, entityID+".yaml"), content); err != nil {
 				return err
@@ -1901,13 +1935,21 @@ func generateMediaSwitches(outputDir string, admin *TAdministrationState) error 
 	return nil
 }
 
-func buildLeafMediaSwitchYAML(entityID, displayName, playerID, noPlayInput string) string {
+// availabilityEntityID (2026-09-16, the logical layer's own "switch.media" coercion capability)
+// is "" for every pre-existing caller (the hand-written "media_switch" directive never had an
+// availability concept of its own) -- when non-empty, adds an "availability:" field gating the
+// switch on that entity's own boolean state ("on"), the same convention this codebase's other
+// generated switches already use to gate on a sibling "node" capability.
+func buildLeafMediaSwitchYAML(entityID, displayName, playerID, noPlayInput, availabilityEntityID string) string {
 	var sb strings.Builder
 	sb.WriteString(generatorHeader)
 	sb.WriteString("switch:\n")
 	sb.WriteString("- name: " + displayName + "\n")
 	sb.WriteString("  unique_id: " + entityID + "\n")
 	sb.WriteString("  default_entity_id: " + entityID + "\n")
+	if availabilityEntityID != "" {
+		sb.WriteString("  availability: \"{{ is_state('" + availabilityEntityID + "', 'on') }}\"\n")
+	}
 	sb.WriteString("  turn_on:\n")
 	sb.WriteString("  - entity_id:\n")
 	sb.WriteString("    - input_boolean.infrastructural_dummy\n")
@@ -4642,6 +4684,15 @@ func resolveListEntries(decl TListDeclaration, admin *TAdministrationState) []TL
 					continue
 				}
 			} else if strings.HasPrefix(rec.Provenance, "derived") {
+				continue
+			} else if strings.HasPrefix(rec.Provenance, "auto-registered dependency node: ") {
+				// A "dependency on <device-id>;" target that was never itself explicitly
+				// positioned gets an ugly synthetic node ("physical/<device-id>/node") purely so
+				// the dependency's own availability AND-condition has something real to read --
+				// see resolveLogicalDependencyNodeEntities' own doc comment. Not a genuine,
+				// deliberately positioned device worth a Lists.def entry (real case found live:
+				// appliance.washing_machine's "dependency on node.candy;" kept surfacing in
+				// list.nodes as if node.candy were a real, standalone device).
 				continue
 			} else if !matchesAnyListPattern(rec, decl.patterns) {
 				continue

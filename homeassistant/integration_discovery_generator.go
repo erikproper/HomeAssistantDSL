@@ -85,6 +85,9 @@ func generateDiscoveryIntegrationOutputs(bodyLines []string, ctx TPhysicalGenera
 		for _, id := range g.Identifiers {
 			sb.WriteString("      - \"" + id + "\"\n")
 		}
+		if g.IgnoreOtherCapabilities {
+			sb.WriteString("    ignore_other_capabilities: true\n")
+		}
 	}
 
 	if ctx.Admin != nil && len(ctx.Admin.DiscoveryEntityLinks) > 0 {
@@ -99,6 +102,9 @@ func generateDiscoveryIntegrationOutputs(bodyLines []string, ctx TPhysicalGenera
 			sb.WriteString("  " + id + ":\n")
 			sb.WriteString("    gateway: " + link.GatewayDeviceID + "\n")
 			sb.WriteString("    leaf: " + link.Leaf + "\n")
+			if link.SourceDomain != "" {
+				sb.WriteString("    source_domain: " + link.SourceDomain + "\n")
+			}
 			if link.DeviceClass != "" {
 				sb.WriteString("    device_class: " + link.DeviceClass + "\n")
 			}
@@ -110,6 +116,9 @@ func generateDiscoveryIntegrationOutputs(bodyLines []string, ctx TPhysicalGenera
 			}
 			if link.Icon != "" {
 				sb.WriteString("    icon: " + link.Icon + "\n")
+			}
+			if link.ValueTemplateWrap != "" {
+				sb.WriteString("    value_template_wrap: \"" + link.ValueTemplateWrap + "\"\n")
 			}
 		}
 	}

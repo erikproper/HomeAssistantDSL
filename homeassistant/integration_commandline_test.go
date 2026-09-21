@@ -23,9 +23,9 @@ func TestCollectCommandlineDevicesByIDParsesAllThreeKinds(t *testing.T) {
 	definitionDir := writePhysicalDef(t, `physical layer with:
   integration commandline with:
     device host.frame frame with:
-      switch.slideshow: "check_slideshow" "start_slideshow" "stop_slideshow";
-      sensor.uptime:    "uptime_seconds";
-      button.reboot:    "reboot_frame";
+      switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
+      sensor.uptime    "uptime_seconds";
+      button.reboot    "reboot_frame";
     end;
   end;
 end;
@@ -57,6 +57,31 @@ end;
 	}
 }
 
+// TestCollectCommandlineDevicesByIDRejectsOldColonForm is the regression test for the 2026-09-19
+// grammar restriction: commandlineCapabilityPattern briefly accepted an OPTIONAL ":" between
+// <name> and the quoted scripts as a trial (both houses' Physical.def/Logical.def were then
+// rewritten to the colon-less form and verified byte-identical on regenerate) -- now that the
+// migration is complete, the old "sensor.uptime: "uptime_seconds";" colon form must be REJECTED
+// outright, not silently tolerated.
+func TestCollectCommandlineDevicesByIDRejectsOldColonForm(t *testing.T) {
+	definitionDir := writePhysicalDef(t, `physical layer with:
+  integration commandline with:
+    device host.frame frame with:
+      sensor.uptime: "uptime_seconds";
+    end;
+  end;
+end;
+`)
+
+	byID, warnings := collectCommandlineDevicesByID(definitionDir)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "unrecognised line") {
+		t.Fatalf("expected exactly one \"unrecognised line\" warning for the old colon form, got: %v", warnings)
+	}
+	if device := byID["host.frame"]; len(device.Capabilities) != 0 {
+		t.Errorf("Capabilities = %+v, want the old colon-form line rejected, not silently parsed", device.Capabilities)
+	}
+}
+
 // TestCollectCommandlineDevicesByIDWarnsOnWrongScriptCount is the regression guard for a
 // mis-authored switch/sensor/button line -- e.g. a switch declared with only one script instead
 // of the required three (status/on/off) -- which must warn and be dropped, not silently produce a
@@ -65,7 +90,7 @@ func TestCollectCommandlineDevicesByIDWarnsOnWrongScriptCount(t *testing.T) {
 	definitionDir := writePhysicalDef(t, `physical layer with:
   integration commandline with:
     device host.frame frame with:
-      switch.slideshow: "check_slideshow";
+      switch.slideshow "check_slideshow";
     end;
   end;
 end;
@@ -83,8 +108,8 @@ end;
 func TestGenerateCommandlineIntegrationOutputsWritesHostAndCoordinatorFiles(t *testing.T) {
 	outputRoot := t.TempDir()
 	devices, warnings := parseCommandlineIntegrationBody(strings.Split(`device host.frame frame with:
-  switch.slideshow: "check_slideshow" "start_slideshow" "stop_slideshow";
-  button.reboot:    "reboot_frame";
+  switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
+  button.reboot    "reboot_frame";
 end;`, "\n"))
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
@@ -92,8 +117,8 @@ end;`, "\n"))
 
 	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot}
 	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame frame with:
-  switch.slideshow: "check_slideshow" "start_slideshow" "stop_slideshow";
-  button.reboot:    "reboot_frame";
+  switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
+  button.reboot    "reboot_frame";
 end;`, "\n"), ctx); err != nil {
 		t.Fatalf("generateCommandlineIntegrationOutputs: %v", err)
 	}
@@ -146,7 +171,7 @@ func TestGenerateCommandlineIntegrationOutputsUsesPositionedEntityID(t *testing.
 
 	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot, Admin: admin}
 	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame frame with:
-  switch.slideshow: "check_slideshow" "start_slideshow" "stop_slideshow";
+  switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
 end;`, "\n"), ctx); err != nil {
 		t.Fatalf("generateCommandlineIntegrationOutputs: %v", err)
 	}
@@ -182,7 +207,7 @@ func TestGenerateCommandlineIntegrationOutputsWritesDeviceDisplayName(t *testing
 
 	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot, Admin: admin}
 	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame frame with:
-  switch.slideshow: "check_slideshow" "start_slideshow" "stop_slideshow";
+  switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
 end;`, "\n"), ctx); err != nil {
 		t.Fatalf("generateCommandlineIntegrationOutputs: %v", err)
 	}
@@ -204,7 +229,7 @@ func TestGenerateCommandlineIntegrationOutputsOmitsDisplayNameWhenUnpositioned(t
 	outputRoot := t.TempDir()
 	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot}
 	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame frame with:
-  switch.slideshow: "check_slideshow" "start_slideshow" "stop_slideshow";
+  switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
 end;`, "\n"), ctx); err != nil {
 		t.Fatalf("generateCommandlineIntegrationOutputs: %v", err)
 	}

@@ -21,7 +21,7 @@ func TestDiscoveryExistenceTrackerSeedStartsNotKnownToExist(t *testing.T) {
 	tracker := newDiscoveryExistenceTracker("")
 	tracker.Seed(fixtureDiscoveryFileForExistence())
 
-	got := tracker.snapshot("discovery.ems_esp")
+	got := tracker.AggregateSnapshot()["discovery.ems_esp"]
 	if got["boiler_outdoortemp"] != StatusNotKnownToExist {
 		t.Errorf("snapshot = %+v, want boiler_outdoortemp not-known-to-exist", got)
 	}
@@ -34,7 +34,7 @@ func TestDiscoveryExistenceTrackerMarkKnownTransitionsAndIsIdempotent(t *testing
 	if changed := tracker.MarkKnown("discovery.ems_esp", "boiler_outdoortemp"); !changed {
 		t.Errorf("first MarkKnown should report a change")
 	}
-	if got := tracker.snapshot("discovery.ems_esp")["boiler_outdoortemp"]; got != StatusKnownToExist {
+	if got := tracker.AggregateSnapshot()["discovery.ems_esp"]["boiler_outdoortemp"]; got != StatusKnownToExist {
 		t.Errorf("status = %q, want %q", got, StatusKnownToExist)
 	}
 	if changed := tracker.MarkKnown("discovery.ems_esp", "boiler_outdoortemp"); changed {
@@ -50,23 +50,23 @@ func TestDiscoveryExistenceTrackerMarkKnownWorksForUndeclaredLeaf(t *testing.T) 
 	if changed := tracker.MarkKnown("discovery.ems_esp", "thermostat_lastcode"); !changed {
 		t.Errorf("expected MarkKnown to succeed for a previously untracked leaf")
 	}
-	if got := tracker.snapshot("discovery.ems_esp")["thermostat_lastcode"]; got != StatusKnownToExist {
+	if got := tracker.AggregateSnapshot()["discovery.ems_esp"]["thermostat_lastcode"]; got != StatusKnownToExist {
 		t.Errorf("status = %q, want %q", got, StatusKnownToExist)
 	}
 }
 
-func TestDiscoveryExistenceTrackerPublishStatusRelaysToLocalAndCloud(t *testing.T) {
+func TestDiscoveryExistenceTrackerPublishAggregateStatusRelaysToLocalAndCloud(t *testing.T) {
 	tracker := newDiscoveryExistenceTracker("")
 	tracker.Seed(fixtureDiscoveryFileForExistence())
 	tracker.MarkKnown("discovery.ems_esp", "boiler_outdoortemp")
 
 	mainClient := &fakeClient{}
 	cloudClient := &fakeClient{}
-	if err := tracker.publishStatus(mainClient, cloudClient, "junglinster", "discovery.ems_esp"); err != nil {
-		t.Fatalf("publishStatus error: %v", err)
+	if err := tracker.PublishAggregateStatus(mainClient, cloudClient, "junglinster"); err != nil {
+		t.Fatalf("PublishAggregateStatus error: %v", err)
 	}
 
-	wantTopic := discoveryExistenceStatusTopic("discovery.ems_esp")
+	wantTopic := discoveryExistenceAggregateStatusTopic()
 	mainPublish, found := findPublish(mainClient.published, wantTopic)
 	if !found {
 		t.Fatalf("main published = %+v, want a status publish to %q", mainClient.published, wantTopic)
@@ -84,38 +84,39 @@ func TestDiscoveryExistenceTrackerPublishStatusRelaysToLocalAndCloud(t *testing.
 	}
 }
 
-// TestDiscoveryExistenceTrackerPublishStatusQualifiesCloudByInstallation confirms two different
-// installations sharing the same gatewayID (e.g. both declaring their own "discovery.ems_esp")
-// publish to distinct cloud topics rather than colliding -- the bug found live 2026-09-05 for
-// entity_existence.go's analogous "main" instance collision, fixed here the same way.
-func TestDiscoveryExistenceTrackerPublishStatusQualifiesCloudByInstallation(t *testing.T) {
+// TestDiscoveryExistenceTrackerPublishAggregateStatusQualifiesCloudByInstallation confirms two
+// different installations publish to distinct cloud topics rather than colliding -- the bug found
+// live 2026-09-05 for entity_existence.go's analogous "main" instance collision, fixed here the
+// same way.
+func TestDiscoveryExistenceTrackerPublishAggregateStatusQualifiesCloudByInstallation(t *testing.T) {
 	tracker := newDiscoveryExistenceTracker("")
 	tracker.Seed(fixtureDiscoveryFileForExistence())
 	tracker.MarkKnown("discovery.ems_esp", "boiler_outdoortemp")
 
 	cloudClient := &fakeClient{}
-	if err := tracker.publishStatus(&fakeClient{}, cloudClient, "junglinster", "discovery.ems_esp"); err != nil {
-		t.Fatalf("publishStatus error: %v", err)
+	if err := tracker.PublishAggregateStatus(&fakeClient{}, cloudClient, "junglinster"); err != nil {
+		t.Fatalf("PublishAggregateStatus error: %v", err)
 	}
-	if err := tracker.publishStatus(&fakeClient{}, cloudClient, "vienna", "discovery.ems_esp"); err != nil {
-		t.Fatalf("publishStatus error: %v", err)
+	if err := tracker.PublishAggregateStatus(&fakeClient{}, cloudClient, "vienna"); err != nil {
+		t.Fatalf("PublishAggregateStatus error: %v", err)
 	}
 
-	if _, found := findPublish(cloudClient.published, "junglinster/"+discoveryExistenceStatusTopic("discovery.ems_esp")); !found {
+	if _, found := findPublish(cloudClient.published, "junglinster/"+discoveryExistenceAggregateStatusTopic()); !found {
 		t.Errorf("expected a junglinster-qualified cloud publish, got %+v", cloudClient.published)
 	}
-	if _, found := findPublish(cloudClient.published, "vienna/"+discoveryExistenceStatusTopic("discovery.ems_esp")); !found {
+	if _, found := findPublish(cloudClient.published, "vienna/"+discoveryExistenceAggregateStatusTopic()); !found {
 		t.Errorf("expected a vienna-qualified cloud publish, got %+v", cloudClient.published)
 	}
 }
 
 // TestDiscoveryExistenceTrackerPublishAllPublishesEveryDeclaredGateway is a regression test for the
 // same gap TestStartEntityExistenceInquiriesPublishesImmediately fixes for kind-3, found live
-// 2026-09-05: kind-2's publishStatus only ever fires on an actual known/retracted transition, so a
+// 2026-09-05: kind-2's publish only ever fired on an actual known/retracted transition, so a
 // gateway whose leaves are all already known-to-exist (the common case after a restart) may never
 // get republished again -- leaving the cloud topic missing/stale after a topic-naming migration like
 // §12's installation-qualification fix, with every ./generate run's cloud fetch timing out until the
-// next real transition (which may never come for a stable gateway).
+// next real transition (which may never come for a stable gateway). PublishAll now publishes the
+// WHOLE aggregate in one shot regardless of which gateway last transitioned (2026-09-20).
 func TestDiscoveryExistenceTrackerPublishAllPublishesEveryDeclaredGateway(t *testing.T) {
 	tracker := newDiscoveryExistenceTracker("")
 	discoveryFile := fixtureDiscoveryFileForExistence()
@@ -124,26 +125,26 @@ func TestDiscoveryExistenceTrackerPublishAllPublishesEveryDeclaredGateway(t *tes
 
 	mainClient := &fakeClient{}
 	cloudClient := &fakeClient{}
-	tracker.PublishAll(mainClient, cloudClient, "junglinster", discoveryFile)
+	tracker.PublishAll(mainClient, cloudClient, "junglinster")
 
-	if _, found := findPublish(mainClient.published, discoveryExistenceStatusTopic("discovery.ems_esp")); !found {
+	if _, found := findPublish(mainClient.published, discoveryExistenceAggregateStatusTopic()); !found {
 		t.Errorf("expected an immediate local status publish, got %+v", mainClient.published)
 	}
-	wantCloudTopic := "junglinster/" + discoveryExistenceStatusTopic("discovery.ems_esp")
+	wantCloudTopic := "junglinster/" + discoveryExistenceAggregateStatusTopic()
 	if _, found := findPublish(cloudClient.published, wantCloudTopic); !found {
 		t.Errorf("expected an immediate qualified cloud status publish to %q, got %+v", wantCloudTopic, cloudClient.published)
 	}
 }
 
-func TestDiscoveryExistenceTrackerPublishStatusSkipsCloudWhenNil(t *testing.T) {
+func TestDiscoveryExistenceTrackerPublishAggregateStatusSkipsCloudWhenNil(t *testing.T) {
 	tracker := newDiscoveryExistenceTracker("")
 	tracker.MarkKnown("discovery.ems_esp", "boiler_outdoortemp")
 
 	mainClient := &fakeClient{}
-	if err := tracker.publishStatus(mainClient, nil, "junglinster", "discovery.ems_esp"); err != nil {
-		t.Fatalf("publishStatus error: %v", err)
+	if err := tracker.PublishAggregateStatus(mainClient, nil, "junglinster"); err != nil {
+		t.Fatalf("PublishAggregateStatus error: %v", err)
 	}
-	if _, found := findPublish(mainClient.published, discoveryExistenceStatusTopic("discovery.ems_esp")); !found {
+	if _, found := findPublish(mainClient.published, discoveryExistenceAggregateStatusTopic()); !found {
 		t.Fatalf("expected a status publish even with no cloud client")
 	}
 }
@@ -174,7 +175,7 @@ func TestDiscoveryExistenceTrackerSeedPrunesConfirmedDeadOrphans(t *testing.T) {
 		},
 	})
 
-	snapshot := tracker.snapshot("discovery.ems_esp")
+	snapshot := tracker.AggregateSnapshot()["discovery.ems_esp"]
 	if _, found := snapshot["boiler_outdoortemp"]; found {
 		t.Errorf("confirmed-dead, no-longer-declared ghost leaf was not pruned: %+v", snapshot)
 	}
@@ -197,7 +198,7 @@ func TestDiscoveryExistenceTrackerSeedNeverPrunesStillDeclaredEntries(t *testing
 
 	tracker.Seed(discoveryFile)
 
-	if got := tracker.snapshot("discovery.ems_esp")["boiler_outdoortemp"]; got != StatusKnownNotToExist {
+	if got := tracker.AggregateSnapshot()["discovery.ems_esp"]["boiler_outdoortemp"]; got != StatusKnownNotToExist {
 		t.Errorf("a still-declared known-not-to-exist leaf must never be pruned, got %q", got)
 	}
 }
@@ -212,7 +213,7 @@ func TestDiscoveryExistenceTrackerMarkRetractedResolvesViaRecordedTopicIdentity(
 	if !changed || gatewayID != "discovery.ems_esp" || leaf != "boiler_outdoortemp" {
 		t.Fatalf("MarkRetracted = (%q, %q, %v), want (\"discovery.ems_esp\", \"boiler_outdoortemp\", true)", gatewayID, leaf, changed)
 	}
-	if got := tracker.snapshot("discovery.ems_esp")["boiler_outdoortemp"]; got != StatusKnownNotToExist {
+	if got := tracker.AggregateSnapshot()["discovery.ems_esp"]["boiler_outdoortemp"]; got != StatusKnownNotToExist {
 		t.Errorf("status = %q, want %q", got, StatusKnownNotToExist)
 	}
 
@@ -230,6 +231,55 @@ func TestDiscoveryExistenceTrackerMarkRetractedUnknownTopicIsNoop(t *testing.T) 
 	}
 }
 
+// TestDiscoveryExistenceTrackerKnownNotToExistItems confirms the sorted "<gateway>/<leaf>"
+// snapshot PROJECT.md item 1a's live indicator (missing_declared_entities.go) reads from.
+func TestDiscoveryExistenceTrackerKnownNotToExistItems(t *testing.T) {
+	tracker := newDiscoveryExistenceTracker("")
+	tracker.Seed(fixtureDiscoveryFileForExistence())
+	tracker.RecordTopicIdentity("physical/sensor/ems-esp/boiler_outdoortemp/config", "discovery.ems_esp", "boiler_outdoortemp")
+	tracker.MarkKnown("discovery.ems_esp", "boiler_outdoortemp")
+
+	if items := tracker.KnownNotToExistItems(); len(items) != 0 {
+		t.Fatalf("expected no missing items yet, got %v", items)
+	}
+
+	tracker.MarkRetracted("physical/sensor/ems-esp/boiler_outdoortemp/config")
+	items := tracker.KnownNotToExistItems()
+	if len(items) != 1 || items[0] != "discovery.ems_esp/boiler_outdoortemp" {
+		t.Errorf("KnownNotToExistItems() = %v, want [\"discovery.ems_esp/boiler_outdoortemp\"]", items)
+	}
+}
+
+// TestDiscoveryExistenceTrackerOnChangeFiresOnlyOnRealTransition is the regression coverage for
+// PROJECT.md item 1a's live "missing declared entities" indicator: onChange must fire when a leaf
+// is retracted (a genuine transition into StatusKnownNotToExist) and when it's later resolved (a
+// genuine transition back out), but NOT for an ordinary first-sighting MarkKnown call, which never
+// touched StatusKnownNotToExist at all -- a startup replay burst would otherwise schedule a
+// republish for every single leaf, not just the ones that actually matter.
+func TestDiscoveryExistenceTrackerOnChangeFiresOnlyOnRealTransition(t *testing.T) {
+	tracker := newDiscoveryExistenceTracker("")
+	tracker.Seed(fixtureDiscoveryFileForExistence())
+	tracker.RecordTopicIdentity("physical/sensor/ems-esp/boiler_outdoortemp/config", "discovery.ems_esp", "boiler_outdoortemp")
+
+	fired := 0
+	tracker.SetOnChange(func() { fired++ })
+
+	tracker.MarkKnown("discovery.ems_esp", "boiler_outdoortemp") // ordinary first-sighting
+	if fired != 0 {
+		t.Errorf("expected no onChange for an ordinary first-sighting MarkKnown, got %d calls", fired)
+	}
+
+	tracker.MarkRetracted("physical/sensor/ems-esp/boiler_outdoortemp/config") // real transition in
+	if fired != 1 {
+		t.Errorf("expected exactly one onChange for the retraction transition, got %d calls", fired)
+	}
+
+	tracker.MarkKnown("discovery.ems_esp", "boiler_outdoortemp") // real transition out (resolved)
+	if fired != 2 {
+		t.Errorf("expected a second onChange once the leaf resolves, got %d calls", fired)
+	}
+}
+
 // TestDiscoveryExistenceTrackerPersistsAcrossRestart mirrors
 // TestEntityExistenceTrackerPersistsAcrossRestart (entity_existence_test.go) for the kind-2 tracker.
 func TestDiscoveryExistenceTrackerPersistsAcrossRestart(t *testing.T) {
@@ -242,7 +292,7 @@ func TestDiscoveryExistenceTrackerPersistsAcrossRestart(t *testing.T) {
 	second := newDiscoveryExistenceTracker(path)
 	second.Seed(fixtureDiscoveryFileForExistence())
 
-	if got := second.snapshot("discovery.ems_esp")["boiler_outdoortemp"]; got != StatusKnownToExist {
+	if got := second.AggregateSnapshot()["discovery.ems_esp"]["boiler_outdoortemp"]; got != StatusKnownToExist {
 		t.Errorf("status not restored across restart, got %q, want %q", got, StatusKnownToExist)
 	}
 }

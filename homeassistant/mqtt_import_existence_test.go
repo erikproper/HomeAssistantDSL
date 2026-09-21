@@ -101,15 +101,16 @@ func TestCheckImportKnownNotToExistErrorsFlagsConfirmedAbsence(t *testing.T) {
 	}
 
 	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
-	err := checkImportKnownNotToExistErrors(definitionDir, importedDevices, ctx)
-	if err == nil {
-		t.Fatalf("expected an error for the confirmed-absent co2 capability")
+	problems := checkImportKnownNotToExistErrors(definitionDir, importedDevices, ctx)
+	if len(problems) == 0 {
+		t.Fatalf("expected a problem for the confirmed-absent co2 capability")
 	}
-	if !strings.Contains(err.Error(), "co2") {
-		t.Errorf("error = %v, want it to name the co2 capability", err)
+	joined := strings.Join(problems, "\n")
+	if !strings.Contains(joined, "co2") {
+		t.Errorf("problems = %v, want it to name the co2 capability", problems)
 	}
-	if strings.Contains(err.Error(), `"node"`) {
-		t.Errorf("error = %v, want it to NOT flag node -- it's known-to-exist", err)
+	if strings.Contains(joined, `"node"`) {
+		t.Errorf("problems = %v, want it to NOT flag node -- it's known-to-exist", problems)
 	}
 }
 
@@ -132,15 +133,15 @@ func TestCheckImportKnownNotToExistErrorsOptimisticWhenUnresolved(t *testing.T) 
 	}
 
 	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
-	if err := checkImportKnownNotToExistErrors(definitionDir, importedDevices, ctx); err != nil {
-		t.Errorf("unresolved status must not block generation, got: %v", err)
+	if problems := checkImportKnownNotToExistErrors(definitionDir, importedDevices, ctx); len(problems) != 0 {
+		t.Errorf("unresolved status must not be reported as a problem, got: %v", problems)
 	}
 }
 
 func TestCheckImportKnownNotToExistErrorsNoDevicesIsNoop(t *testing.T) {
 	definitionDir := t.TempDir()
 	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
-	if err := checkImportKnownNotToExistErrors(definitionDir, nil, ctx); err != nil {
-		t.Errorf("no imported devices at all must be a no-op, got: %v", err)
+	if problems := checkImportKnownNotToExistErrors(definitionDir, nil, ctx); len(problems) != 0 {
+		t.Errorf("no imported devices at all must be a no-op, got: %v", problems)
 	}
 }

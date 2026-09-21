@@ -330,6 +330,22 @@ plus a coordinator-side inquiry loop, *not* HA's `mqtt_statestream`/`event_strea
 legacy in current Home Assistant, ruled out after this section originally cited statestream as the
 model to follow).
 
+**Availability composition is a further consequence of this split (2026-09-16).** Ideally every
+atomic capability (a physical device's own reading/control) reaches the main instance over MQTT —
+which is what makes it possible to refine one device's availability by ANDing in another's: Logical.def's
+`dependency on <device-id>;` (resolved generator-side into a flattened, cycle-checked
+`depends_on_availability:` topic list, ANDed together by the coordinator's `buildAvailabilityFields`).
+That mechanism only works for MQTT-published entities (`hosts`/`discovery`/`hassbridge`/`import`).
+An entity domain from this section's own exception list (`weather`, `media_player`, ...) is instead
+hard-wired straight into the main instance via a local HA integration — never routed through the
+coordinator, so there is no MQTT availability topic for `dependency on` to attach to. For those,
+availability has to be expressed the other way round: as a Jinja `availability:` template on the
+generator-authored YAML entity itself — the mechanism Logical.def's own `is available [with:
+enabler ...;]` capability shape already uses (e.g. Vienna's `apple_tv`/`tv` `node` entities, reusing
+`buildConditionBinarySensorYAML`'s existing condition-entity rendering). The two mechanisms don't
+share one code path — they're deliberately separate, matching which side of the MQTT boundary the
+entity in question lives on.
+
 ### 6.8 Typing-metadata defaults: `Defaults.def`, never coordinator-invented
 
 Every entity the coordinator discovery-publishes carries HA typing metadata — `device_class`,
@@ -552,6 +568,42 @@ first exposed by kind-5's one-time bulk seed of ~144/~28 bare entities per house
 always restarting from index 0. Deployed to both houses; confirmed live that each house's full
 backlog drained to completion (Vienna 395/395, Junglinster 1242/1242, 22 confirmed-absent) with no
 entries left stuck.
+
+**"Confirmed known-not-to-exist" downgraded from a hard build failure to a report, 2026-09-21
+(PROJECT.md item 1a, "stable ID-based link" architecture)** — this section's own hard-fail checks
+(`checkDiscoveryKnownNotToExistErrors`/`checkKnownNotToExistErrors`/
+`checkMainEntityKnownNotToExistErrors`, plus kind-4's `checkImportKnownNotToExistErrors`) had grown
+disproportionate: a single declared entity's physical source going away (a dead Zigbee battery, a
+rebooting router) aborted `./generate` for the *entire house*, blocking every other unrelated
+change until the operator fixed or removed the one declaration. Agreed principle (memory:
+`project_stable_discovery_identity_architecture.md`, written after the Junglinster xanadu/disks_1
+passthrough name-collision incident): a vanished physical source must be *reported, not acted on*.
+
+Before touching anything, the four candidate "acting on it" mechanisms elsewhere in the coordinator
+were re-read and confirmed to already satisfy the principle as-is, so none were changed:
+`TDiscoveryPublisher.RetireMissing`/`watchForOrphanedDiscoveryTopics` (`discoverycleanup.go`) only
+ever retire a topic when the *operator's own* Physical.def/devices.yaml declaration stops producing
+it, never because a physical source vanished at runtime; `Publish`'s content-changed
+retire-then-republish re-registers under the *same* topic (same `unique_id`/`entity_id`), a
+same-identity refresh, not a rename or deletion; and `discoverybridge.go`'s empty-payload handler
+already tracks retraction correctly (`existenceTracker.MarkRetracted`) without ever actively
+retiring a *declared* entity's own relayed HA topic (only genuine raw-passthrough devices get
+retired there).
+
+The four check functions themselves changed from returning a hard `error` to returning
+`[]string` problems, collected by `Physical_Generator.go` into one `TMissingEntitiesReport`
+(new file, `missing_entities_report.go`) and written to `suggestions/missing.txt` — same
+non-blocking/stale-file-cleanup convention every other suggestions report already follows.
+
+The other half of the principle — a live indicator, not just a generate-time report — is a new
+coordinator-authored `binary_sensor.missing_declared_entities` (`device_class: problem`,
+`missing_declared_entities.go`), discovery-published directly by the coordinator (mirroring
+`meta_reload_restart.go`'s own self-authored-entity style, local broker only). It aggregates all
+three existence trackers (`TDiscoveryExistenceTracker`/`TEntityExistenceTracker`/
+`TImportExistenceTracker`, each gaining a `KnownNotToExistItems()` snapshot and an `onChange`
+callback fired only on a genuine transition into or out of known-not-to-exist), debounced/
+periodic-published exactly like every other tracker's own status mechanism in this file (30s
+debounce, 10min safety net). Deployed and confirmed live on both houses.
 
 ### 6.11 The coordinator's own runtime state must survive a deploy, not just a restart
 

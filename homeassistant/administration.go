@@ -104,11 +104,36 @@ type TAdministrationState struct {
 	// generateCoordinatorDevicesFile to enrich coordinator/devices.yaml.
 	DeviceConceptualLinks map[string]TDeviceConceptualLink
 
+	// DevicePositioningProvenance records the provenance string of the FIRST "device <spec> from
+	// <device-id> [with: ...];" positioning line seen for each device id -- used solely to give a
+	// duplicate positioning warning (registerDevicePositioning) a "first: .../second: ..." pair,
+	// mirroring AppendEntityRecord's own identical style. Real bug found live 2026-09-16 (Vienna's
+	// Conceptual.def): "device infrastructural:sonos/left from appliance.sonos-left;" was declared
+	// TWICE, verbatim, with no warning at all -- the second positioning's own auto-implied "node"
+	// silently no-opped via RegisterDiscoveryImpliedEntity's identical-entityName short-circuit
+	// (administration.go), which produces no warning by design (it's also the normal, harmless path
+	// for two DIFFERENT capability lines that happen to resolve to the same entity). A repeated
+	// DEVICE POSITIONING is a different, always-a-mistake case -- no legitimate DSL construct
+	// positions the same device id twice, so this is checked directly instead.
+	DevicePositioningProvenance map[string]string
+
 	// Our own HA entity id -> which "discovery" integration gateway device/leaf it's sourced
 	// from, for an "entity <spec> from <gateway-id>.<leaf>;" declaration in Spaces.def.
 	// Populated by registerDiscoveryEntityLink (Conceptual_DiscoveryEntities.go); read by
 	// generateDiscoveryIntegrationOutputs to write coordinator/discovery.yaml.
 	DiscoveryEntityLinks map[string]TDiscoveryEntityLink
+
+	// Device id -> the raw MQTT topics the coordinator must AND into every one of that device's
+	// own capabilities' availability, resolved once here (integration_logical_storage.go's
+	// resolveDependencyAvailabilityTopics, called from generator.go right after Logical.def/hosts
+	// are collected) from a Logical.def "device <id> with: dependency on <other-id>; end;"
+	// declaration sharing this same id -- already flattened across the full transitive dependency
+	// chain and cycle-checked. Consulted by Physical_Generator.go's own (independently re-parsed,
+	// same convention as every other kind) imported-device slice right before
+	// coordinator/imported.yaml is written, so that re-parse never has to re-walk the dependency
+	// graph or re-collect Logical.def itself. Empty/absent for a device id with no matching
+	// Logical.def declaration.
+	DependsOnAvailabilityTopics map[string][]string
 
 	// Physical.def's "defaults: for <domain>.<pattern>: ...; end; ... end;" rules
 	// (capability_defaults.go) -- device_class/unit/state_class/icon seeded onto every
@@ -116,6 +141,22 @@ type TAdministrationState struct {
 	// of its own. Set once by ParseEntitiesAndFillAdministration before registration begins;
 	// consulted by registerHassBridgeAttributeEntity (Conceptual_DeviceEntities.go).
 	CapabilityDefaults []TCapabilityDefaultRule
+
+	// Our own HA entity id -> which Logical.def device/capability-label it's sourced from, for a
+	// logical device's own "<domain>.<label>: ...;" capability (Conceptual_LogicalEntities.go) --
+	// mirrors DiscoveryEntityLinks' identical shape/purpose exactly, one level up: a logical
+	// device's OWN "switch.media"-style coercion capability needs to find its sibling "node"
+	// capability's already-resolved entity_id (for its own availability field), the same reverse
+	// lookup discovery's derived/availability capabilities already do against DiscoveryEntityLinks.
+	LogicalEntityLinks map[string]TLogicalEntityLink
+}
+
+// TLogicalEntityLink records, for one of our own HA entity ids, which Logical.def device and
+// capability label it's sourced from -- see TAdministrationState.LogicalEntityLinks' own doc
+// comment.
+type TLogicalEntityLink struct {
+	DeviceID string
+	Label    string
 }
 
 // TDiscoveryEntityLink records, for one of our own HA entity ids, which "discovery" integration
@@ -129,6 +170,12 @@ type TDiscoveryEntityLink struct {
 	GatewayDeviceID string
 	Leaf            string
 
+	// SourceDomain (2026-09-15), copied from the originating TDiscoveryCapability.SourceDomain --
+	// see that field's own doc comment (integration_discovery_storage.go). Empty in the ordinary
+	// case; non-empty only when Physical.def explicitly disambiguated a leaf id the gateway
+	// publishes under more than one raw domain.
+	SourceDomain string
+
 	// DeviceClass/Unit/StateClass/Icon are resolved the same way as every other capability's
 	// (resolveCapabilityDefaults, capability_defaults.go: a "defaults: for ...;" rule, then the
 	// code-level postfix table) -- a *gap-filler* only. The gateway's own natively-published
@@ -140,6 +187,21 @@ type TDiscoveryEntityLink struct {
 	Unit        string
 	StateClass  string
 	Icon        string
+
+	// ValueTemplateWrap (2026-09-15), set only when this entity's Physical.def capability is
+	// "derived DDD.NNN from EEE.MMM via TTT;" AND EEE.MMM is itself a "hidden" plain raw-leaf
+	// capability of the SAME gateway (registerDiscoveryDerivedFromRawLeafEntityLink,
+	// Conceptual_DiscoveryEntities.go) -- Leaf above is then the HIDDEN sibling's own raw leaf
+	// (relayed directly, never materialized as its own entity), and TTT ("$" standing for the
+	// gateway's own native value_template, e.g. "value_json['pressure']") tells the coordinator's
+	// buildRelayedDiscoveryConfig how to fold the adjustment into ONE MQTT-discovered entity's own
+	// value_template, instead of the older two-entity approach (a separate materialized raw entity
+	// plus a local HA condition/template sensor reading its state). Empty for every other kind of
+	// discovery entity link, including a "derived" capability whose sibling is NOT hidden (e.g.
+	// battery_alert derived from a real, independently-positioned battery_level) -- that case still
+	// needs the condition/template mechanism (registerDiscoveryDerivedEntityLink), since it reads
+	// another entity's own HA state, not a raw MQTT payload field.
+	ValueTemplateWrap string
 }
 
 // TDeviceConceptualLink records, for one Physical.def device id, the conceptual-layer HA
@@ -322,6 +384,13 @@ type TEntityRecord struct {
 	// Fields for media switch generation.
 	MediaSwitchPlayerName  string // HA entity name of the controlled media_player (e.g. "media_player.social/apartment/living_room/sonos")
 	MediaSwitchNoPlayInput string // optional source name that should NOT count as "playing" (e.g. "TV")
+	// MediaSwitchAvailabilityEntityID (2026-09-16, the logical layer's own "switch.media"
+	// coercion capability, Conceptual_LogicalEntities.go) is the already-resolved local entity_id
+	// of this same device's own "node" capability, when one exists -- folded into an
+	// "availability:" field on the generated switch YAML (buildLeafMediaSwitchYAML). Empty for
+	// the hand-written "media_switch" directive's own records (unchanged behaviour from before
+	// this field existed) and for a logical device with no "node" capability declared.
+	MediaSwitchAvailabilityEntityID string
 
 	// Fields for generic condition-based template entity generation.
 	ConditionSources  []string // normalised HA entity IDs for $/$1/$2/... in the condition expression
@@ -380,7 +449,10 @@ func newAdministrationState() *TAdministrationState {
 		SpaceSwitchOnByName:          map[string][]string{},
 		NodeRepresentativeByEntityID: map[string]string{},
 		DeviceConceptualLinks:        map[string]TDeviceConceptualLink{},
+		DevicePositioningProvenance:  map[string]string{},
 		DiscoveryEntityLinks:         map[string]TDiscoveryEntityLink{},
+		DependsOnAvailabilityTopics:  map[string][]string{},
+		LogicalEntityLinks:           map[string]TLogicalEntityLink{},
 		ConceptualUseBySource:        map[string]TConceptualSourceUse{},
 	}
 
@@ -719,7 +791,21 @@ func (state *TAdministrationState) RecordHeatingLeak(spaceName string, entities 
 // registering them here ensures that heating leak: directives that reference them (e.g.
 // "heating leak: binary_sensor.social:door" in a space that has a physical door sensor)
 // pass RunPostParseChecks without a false undeclared-entity warning.
+//
+// Real bug found live 2026-09-18: this used to derive a placeholder for EVERY subdomain seen
+// (any binary_sensor's own last path segment -- "battery_alert", "node", "windy", "sunny", ...),
+// not just the four (binarySensorSubdomains, generator.go) generateBinarySensorSubdomainGroups
+// actually backs with a real group entity. Every other subdomain got a customization file
+// (generateCustomizationFiles iterates all EntityRecords unconditionally) for an entity_id no
+// generation step ever creates -- caught live via Vienna's "windy": HA correctly never has
+// binary_sensor.social_terrace_windy, yet the generator wrote it a customize.yaml stanza anyway.
+// Restricting the source subdomains here to the same fixed list closes the gap at its root.
 func (state *TAdministrationState) DeriveBinarySensorSubdomainAggregates() {
+	trackedSubdomains := map[string]bool{}
+	for _, sub := range binarySensorSubdomains {
+		trackedSubdomains[sub] = true
+	}
+
 	// derivedSubs[spaceName] = set of subdomains for which an aggregate was derived.
 	derivedSubs := map[string]map[string]bool{}
 
@@ -737,7 +823,11 @@ func (state *TAdministrationState) DeriveBinarySensorSubdomainAggregates() {
 				continue
 			}
 			parts := strings.Split(rec.Identity.Path, "/")
-			subdomains[parts[len(parts)-1]] = true
+			sub := parts[len(parts)-1]
+			if !trackedSubdomains[sub] {
+				continue
+			}
+			subdomains[sub] = true
 		}
 
 		// Propagate subdomains from direct child spaces.
@@ -863,7 +953,11 @@ func (state *TAdministrationState) deriveEntityIfAbsent(spaceName, entityName, p
 // be used once at the conceptual layer" rule (PROJECT.md item 0b), and is reported directly here
 // rather than threaded back through callers, mirroring AppendEntityRecord's own same-space
 // duplicate-registration warning.
-func (state *TAdministrationState) RegisterDiscoveryImpliedEntity(spaceName, entityName, provenance, sourceKey string) {
+//
+// noCollect mirrors AppendEntityRecord's own flag (a discovery-sourced raw leaf can need it just
+// as much as a generator-authored one -- e.g. a smart plug's own PCB temperature reading must stay
+// out of its room's aggregated "average temperature" group sensor).
+func (state *TAdministrationState) RegisterDiscoveryImpliedEntity(spaceName, entityName, provenance, sourceKey string, noCollect bool) {
 	if sourceKey != "" {
 		if existing, seen := state.ConceptualUseBySource[sourceKey]; seen {
 			if existing.EntityName != entityName {
@@ -885,6 +979,7 @@ func (state *TAdministrationState) RegisterDiscoveryImpliedEntity(spaceName, ent
 		Identity:              extractEntityIdentity(entityName),
 		HasDefinitionOrImport: false,
 		DiscoveryImplied:      true,
+		NoCollect:             noCollect,
 		Provenance:            provenance,
 	}
 	state.RegisterEntityClosure(TPendingEntityCollection{

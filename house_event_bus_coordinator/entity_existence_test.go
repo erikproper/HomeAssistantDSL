@@ -570,6 +570,49 @@ func TestEntityExistenceTrackerRecordGroupsByDevice(t *testing.T) {
 	}
 }
 
+// TestEntityExistenceTrackerKnownNotToExistItems confirms the sorted "<instance>/<sourceEntity>"
+// snapshot PROJECT.md item 1a's live indicator (missing_declared_entities.go) reads from -- covers
+// kind-3 and kind-5 both, since they share this one tracker.
+func TestEntityExistenceTrackerKnownNotToExistItems(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.Seed(fixtureBridgeFileForExistence())
+	tracker.Record("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide", true, "412.3", "", "", "", "", "")
+	tracker.Record("protocols-server-2", "sensor.davids_bedroom_humidity", false, "", "", "", "", "", "")
+
+	items := tracker.KnownNotToExistItems()
+	if len(items) != 1 || items[0] != "protocols-server-2/sensor.davids_bedroom_humidity" {
+		t.Errorf("KnownNotToExistItems() = %v, want [\"protocols-server-2/sensor.davids_bedroom_humidity\"]", items)
+	}
+}
+
+// TestEntityExistenceTrackerOnChangeFiresOnlyOnRealTransition mirrors
+// TestDiscoveryExistenceTrackerOnChangeFiresOnlyOnRealTransition (discovery_existence_test.go) for
+// the shared kind-3/kind-5 tracker: onChange must fire on a genuine transition into or out of
+// StatusKnownNotToExist, never for an ordinary known-to-exist confirmation/refresh that never
+// touched that status at all.
+func TestEntityExistenceTrackerOnChangeFiresOnlyOnRealTransition(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.Seed(fixtureBridgeFileForExistence())
+
+	fired := 0
+	tracker.SetOnChange(func() { fired++ })
+
+	tracker.Record("protocols-server-2", "sensor.davids_bedroom_carbon_dioxide", true, "412.3", "", "", "", "", "")
+	if fired != 0 {
+		t.Errorf("expected no onChange for an ordinary known-to-exist confirmation, got %d calls", fired)
+	}
+
+	tracker.Record("protocols-server-2", "sensor.davids_bedroom_humidity", false, "", "", "", "", "", "")
+	if fired != 1 {
+		t.Errorf("expected exactly one onChange for the known-not-to-exist transition, got %d calls", fired)
+	}
+
+	tracker.Record("protocols-server-2", "sensor.davids_bedroom_humidity", true, "55", "", "", "", "", "")
+	if fired != 2 {
+		t.Errorf("expected a second onChange once the entity resolves, got %d calls", fired)
+	}
+}
+
 // TestRecordStoresLiveTypingOnlyWhenKnownToExist covers the 2026-09-06 addition: unit_of_measurement/
 // device_class piggyback on the existing inquiry reply, so LiveTyping can serve as a fallback
 // typing source (discoveryhassbridge.go) when Physical.def/Defaults.def set nothing. A

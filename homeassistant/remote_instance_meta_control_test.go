@@ -17,72 +17,24 @@ func TestMetaRestartRequestTopic(t *testing.T) {
 	}
 }
 
-func TestMetaReloadAutomationBodyTriggersOnOwnTopicAndCallsEveryReloadService(t *testing.T) {
+// TestMetaReloadAutomationBodyTriggersOnOwnTopicAndCallsReloadAll is the regression test for the
+// 2026-09-17 simplification: this used to be several independent automations hand-listing every
+// "<domain>.reload" service (to work around HA's script engine re-raising ServiceNotFound
+// regardless of continue_on_error, plus automation.reload's own self-cancellation needing a
+// delayed, isolated automation) -- replaced with a single call to homeassistant.reload_all, HA's
+// own first-party equivalent of the UI's "Reload all YAML configuration" quick action (confirmed
+// present live on Vienna, HA Core 2026.9.2), which sidesteps that whole problem class since it's
+// HA's own internal orchestration, not a hand-rolled reimplementation of it.
+func TestMetaReloadAutomationBodyTriggersOnOwnTopicAndCallsReloadAll(t *testing.T) {
 	body := metaReloadAutomationBody("main")
 	if !strings.Contains(body, `topic: "meta/reload/main/request"`) {
 		t.Errorf("body = %s, want it to trigger on meta/reload/main/request", body)
 	}
-	for _, service := range append(append([]string{}, metaReloadServices...), "homeassistant.reload_core_config", "automation.reload") {
-		if !strings.Contains(body, "service: "+service) {
-			t.Errorf("body missing a plain static call to %q: %s", service, body)
-		}
+	if !strings.Contains(body, "service: homeassistant.reload_all") {
+		t.Errorf("body = %s, want a homeassistant.reload_all call", body)
 	}
-	if !strings.Contains(body, "continue_on_error: true") {
-		t.Errorf("body = %s, want every reload step to continue_on_error so one missing domain doesn't abort the rest", body)
-	}
-}
-
-// TestMetaReloadAutomationBodyCallsAutomationReloadLast is a regression test for a real bug found
-// live 2026-09-08 (protocols-server-2): automation.reload reloads and recreates every automation
-// entity, including this one, mid-run -- HA cancels its own currently-executing script as a direct
-// consequence (asyncio.CancelledError, then InvalidStateError from the entity's own removal-future
-// being resolved twice), and any action listed AFTER automation.reload silently never runs once
-// that hits. When automation.reload was the FIRST action, this meant script.reload and every
-// optional domain reload plus homeassistant.reload_core_config never executed at all -- the whole
-// point of "reload," gone, with no obviously visible error. automation.reload must be the very
-// last action, so every other reload has already completed by the time it (unavoidably)
-// cancels itself.
-func TestMetaReloadAutomationBodyCallsAutomationReloadLast(t *testing.T) {
-	body := metaReloadAutomationBody("main")
-	lines := strings.Split(body, "\n")
-	var serviceLines []string
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "- service:") {
-			serviceLines = append(serviceLines, trimmed)
-		}
-	}
-	if len(serviceLines) == 0 {
-		t.Fatalf("body has no service calls at all: %s", body)
-	}
-	last := serviceLines[len(serviceLines)-1]
-	if last != "- service: automation.reload" {
-		t.Errorf("last service call = %q, want \"- service: automation.reload\" (must be dead last -- it cancels its own currently-executing script, so everything else must already be done): %s", last, body)
-	}
-	for _, line := range serviceLines[:len(serviceLines)-1] {
-		if line == "- service: automation.reload" {
-			t.Errorf("automation.reload appears before the final action -- everything after it would silently never run: %s", body)
-		}
-	}
-}
-
-// TestMetaReloadAutomationBodyTemplatesOptionalServiceNames is a regression test for a real bug
-// found live 2026-09-06: HA statically validates a literal "service: template.reload" at
-// automation-LOAD time, so an instance with no YAML template entities configured got a persistent
-// "unknown action" Repair issue -- continue_on_error can't help with that, since it only guards a
-// RUNTIME failure, never a load-time validation error. Every optional/config-dependent domain's
-// reload call must instead use a Jinja-templated service name, which HA can't statically
-// validate and so defers checking to execution time.
-func TestMetaReloadAutomationBodyTemplatesOptionalServiceNames(t *testing.T) {
-	body := metaReloadAutomationBody("main")
-	for _, service := range metaOptionalReloadServices {
-		want := `service: "{{ '` + service + `' }}"`
-		if !strings.Contains(body, want) {
-			t.Errorf("body missing templated call %q (would otherwise be statically validated and risk a persistent Repair issue on an instance without that domain configured): %s", want, body)
-		}
-		if strings.Contains(body, "service: "+service+"\n") {
-			t.Errorf("body = %s, want %q called only via a templated service name, never a plain static one", body, service)
-		}
+	if strings.Count(body, "- alias:") != 1 {
+		t.Errorf("body = %s, want exactly one automation (no per-domain isolation needed anymore)", body)
 	}
 }
 

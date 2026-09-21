@@ -38,3 +38,40 @@ func TestCollectMainEntityIDsDedupesAndSorts(t *testing.T) {
 		t.Errorf("collectMainEntityIDs = %v, want %v", got, want)
 	}
 }
+
+// TestCollectDiscoveryImpliedEntityIDs is the exact inverse selection of TestCollectMainEntityIDs --
+// see collectDiscoveryImpliedEntityIDs' own doc comment for the real bug this exists to prevent
+// (found live 2026-09-20: every discovery-declared device's own entities kept reappearing in
+// suggestions/home_assistant_main.txt as unclaimed "hass.discovered_..." blocks).
+func TestCollectDiscoveryImpliedEntityIDs(t *testing.T) {
+	admin := newAdministrationState()
+	admin.EntityRecordsBySpace["root"] = []TEntityRecord{
+		{Name: "sensor.physical:door/aqara_multi/temperature", HasDefinitionOrImport: false, DiscoveryImplied: false},
+		{Name: "sensor.social:total_power", HasDefinitionOrImport: true, DiscoveryImplied: false},
+		{Name: "sensor.infrastructural:smarty/cpu/load", HasDefinitionOrImport: false, DiscoveryImplied: true},
+	}
+
+	got := collectDiscoveryImpliedEntityIDs(admin)
+	if len(got) != 1 || got[0] != "sensor.infrastructural_smarty_cpu_load" {
+		t.Errorf("collectDiscoveryImpliedEntityIDs = %v, want exactly [sensor.infrastructural_smarty_cpu_load]", got)
+	}
+}
+
+// TestCollectDiscoveryImpliedEntityIDsDedupesAndSorts mirrors
+// TestCollectMainEntityIDsDedupesAndSorts for the discovery-implied side.
+func TestCollectDiscoveryImpliedEntityIDsDedupesAndSorts(t *testing.T) {
+	admin := newAdministrationState()
+	admin.EntityRecordsBySpace["a"] = []TEntityRecord{
+		{Name: "sensor.social:zebra", DiscoveryImplied: true},
+	}
+	admin.EntityRecordsBySpace["b"] = []TEntityRecord{
+		{Name: "sensor.social:aardvark", DiscoveryImplied: true},
+		{Name: "sensor.social:zebra", DiscoveryImplied: true},
+	}
+
+	got := collectDiscoveryImpliedEntityIDs(admin)
+	want := []string{"sensor.social_aardvark", "sensor.social_zebra"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("collectDiscoveryImpliedEntityIDs = %v, want %v", got, want)
+	}
+}

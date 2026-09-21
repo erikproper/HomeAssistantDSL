@@ -167,6 +167,10 @@ func fetchEntityExistencePreferringCloud(ctx TPhysicalGenerationContext, instanc
 // declarations is, by construction, this same house's own instance, so the local broker never needs
 // disambiguating.
 func fetchEntityExistenceFromBroker(secrets TMQTTBrokerSecrets, instanceName, ownInstallation string) (TEntityExistenceStatusPayload, error) {
+	if err, known := brokerKnownUnreachable(secrets); known {
+		return nil, fmt.Errorf("broker %s:%s already known unreachable this run: %w", secrets.Server, secrets.Port, err)
+	}
+
 	topic := existenceStatusTopic(instanceName)
 	if ownInstallation != "" {
 		topic = ownInstallation + "/" + topic
@@ -182,14 +186,21 @@ func fetchEntityExistenceFromBroker(secrets TMQTTBrokerSecrets, instanceName, ow
 	opts.SetUsername(secrets.Login)
 	opts.SetPassword(secrets.Password)
 	opts.SetConnectTimeout(fetchExistenceTimeout)
+	// See mqtt_discovery_existence.go's identical call for why: a one-shot fetch client must
+	// never keep retrying in the background after this function itself has given up.
+	opts.SetAutoReconnect(false)
 
 	client := mqtt.NewClient(opts)
 	token := client.Connect()
 	if !token.WaitTimeout(fetchExistenceTimeout) || token.Error() != nil {
-		if err := token.Error(); err != nil {
-			return nil, fmt.Errorf("connecting to MQTT broker %s:%s: %w", secrets.Server, secrets.Port, err)
+		var err error
+		if tokenErr := token.Error(); tokenErr != nil {
+			err = fmt.Errorf("connecting to MQTT broker %s:%s: %w", secrets.Server, secrets.Port, tokenErr)
+		} else {
+			err = fmt.Errorf("connecting to MQTT broker %s:%s: timed out", secrets.Server, secrets.Port)
 		}
-		return nil, fmt.Errorf("connecting to MQTT broker %s:%s: timed out", secrets.Server, secrets.Port)
+		markBrokerUnreachable(secrets, err)
+		return nil, err
 	}
 	defer client.Disconnect(250)
 
@@ -220,14 +231,18 @@ func fetchEntityExistenceFromBroker(secrets TMQTTBrokerSecrets, instanceName, ow
 }
 
 // checkKnownNotToExistErrors fetches (fetch-then-cache-fallback) existence status for every
-// distinct instance hassBridgeDevicesByID references, and returns a combined error listing every
-// declared capability whose source entity the coordinator has confirmed known-not-to-exist --
-// PROJECT.md 1.1's own rule: this is the *only* status that blocks generation; not-known-to-exist
-// (unresolved) and known-to-exist both generate optimistically, same as before this mechanism
-// existed. Soft-fails (a warning, not an error) per instance when neither a fresh read nor a cache
-// is available -- an instance the coordinator hasn't reported on yet shouldn't block generation
-// any more than "no cache yet" already doesn't for the older manifest mechanism.
-func checkKnownNotToExistErrors(definitionDir string, hassBridgeDevicesByID map[string]THassBridgeDevice, ctx TPhysicalGenerationContext) error {
+// distinct instance hassBridgeDevicesByID references, and returns every declared capability whose
+// source entity the coordinator has confirmed known-not-to-exist. not-known-to-exist (unresolved)
+// and known-to-exist both generate optimistically. Soft-fails (a warning, not an error) per
+// instance when neither a fresh read nor a cache is available -- an instance the coordinator
+// hasn't reported on yet shouldn't block generation any more than "no cache yet" already doesn't
+// for the older manifest mechanism.
+//
+// Returns problems for the caller to fold into a TMissingEntitiesReport (missing_entities_report.go)
+// rather than an error -- PROJECT.md item 1a (2026-09-21, "stable ID-based link" architecture): see
+// checkDiscoveryKnownNotToExistErrors' own doc comment (mqtt_discovery_existence.go) for the full
+// rationale, identical here.
+func checkKnownNotToExistErrors(definitionDir string, hassBridgeDevicesByID map[string]THassBridgeDevice, ctx TPhysicalGenerationContext) []string {
 	instanceNames := map[string]bool{}
 	for _, device := range hassBridgeDevicesByID {
 		for _, instance := range device.Instances {
@@ -322,11 +337,10 @@ func checkKnownNotToExistErrors(definitionDir string, hassBridgeDevicesByID map[
 		}
 	}
 
-	if len(problems) == 0 {
-		return nil
+	if len(problems) > 0 {
+		fmt.Printf("[physical] entity existence check: the coordinator has confirmed %d declared capability/capabilities reference an entity that does not exist -- see suggestions/missing.txt\n", len(problems))
 	}
-	return fmt.Errorf("entity existence check failed -- the coordinator has confirmed %d declared capability/capabilities reference an entity that does not exist:\n  %s",
-		len(problems), strings.Join(problems, "\n  "))
+	return problems
 }
 
 // checkMainEntityKnownNotToExistErrors is checkKnownNotToExistErrors' kind-5 counterpart
@@ -335,9 +349,10 @@ func checkKnownNotToExistErrors(definitionDir string, hassBridgeDevicesByID map[
 // a bare Spaces.def entity is just a name -- so this scans every device bucket in instance "main"'s
 // own status payload (including the "" no-device bucket) for a matching entry, rather than
 // indexing by device id the way checkKnownNotToExistErrors does. Same rule as every other kind:
-// this is the *only* status that blocks generation; not-known-to-exist and known-to-exist both
-// generate optimistically.
-func checkMainEntityKnownNotToExistErrors(definitionDir string, mainEntityIDs []string, ctx TPhysicalGenerationContext) error {
+// not-known-to-exist and known-to-exist both generate optimistically -- see
+// checkDiscoveryKnownNotToExistErrors' own doc comment for why confirmed-missing is now reported
+// rather than a build-blocking error (PROJECT.md item 1a, 2026-09-21).
+func checkMainEntityKnownNotToExistErrors(definitionDir string, mainEntityIDs []string, ctx TPhysicalGenerationContext) []string {
 	if len(mainEntityIDs) == 0 {
 		return nil
 	}
@@ -363,11 +378,10 @@ func checkMainEntityKnownNotToExistErrors(definitionDir string, mainEntityIDs []
 		problems = append(problems, fmt.Sprintf("%s: confirmed not to exist on instance \"main\"", entityID))
 	}
 
-	if len(problems) == 0 {
-		return nil
+	if len(problems) > 0 {
+		fmt.Printf("[physical] main-instance entity existence check: the coordinator has confirmed %d declared entit(y/ies) do not exist -- see suggestions/missing.txt\n", len(problems))
 	}
-	return fmt.Errorf("main-instance entity existence check failed -- the coordinator has confirmed %d declared entit(y/ies) do not exist:\n  %s",
-		len(problems), strings.Join(problems, "\n  "))
+	return problems
 }
 
 // existenceStatusKnownNotToExist/existenceStatusKnownToExist mirror house_event_bus_coordinator's
@@ -462,6 +476,33 @@ func usedHassBridgeEntityIDs(hassBridgeDevicesByID map[string]THassBridgeDevice,
 	return used
 }
 
+// ignoredHassBridgeDeviceIDs returns every "home_assistant" bridge device id belonging to
+// instanceName that declared "ignore other capabilities;" -- see
+// THassBridgeDevice.IgnoreOtherCapabilities' own doc comment.
+func ignoredHassBridgeDeviceIDs(hassBridgeDevicesByID map[string]THassBridgeDevice, instanceName string) map[string]bool {
+	ignored := map[string]bool{}
+	for deviceID, device := range hassBridgeDevicesByID {
+		if device.IgnoreOtherCapabilities && containsString(device.Instances, instanceName) {
+			ignored[deviceID] = true
+		}
+	}
+	return ignored
+}
+
+// ignoredHostDeviceIDs returns every "hosts" device id that declared "ignore other
+// capabilities;" -- a "hosts" device's own entities always live on "main" (no per-instance
+// targeting the way a hassbridge device's Instances has), so this is unconditional. See
+// THostDevice.IgnoreOtherCapabilities' own doc comment.
+func ignoredHostDeviceIDs(hostDevicesByID map[string]THostDevice) map[string]bool {
+	ignored := map[string]bool{}
+	for deviceID, device := range hostDevicesByID {
+		if device.IgnoreOtherCapabilities {
+			ignored[deviceID] = true
+		}
+	}
+	return ignored
+}
+
 // declaredDeviceIDByEntity returns, for every bare source entity_id already referenced by a
 // declared "home_assistant" bridge device belonging to instanceName, that device's own Physical.def
 // id -- the real, human-chosen name Physical.def has already given it. Physical.def is always the
@@ -490,6 +531,46 @@ func declaredDeviceIDByEntity(hassBridgeDevicesByID map[string]THassBridgeDevice
 	return declared
 }
 
+// expandUsedAcrossDiscoverySourcedDeviceGroups extends used in place: for every device grouping in
+// status that already contains at least one discovery-implied entity (discoveryImpliedEntityIDs --
+// an entity the coordinator's own "discovery" integration relay produces, collectDiscoveryImpliedEntityIDs'
+// own doc comment), every OTHER entity sharing that SAME device grouping is marked used too, even
+// when discoveryImpliedEntityIDs doesn't itself name it.
+//
+// Real bug found live 2026-09-21 (Vienna): signify_dimmer's own Conceptual.def positions only its
+// "event" domain leaf, never the "sensor" domain mirror Zigbee2MQTT ALSO publishes for the same
+// shared unique_id (the same shared-unique_id situation bj/Moes have, see MigrationNotes.def) --
+// but a pre-migration relay of that sensor-domain leaf left a real (now permanently "unavailable")
+// entity sitting in HA's own state machine, grouped by HA's device registry alongside the two
+// properly-declared discovery entities (event + battery_level). It kept reappearing as a
+// "hass.discovered_..." hassbridge suggestion -- structurally the wrong kind of suggestion even
+// when accurate, since a hassbridge cross-post declaration doesn't apply to an entity this same
+// instance's own discovery integration already produces; and in this specific case not even
+// accurate, since the entity is an orphan nothing produces any more. Either way, once a device is
+// known (via even one sibling) to be discovery-sourced, none of its other entities are genuine
+// hassbridge candidates.
+func expandUsedAcrossDiscoverySourcedDeviceGroups(status TEntityExistenceStatusPayload, discoveryImpliedEntityIDs []string, used map[string]bool) {
+	discoveryImplied := make(map[string]bool, len(discoveryImpliedEntityIDs))
+	for _, id := range discoveryImpliedEntityIDs {
+		discoveryImplied[id] = true
+	}
+	for _, deviceStatus := range status {
+		hasDiscoverySourcedSibling := false
+		for entityID := range deviceStatus.Entities {
+			if discoveryImplied[entityID] {
+				hasDiscoverySourcedSibling = true
+				break
+			}
+		}
+		if !hasDiscoverySourcedSibling {
+			continue
+		}
+		for entityID := range deviceStatus.Entities {
+			used[entityID] = true
+		}
+	}
+}
+
 // buildSuggestionReportFromExistence formats every known-to-exist entity (minus whatever used
 // already claims) as copy-paste-ready Physical.def "device ... with: ...; end;" blocks, grouped by
 // device id and sorted for deterministic output. A device id here starts out as either a real,
@@ -508,8 +589,25 @@ func declaredDeviceIDByEntity(hassBridgeDevicesByID map[string]THassBridgeDevice
 // block, never twice under two different names for the same physical device. not-known-to-exist and
 // known-not-to-exist entities are never suggested -- only a confirmed existence is copy-paste-worthy.
 // Entities with no device at all (device id "") are listed separately, commented out, same as the
-// old report's convention.
-func buildSuggestionReportFromExistence(status TEntityExistenceStatusPayload, used map[string]bool, declaredDeviceID map[string]string) string {
+// old report's convention -- these are usually not real "hassbridge candidates" at all (a bare
+// hassbridge candidate almost always has SOME device grouping) but leftovers from a since-changed
+// Conceptual.def/Logical.def declaration (a rename, a leaf-naming fix, a device consolidation --
+// e.g. individual Zigbee bulbs folded into a light group): the coordinator's existence check still
+// finds them live in HA (nothing ever deletes an orphaned registry entry on its own, see memory:
+// "a restart does NOT clean up orphaned registry entities"), but no current declaration produces
+// them any more. Confirmed live 2026-09-20 on Vienna: every entity in this bucket was absent from
+// every currently-generated YAML file. Flagged as such in the report itself (see the header text
+// below) so this bucket reads as "probably safe to delete from HA's entity registry" rather than
+// "an unclaimed hassbridge candidate, needs a device: block".
+//
+// ignoredDeviceIDs (2026-09-21) names every hassbridge/hosts device that declared its own "ignore
+// other capabilities;" (THassBridgeDevice/THostDevice's identically-named field) -- checked against
+// BOTH deviceID and its resolved displayDeviceID, since either might be the declared id depending
+// on whether the coordinator's own existence check already recognizes it under its real name. A
+// matching device's entire block is skipped outright, not just its individual entities: the whole
+// point of the directive is "I already know what else is here; stop suggesting it," so even an
+// entity type not seen before should still be silenced rather than surfacing as a surprise later.
+func buildSuggestionReportFromExistence(status TEntityExistenceStatusPayload, used map[string]bool, declaredDeviceID map[string]string, ignoredDeviceIDs map[string]bool) string {
 	deviceIDs := make([]string, 0, len(status))
 	for id := range status {
 		if id != "" {
@@ -530,6 +628,9 @@ func buildSuggestionReportFromExistence(status TEntityExistenceStatusPayload, us
 		if len(realNames) > 0 {
 			sort.Strings(realNames)
 			displayDeviceID = realNames[0]
+		}
+		if ignoredDeviceIDs[displayDeviceID] || ignoredDeviceIDs[deviceID] {
+			continue
 		}
 
 		entityIDs := make([]string, 0, len(status[deviceID].Entities))
@@ -566,7 +667,7 @@ func buildSuggestionReportFromExistence(status TEntityExistenceStatusPayload, us
 					suffix = guess
 				}
 			}
-			lhs := domain + "." + suffix + ":"
+			lhs := domain + "." + suffix
 			if len(lhs) > maxLHS {
 				maxLHS = len(lhs)
 			}
@@ -589,7 +690,10 @@ func buildSuggestionReportFromExistence(status TEntityExistenceStatusPayload, us
 		}
 		if len(standalone) > 0 {
 			sort.Strings(standalone)
-			sb.WriteString("# entities with no known device grouping:\n")
+			sb.WriteString("# entities with no known device grouping -- likely orphaned (no longer produced by\n")
+			sb.WriteString("# any current Physical.def/Conceptual.def/Logical.def declaration, e.g. after a rename\n")
+			sb.WriteString("# or device consolidation); check history, then probably safe to delete from HA's own\n")
+			sb.WriteString("# entity registry rather than positioned:\n")
 			for _, entityID := range standalone {
 				sb.WriteString("# " + entityID + "\n")
 			}
@@ -610,7 +714,7 @@ func buildSuggestionReportFromExistence(status TEntityExistenceStatusPayload, us
 // into instance "main"'s own `used` set -- without this, every already-declared bare entity would
 // be suggested right back as if unclaimed, since usedHassBridgeEntityIDs only knows about
 // hassbridge-declared sources, not kind-5's own flat list.
-func generateEntityCatalogueSuggestions(definitionDir, outputRoot string, instances map[string]THomeAssistantInstance, hassBridgeDevicesByID map[string]THassBridgeDevice, mainEntityIDs []string, ctx TPhysicalGenerationContext) error {
+func generateEntityCatalogueSuggestions(definitionDir, outputRoot string, instances map[string]THomeAssistantInstance, hassBridgeDevicesByID map[string]THassBridgeDevice, hostDevicesByID map[string]THostDevice, mainEntityIDs []string, discoveryImpliedEntityIDs []string, ctx TPhysicalGenerationContext) error {
 	if !ctx.HasMQTTSecrets || len(instances) == 0 {
 		return nil
 	}
@@ -632,12 +736,45 @@ func generateEntityCatalogueSuggestions(definitionDir, outputRoot string, instan
 		}
 		declared := declaredDeviceIDByEntity(hassBridgeDevicesByID, name)
 		used := usedHassBridgeEntityIDs(hassBridgeDevicesByID, name)
+		ignoredDeviceIDs := ignoredHassBridgeDeviceIDs(hassBridgeDevicesByID, name)
+		// Real bug found live 2026-09-21: this fold used to run only for name == "main" (matching
+		// mainEntityIDs/discoveryImpliedEntityIDs, which genuinely ARE main-only concepts), on the
+		// assumption a "hosts" device's own entities only ever appear on this house's own "main"
+		// instance -- but the coordinator's own existence check grouped node.fritz_box's
+		// undeclared "image" entity under the SAME real device id on the "protocols-server-2"
+		// instance's own report too (confirmed live: suggestions/home_assistant_protocols-
+		// server-2.txt), so an "ignore other capabilities;" declared on a hosts device must apply
+		// to every instance's report, not just main's.
+		for id := range ignoredHostDeviceIDs(hostDevicesByID) {
+			ignoredDeviceIDs[id] = true
+		}
 		if name == "main" {
 			for _, id := range mainEntityIDs {
 				used[id] = true
 			}
+			// Real bug found live 2026-09-20: every discovery-declared device's own entities kept
+			// reappearing here as "hass.discovered_..." suggestions -- they're already fully
+			// claimed by their own Physical.def/Conceptual.def declaration, just via a different
+			// mechanism (coordinator MQTT relay) than a hassbridge cross-post. See
+			// collectDiscoveryImpliedEntityIDs' own doc comment.
+			for _, id := range discoveryImpliedEntityIDs {
+				used[id] = true
+			}
+			// Real bug found live 2026-09-21: signify_dimmer's own Conceptual.def only positions
+			// its "event" domain leaf, never the "sensor" domain mirror Zigbee2MQTT ALSO publishes
+			// for the same shared unique_id (the same shared-unique_id situation as bj/Moes, see
+			// MigrationNotes.def) -- but the OLD, pre-migration relay for that sensor-domain leaf
+			// left a real (if now-orphaned, "unavailable" forever) entity sitting in HA's own state
+			// machine, grouped by HA's device registry under the SAME device as the two properly-
+			// declared discovery entities (event + battery_level). Once ANY sibling under a
+			// suggested device is known discovery-implied, every OTHER entity sharing that same
+			// device grouping is either an already-covered discovery leaf or an orphaned one --
+			// never a genuine hassbridge candidate (a hassbridge cross-post declaration doesn't
+			// even apply to an entity this same instance's own discovery integration already
+			// produced). See expandUsedAcrossDiscoverySourcedDeviceGroups' own doc comment.
+			expandUsedAcrossDiscoverySourcedDeviceGroups(status, discoveryImpliedEntityIDs, used)
 		}
-		report := buildSuggestionReportFromExistence(status, used, declared)
+		report := buildSuggestionReportFromExistence(status, used, declared, ignoredDeviceIDs)
 		suggestionPath := filepath.Join(outputRoot, "suggestions", "home_assistant_"+name+".txt")
 		if strings.TrimSpace(report) == "" {
 			// Unlike a fetch failure, this *is* an authoritative "nothing to suggest right now" --

@@ -54,6 +54,22 @@ type TPhysicalGenerationContext struct {
 	// generatePhysicalIntegrationOutputs) since generateImportedDeviceFile needs them regardless
 	// of "import"/"hosts"/"home_assistant" block order in Physical.def.
 	ImportedDevices []TImportedDevice
+
+	// DiscoveryExistenceAggregate memoizes fetchDiscoveryExistenceAggregate's own result for the
+	// lifetime of a single generate run -- checkDiscoveryKnownNotToExistErrors and
+	// generateDiscoverySuggestions (mqtt_discovery_existence.go) each independently need discovery
+	// existence data, so without this the same aggregate fetch would happen twice. ctx is passed by
+	// value at both call sites, but a pointer field's pointee is still shared once allocated, so
+	// generatePhysicalIntegrationOutputs initializes this to a non-nil *tDiscoveryExistenceFetchResult
+	// exactly once, at ctx construction -- every copy of ctx from then on (including inside
+	// fetchDiscoveryExistenceAggregate itself) writes into that same pointee. The pointee's own
+	// "fetched" flag (not just a nil check) distinguishes "not fetched yet" from "fetched, got an
+	// empty/nil result" -- see tDiscoveryExistenceFetchResult's own doc comment.
+	//
+	// Replaced the earlier per-gateway map (DiscoveryExistenceCache) 2026-09-20 once discovery
+	// existence itself became one aggregate fetch instead of one per gateway -- see
+	// TDiscoveryExistenceAggregatePayload's own doc comment for why.
+	DiscoveryExistenceAggregate *tDiscoveryExistenceFetchResult
 }
 
 // integrationBodyParsers maps an "integration <name>" name to the function that turns its

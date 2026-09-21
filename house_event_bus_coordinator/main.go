@@ -148,6 +148,16 @@ func (f TDevicesFile) conceptualPrefix() string {
 // discoverybridge.go.
 type TDiscoveryGateway struct {
 	Identifiers []string `yaml:"identifiers"`
+
+	// IgnoreOtherCapabilities (2026-09-21), from Physical.def's "ignore other capabilities;" body
+	// line (homeassistant/integration_discovery_storage.go's own field of the same name carries
+	// the full rationale) -- tells matchingGateway to match this gateway by Identifiers only,
+	// never via another device's via_device pointing at one of them. Needed for a gateway that's
+	// genuinely the root of an entire network (e.g. the Zigbee2MQTT bridge itself) rather than one
+	// narrow multi-facet device: EVERY other device on that network sets via_device to the root,
+	// so without this every other device's leaves would match (and get attributed to) the root
+	// gateway too.
+	IgnoreOtherCapabilities bool `yaml:"ignore_other_capabilities,omitempty"`
 }
 
 // TDiscoveryEntityLink is one "entity <spec> from <gateway-id>.<leaf>;" link from devices.yaml's
@@ -157,6 +167,17 @@ type TDiscoveryEntityLink struct {
 	Gateway string `yaml:"gateway"`
 	Leaf    string `yaml:"leaf"`
 
+	// SourceDomain (2026-09-15), when non-empty, requires the incoming raw discovery message's
+	// own topic domain component to match this exactly, in addition to (Gateway, Leaf) --
+	// disambiguates a leaf id the gateway publishes under more than one raw domain for the same
+	// underlying property (real case: Vienna's Moes scene-remote buttons, whose "action" property
+	// gets both a legacy "sensor" text mirror and a richer "event" entity, identical unique_id).
+	// Empty (the common case) matches whichever raw domain publishes the leaf, same as before this
+	// field existed -- required for the existing, deliberate cross-domain relay pattern (e.g.
+	// "fan.core: 0x..._switch_zigbee2mqtt;", relaying a switch-domain-published leaf under a
+	// different declared conceptual domain) to keep working unchanged.
+	SourceDomain string `yaml:"source_domain,omitempty"`
+
 	// DeviceClass/Unit/StateClass/Icon are generator-resolved gap-fillers (Defaults.def, via
 	// resolveCapabilityDefaults) -- discoverybridge.go's buildRelayedDiscoveryConfig only uses
 	// these when the gateway's own natively-published discovery payload leaves the field empty,
@@ -165,6 +186,14 @@ type TDiscoveryEntityLink struct {
 	Unit        string `yaml:"unit,omitempty"`
 	StateClass  string `yaml:"state_class,omitempty"`
 	Icon        string `yaml:"icon,omitempty"`
+
+	// ValueTemplateWrap (2026-09-15), set only for a "derived ... from <hidden raw leaf> via
+	// TTT;" capability: TTT itself, "$" standing for the gateway's own native value_template
+	// expression. buildRelayedDiscoveryConfig folds it into the relayed entity's own
+	// value_template/state_value_template instead of using the gateway's raw extraction verbatim
+	// -- one MQTT-discovered entity computed at the source, no separate materialized raw entity or
+	// locally-computed HA template sensor needed.
+	ValueTemplateWrap string `yaml:"value_template_wrap,omitempty"`
 }
 
 // TDiscoveryFile is the top-level shape of a generated coordinator/discovery.yaml file --
@@ -344,6 +373,12 @@ func main() {
 	for t := range expectedMetaReloadRestartTopics(conceptualPrefix, devicesFile.Installation, homeAssistantInstancesFile.Instances) {
 		expectedTopics[t] = true
 	}
+	// Same reasoning again -- the "missing declared entities" indicator (missing_declared_entities.go,
+	// PROJECT.md item 1a) is also coordinator-owned, not derived from any devices/discovery/hassbridge
+	// file, and must be listed here explicitly.
+	for t := range expectedMissingDeclaredEntitiesTopics(conceptualPrefix) {
+		expectedTopics[t] = true
+	}
 
 	declaredCleanNodeIDs := make(map[string]bool, len(cleanupFile.CleanTopics))
 	for _, t := range cleanupFile.CleanTopics {
@@ -431,10 +466,12 @@ func main() {
 		// subscription below.
 		discoveryExistenceTracker = newDiscoveryExistenceTracker(filepath.Join(coordinatorDir, "discovery_existence.json"))
 		discoveryExistenceTracker.Seed(discoveryFile)
-		discoveryExistenceTracker.PublishAll(client, cloudClient, devicesFile.Installation, discoveryFile)
+		discoveryExistenceTracker.PublishAll(client, cloudClient, devicesFile.Installation)
+		discoveryExistenceTracker.StartPeriodicAggregateStatusPublish(client, cloudClient, devicesFile.Installation, DiscoveryExistenceStatusPeriodicInterval)
 		if err := passthroughDeviceTracker.PublishStatus(client, cloudClient, devicesFile.Installation); err != nil {
 			fmt.Printf("[discovery-passthrough] %v\n", err)
 		}
+		passthroughDeviceTracker.StartPeriodicStatusPublish(client, cloudClient, devicesFile.Installation, PassthroughStatusPeriodicInterval)
 		if err := subscribeDiscoveryBridge(client, cloudClient, devicesFile.Installation, discoveryFile, publisher, conceptualPrefix, discoveryExistenceTracker, passthroughFile.Passthrough, passthroughDeviceTracker, discoveryRelayJobs); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
@@ -557,6 +594,33 @@ func main() {
 		os.Exit(1)
 	}
 
+	// PROJECT.md item 1a (2026-09-21): the live "missing declared entities" indicator, aggregating
+	// all three existence trackers above -- wired up here, after all three already exist, rather
+	// than individually right after each one's own construction, so this is one shared closure
+	// instead of three near-identical ones. A transition that happens to land in the narrow window
+	// between an individual tracker's own construction (discoveryExistenceTracker's especially,
+	// constructed well before this point) and this SetOnChange call could in principle be missed,
+	// but StartPeriodicPublish's own 10-minute safety net below covers exactly that, same as every
+	// other tracker's own periodic-publish pair already accepts for its own analogous startup
+	// window.
+	missingDeclaredEntitiesPublisher := &TMissingDeclaredEntitiesPublisher{}
+	onMissingDeclaredEntitiesChange := func() {
+		missingDeclaredEntitiesPublisher.Schedule(client, discoveryExistenceTracker, existenceTracker, importExistenceTracker, MissingDeclaredEntitiesDebounceDelay)
+	}
+	if discoveryExistenceTracker != nil {
+		discoveryExistenceTracker.SetOnChange(onMissingDeclaredEntitiesChange)
+	}
+	existenceTracker.SetOnChange(onMissingDeclaredEntitiesChange)
+	importExistenceTracker.SetOnChange(onMissingDeclaredEntitiesChange)
+	if err := publishMissingDeclaredEntitiesDiscoveryConfig(client, conceptualPrefix, devicesFile.Installation); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	if err := missingDeclaredEntitiesPublisher.PublishNow(client, discoveryExistenceTracker, existenceTracker, importExistenceTracker); err != nil {
+		fmt.Printf("[missing-declared-entities] %v\n", err)
+	}
+	missingDeclaredEntitiesPublisher.StartPeriodicPublish(client, discoveryExistenceTracker, existenceTracker, importExistenceTracker, MissingDeclaredEntitiesPeriodicInterval)
+
 	// Arms reconnectHook (mqtt.go) now that every dependency below actually exists -- from this
 	// point on, ANY subsequent (re)connect of either client (a network blip resuming to the same
 	// broker, or, this migration's own real case, main_mqtt_server pointing at a brand new, empty
@@ -569,7 +633,7 @@ func main() {
 			fmt.Printf("[reconnect] publishDiscovery: %v\n", err)
 		}
 		if discoveryExistenceTracker != nil {
-			discoveryExistenceTracker.PublishAll(client, cloudClient, devicesFile.Installation, discoveryFile)
+			discoveryExistenceTracker.PublishAll(client, cloudClient, devicesFile.Installation)
 		}
 		if err := passthroughDeviceTracker.PublishStatus(client, cloudClient, devicesFile.Installation); err != nil {
 			fmt.Printf("[reconnect] passthroughDeviceTracker.PublishStatus: %v\n", err)
@@ -583,6 +647,12 @@ func main() {
 		}
 		if err := publishMetaReloadRestartButtons(client, conceptualPrefix, devicesFile.Installation, homeAssistantInstancesFile.Instances); err != nil {
 			fmt.Printf("[reconnect] publishMetaReloadRestartButtons: %v\n", err)
+		}
+		if err := publishMissingDeclaredEntitiesDiscoveryConfig(client, conceptualPrefix, devicesFile.Installation); err != nil {
+			fmt.Printf("[reconnect] publishMissingDeclaredEntitiesDiscoveryConfig: %v\n", err)
+		}
+		if err := missingDeclaredEntitiesPublisher.PublishNow(client, discoveryExistenceTracker, existenceTracker, importExistenceTracker); err != nil {
+			fmt.Printf("[reconnect] missingDeclaredEntitiesPublisher.PublishNow: %v\n", err)
 		}
 	})
 

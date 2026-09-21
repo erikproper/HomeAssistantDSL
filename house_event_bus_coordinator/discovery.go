@@ -309,7 +309,7 @@ func sanitizeTopicSegment(s string) string {
 // availabilityTopicFor is the shared "a device's node/connectivity entity gates every other
 // capability's availability" rule -- every discovery-config builder with a device-level node
 // entity follows it: hosts devices (buildDiscoveryConfigs' own attribute loop, below), hassbridge
-// (hassBridgeAvailabilityTopic, discoveryhassbridge.go), and imports (importedAvailabilityTopic,
+// (hassBridgeAvailabilityTopic, discoveryhassbridge.go), and imports (importedAvailabilityTopics,
 // discoveryimport.go). Generalised live 2026-08-31 from what started as hosts-only, then got
 // duplicated near-identically into the other two kinds -- one shared rule instead of three copies.
 // capability's own config must never reference itself -- "node" (the capability node's own
@@ -333,19 +333,24 @@ func availabilityTopicFor(nodeStateTopic, capability string) string {
 // reports is itself valid right now -- e.g. one Netatmo module's own reading can drop out
 // (upstream integration reports it "unavailable") while the module's own connectivity stays fine.
 // Availability is therefore the AND (availability_mode "all", the same mechanism Zigbee2MQTT's own
-// discovery configs already use to AND bridge-level + device-level availability) of up to two
-// factors:
+// discovery configs already use to AND bridge-level + device-level availability) of:
 //  1. stateTopic itself, always checked -- if the entity's own last-reported payload is literally
 //     "unavailable" (what a proxied HA entity's own state naturally becomes when its upstream
 //     integration can't read it, independent of device connectivity), it's unavailable.
-//  2. nodeTopic, when non-"" (the device's own connectivity signal, already gated via
-//     availabilityTopicFor -- "" for the node capability itself, or a device with no declared node
-//     capability, meaning only factor 1 applies).
+//  2. every one of nodeTopics (variadic, since 2026-09-16 -- see below), each treated identically:
+//     the device's own connectivity signal, or (PROJECT.md's logical-layer work) another device's
+//     own connectivity signal this one was declared to "depend on" (Logical.def, resolved
+//     generator-side into TImportedDevice.DependsOnAvailabilityTopics, already flattened across
+//     the full transitive dependency chain -- the coordinator never walks that graph itself, it
+//     just ANDs whatever flat topic list it's handed). Empty strings are skipped, so a caller can
+//     pass its own possibly-"" node topic (already gated via availabilityTopicFor -- "" for the
+//     node capability itself, or a device with no declared node capability) straight through
+//     without an extra branch at the call site.
 //
 // A further factor -- mixing in the availability of the compute node/host an entity's own
 // integration runs on (e.g. protocols-server-2 itself) -- is intentionally not built here; that's
 // a separate, later step per the user's own explicit sequencing.
-func buildAvailabilityFields(body map[string]interface{}, stateTopic, nodeTopic string) {
+func buildAvailabilityFields(body map[string]interface{}, stateTopic string, nodeTopics ...string) {
 	entries := []map[string]interface{}{
 		{
 			"topic":                 stateTopic,
@@ -354,7 +359,10 @@ func buildAvailabilityFields(body map[string]interface{}, stateTopic, nodeTopic 
 			"payload_not_available": mqttStateUnavailable,
 		},
 	}
-	if nodeTopic != "" {
+	for _, nodeTopic := range nodeTopics {
+		if nodeTopic == "" {
+			continue
+		}
 		// value_template normalises BOTH conventions a node topic can carry, rather than assuming
 		// one -- a hassbridge-kind node relays a real HA entity's own lowercase mqttStateOn/Off
 		// (applyProxiedBinarySensorPayload), but a hosts-kind node topic publishes the coordinator's
@@ -365,7 +373,8 @@ func buildAvailabilityFields(body map[string]interface{}, stateTopic, nodeTopic 
 		// here silently broke availability for an imported hosts-kind device's own node topic
 		// specifically (real bug found live 2026-09-08: an imported host's cpu/load sensor showed
 		// unavailable forever, since its own node topic's "true"/"false" never matched a hardcoded
-		// "on"/"off" check).
+		// "on"/"off" check). The same normalisation applies uniformly to every "dependency on" topic
+		// too -- a hosts-kind dependency is the only kind resolved today, always "true"/"false".
 		entries = append(entries, map[string]interface{}{
 			"topic":                 nodeTopic,
 			"value_template":        fmt.Sprintf("{{ '%s' if value in ['%s', '%s'] else '%s' }}", mqttStateOn, mqttStateOn, mqttBoolPayloadTrue, mqttStateOff),

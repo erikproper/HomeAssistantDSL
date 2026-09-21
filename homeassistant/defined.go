@@ -181,7 +181,7 @@ func unquoteShellValue(s string) string {
 
 // resolveMainIncarnationName reads Physical.def (plus combined Settings.def, which also
 // holds real secrets, for ${var} resolution) and returns the name declared by
-// "home_assistant main: <name> <url>;", e.g. "junglinster". Returns "" if Physical.def
+// "home_assistant main: <name>;", e.g. "junglinster". Returns "" if Physical.def
 // doesn't exist yet or has no such directive — callers should fall back to the
 // pre-instance-aware behaviour in that case, so houses that haven't adopted Physical.def
 // yet keep generating exactly as before.
@@ -197,16 +197,20 @@ func resolveMainIncarnationName(definitionDir string) string {
 
 	vars := parseDefinitionAssignments(settingsContent)
 
-	nameExpr, _ := parseHomeAssistantMainDirective(physicalContent)
+	nameExpr := parseHomeAssistantMainDirective(physicalContent)
 	if nameExpr == "" {
 		return ""
 	}
 	return resolveDefinitionReference(nameExpr, vars)
 }
 
-// parseHomeAssistantMainDirective extracts the two whitespace-separated tokens (name, url
-// expressions) from a "home_assistant main: <name> <url>;" line in Physical.def.
-func parseHomeAssistantMainDirective(physicalContent string) (nameExpr, urlExpr string) {
+// parseHomeAssistantMainDirective extracts the name expression from a "home_assistant main:
+// <name>;" line in Physical.def. A once-supported trailing "<url>" token was removed 2026-09-14
+// (dead weight from a design superseded by this generator's own MQTT-based instance routing --
+// generateInstanceAutomationTrees's bootstrap automations, mqtt_entity_catalogue.go's live entity
+// fetch -- nothing ever read it); a stray second token is now reported as a warning rather than
+// silently accepted.
+func parseHomeAssistantMainDirective(physicalContent string) (nameExpr string) {
 	pattern := regexp.MustCompile(`^home_assistant\s+main:\s*(.+?)\s*;\s*$`)
 	for _, rawLine := range strings.Split(strings.ReplaceAll(physicalContent, "\r\n", "\n"), "\n") {
 		line := strings.TrimSpace(rawLine)
@@ -218,31 +222,26 @@ func parseHomeAssistantMainDirective(physicalContent string) (nameExpr, urlExpr 
 		if len(fields) == 0 {
 			continue
 		}
-		nameExpr = fields[0]
 		if len(fields) > 1 {
-			urlExpr = fields[1]
+			fmt.Fprintf(os.Stderr, "[physical] \"home_assistant main: %s;\" has more than one token -- only the name is used, the rest is ignored\n", matches[1])
 		}
-		return nameExpr, urlExpr
+		return fields[0]
 	}
-	return "", ""
+	return ""
 }
 
-// THomeAssistantInstance is one "home_assistant <qualifier>: <name> <url>;" declaration in
-// Physical.def -- Name/URL still as their raw ${...} expressions, unresolved.
+// THomeAssistantInstance is one "home_assistant <qualifier>: <name>;" declaration in Physical.def
+// -- Name still as its raw ${...} expression, unresolved.
 type THomeAssistantInstance struct {
 	Name string
-	URL  string
 }
 
 // collectHomeAssistantInstances generalises parseHomeAssistantMainDirective to every qualifier,
 // not just "main" -- e.g. "home_assistant protocols-server-2: protocols-server-2;" names a
-// secondary instance the same way "home_assistant main: junglinster;" names the main one. The url
-// token is optional (nothing requires it any more now that this generator's own checks route
-// entirely by instance name over MQTT -- generateInstanceAutomationTrees's bootstrap automations,
-// mqtt_entity_catalogue.go's live entity fetch), kept only as an informational field when given.
-// Keyed by qualifier (not by Name, which callers must resolveDefinitionReference themselves).
-// This is naming/declaration only -- it doesn't imply any entity-bridging capability for the
-// named instance, just gives it a stable key other generator output can group by.
+// secondary instance the same way "home_assistant main: junglinster;" names the main one. Keyed by
+// qualifier (not by Name, which callers must resolveDefinitionReference themselves). This is
+// naming/declaration only -- it doesn't imply any entity-bridging capability for the named
+// instance, just gives it a stable key other generator output can group by.
 func collectHomeAssistantInstances(physicalContent string) map[string]THomeAssistantInstance {
 	instances := map[string]THomeAssistantInstance{}
 	pattern := regexp.MustCompile(`^home_assistant\s+(\S+):\s*(.+?)\s*;\s*$`)
@@ -256,11 +255,10 @@ func collectHomeAssistantInstances(physicalContent string) map[string]THomeAssis
 		if len(fields) == 0 {
 			continue
 		}
-		instance := THomeAssistantInstance{Name: fields[0]}
 		if len(fields) > 1 {
-			instance.URL = fields[1]
+			fmt.Fprintf(os.Stderr, "[physical] \"home_assistant %s: %s;\" has more than one token -- only the name is used, the rest is ignored\n", matches[1], matches[2])
 		}
-		instances[matches[1]] = instance
+		instances[matches[1]] = THomeAssistantInstance{Name: fields[0]}
 	}
 	return instances
 }

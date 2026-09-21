@@ -203,9 +203,22 @@ func capabilityDefaultsFor(rules []TCapabilityDefaultRule, domain, path string) 
 // resolveCapabilityDefaults returns the device_class/unit/state_class/icon for a domain/path,
 // preferring a matching "defaults: for ...;" rule (capabilityDefaultsFor -- user-declared, via
 // Defaults.def or a house's own Physical.def) over the code-level postfix tables
-// (postfixCapabilityDefaults). This is the one shared entry point every generator path that
-// seeds typing metadata from an entity's postfix should call, rather than indexing the
-// code-level tables directly, so Defaults.def is a single, consistent override point site-wide.
+// (postfixCapabilityDefaults), and falling back to domainDefaultIcons (generator.go) as the
+// lowest-priority tier for icon only -- a domain-wide default (e.g. "cover" -> "mdi:blinds-
+// horizontal") for when neither a Defaults.def rule nor subdomainIcons' own path-keyed lookup
+// matches at all, which is the common case for a capability with an EMPTY path (no subdomain to
+// key either of those on). Real bug found live 2026-09-17: this domain-level fallback already
+// existed, but only inside iconForEntity/generateCustomizationFiles' own bare-entity pipeline --
+// generateCustomizationFiles skips DiscoveryImplied entities outright (their customization is
+// assumed to come from the coordinator's own discovery payload instead), and the discovery
+// pipeline's own icon resolution (registerDiscoveryEntityLink) only ever called this function, never
+// iconForEntity -- so the FIRST "cover" domain migration (kitchen blinds) silently lost its
+// "mdi:blinds-horizontal" icon entirely, with no per-path rule able to substitute for it. Folding
+// the domain fallback in here, the one shared entry point, fixes it for every caller at once
+// (generator's own bare entities included) rather than just the discovery path.
+// This is the one shared entry point every generator path that seeds typing metadata from an
+// entity's postfix should call, rather than indexing the code-level tables directly, so
+// Defaults.def is a single, consistent override point site-wide.
 func resolveCapabilityDefaults(rules []TCapabilityDefaultRule, domain, path string) (deviceClass, unit, stateClass, icon string) {
 	deviceClass, unit, stateClass, icon = capabilityDefaultsFor(rules, domain, path)
 	fallbackDeviceClass, fallbackUnit, fallbackStateClass, fallbackIcon := postfixCapabilityDefaults(domain, path)
@@ -220,6 +233,9 @@ func resolveCapabilityDefaults(rules []TCapabilityDefaultRule, domain, path stri
 	}
 	if icon == "" {
 		icon = fallbackIcon
+	}
+	if icon == "" {
+		icon = domainDefaultIcons[domain]
 	}
 	return
 }

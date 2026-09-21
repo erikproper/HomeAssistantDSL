@@ -254,7 +254,7 @@ func TestDiscoveryPublisherRetireMissing(t *testing.T) {
 }
 
 // TestDiscoveryPublisherRetireMissingExemptsPassthroughTopics is the regression test for the real
-// incident this fix exists for (2026-09-14, PROJECT.md item 4): a passthrough-relayed Zigbee2MQTT
+// incident this fix exists for (2026-09-14, PROJECT.md item 7): a passthrough-relayed Zigbee2MQTT
 // topic is recorded as "known" (PublishPassthrough) but can never appear in any generator-computed
 // expected set, since its whole point is that no Physical.def declaration exists for it yet. Before
 // this fix, RetireMissing treated that as "no longer wanted" and deleted it on every single

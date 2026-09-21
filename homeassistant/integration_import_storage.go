@@ -85,4 +85,12 @@ type TImportedDevice struct {
 	RemoteInstallation string
 	RemoteDeviceID     string
 	Capabilities       map[string]TImportedCapability
+	// DependsOnAvailabilityTopics is resolved generator-side (integration_logical_storage.go's
+	// resolveDependencyAvailabilityTopics) from a Logical.def declaration sharing this same
+	// DeviceID's own "dependency on <device-id>;" lines -- the raw MQTT topics the coordinator must
+	// additionally AND into every one of this device's own capabilities' availability (including
+	// its own "node"), already flattened across the full transitive dependency chain and
+	// cycle-checked. Empty for a device with no matching Logical.def declaration -- unchanged
+	// behaviour from before this field existed.
+	DependsOnAvailabilityTopics []string
 }

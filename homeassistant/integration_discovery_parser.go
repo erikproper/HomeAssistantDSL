@@ -34,20 +34,25 @@ var discoveryIdentifiersPattern = regexp.MustCompile(`^identifiers\s+"([^"]*)"\s
 // grammar's own capability lines (integration_hassbridge_parser.go): no implicit "always sensor"
 // default. Source captured greedily so a leaf name containing "/" or other punctuation still
 // parses.
-var discoveryCapabilityPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*):\s*(.+?)\s*;\s*$`)
+//
+// "<label>" and "<source>" are whitespace-separated, no colon between them (2026-09-19 -- a
+// colon-optional trial ran first, then both houses' Physical.def/Logical.def were rewritten to
+// the colon-less form and verified byte-identical on regenerate, so the colon alternative was
+// dropped here outright). The old "domain.label: source;" form is no longer accepted at all --
+// see logicalCapabilityPattern's own identical change for the full rationale (the colon visually
+// clashed with Conceptual.def entity specs' own unrelated "sphere:path" colon).
+var discoveryCapabilityPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+(.+?)\s*;\s*$`)
 
-// bareDiscoveryLeaf strips a capability line's source value down to the bare, raw gateway leaf
-// id decodeDiscoveryPayload matches live traffic against (payload.UniqueID, e.g.
-// "boiler_outdoortemp") -- a source written domain-prefixed ("sensor.boiler_outdoortemp", the
-// same shape as the gateway's own reported default_entity_id) has that prefix dropped; a source
-// with no dot at all (the bare leaf id directly) passes through unchanged.
-func bareDiscoveryLeaf(source string) string {
-	source = strings.TrimSpace(source)
-	if idx := strings.Index(source, "."); idx >= 0 {
-		return source[idx+1:]
-	}
-	return source
-}
+// discoveryAvailabilitySuffix is the " is available" sugar on a capability line's source,
+// marking it as a reference to a SIBLING capability's own eventual entity (e.g. "binary_sensor.node:
+// light.core is available;") rather than a raw gateway leaf id -- mirrors parseConditionDirective's
+// identically-named sugar (expander.go), applied here to a capability declaration instead of an
+// entity's own "condition" property. The sibling reference itself is domain-qualified
+// ("<domain>.<label>", e.g. "light.core") -- required, not inferred, matching "derived
+// DDD.NNN from EEE.MMM via TTT;"'s own "from" side (Physical_DerivedCapability.go).
+const discoveryAvailabilitySuffix = " is available"
+
+var discoveryAvailabilitySiblingPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)$`)
 
 // parseDiscoveryIntegrationBody parses the body lines of an "integration discovery with: ...
 // end;" block into every declared gateway device, at any nesting depth, flattened into one
@@ -106,8 +111,60 @@ func parseDiscoveryDeviceBody(cur *TLineCursor, deviceID, parentDeviceID string)
 			cur.Advance()
 			continue
 		}
-		if matches := discoveryCapabilityPattern.FindStringSubmatch(line); matches != nil {
-			current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], Leaf: bareDiscoveryLeaf(matches[3])}
+		if line == "ignore other capabilities;" {
+			current.IgnoreOtherCapabilities = true
+			cur.Advance()
+			continue
+		}
+		// "hidden " is an optional leading qualifier on a capability line (either shape below) --
+		// stripped here, once, so the two patterns below never need to know about it. A hidden
+		// capability still fully exists for internal use (a "derived ... from ...;" elsewhere on
+		// the SAME device may still reference it, via the raw Capabilities map lookup, never the
+		// entity-registration dispatch this marks), but registerDiscoveryEntityLink/
+		// registerDeviceCapabilityEntityLink's discovery branch refuse to position it directly as
+		// a Spaces.def entity -- it's an internal-only intermediate value (e.g. a sensor's raw,
+		// unadjusted reading that only a "derived" capability should ever read), not something the
+		// conceptual (or logical) layer should see.
+		capabilityLine, hidden := strings.CutPrefix(line, "hidden ")
+
+		// Checked first, before discoveryCapabilityPattern: "derived" is a distinct leading
+		// keyword, unambiguous against "<domain>.<path>: ...;" -- same ordering rationale as
+		// integration_hassbridge_parser.go's own dispatch (Physical_DerivedCapability.go).
+		if decl, ok := parseDerivedCapabilityLine(capabilityLine); ok {
+			current.Capabilities[decl.Label] = TDiscoveryCapability{
+				Domain:                decl.Domain,
+				DerivedFromCapability: decl.FromLabel,
+				DerivedViaTemplate:    decl.Template,
+				Hidden:                hidden,
+			}
+			cur.Advance()
+			continue
+		}
+		if matches := discoveryCapabilityPattern.FindStringSubmatch(capabilityLine); matches != nil {
+			if sibling, ok := strings.CutSuffix(matches[3], discoveryAvailabilitySuffix); ok {
+				sibling = strings.TrimSpace(sibling)
+				siblingMatch := discoveryAvailabilitySiblingPattern.FindStringSubmatch(sibling)
+				if siblingMatch == nil {
+					warnings = append(warnings, fmt.Sprintf("Physical.def: device %q's %q capability references %q, which isn't domain-qualified -- write \"<domain>.%s is available;\" (e.g. \"light.%s is available;\")", deviceID, matches[2], sibling, sibling, sibling))
+					cur.Advance()
+					continue
+				}
+				current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], AvailabilityOf: siblingMatch[2], AvailabilityOfDomain: siblingMatch[1], Hidden: hidden}
+			} else if sourceDomain, leaf, ok := strings.Cut(matches[3], ":"); ok {
+				// "<raw-domain>:<leaf>" (2026-09-15) -- an optional qualifier disambiguating a
+				// leaf id Zigbee2MQTT (or any gateway) publishes under more than one raw MQTT
+				// discovery domain for the SAME underlying property (real case: a Moes scene
+				// remote's "action" gets both a legacy "sensor" text mirror and a richer "event"
+				// entity, identical unique_id -- without this, the coordinator's own (gateway,
+				// leaf) matching can't tell which raw message this capability means, and could
+				// relay either one non-deterministically). Absent (the common case, no ':' in the
+				// leaf) matches whichever raw domain publishes it, unchanged from before -- this is
+				// what lets e.g. "fan.core: 0x..._switch_zigbee2mqtt;" deliberately relay a
+				// switch-domain-published leaf under a different declared conceptual domain.
+				current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], Leaf: leaf, SourceDomain: sourceDomain, Hidden: hidden}
+			} else {
+				current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], Leaf: matches[3], Hidden: hidden}
+			}
 			cur.Advance()
 			continue
 		}

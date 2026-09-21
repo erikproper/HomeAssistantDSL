@@ -60,6 +60,10 @@ func parseHostsIntegrationBody(bodyLines []string) ([]THostDevice, []string) {
 				inDeviceCapabilities = false
 				continue
 			}
+			if line == "ignore other capabilities;" {
+				current.IgnoreOtherCapabilities = true
+				continue
+			}
 			if matches := constantAttributePattern.FindStringSubmatch(line); matches != nil {
 				current.ConstantAttributes[matches[1]] = THostConstantAttribute{Value: matches[2], Forced: matches[3] == "forced"}
 				continue

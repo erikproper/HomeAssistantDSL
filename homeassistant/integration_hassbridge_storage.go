@@ -142,6 +142,28 @@ type THassBridgeDevice struct {
 	// entity). Propagated to coordinator/homeassistant_bridge.yaml as "self_import_from:
 	// \"<installation>\"".
 	SelfImportFrom string
+	// DependsOnAvailabilityTopics (2026-09-16, PROJECT.md's logical-layer work) mirrors
+	// TImportedDevice's own identically-named field exactly -- resolved generator-side
+	// (integration_logical_storage.go's resolveDependencyAvailabilityTopics) from a Logical.def
+	// declaration sharing this same DeviceID's own "dependency on <other-id>;" lines, already
+	// flattened across the full transitive chain and cycle-checked. Threaded into
+	// coordinator/homeassistant_bridge.yaml the same way, for the exact same reason: a
+	// "home_assistant" bridge device (e.g. node.fritz_box) can depend on a "hosts"-kind ping
+	// device's own liveness (e.g. node.fritz.box) too, not just an "import"-kind one.
+	DependsOnAvailabilityTopics []string
+
+	// IgnoreOtherCapabilities (2026-09-21), from an "ignore other capabilities;" body line, tells
+	// generateEntityCatalogueSuggestions (mqtt_entity_existence.go) to never suggest any further
+	// unclaimed entity for this device in suggestions/home_assistant_<instance>.txt -- for a device
+	// whose remaining live-but-undeclared entities are known noise (e.g. a router's own auto-
+	// generated diagnostic image/firmware-update entities) rather than genuine future capabilities
+	// worth positioning. Mirrors TDiscoveryGatewayDevice's own identically-named field/directive
+	// (added the same day, same underlying user request) -- that one opts a discovery gateway out
+	// of the coordinator's one-hop via_device absorption; this one opts a hassbridge device out of
+	// kind-3's own "still unclaimed" suggestion listing. Two different mechanisms (this is purely
+	// generator-side report filtering, nothing coordinator-side), same directive text and same
+	// underlying idea: "I already know what else is here; stop suggesting it."
+	IgnoreOtherCapabilities bool
 }
 
 // formatInstanceSources renders a capability's per-instance sources as "<instance>=<source>" pairs

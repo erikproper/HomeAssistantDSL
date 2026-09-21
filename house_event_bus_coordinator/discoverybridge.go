@@ -144,7 +144,7 @@ func (f *tFlexStringList) UnmarshalJSON(data []byte) error {
 
 // rawDiscoveryDevice decodes an incoming payload's "dev"/"device" block -- just the fields this
 // bridge needs (identity + one-hop via_device + a human-readable name for passthrough
-// suggestions, PROJECT.md item 4), not HA's full device-map field set.
+// suggestions, PROJECT.md item 7), not HA's full device-map field set.
 type rawDiscoveryDevice struct {
 	IDs         tFlexStringList `json:"ids"`
 	Identifiers tFlexStringList `json:"identifiers"`
@@ -162,23 +162,25 @@ func (d rawDiscoveryDevice) identifiers() []string {
 // rawDiscoveryPayload decodes an incoming gateway discovery payload, abbreviated or full-length
 // key names both accepted (see the component doc comment).
 type rawDiscoveryPayload struct {
-	TopicPrefix       string             `json:"~"`
-	UniqueID          string             `json:"uniq_id"`
-	UniqueIDFull      string             `json:"unique_id"`
-	StateTopic        string             `json:"stat_t"`
-	StateTopicFull    string             `json:"state_topic"`
-	CommandTopic      string             `json:"cmd_t"`
-	CommandTopicFull  string             `json:"command_topic"`
-	ValueTemplate     string             `json:"val_tpl"`
-	ValueTemplateFull string             `json:"value_template"`
-	DeviceClass       string             `json:"dev_cla"`
-	DeviceClassFull   string             `json:"device_class"`
-	Unit              string             `json:"unit_of_meas"`
-	UnitFull          string             `json:"unit_of_measurement"`
-	StateClass        string             `json:"stat_cla"`
-	StateClassFull    string             `json:"state_class"`
-	Device            rawDiscoveryDevice `json:"dev"`
-	DeviceFull        rawDiscoveryDevice `json:"device"`
+	TopicPrefix         string             `json:"~"`
+	UniqueID            string             `json:"uniq_id"`
+	UniqueIDFull        string             `json:"unique_id"`
+	StateTopic          string             `json:"stat_t"`
+	StateTopicFull      string             `json:"state_topic"`
+	CommandTopic        string             `json:"cmd_t"`
+	CommandTopicFull    string             `json:"command_topic"`
+	ValueTemplate       string             `json:"val_tpl"`
+	ValueTemplateFull   string             `json:"value_template"`
+	DeviceClass         string             `json:"dev_cla"`
+	DeviceClassFull     string             `json:"device_class"`
+	Unit                string             `json:"unit_of_meas"`
+	UnitFull            string             `json:"unit_of_measurement"`
+	StateClass          string             `json:"stat_cla"`
+	StateClassFull      string             `json:"state_class"`
+	DefaultEntityID     string             `json:"def_ent_id"`
+	DefaultEntityIDFull string             `json:"default_entity_id"`
+	Device              rawDiscoveryDevice `json:"dev"`
+	DeviceFull          rawDiscoveryDevice `json:"device"`
 }
 
 // tDecodedDiscoveryPayload is a gateway's discovery payload reduced to what this bridge relays.
@@ -193,6 +195,7 @@ type tDecodedDiscoveryPayload struct {
 	DeviceIdentifiers []string
 	ViaDevice         string
 	DeviceName        string
+	DefaultEntityID   string
 }
 
 func firstNonEmpty(a, b string) string {
@@ -233,7 +236,33 @@ func decodeDiscoveryPayload(raw []byte) (tDecodedDiscoveryPayload, error) {
 		DeviceIdentifiers: device.identifiers(),
 		ViaDevice:         device.ViaDevice,
 		DeviceName:        device.Name,
+		DefaultEntityID:   firstNonEmpty(p.DefaultEntityID, p.DefaultEntityIDFull),
 	}, nil
+}
+
+// discoveryNameLooksConsistent reports whether defaultEntityID's own object id plausibly matches
+// stateTopic's own current friendly-name path -- i.e. whether a passthrough payload's own claimed
+// name is self-consistent with where it's actually still being published, rather than a stale
+// leftover from before a Zigbee2MQTT rename (see TPassthroughDeviceTracker.ClaimName's own doc
+// comment for the real incident this distinguishes). Zigbee2MQTT's own discovery payloads always
+// shape state_topic as "<integration>/<friendly-name>" and default_entity_id as
+// "<domain>.<friendly-name>[_<leaf-suffix>]" -- so a currently-correct payload's object id always
+// STARTS WITH state_topic's own friendly-name segment, while a stale one (renamed since) doesn't.
+// Falls back to true (don't second-guess) whenever either string doesn't have the expected shape,
+// so an unusual gateway's payload is never wrongly suppressed by a heuristic built for
+// Zigbee2MQTT's own convention specifically.
+func discoveryNameLooksConsistent(defaultEntityID, stateTopic string) bool {
+	dotIdx := strings.Index(defaultEntityID, ".")
+	if dotIdx < 0 {
+		return true
+	}
+	objectID := defaultEntityID[dotIdx+1:]
+	slashIdx := strings.Index(stateTopic, "/")
+	if slashIdx < 0 {
+		return true
+	}
+	friendlyName := stateTopic[slashIdx+1:]
+	return friendlyName == "" || strings.HasPrefix(objectID, friendlyName)
 }
 
 // matchingGateway returns the DeviceID of the first TDiscoveryFile.Gateways entry payload
@@ -247,7 +276,13 @@ func matchingGateway(payload tDecodedDiscoveryPayload, gateways map[string]TDisc
 					return gatewayID, true
 				}
 			}
-			if payload.ViaDevice != "" && payload.ViaDevice == want {
+			// The one-hop via_device rule below absorbs a SIBLING device (e.g. EMS-ESP's
+			// "ems-esp-thermostat", via_device: "ems-esp") into its own parent gateway -- built for
+			// a narrow multi-facet gateway, not a network's own root device. IgnoreOtherCapabilities
+			// opts a gateway out of it entirely (see its own doc comment for the real incident this
+			// fixes): such a gateway still matches normally via a direct Identifiers hit above, just
+			// never absorbs an unrelated device that merely happens to route through it.
+			if !gateway.IgnoreOtherCapabilities && payload.ViaDevice != "" && payload.ViaDevice == want {
 				return gatewayID, true
 			}
 		}
@@ -264,16 +299,40 @@ func relayedDiscoveryUniqueID(gatewayID, leaf string) string {
 	return sanitizeTopicSegment(gatewayID) + "_" + leaf
 }
 
+// discoveryAbbreviatedKeyPairs are every (short, long) MQTT-discovery key pair
+// buildRelayedDiscoveryConfig itself sets an override for -- both variants are deleted from the
+// cloned raw payload before the long form is written, so a stale abbreviated value from the
+// gateway's own payload style (EMS-ESP uses short keys throughout) never coexists with our
+// override. HA accepts long-form keys fine even alongside a gateway's otherwise all-short-form
+// payload -- already proven live, since "default_entity_id" (no natural EMS-ESP short form other
+// than "def_ent_id") has always been written this way.
+var discoveryAbbreviatedKeyPairs = [][2]string{
+	{"uniq_id", "unique_id"},
+	{"def_ent_id", "default_entity_id"},
+	{"stat_t", "state_topic"},
+	{"cmd_t", "command_topic"},
+	{"dev_cla", "device_class"},
+	{"unit_of_meas", "unit_of_measurement"},
+	{"stat_cla", "state_class"},
+	{"ic", "icon"},
+}
+
 // buildRelayedDiscoveryConfig builds our own discovery payload for entityID (e.g.
-// "sensor.social_garage_door_temperature"), sourced from a gateway leaf's decoded payload --
-// same domain (component) as the gateway's own entity, our own default_entity_id (the full
-// domain.objectID -- the real, documented mechanism for controlling entity_id on first creation;
-// "object_id"/"has_entity_name" are not real MQTT discovery keys, see discovery.go's payload doc
-// comments). unique_id/topic are keyed on relayedDiscoveryUniqueID (gateway+leaf), not on
-// objectID, so relaying the same leaf under a different entityID (a reposition/rename in
-// Spaces.def) changes the payload's default_entity_id/name but never the topic itself -- no
-// device: block yet, deliberately deferred, same "extend on demand" principle as the
-// abbreviation set above.
+// "sensor.social_garage_door_temperature"), sourced from rawPayload -- the gateway leaf's own
+// discovery payload, decoded into payload for the fields this function needs to inspect/override,
+// but otherwise cloned wholesale. Only unique_id/default_entity_id/name/state_topic/
+// command_topic/origin are overridden (all keyed on relayedDiscoveryUniqueID -- gateway+leaf --
+// not on objectID, so relaying the same leaf under a different entityID, a Spaces.def reposition,
+// changes default_entity_id/name but never the topic itself; "object_id"/"has_entity_name" are
+// not real MQTT discovery keys, see discovery.go's payload doc comments); everything else the
+// gateway published (brightness/supported_color_modes/effect_list/schema/availability/device/...)
+// passes through untouched. This is a deliberate change (2026-09-14) from an earlier version that
+// reconstructed the whole body from scratch, keyed only on this function's own narrow decoded
+// subset: that silently dropped command_topic entirely (a relayed light/switch/fan came up
+// completely uncontrollable -- no error, just no way to command it) and never even decoded
+// brightness/color-mode/effect support in the first place. Invisible as long as this mechanism
+// was only ever exercised against EMS-ESP's own read-only sensors; found live while preparing
+// Vienna's first real light migration under PROJECT.md item 7.
 //
 // device_class/unit_of_measurement/state_class prefer the gateway's own natively-reported value
 // (it decided its own typing, see this file's own header comment) -- link's fields
@@ -281,24 +340,121 @@ func relayedDiscoveryUniqueID(gatewayID, leaf string) string {
 // empty, never override one it set. icon has no native counterpart in the decoded payload at
 // all (see decodeDiscoveryPayload's "extend on demand" abbreviation set), so it comes from link
 // unconditionally.
-func buildRelayedDiscoveryConfig(entityID, gatewayID string, payload tDecodedDiscoveryPayload, link TDiscoveryEntityLink, prefix, installation string) (topic string, body map[string]interface{}, ok bool) {
+//
+// payload.StateTopic is only conditionally overridden (like CommandTopic already was), not
+// required: real bug, found live 2026-09-15 migrating Vienna's first "climate" domain device
+// (a Bitron/SMaBiT wall thermostat). HA's MQTT Climate discovery schema has no single top-level
+// "state_topic" key at all -- it uses per-feature topics instead (mode_state_topic,
+// temperature_state_topic, current_temperature_topic, action_topic), all of which pass through
+// untouched via the wholesale rawPayload clone above. Requiring StateTopic unconditionally (as
+// this function used to) silently dropped every climate-domain relay with no error at all -- the
+// existence tracker still marked the leaf known-to-exist (it decodes independently), which made
+// the gap easy to miss without checking the coordinator's own "queued relay of" log lines leaf by
+// leaf.
+// wrapMQTTValueTemplate folds wrapExpr (a generator-authored "derived ... via TTT;" template,
+// "$" standing for the raw value) around rawTemplate's own inner Jinja expression -- e.g.
+// rawTemplate `{{ value_json["pressure"] }}` and wrapExpr `($ | float(0)) + 20` produce
+// `{% if "pressure" in value_json %}{{ ((value_json["pressure"]) | float(0)) + 20 }}{% else %}{{
+// this.state }}{% endif %}`. Parenthesizes the substituted inner expression (same convention as
+// the generator's own substituteDerivedTemplate, Physical_DerivedCapability.go) so wrapExpr's own
+// operators can never silently change the raw extraction's precedence.
+//
+// Real bug found live 2026-09-16 (Vienna's hallway door/aqara_multi "pressure," derived via
+// add_float_value(20)): Zigbee2MQTT devices commonly publish only the attribute(s) that changed in
+// a given report, so a message can genuinely contain "humidity" while omitting "pressure"
+// entirely, especially right after a Zigbee2MQTT restart (its own per-device cache resets, and a
+// slower-reporting attribute like pressure can stay absent for a long time). value_json["pressure"]
+// then evaluates to Jinja's Undefined, and piping that into "| float(0)" raises UndefinedError --
+// NOT one of the (TypeError, ValueError) the float filter's own default actually catches -- so the
+// whole template render fails and Home Assistant marks the ENTITY unavailable, even though the
+// underlying sensor is perfectly reachable and its OTHER readings (humidity, temperature, no
+// arithmetic wrap) render fine off the exact same message. A plain, unwrapped
+// value_json["humidity"] never hits this: Jinja's Undefined renders as an empty string with no
+// exception when merely interpolated, only when an operation (float(), +, ...) is applied to it.
+//
+// Fixed by guarding the WHOLE wrapped expression on the raw key's own presence in value_json,
+// falling back to `this.state` (Home Assistant's own "this entity's current state" template
+// variable) when it's momentarily missing -- holds the last known good reading instead of either
+// flashing an arithmetically-wrong value (a bare "| default(0)" would silently turn a missing
+// pressure into "20") or going unavailable for a device that's actually fine. Only applies when
+// rawTemplate is recognisably a plain `value_json["<key>"]`/`value_json['<key>']` access (the only
+// shape every real "derived ... via jinja ...;" case has ever used) -- any other inner shape falls
+// back to the old, unguarded wrap unchanged, rather than guessing at a key name that isn't there.
+func wrapMQTTValueTemplate(rawTemplate, wrapExpr string) string {
+	inner := strings.TrimSpace(rawTemplate)
+	inner = strings.TrimPrefix(inner, "{{")
+	inner = strings.TrimSuffix(inner, "}}")
+	inner = strings.TrimSpace(inner)
+	wrapped := strings.ReplaceAll(wrapExpr, "$", "("+inner+")")
+	if key, ok := extractValueJSONKey(inner); ok {
+		return fmt.Sprintf("{%% if %q in value_json %%}{{ %s }}{%% else %%}{{ this.state }}{%% endif %%}", key, wrapped)
+	}
+	return "{{ " + wrapped + " }}"
+}
+
+// extractValueJSONKey recognises inner as a plain `value_json["<key>"]` or `value_json['<key>']`
+// access (Zigbee2MQTT's own universal value_template shape for a leaf reading) and returns the bare
+// key -- see wrapMQTTValueTemplate's own doc comment for why this gates the missing-key-safe wrap.
+func extractValueJSONKey(inner string) (key string, ok bool) {
+	const prefix = "value_json["
+	if !strings.HasPrefix(inner, prefix) || !strings.HasSuffix(inner, "]") {
+		return "", false
+	}
+	quoted := inner[len(prefix) : len(inner)-1]
+	if len(quoted) < 2 {
+		return "", false
+	}
+	quote := quoted[0]
+	if (quote != '"' && quote != '\'') || quoted[len(quoted)-1] != quote {
+		return "", false
+	}
+	return quoted[1 : len(quoted)-1], true
+}
+
+func buildRelayedDiscoveryConfig(entityID, gatewayID string, rawPayload map[string]interface{}, payload tDecodedDiscoveryPayload, link TDiscoveryEntityLink, prefix, installation string) (topic string, body map[string]interface{}, ok bool) {
 	dotIdx := strings.Index(entityID, ".")
-	if dotIdx < 0 || payload.StateTopic == "" || payload.UniqueID == "" {
+	if dotIdx < 0 || payload.UniqueID == "" {
 		return "", nil, false
 	}
 	domain := entityID[:dotIdx]
 	objectID := entityID[dotIdx+1:]
 	stableID := relayedDiscoveryUniqueID(gatewayID, payload.UniqueID)
 
-	body = map[string]interface{}{
-		"unique_id":         stableID,
-		"default_entity_id": domain + "." + objectID,
-		"name":              objectID,
-		"state_topic":       payload.StateTopic,
-		"origin":            coordinatorOriginMap(installation),
+	body = make(map[string]interface{}, len(rawPayload)+4)
+	for k, v := range rawPayload {
+		body[k] = v
 	}
+	for _, pair := range discoveryAbbreviatedKeyPairs {
+		delete(body, pair[0])
+	}
+
+	body["unique_id"] = stableID
+	body["default_entity_id"] = domain + "." + objectID
+	body["name"] = objectID
+	if payload.StateTopic != "" {
+		body["state_topic"] = payload.StateTopic
+	}
+	if payload.CommandTopic != "" {
+		body["command_topic"] = payload.CommandTopic
+	}
+	body["origin"] = coordinatorOriginMap(installation)
 	if payload.ValueTemplate != "" {
-		body["value_template"] = payload.ValueTemplate
+		valueTemplate := payload.ValueTemplate
+		if link.ValueTemplateWrap != "" {
+			valueTemplate = wrapMQTTValueTemplate(valueTemplate, link.ValueTemplateWrap)
+		}
+		body["value_template"] = valueTemplate
+		// Real bug, 2026-09-14: a switch-shaped Zigbee2MQTT payload's own "value_template" key
+		// (correct for the domain it was NATIVELY published under) isn't a field every domain's
+		// MQTT schema recognises -- HA's Fan integration specifically expects
+		// "state_value_template" instead, so relaying a switch's payload verbatim under domain
+		// "fan" (see this item's own "declare the leaf as the wrapper's own domain directly"
+		// pattern) left the entity stuck on "unknown" forever: messages arrived fine, HA just had
+		// no recognised field to extract a value from. Setting both is harmless for domains that
+		// only recognise "value_template" -- HA's discovery schemas ignore keys they don't use,
+		// confirmed live (no validation error/warning appeared for any already-working entity
+		// carrying both).
+		body["state_value_template"] = valueTemplate
 	}
 	if deviceClass := firstNonEmpty(payload.DeviceClass, link.DeviceClass); deviceClass != "" {
 		body["device_class"] = deviceClass
@@ -328,7 +484,7 @@ func buildRelayedDiscoveryConfig(entityID, gatewayID string, payload tDecodedDis
 // (RecordTopicIdentity), moving that leaf to known-not-to-exist. existenceTracker may be nil (tests
 // that don't need it).
 //
-// passthroughRules (PROJECT.md item 4, 2026-09-14) is the gradual-migration counterpart to the
+// passthroughRules (PROJECT.md item 7, 2026-09-14) is the gradual-migration counterpart to the
 // above: for a message whose device DOESN'T match a declared gateway, but whose state_topic or
 // command_topic starts with a declared discovery_passthrough prefix, the raw payload is relayed
 // byte-for-byte onto conceptualPrefix (topic tail unchanged, only the leading physical-prefix
@@ -342,11 +498,15 @@ func buildRelayedDiscoveryConfig(entityID, gatewayID string, payload tDecodedDis
 // here (passthroughTopicPrefixes) -- this subscription only ever sees that one prefix.
 //
 // passthroughDeviceTracker (2026-09-14, found live: real Zigbee2MQTT traffic was flowing through
-// passthrough but never showed up in suggestions/discovery.txt) records every device passed
-// through, keyed by its own real device identifier, so the generator can suggest a ready-to-paste
-// declaration for it (discovery_passthrough_devices.go) -- forgotten again the instant a device
-// starts matching a declared gateway, right alongside the existing raw-topic retirement above.
-// Deliberately Record/Forget only here, never a per-message PublishStatus (a second real incident,
+// passthrough but never showed up in suggestions/discovery.txt; corrected 2026-09-19 -- see the
+// "!matched" branch's own comment above) records every device seen under <physical_prefix> that
+// no declared gateway claims, keyed by its own real device identifier, so the generator can
+// suggest a ready-to-paste declaration for it (discovery_passthrough_devices.go) -- REGARDLESS of
+// whether it's also being actively passthrough-relayed into HA (that's the separate "keep it
+// visible while unmigrated" decision, still gated on a declared discovery_passthrough rule).
+// Forgotten again the instant a device starts matching a declared gateway, right alongside the
+// existing raw-topic retirement above. Deliberately Record/Forget only here, never a per-message
+// PublishStatus (a second real incident,
 // found live minutes after the first deploy of this same feature: the initial subscribe replays
 // the whole retained backlog synchronously, and a full-snapshot publish per newly-seen leaf
 // starved the client's own later subscribes of their timeout window, crash-looping the
@@ -372,9 +532,20 @@ func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation s
 			if existenceTracker != nil {
 				if gatewayID, leaf, changed := existenceTracker.MarkRetracted(msg.Topic()); changed {
 					fmt.Printf("[discovery-existence] %s: %s -> known-not-to-exist (retracted)\n", gatewayID, leaf)
-					if err := existenceTracker.publishStatus(client, cloudClient, ownInstallation, gatewayID); err != nil {
-						fmt.Printf("[discovery-existence] %v\n", err)
-					}
+					existenceTracker.ScheduleAggregateStatusPublish(client, cloudClient, ownInstallation, DiscoveryExistenceStatusDebounceDelay)
+				}
+			}
+			// A still-undeclared (passthrough-tracked) device deleted outright from Zigbee2MQTT --
+			// not renamed/migrated into a real Physical.def declaration, genuinely removed from the
+			// network -- publishes this same empty-payload retraction on its own discovery config
+			// topics. Forget was previously only ever called from the "just started matching a
+			// declared gateway" branch below (i.e. migration), so a deleted-but-never-migrated
+			// device's own suggestion entry never went away on its own. See ForgetByTopic's own doc
+			// comment for the real case this fixes (2026-09-21, Vienna).
+			if passthroughDeviceTracker != nil {
+				if deviceIdentifier, forgotten := passthroughDeviceTracker.ForgetByTopic(msg.Topic()); forgotten {
+					fmt.Printf("[discovery-passthrough] %s: forgotten (retracted)\n", deviceIdentifier)
+					passthroughDeviceTracker.ScheduleStatusPublish(client, cloudClient, ownInstallation, PassthroughStatusDebounceDelay)
 				}
 			}
 			if publisher.Knows("main", passthroughTopic) {
@@ -394,27 +565,93 @@ func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation s
 
 		gatewayID, matched := matchingGateway(payload, discoveryFile.Gateways)
 		if !matched {
+			// Real bug found live 2026-09-19: passthroughDeviceTracker.Record used to be nested
+			// INSIDE the matchesAnyPassthroughPrefix check below, coupling the generator's own
+			// "which real devices exist under ${mqtt_discovery_physical} that Physical.def hasn't
+			// declared yet" suggestion feed to whether a "discovery_passthrough ...;" rule happens
+			// to be declared at all. This subscription already sees EVERY message under
+			// <physical_prefix>/+/+/+/config regardless of passthrough rules -- tracking (for
+			// suggestions) and relaying (to keep an undeclared device visible in HA) are two
+			// genuinely separate concerns that were wrongly conflated. Recording now happens for
+			// ANY undeclared device unconditionally; only the relay decision just below stays
+			// gated on matchesAnyPassthroughPrefix, since THAT one really does depend on whether
+			// passthrough is configured.
+			deviceIdentifier := firstDeviceIdentifier(payload)
+			if passthroughDeviceTracker != nil {
+				domain := topicComponent(msg.Topic(), discoveryFile.PhysicalPrefix)
+				// Recorded before Record() itself, mirroring existenceTracker's own
+				// RecordTopicIdentity-then-MarkKnown ordering just below in the matched branch --
+				// so a later empty (retracted) payload on this exact topic always has an identity to
+				// resolve against, see ForgetByTopic's own doc comment.
+				passthroughDeviceTracker.RecordTopicIdentity(msg.Topic(), deviceIdentifier)
+				// Record, then debounce a status republish when it actually changed something --
+				// NOT a synchronous PublishStatus() call per message (real incident, found live
+				// 2026-09-14 right after this deployed: the coordinator's initial subscribe
+				// replays the ENTIRE retained backlog synchronously, one message at a time --
+				// hundreds of them, each a "first time seen" leaf -- and an ack-waiting network
+				// round trip per leaf here starved the client's own connection setup of time to
+				// finish its LATER subscribes within their own timeout window, crash-looping the
+				// whole coordinator). ScheduleStatusPublish's own debounce coalesces exactly that
+				// kind of burst into a single publish once it quiets down, rather than requiring
+				// the retained topic to go stale until the next restart/reconnect the way a bare
+				// Record-and-discard did (real gap found live 2026-09-19: Junglinster's own Z-Wave
+				// devices sat untracked-in-suggestions for over a day of normal operation).
+				if passthroughDeviceTracker.Record(deviceIdentifier, payload.DeviceName, domain, payload.UniqueID) {
+					passthroughDeviceTracker.ScheduleStatusPublish(client, cloudClient, ownInstallation, PassthroughStatusDebounceDelay)
+				}
+			}
 			if matchesAnyPassthroughPrefix(payload.StateTopic, passthroughPrefixes) || matchesAnyPassthroughPrefix(payload.CommandTopic, passthroughPrefixes) {
-				// Payload bytes are copied: msg.Payload() isn't guaranteed valid once this handler
-				// returns, and this job may not actually be processed until well after that.
-				payloadCopy := append([]byte(nil), msg.Payload()...)
-				enqueueDiscoveryRelayJob(relayJobs, TDiscoveryRelayJob{Action: discoveryRelayPublish, Client: client, Broker: "main", Topic: passthroughTopic, Payload: payloadCopy, Passthrough: true})
-				fmt.Printf("[discovery-bridge] queued passthrough relay %s -> %s\n", msg.Topic(), passthroughTopic)
+				// Real bug found live 2026-09-20: a passthrough-relayed device's payload is trusted
+				// wholesale, including its own "default_entity_id" -- so a Zigbee2MQTT device
+				// renamed away from an old friendly name, whose stale retained discovery config
+				// never got refreshed, kept claiming the SAME default_entity_id a different,
+				// currently-correct device had since taken over. Both got relayed, and HA silently
+				// disambiguated by suffixing one of them ("Entity not found" for whichever name the
+				// rest of the system expected). ClaimName lets the first-seen device keep its name;
+				// a later, different device claiming the same name is suppressed here and flagged
+				// as a collision instead of blindly relayed (discovery_passthrough_suggestions.go's
+				// buildPassthroughCollisionReport surfaces it in suggestions/discovery.txt).
+				claimOK := true
+				evictedTopic := ""
 				if passthroughDeviceTracker != nil {
-					deviceIdentifier := firstDeviceIdentifier(payload)
-					domain := topicComponent(msg.Topic(), discoveryFile.PhysicalPrefix)
-					// Record only -- deliberately NOT publishing a status update per message (real
-					// incident, found live 2026-09-14 right after this deployed: the coordinator's
-					// initial subscribe replays the ENTIRE retained backlog synchronously, one
-					// message at a time -- hundreds of them, each a "first time seen" leaf -- and a
-					// full-snapshot PublishStatus() call per leaf here (an ack-waiting network round
-					// trip) starved the client's own connection setup of time to finish its LATER
-					// subscribes within their own timeout window, crash-looping the whole
-					// coordinator on "subscribing to homeassistant_instances/+/bridge/+/state: timed
-					// out" every ~20s. The retained topic is still kept fresh -- just once per
-					// startup/reconnect (main.go), not per leaf; good enough for a generate-time
-					// suggestion feed nothing live depends on.
-					passthroughDeviceTracker.Record(deviceIdentifier, payload.DeviceName, domain, payload.UniqueID)
+					claimOK, evictedTopic = passthroughDeviceTracker.ClaimName(payload.DefaultEntityID, deviceIdentifier, passthroughTopic, discoveryNameLooksConsistent(payload.DefaultEntityID, payload.StateTopic))
+				}
+				if claimOK {
+					if evictedTopic != "" {
+						// A less self-consistent (likely stale, since-renamed) device had already
+						// been accepted for relay under this name before the genuinely current one
+						// arrived -- retire its topic now so it doesn't linger in HA alongside the
+						// new owner. No publisher.Knows guard here: ClaimName only ever returns a
+						// non-empty evictedTopic for a topic its own claim previously accepted, so
+						// its publish job either already ran or is still sitting in the relay queue
+						// -- retiring a topic HA never actually received is a harmless no-op either
+						// way, and gating on Knows would race against that not-yet-drained job.
+						enqueueDiscoveryRelayJob(relayJobs, TDiscoveryRelayJob{Action: discoveryRelayRetire, Client: client, Broker: "main", Topic: evictedTopic})
+						fmt.Printf("[discovery-bridge] retiring displaced passthrough relay %s: default_entity_id %q now correctly claimed by %s\n", evictedTopic, payload.DefaultEntityID, msg.Topic())
+					}
+					// Payload bytes are copied: msg.Payload() isn't guaranteed valid once this
+					// handler returns, and this job may not actually be processed until well after
+					// that.
+					payloadCopy := append([]byte(nil), msg.Payload()...)
+					enqueueDiscoveryRelayJob(relayJobs, TDiscoveryRelayJob{Action: discoveryRelayPublish, Client: client, Broker: "main", Topic: passthroughTopic, Payload: payloadCopy, Passthrough: true})
+					fmt.Printf("[discovery-bridge] queued passthrough relay %s -> %s\n", msg.Topic(), passthroughTopic)
+				} else {
+					fmt.Printf("[discovery-bridge] suppressing passthrough relay %s -> %s: default_entity_id %q already claimed by a different device\n", msg.Topic(), passthroughTopic, payload.DefaultEntityID)
+					// Real bug found live 2026-09-20, minutes after the displacement fix above:
+					// that fix only retires a topic evicted WITHIN the same in-memory ClaimName
+					// session -- but ordinary claims are deliberately NOT persisted across restarts
+					// (the crash-loop fix), so a topic this exact device relayed and got RETAINED
+					// in an EARLIER (e.g. pre-consistency-check) coordinator run never gets
+					// retired at all if, on a LATER restart, it simply loses the claim race outright
+					// (no live displacement occurs, since it never held the claim this session to
+					// begin with) -- the stale entity then lingers in HA forever, colliding with the
+					// correct one exactly as before. publisher.Knows persists independently of
+					// ClaimName's own in-memory state, so check it here for every rejected claim,
+					// not just a same-session displacement.
+					if publisher.Knows("main", passthroughTopic) {
+						enqueueDiscoveryRelayJob(relayJobs, TDiscoveryRelayJob{Action: discoveryRelayRetire, Client: client, Broker: "main", Topic: passthroughTopic})
+						fmt.Printf("[discovery-bridge] retiring previously-relayed passthrough topic %s: default_entity_id %q now rejected as a collision\n", passthroughTopic, payload.DefaultEntityID)
+					}
 				}
 			}
 			return
@@ -426,26 +663,41 @@ func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation s
 			enqueueDiscoveryRelayJob(relayJobs, TDiscoveryRelayJob{Action: discoveryRelayRetire, Client: client, Broker: "main", Topic: passthroughTopic})
 		}
 		if passthroughDeviceTracker != nil {
-			// Forget only -- same "no per-message status publish" reasoning as the passthrough
-			// branch above.
-			passthroughDeviceTracker.Forget(firstDeviceIdentifier(payload))
+			// Debounce a status republish here too -- same reasoning as the passthrough branch
+			// above, so a just-migrated device stops appearing in suggestions/discovery.txt
+			// promptly rather than only after the next restart/reconnect.
+			if passthroughDeviceTracker.Forget(firstDeviceIdentifier(payload)) {
+				passthroughDeviceTracker.ScheduleStatusPublish(client, cloudClient, ownInstallation, PassthroughStatusDebounceDelay)
+			}
 		}
 
 		if existenceTracker != nil {
 			existenceTracker.RecordTopicIdentity(msg.Topic(), gatewayID, payload.UniqueID)
 			if existenceTracker.MarkKnown(gatewayID, payload.UniqueID) {
 				fmt.Printf("[discovery-existence] %s: %s -> known-to-exist\n", gatewayID, payload.UniqueID)
-				if err := existenceTracker.publishStatus(client, cloudClient, ownInstallation, gatewayID); err != nil {
-					fmt.Printf("[discovery-existence] %v\n", err)
-				}
+				existenceTracker.ScheduleAggregateStatusPublish(client, cloudClient, ownInstallation, DiscoveryExistenceStatusDebounceDelay)
 			}
+		}
+
+		var rawPayload map[string]interface{}
+		if err := json.Unmarshal(msg.Payload(), &rawPayload); err != nil {
+			// Already parsed successfully above (decodeDiscoveryPayload) -- shouldn't happen.
+			fmt.Printf("[discovery-bridge] %s: re-parsing payload as a raw map: %v\n", msg.Topic(), err)
+			return
 		}
 
 		for entityID, link := range discoveryFile.EntityLinks {
 			if link.Gateway != gatewayID || link.Leaf != payload.UniqueID {
 				continue
 			}
-			topic, body, ok := buildRelayedDiscoveryConfig(entityID, gatewayID, payload, link, conceptualPrefix, ownInstallation)
+			// link.SourceDomain, when set, disambiguates a leaf id published under more than one
+			// raw domain (TDiscoveryEntityLink's own doc comment) -- require the incoming
+			// message's own topic domain to match too. Absent (the common case): unchanged,
+			// matches whichever raw domain publishes the leaf.
+			if link.SourceDomain != "" && topicComponent(msg.Topic(), discoveryFile.PhysicalPrefix) != link.SourceDomain {
+				continue
+			}
+			topic, body, ok := buildRelayedDiscoveryConfig(entityID, gatewayID, rawPayload, payload, link, conceptualPrefix, ownInstallation)
 			if !ok {
 				continue
 			}

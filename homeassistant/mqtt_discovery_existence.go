@@ -45,24 +45,39 @@ import (
 // fetchDiscoveryExistenceTimeout mirrors fetchExistenceTimeout's own reasoning exactly (mqtt_entity_existence.go).
 const fetchDiscoveryExistenceTimeout = 5 * time.Second
 
-// TDiscoveryExistenceStatusPayload is the top-level shape published to
-// "discovery_gateways/<gatewayID>/existence/state" -- keyed by leaf (TDiscoveryEntityLink.Leaf),
-// no device grouping (discoverybridge.go's relay is flat, leaf-keyed, unlike kind-3's device-linked
-// hassbridge capabilities).
+// TDiscoveryExistenceStatusPayload is one gateway's own leaf->status slice of the aggregate
+// existence payload -- keyed by leaf (TDiscoveryEntityLink.Leaf), no device grouping
+// (discoverybridge.go's relay is flat, leaf-keyed, unlike kind-3's device-linked hassbridge
+// capabilities). Kept as its own named type since both consumers (checkDiscoveryKnownNotToExistErrors,
+// buildDiscoverySuggestionReport) already work in terms of "one gateway's own status map".
 type TDiscoveryExistenceStatusPayload map[string]string
 
-func discoveryGatewayExistenceStatusTopic(gatewayID string) string {
-	return "discovery_gateways/" + gatewayID + "/existence/state"
+// TDiscoveryExistenceAggregatePayload is the top-level shape published to
+// discoveryExistenceAggregateStatusTopic() -- every declared gateway's own status, together, in one
+// retained message. See house_event_bus_coordinator/discovery_existence.go's own
+// discoveryExistenceAggregateStatusTopic doc comment (2026-09-20) for why this replaced the earlier
+// one-topic-per-gateway design: at Vienna's own scale (70+ gateways), that meant 70+ separate MQTT
+// round trips on every single ./generate run, most of them paying a full connect-timeout for a
+// gateway the coordinator hadn't reported on yet (e.g. right after a device-id rename). This
+// aggregate is fetched exactly ONCE per generate run regardless of how many gateways exist.
+type TDiscoveryExistenceAggregatePayload map[string]TDiscoveryExistenceStatusPayload
+
+// discoveryExistenceAggregateStatusTopic mirrors house_event_bus_coordinator/discovery_existence.go's
+// own copy of this same literal string exactly (the two packages never share Go types).
+func discoveryExistenceAggregateStatusTopic() string {
+	return "discovery_existence/state"
 }
 
-// discoveryExistenceCachePath is gatewayID's own local, persisted cache file -- same convention
-// existenceCachePath already established for kind-3.
-func discoveryExistenceCachePath(definitionDir, gatewayID string) string {
-	return filepath.Join(definitionDir, ".cache", "discovery_existence_"+sanitizeCacheFileSegment(gatewayID)+".json")
+// discoveryExistenceAggregateCachePath is the ONE local, persisted cache file for the whole
+// aggregate payload -- replaces the earlier per-gateway cache files (discoveryExistenceCachePath)
+// now that there's only ever one fetch, not one per gateway.
+func discoveryExistenceAggregateCachePath(definitionDir string) string {
+	return filepath.Join(definitionDir, ".cache", "discovery_existence.json")
 }
 
-// sanitizeCacheFileSegment replaces "." with "_" in gatewayID (e.g. "discovery.ems_esp") so the
-// cache filename never carries a stray extension-looking dot.
+// sanitizeCacheFileSegment replaces "." with "_" in an id (e.g. "discovery.ems_esp") so a cache
+// filename built from it never carries a stray extension-looking dot. Shared with
+// mqtt_import_existence.go's own per-installation cache path.
 func sanitizeCacheFileSegment(s string) string {
 	out := make([]rune, 0, len(s))
 	for _, r := range s {
@@ -75,61 +90,96 @@ func sanitizeCacheFileSegment(s string) string {
 	return string(out)
 }
 
-// fetchDiscoveryExistence tries a fresh read, cloud broker first then local
-// (fetchDiscoveryExistencePreferringCloud), and on success updates gatewayID's own local cache
-// file. On any failure, falls back to that cache's last-known contents. Returns an error only when
-// neither live broker nor a usable cache is available.
-func fetchDiscoveryExistence(definitionDir string, ctx TPhysicalGenerationContext, gatewayID string) (TDiscoveryExistenceStatusPayload, error) {
-	cachePath := discoveryExistenceCachePath(definitionDir, gatewayID)
+// tDiscoveryExistenceFetchResult is fetchDiscoveryExistenceAggregate's own memoized outcome -- see
+// TPhysicalGenerationContext.DiscoveryExistenceAggregate's own doc comment for why this is a
+// pointer to a struct with an explicit "fetched" flag, rather than a nil check on the pointer
+// itself: a genuinely successful fetch can return an empty (but non-nil-meaningful) result, which a
+// bare nil-check on the RESULT couldn't distinguish from "not fetched yet".
+type tDiscoveryExistenceFetchResult struct {
+	fetched bool
+	status  TDiscoveryExistenceAggregatePayload
+	err     error
+}
 
-	status, fetchErr := fetchDiscoveryExistencePreferringCloud(ctx, gatewayID)
+// fetchDiscoveryExistenceAggregate tries a fresh read, cloud broker first then local
+// (fetchDiscoveryExistenceAggregatePreferringCloud), and on success updates the local cache file.
+// On any failure, falls back to that cache's last-known contents. Returns an error only when
+// neither live broker nor a usable cache is available. Called exactly ONCE per generate run
+// (memoized in ctx.DiscoveryExistenceAggregate, see that field's own doc comment) regardless of how
+// many gateways/callers need existence data -- see TDiscoveryExistenceAggregatePayload's own doc
+// comment for the real incident (2026-09-20) this replaces the earlier per-gateway design for.
+func fetchDiscoveryExistenceAggregate(definitionDir string, ctx TPhysicalGenerationContext) (TDiscoveryExistenceAggregatePayload, error) {
+	if ctx.DiscoveryExistenceAggregate != nil && ctx.DiscoveryExistenceAggregate.fetched {
+		return ctx.DiscoveryExistenceAggregate.status, ctx.DiscoveryExistenceAggregate.err
+	}
+
+	cachePath := discoveryExistenceAggregateCachePath(definitionDir)
+	status, fetchErr := fetchDiscoveryExistenceAggregatePreferringCloud(ctx)
 	if fetchErr == nil {
 		if data, err := json.Marshal(status); err == nil {
 			if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err == nil {
 				if err := os.WriteFile(cachePath, data, 0o644); err != nil {
-					fmt.Printf("[physical] discovery existence for %q: fetched fresh but could not update local cache %s: %v\n", gatewayID, cachePath, err)
+					fmt.Printf("[physical] discovery existence: fetched fresh but could not update local cache %s: %v\n", cachePath, err)
 				}
 			}
+		}
+		if ctx.DiscoveryExistenceAggregate != nil {
+			*ctx.DiscoveryExistenceAggregate = tDiscoveryExistenceFetchResult{fetched: true, status: status}
 		}
 		return status, nil
 	}
 
 	cached, cacheErr := os.ReadFile(cachePath)
 	if cacheErr != nil {
-		return nil, fmt.Errorf("%w (and no local cache at %s to fall back to)", fetchErr, cachePath)
+		err := fmt.Errorf("%w (and no local cache at %s to fall back to)", fetchErr, cachePath)
+		if ctx.DiscoveryExistenceAggregate != nil {
+			*ctx.DiscoveryExistenceAggregate = tDiscoveryExistenceFetchResult{fetched: true, err: err}
+		}
+		return nil, err
 	}
-	var cachedStatus TDiscoveryExistenceStatusPayload
+	var cachedStatus TDiscoveryExistenceAggregatePayload
 	if err := json.Unmarshal(cached, &cachedStatus); err != nil {
-		return nil, fmt.Errorf("%w (local cache at %s is also unreadable: %v)", fetchErr, cachePath, err)
+		err = fmt.Errorf("%w (local cache at %s is also unreadable: %v)", fetchErr, cachePath, err)
+		if ctx.DiscoveryExistenceAggregate != nil {
+			*ctx.DiscoveryExistenceAggregate = tDiscoveryExistenceFetchResult{fetched: true, err: err}
+		}
+		return nil, err
 	}
-	fmt.Printf("[physical] discovery existence for %q: live fetch failed (%v), using cached copy from %s\n", gatewayID, fetchErr, cachePath)
+	fmt.Printf("[physical] discovery existence: live fetch failed (%v), using cached copy from %s\n", fetchErr, cachePath)
+	if ctx.DiscoveryExistenceAggregate != nil {
+		*ctx.DiscoveryExistenceAggregate = tDiscoveryExistenceFetchResult{fetched: true, status: cachedStatus}
+	}
 	return cachedStatus, nil
 }
 
-// fetchDiscoveryExistencePreferringCloud tries the "coordinator_only" cloud broker first (when
-// declared), falling back to the local broker -- matches fetchEntityExistencePreferringCloud's own
-// policy exactly.
-func fetchDiscoveryExistencePreferringCloud(ctx TPhysicalGenerationContext, gatewayID string) (TDiscoveryExistenceStatusPayload, error) {
+// fetchDiscoveryExistenceAggregatePreferringCloud tries the "coordinator_only" cloud broker first
+// (when declared), falling back to the local broker -- matches every other fetchXPreferringCloud
+// function's own policy exactly.
+func fetchDiscoveryExistenceAggregatePreferringCloud(ctx TPhysicalGenerationContext) (TDiscoveryExistenceAggregatePayload, error) {
 	if cloudSecrets, ok := coordinatorOnlyBrokerSecrets(ctx); ok {
-		if status, err := fetchDiscoveryExistenceFromBroker(cloudSecrets, gatewayID, ctx.Installation); err == nil {
+		if status, err := fetchDiscoveryExistenceAggregateFromBroker(cloudSecrets, ctx.Installation); err == nil {
 			return status, nil
 		} else {
-			fmt.Printf("[physical] discovery existence for %q: cloud broker attempt failed (%v), trying local\n", gatewayID, err)
+			fmt.Printf("[physical] discovery existence: cloud broker attempt failed (%v), trying local\n", err)
 		}
 	}
-	return fetchDiscoveryExistenceFromBroker(ctx.MQTTSecrets, gatewayID, "")
+	return fetchDiscoveryExistenceAggregateFromBroker(ctx.MQTTSecrets, "")
 }
 
-// fetchDiscoveryExistenceFromBroker connects to secrets' broker as a one-shot client and returns
-// whatever the coordinator has last published (retained) on discoveryGatewayExistenceStatusTopic(gatewayID).
+// fetchDiscoveryExistenceAggregateFromBroker connects to secrets' broker as a one-shot client and
+// returns whatever the coordinator has last published (retained) on
+// discoveryExistenceAggregateStatusTopic().
 //
 // ownInstallation, when non-empty, additionally prefixes the topic with this house's own
-// installation name -- the cloud broker's own qualification convention
-// (house_event_bus_coordinator/discovery_existence.go's publishStatus, fixed live 2026-09-05
-// alongside kind-3's analogous "main" instance collision). Pass "" for the local broker, whose copy
-// stays bare.
-func fetchDiscoveryExistenceFromBroker(secrets TMQTTBrokerSecrets, gatewayID, ownInstallation string) (TDiscoveryExistenceStatusPayload, error) {
-	topic := discoveryGatewayExistenceStatusTopic(gatewayID)
+// installation name -- the cloud broker's own qualification convention, same reasoning as every
+// other aggregate/per-instance status topic in this codebase. Pass "" for the local broker, whose
+// copy stays bare.
+func fetchDiscoveryExistenceAggregateFromBroker(secrets TMQTTBrokerSecrets, ownInstallation string) (TDiscoveryExistenceAggregatePayload, error) {
+	if err, known := brokerKnownUnreachable(secrets); known {
+		return nil, fmt.Errorf("broker %s:%s already known unreachable this run: %w", secrets.Server, secrets.Port, err)
+	}
+
+	topic := discoveryExistenceAggregateStatusTopic()
 	if ownInstallation != "" {
 		topic = ownInstallation + "/" + topic
 	}
@@ -140,18 +190,28 @@ func fetchDiscoveryExistenceFromBroker(secrets TMQTTBrokerSecrets, gatewayID, ow
 		scheme = "ssl"
 	}
 	opts.AddBroker(fmt.Sprintf("%s://%s:%s", scheme, secrets.Server, secrets.Port))
-	opts.SetClientID("homeassistant-generator-discovery-existence-" + gatewayID)
+	opts.SetClientID("homeassistant-generator-discovery-existence")
 	opts.SetUsername(secrets.Login)
 	opts.SetPassword(secrets.Password)
 	opts.SetConnectTimeout(fetchDiscoveryExistenceTimeout)
+	// A one-shot fetch-and-disconnect client should never keep retrying in the background --
+	// paho's own AutoReconnect defaults to true, so without this a failed connection attempt
+	// leaves an orphaned reconnect loop running for the rest of the process, even after this
+	// function has already given up and returned an error. See mqtt_broker_reachability.go's own
+	// header comment for the real incident (2026-09-20) this compounds.
+	opts.SetAutoReconnect(false)
 
 	client := mqtt.NewClient(opts)
 	token := client.Connect()
 	if !token.WaitTimeout(fetchDiscoveryExistenceTimeout) || token.Error() != nil {
-		if err := token.Error(); err != nil {
-			return nil, fmt.Errorf("connecting to MQTT broker %s:%s: %w", secrets.Server, secrets.Port, err)
+		var err error
+		if tokenErr := token.Error(); tokenErr != nil {
+			err = fmt.Errorf("connecting to MQTT broker %s:%s: %w", secrets.Server, secrets.Port, tokenErr)
+		} else {
+			err = fmt.Errorf("connecting to MQTT broker %s:%s: timed out", secrets.Server, secrets.Port)
 		}
-		return nil, fmt.Errorf("connecting to MQTT broker %s:%s: timed out", secrets.Server, secrets.Port)
+		markBrokerUnreachable(secrets, err)
+		return nil, err
 	}
 	defer client.Disconnect(250)
 
@@ -171,23 +231,30 @@ func fetchDiscoveryExistenceFromBroker(secrets TMQTTBrokerSecrets, gatewayID, ow
 
 	select {
 	case payload := <-received:
-		var status TDiscoveryExistenceStatusPayload
+		var status TDiscoveryExistenceAggregatePayload
 		if err := json.Unmarshal(payload, &status); err != nil {
 			return nil, fmt.Errorf("parsing %s payload: %w", topic, err)
 		}
 		return status, nil
 	case <-time.After(fetchDiscoveryExistenceTimeout):
-		return nil, fmt.Errorf("timed out waiting for %s (has the coordinator published discovery existence status for this gateway yet?)", topic)
+		return nil, fmt.Errorf("timed out waiting for %s (has the coordinator published discovery existence status yet?)", topic)
 	}
 }
 
-// checkDiscoveryKnownNotToExistErrors fetches (fetch-then-cache-fallback) existence status for
-// every distinct gateway discoveryEntityLinks references, and returns a combined error listing
+// checkDiscoveryKnownNotToExistErrors fetches (fetch-then-cache-fallback) the aggregate existence
+// status once and slices out every distinct gateway discoveryEntityLinks references, returning
 // every declared entity link whose source leaf the coordinator has confirmed known-not-to-exist --
-// the same rule as kind-3's checkKnownNotToExistErrors: this is the *only* status that blocks
-// generation; not-known-to-exist and known-to-exist both generate optimistically. Soft-fails (a
-// warning) per gateway when neither a fresh read nor a cache is available.
-func checkDiscoveryKnownNotToExistErrors(definitionDir string, discoveryEntityLinks map[string]TDiscoveryEntityLink, ctx TPhysicalGenerationContext) error {
+// the same rule as kind-3's checkKnownNotToExistErrors. not-known-to-exist and known-to-exist both
+// generate optimistically. Soft-fails (a warning) when neither a fresh read nor a cache is
+// available at all.
+//
+// Returns problems for the caller to fold into a TMissingEntitiesReport (missing_entities_report.go)
+// rather than an error -- PROJECT.md item 1a (2026-09-21, "stable ID-based link" architecture):
+// previously this returned a hard error that aborted the ENTIRE `./generate` run the moment any one
+// declared entity's physical source was confirmed gone (a dead Zigbee battery, a rebooting router),
+// which is the opposite of the agreed principle that a vanished physical source must be REPORTED,
+// not acted on. See memory: project_stable_discovery_identity_architecture.md.
+func checkDiscoveryKnownNotToExistErrors(definitionDir string, discoveryEntityLinks map[string]TDiscoveryEntityLink, ctx TPhysicalGenerationContext) []string {
 	gatewayIDs := map[string]bool{}
 	for _, link := range discoveryEntityLinks {
 		if link.GatewayDeviceID != "" {
@@ -198,14 +265,16 @@ func checkDiscoveryKnownNotToExistErrors(definitionDir string, discoveryEntityLi
 		return nil
 	}
 
+	// A fetch failure is already printed once by fetchDiscoveryExistenceAggregate itself (its own
+	// memoization wrapper) -- not repeated here.
+	aggregate, err := fetchDiscoveryExistenceAggregate(definitionDir, ctx)
 	statusByGateway := map[string]TDiscoveryExistenceStatusPayload{}
-	for gatewayID := range gatewayIDs {
-		status, err := fetchDiscoveryExistence(definitionDir, ctx, gatewayID)
-		if err != nil {
-			fmt.Printf("[physical] discovery existence for %q: %v\n", gatewayID, err)
-			continue
+	if err == nil {
+		for gatewayID := range gatewayIDs {
+			if status, ok := aggregate[gatewayID]; ok {
+				statusByGateway[gatewayID] = status
+			}
 		}
-		statusByGateway[gatewayID] = status
 	}
 
 	entityIDs := make([]string, 0, len(discoveryEntityLinks))
@@ -228,11 +297,10 @@ func checkDiscoveryKnownNotToExistErrors(definitionDir string, discoveryEntityLi
 			entityID, link.GatewayDeviceID, link.Leaf))
 	}
 
-	if len(problems) == 0 {
-		return nil
+	if len(problems) > 0 {
+		fmt.Printf("[physical] discovery existence check: the coordinator has confirmed %d declared entity/entities reference a leaf that does not exist -- see suggestions/missing.txt\n", len(problems))
 	}
-	return fmt.Errorf("discovery existence check failed -- the coordinator has confirmed %d declared entity/entities reference a leaf that does not exist:\n  %s",
-		len(problems), strings.Join(problems, "\n  "))
+	return problems
 }
 
 // usedDiscoveryLeaves returns the set of leaf names already claimed by a declared
@@ -246,6 +314,27 @@ func usedDiscoveryLeaves(discoveryEntityLinks map[string]TDiscoveryEntityLink, g
 		}
 	}
 	return used
+}
+
+// declaredDiscoveryLeaves returns the set of raw leaf ids gateway already names on ANY of its own
+// "<domain>.<label>: <leaf>;" capability lines -- independent of whether that capability has gone
+// on to be positioned at the conceptual layer (usedDiscoveryLeaves' own, narrower criterion).
+// buildDiscoverySuggestionReport treats this the same as "used": once a leaf has a real,
+// hand-chosen Physical.def label, there is nothing left for this report to suggest for it, even
+// when that capability is a diagnostic one deliberately left unpositioned (the desktop/nespresso
+// precedent, MigrationNotes.def) -- before this, such a leaf kept reappearing here forever, always
+// under the SAME "sensor. <leaf>; # not recognized" guess (recognizeDiscoveryCapability has no
+// knowledge of Physical.def's own declarations, only a generic, Z2M-unaware keyword table), even
+// immediately after being correctly labelled by hand -- confusing enough live (2026-09-17) to read
+// as "the label was never actually applied", when it had been.
+func declaredDiscoveryLeaves(gateway TDiscoveryGatewayDevice) map[string]bool {
+	declared := map[string]bool{}
+	for _, capability := range gateway.Capabilities {
+		if capability.Leaf != "" {
+			declared[capability.Leaf] = true
+		}
+	}
+	return declared
 }
 
 // recognizeDiscoveryCapability guesses a bare gateway leaf's local capability domain/suffix from
@@ -265,14 +354,27 @@ func recognizeDiscoveryCapability(leaf string) (domain, suffix string) {
 }
 
 // buildDiscoverySuggestionReport formats every known-to-exist leaf (minus whatever
-// discoveryEntityLinks already claims) as copy-paste-ready Physical.def
-// "device discovery.<id> with: ...; end;" blocks, one per gateway, sorted for deterministic
-// output -- the kind-2 counterpart to buildSuggestionReportFromExistence. Unlike kind-3's
-// per-instance/per-device two-level grouping, a gateway id here already *is* the device (no
-// separate "device" concept above it in the kind-2 status payload), so this is a single flat pass
-// per gateway. not-known-to-exist and known-not-to-exist leaves are never suggested -- only a
-// confirmed existence is copy-paste-worthy.
-func buildDiscoverySuggestionReport(statusByGateway map[string]TDiscoveryExistenceStatusPayload, discoveryEntityLinks map[string]TDiscoveryEntityLink) string {
+// discoveryEntityLinks already claims, and minus whatever the gateway's own Physical.def
+// declaration already names under some capability -- declaredDiscoveryLeaves, positioned or not)
+// as copy-paste-ready Physical.def "device discovery.<id> with: ...; end;" blocks, one per
+// gateway, sorted for deterministic output -- the kind-2 counterpart to
+// buildSuggestionReportFromExistence. Unlike kind-3's per-instance/per-device two-level grouping,
+// a gateway id here already *is* the device (no separate "device" concept above it in the kind-2
+// status payload), so this is a single flat pass per gateway. not-known-to-exist and
+// known-not-to-exist leaves are never suggested -- only a confirmed existence is copy-paste-worthy.
+//
+// Real bug found live 2026-09-16: each line's own RHS used to be "domain + \".\" + leaf" (e.g.
+// "sensor.0x00158d0003f0d585_linkquality_zigbee2mqtt;") -- but a real Physical.def capability
+// line's own RHS is always the BARE leaf value, never domain-prefixed (compare any actually
+// declared line, e.g. "switch.core: 0xc4988600000fbf8e_switch_zigbee2mqtt;"). Copy-pasting a
+// suggestion verbatim produced a syntactically broken line. Fixed to just "leaf + \";\"".
+//
+// Real bug found live 2026-09-17: a leaf given a real, hand-chosen label (e.g.
+// "sensor.color_options: 0x..._color_options_zigbee2mqtt;") but deliberately left unpositioned
+// (a diagnostic-only capability, the desktop/nespresso precedent) kept reappearing here forever --
+// declaredDiscoveryLeaves closes that gap by excluding any leaf ALREADY named by the gateway's own
+// declaration, not just ones gone on to be positioned.
+func buildDiscoverySuggestionReport(statusByGateway map[string]TDiscoveryExistenceStatusPayload, discoveryEntityLinks map[string]TDiscoveryEntityLink, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice) string {
 	gatewayIDs := make([]string, 0, len(statusByGateway))
 	for id := range statusByGateway {
 		gatewayIDs = append(gatewayIDs, id)
@@ -282,9 +384,10 @@ func buildDiscoverySuggestionReport(statusByGateway map[string]TDiscoveryExisten
 	var sb strings.Builder
 	for _, gatewayID := range gatewayIDs {
 		used := usedDiscoveryLeaves(discoveryEntityLinks, gatewayID)
+		declared := declaredDiscoveryLeaves(discoveryGatewaysByID[gatewayID])
 		leaves := make([]string, 0, len(statusByGateway[gatewayID]))
 		for leaf, status := range statusByGateway[gatewayID] {
-			if status != existenceStatusKnownToExist || used[leaf] {
+			if status != existenceStatusKnownToExist || used[leaf] || declared[leaf] {
 				continue
 			}
 			leaves = append(leaves, leaf)
@@ -299,7 +402,7 @@ func buildDiscoverySuggestionReport(statusByGateway map[string]TDiscoveryExisten
 		maxLHS := 0
 		for _, leaf := range leaves {
 			domain, suffix := recognizeDiscoveryCapability(leaf)
-			lhs := domain + "." + suffix + ":"
+			lhs := domain + "." + suffix
 			comment := ""
 			if suffix == "" {
 				comment = " # not recognized"
@@ -307,7 +410,7 @@ func buildDiscoverySuggestionReport(statusByGateway map[string]TDiscoveryExisten
 			if len(lhs) > maxLHS {
 				maxLHS = len(lhs)
 			}
-			lines = append(lines, line{lhs: lhs, rhs: domain + "." + leaf + ";", comment: comment})
+			lines = append(lines, line{lhs: lhs, rhs: leaf + ";", comment: comment})
 		}
 
 		sb.WriteString("device " + gatewayID + " with:\n")
@@ -320,43 +423,66 @@ func buildDiscoverySuggestionReport(statusByGateway map[string]TDiscoveryExisten
 }
 
 // generateDiscoverySuggestions fetches each declared "discovery" gateway's own existence status
-// (fetchDiscoveryExistence -- fresh over MQTT when possible, local cache otherwise) and writes
+// (fetchDiscoveryExistence -- fresh over MQTT when possible, local cache otherwise) plus, since
+// PROJECT.md item 7/2026-09-14, every still-undeclared device passthrough is relaying raw
+// (fetchPassthroughDevices, discovery_passthrough_suggestions.go), and writes
 // <outputRoot>/suggestions/discovery.txt for the whole discovery integration -- the kind-2
 // counterpart to generateEntityCatalogueSuggestions. One combined file, not one per gateway:
 // unlike kind-3's per-instance grouping, there's no grouping above "gateway" for kind-2 to key
 // separate files on, and every gateway is small enough that one file stays readable. Soft-fails (a
-// printed warning, not an error) per gateway when neither a fresh nor a cached status is
-// available; if literally every gateway soft-fails, any existing suggestions file is left
-// untouched (a fetch failure says nothing about whether it's still accurate). No-op entirely when
-// ctx has no MQTT secrets configured or no "discovery" gateways are declared.
-func generateDiscoverySuggestions(definitionDir, outputRoot string, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, discoveryEntityLinks map[string]TDiscoveryEntityLink, ctx TPhysicalGenerationContext) error {
-	if !ctx.HasMQTTSecrets || len(discoveryGatewaysByID) == 0 {
+// printed warning, not an error) per gateway/passthrough when neither a fresh nor a cached status
+// is available; if literally nothing could be fetched, any existing suggestions file is left
+// untouched (a fetch failure says nothing about whether it's still accurate). passthroughRules is
+// only used to decide whether it's worth attempting the passthrough fetch at all -- an empty
+// declaration list with zero declared gateways too means there's nothing this integration could
+// ever suggest, so the whole function no-ops without touching MQTT. No-op entirely when ctx has no
+// MQTT secrets configured.
+func generateDiscoverySuggestions(definitionDir, outputRoot string, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, discoveryEntityLinks map[string]TDiscoveryEntityLink, passthroughRules []TDiscoveryPassthroughRule, ctx TPhysicalGenerationContext) error {
+	if !ctx.HasMQTTSecrets || (len(discoveryGatewaysByID) == 0 && len(passthroughRules) == 0) {
 		return nil
 	}
 
-	gatewayIDs := make([]string, 0, len(discoveryGatewaysByID))
-	for id := range discoveryGatewaysByID {
-		gatewayIDs = append(gatewayIDs, id)
-	}
-	sort.Strings(gatewayIDs)
-
 	statusByGateway := map[string]TDiscoveryExistenceStatusPayload{}
 	fetchedAny := false
-	for _, gatewayID := range gatewayIDs {
-		status, err := fetchDiscoveryExistence(definitionDir, ctx, gatewayID)
-		if err != nil {
-			fmt.Printf("[physical] discovery existence for %q: %v\n", gatewayID, err)
-			continue
-		}
+	// A fetch failure is already printed once by fetchDiscoveryExistenceAggregate itself (its own
+	// memoization wrapper) -- not repeated here.
+	if aggregate, err := fetchDiscoveryExistenceAggregate(definitionDir, ctx); err == nil {
 		fetchedAny = true
-		statusByGateway[gatewayID] = status
+		for gatewayID := range discoveryGatewaysByID {
+			if status, ok := aggregate[gatewayID]; ok {
+				statusByGateway[gatewayID] = status
+			}
+		}
 	}
+
+	report := buildDiscoverySuggestionReport(statusByGateway, discoveryEntityLinks, discoveryGatewaysByID)
+
+	// Real bug found live 2026-09-19: this used to be gated on "len(passthroughRules) > 0",
+	// coupling the "which real devices exist under ${mqtt_discovery_physical} that Physical.def
+	// hasn't declared yet" suggestion feed to whether a "discovery_passthrough ...;" rule happens
+	// to be declared at all. The coordinator's own tracker (discoverybridge.go's
+	// passthroughDeviceTracker, fixed the same day) now records ANY undeclared device seen under
+	// the physical prefix unconditionally -- whether or not it's also being actively relayed into
+	// HA -- so the generator must always attempt this fetch too, not just when passthrough rules
+	// exist. By the time this line is reached, the function's own top-of-function guard already
+	// guarantees at least one of discoveryGatewaysByID/passthroughRules is non-empty, i.e.
+	// ${mqtt_discovery_physical} is genuinely in use -- always worth asking.
+	{
+		status, err := fetchPassthroughDevices(definitionDir, ctx)
+		if err != nil {
+			fmt.Printf("[physical] passthrough devices: %v\n", err)
+		} else {
+			fetchedAny = true
+			report += buildPassthroughCollisionReport(status.Collisions)
+			report += buildPassthroughSuggestionReport(status.Devices, alreadyDeclaredIdentifiers(discoveryGatewaysByID))
+		}
+	}
+
 	if !fetchedAny {
 		return nil
 	}
 
 	suggestionPath := filepath.Join(outputRoot, "suggestions", "discovery.txt")
-	report := buildDiscoverySuggestionReport(statusByGateway, discoveryEntityLinks)
 	if strings.TrimSpace(report) == "" {
 		// Unlike a fetch failure, this *is* an authoritative "nothing to suggest right now" --
 		// remove any stale file from an earlier run rather than silently leaving outdated

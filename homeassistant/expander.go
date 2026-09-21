@@ -215,6 +215,24 @@ func resolveSettingsVar(s string, settings map[string]string) string {
 	return s
 }
 
+// bareSettingsVariablePattern matches one "${name}" reference, no ".accessor" suffix -- unlike
+// variableReferencePattern above (which also matches macro-parameter-style "${x.y}" references),
+// every Settings.def variable is always a bare name.
+var bareSettingsVariablePattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+
+// substituteSettingsVariables replaces every "${name}" reference anywhere in text with its
+// Settings.def value, leaving an unknown name's own literal "${name}" text unchanged (same
+// silent-passthrough convention as resolveSettingsVar, rather than erroring: some future non-
+// settings use of "${...}" syntax could exist elsewhere in the same text). Used by layers that
+// have no per-field resolution of their own, unlike Conceptual.def (specific call sites, e.g.
+// icon/input_number fields in parser.go) or Macros.def (resolved as part of ordinary macro-
+// argument substitution during expansion) -- Logical.def is the first such case, 2026-09-18.
+func substituteSettingsVariables(text string, settings map[string]string) string {
+	return bareSettingsVariablePattern.ReplaceAllStringFunc(text, func(match string) string {
+		return resolveSettingsVar(match, settings)
+	})
+}
+
 // extractVariableName strips ${...} or $ prefix and any .accessor suffix, returning the bare name.
 func extractVariableName(ref string) string {
 	if strings.HasPrefix(ref, "${") && strings.HasSuffix(ref, "}") {

@@ -131,6 +131,7 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 		MQTTDiscoveryPhysicalPrefix:   resolveMQTTDiscoveryPhysicalPrefix(definitionDir),
 		MQTTDiscoveryConceptualPrefix: resolveMQTTDiscoveryConceptualPrefix(definitionDir),
 		Installation:                  resolveInstallationName(definitionDir),
+		DiscoveryExistenceAggregate:   &tDiscoveryExistenceFetchResult{},
 	}
 
 	physicalContent, mergedLineNos, layerWarnings := collectLayerContent(definitionDir, []string{"Physical.def"}, LayerPhysical)
@@ -140,12 +141,18 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 	if strings.TrimSpace(physicalContent) == "" {
 		return nil
 	}
+	var jinjaWarnings []string
+	physicalContent, jinjaWarnings = resolveJinjaTemplateCallsInDerivedLines(physicalContent, loadJinjaTemplateDefinitions(definitionDir))
+	for _, w := range jinjaWarnings {
+		fmt.Printf("[physical] %s\n", w)
+	}
 
 	if err := generateDiscoveryCleanupFile(outputRoot, collectMQTTDiscoveryCleanTopics(physicalContent)); err != nil {
 		return err
 	}
 
-	if err := generateDiscoveryPassthroughFile(outputRoot, collectDiscoveryPassthroughRules(physicalContent), ctx.MQTTDiscoveryPhysicalPrefix); err != nil {
+	discoveryPassthroughRules := collectDiscoveryPassthroughRules(physicalContent, definitionDir)
+	if err := generateDiscoveryPassthroughFile(outputRoot, discoveryPassthroughRules, ctx.MQTTDiscoveryPhysicalPrefix); err != nil {
 		return err
 	}
 	if err := generateDiscoveryPrefixBaselineFile(outputRoot, ctx.MQTTDiscoveryPhysicalPrefix); err != nil {
@@ -168,6 +175,9 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 	for _, w := range registerExportedHassBridgeDevices(admin, hassBridgeDevicesByID) {
 		fmt.Printf("[physical] %s\n", w)
 	}
+	// Logical.def "dependency on" (2026-09-16), applyResolvedDependencyTopics' own mirror for the
+	// "home_assistant" bridge kind -- see integration_logical_storage.go's own doc comment.
+	applyResolvedDependencyTopicsToHassBridge(hassBridgeDevicesByID, admin)
 	if err := generateHassBridgeFile(outputRoot, hassBridgeDevicesByID, admin); err != nil {
 		return err
 	}
@@ -179,29 +189,34 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 	if err := generateMainEntitiesFile(outputRoot, mainEntityIDs); err != nil {
 		return err
 	}
-	// PROJECT.md 1.1: the only entity-existence status that blocks generation is a *confirmed*
-	// known-not-to-exist verdict from the coordinator -- not-known-to-exist (the coordinator
-	// hasn't gotten to it yet) and known-to-exist both generate optimistically, same as before
-	// this check existed. Skipped entirely when the house has no MQTT settings (Vienna today).
+	// PROJECT.md item 1a (2026-09-21): every "known-not-to-exist" existence check across all four
+	// kinds (kind-3 hassbridge, kind-2 discovery, kind-5 main-instance, kind-4 import below) feeds
+	// one shared, non-blocking report instead of aborting generation -- not-known-to-exist (the
+	// coordinator hasn't gotten to it yet) and known-to-exist both generate optimistically, same as
+	// before. Skipped entirely when the house has no MQTT settings (Vienna today). Written once,
+	// after the kind-4 check further down (generateMissingEntitiesReport).
+	missingReport := &TMissingEntitiesReport{}
 	if hasMQTTSecrets {
-		if err := checkKnownNotToExistErrors(definitionDir, hassBridgeDevicesByID, ctx); err != nil {
-			return err
-		}
+		missingReport.Add("home_assistant bridge capabilities (kind-3)", checkKnownNotToExistErrors(definitionDir, hassBridgeDevicesByID, ctx))
 		// PROJECT.md 1.8: kind-2's own passive counterpart -- same rule, a confirmed
-		// known-not-to-exist source leaf blocks generation, not-known-to-exist/known-to-exist both
+		// known-not-to-exist source leaf is reported, not-known-to-exist/known-to-exist both
 		// generate optimistically.
-		if err := checkDiscoveryKnownNotToExistErrors(definitionDir, admin.DiscoveryEntityLinks, ctx); err != nil {
-			return err
-		}
+		missingReport.Add("discovery gateway leaves (kind-2)", checkDiscoveryKnownNotToExistErrors(definitionDir, admin.DiscoveryEntityLinks, ctx))
 		// PROJECT.md item 1 (kind-5): same rule again, for main-instance bare entities.
-		if err := checkMainEntityKnownNotToExistErrors(definitionDir, mainEntityIDs, ctx); err != nil {
-			return err
-		}
+		missingReport.Add("main-instance entities (kind-5)", checkMainEntityKnownNotToExistErrors(definitionDir, mainEntityIDs, ctx))
 	}
 	if err := generateInstanceAutomationTrees(haOutputDir, instances, hassBridgeDevicesByID, admin); err != nil {
 		return err
 	}
-	if err := generateEntityCatalogueSuggestions(definitionDir, outputRoot, instances, hassBridgeDevicesByID, mainEntityIDs, ctx); err != nil {
+	// hostDevicesByID, like hassBridgeDevicesByID above, is collected independently here rather
+	// than threaded from generator.go's own earlier parse -- generateEntityCatalogueSuggestions
+	// only needs it for its own "ignore other capabilities;" device-id set
+	// (ignoredHostDeviceIDs), not for anything else this function does.
+	hostDevicesByID, hostDeviceWarnings := collectHostsDevicesByID(definitionDir)
+	for _, w := range hostDeviceWarnings {
+		fmt.Printf("[physical] %s\n", w)
+	}
+	if err := generateEntityCatalogueSuggestions(definitionDir, outputRoot, instances, hassBridgeDevicesByID, hostDevicesByID, mainEntityIDs, collectDiscoveryImpliedEntityIDs(admin), ctx); err != nil {
 		return err
 	}
 	// PROJECT.md 1.8: kind-2's own suggestion report, mirroring the kind-3 one just above --
@@ -211,7 +226,7 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 	for _, w := range discoveryGatewayWarnings {
 		fmt.Printf("[physical] %s\n", w)
 	}
-	if err := generateDiscoverySuggestions(definitionDir, outputRoot, discoveryGatewaysByID, admin.DiscoveryEntityLinks, ctx); err != nil {
+	if err := generateDiscoverySuggestions(definitionDir, outputRoot, discoveryGatewaysByID, admin.DiscoveryEntityLinks, discoveryPassthroughRules, ctx); err != nil {
 		return err
 	}
 
@@ -224,18 +239,20 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 	for _, w := range importWarnings {
 		fmt.Printf("[physical] %s\n", w)
 	}
+	applyResolvedDependencyTopics(importedDevices, admin)
 	ctx.ImportedDevices = importedDevices
 	if err := generateImportedDeviceFile(outputRoot, importedDevices, ctx.Admin); err != nil {
 		return err
 	}
 	// PROJECT.md 1 (2026-09-07): kind-4's own passive counterpart to kind-2/kind-3 above -- same
-	// rule, a confirmed known-not-to-exist remote stable id blocks generation for a shorthand-declared
+	// rule, a confirmed known-not-to-exist remote stable id is reported for a shorthand-declared
 	// import capability, not-known-to-exist/known-to-exist both generate optimistically. Explicit-ref
 	// capabilities predate this mechanism and are never checked here.
 	if hasMQTTSecrets {
-		if err := checkImportKnownNotToExistErrors(definitionDir, importedDevices, ctx); err != nil {
-			return err
-		}
+		missingReport.Add("import shorthand capabilities (kind-4)", checkImportKnownNotToExistErrors(definitionDir, importedDevices, ctx))
+	}
+	if err := generateMissingEntitiesReport(outputRoot, missingReport); err != nil {
+		return err
 	}
 	// Baseline devices.yaml write, unconditional: a house with no "integration hosts" block at
 	// all (e.g. Vienna today, PROJECT.md 1.2c/1.2d -- coordinator/cloud broker stood up before any

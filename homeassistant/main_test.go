@@ -455,7 +455,7 @@ func TestSpaceOnInVirtualSpacePopulatesSwitchOnByName(t *testing.T) {
 end;`
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -545,7 +545,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -625,7 +625,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -661,7 +661,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -687,7 +687,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -713,6 +713,44 @@ end;`
 	}
 	if link.DisplayName != "garage/smarty" {
 		t.Errorf("link.DisplayName = %q, want %q (sphere \"infrastructural\" is omitted from display names, 2026-08-29)", link.DisplayName, "garage/smarty")
+	}
+}
+
+// TestResolveListEntriesExcludesAutoRegisteredDependencyNodes is the regression test for a real
+// bug found live 2026-09-21 (Vienna): a "dependency on <device-id>;" target that was never itself
+// explicitly positioned in Conceptual.def gets an ugly synthetic node entity registered purely so
+// the dependency's own availability AND-condition has something real to read
+// (resolveLogicalDependencyNodeEntities, integration_logical_storage.go) -- real case:
+// appliance.washing_machine's "dependency on node.candy;" auto-registered
+// "binary_sensor.physical_node_candy_node", which kept surfacing in list.nodes as if node.candy
+// were a real, deliberately positioned device. Mirrors the existing "derived" exclusion exactly.
+func TestResolveListEntriesExcludesAutoRegisteredDependencyNodes(t *testing.T) {
+	state := newAdministrationState()
+	state.SpaceOrder = []string{"root"}
+	state.EntityRecordsBySpace["root"] = []TEntityRecord{
+		{
+			Name:       "binary_sensor.infrastructural/apartment/shower_room/washing_machine/node",
+			Identity:   extractEntityIdentity("binary_sensor.infrastructural/apartment/shower_room/washing_machine/node"),
+			Provenance: "Physical.def:1 → binary_sensor.node from appliance.washing_machine node",
+		},
+		{
+			Name:       "binary_sensor.physical/node.candy/node",
+			Identity:   extractEntityIdentity("binary_sensor.physical/node.candy/node"),
+			Provenance: "auto-registered dependency node: Logical.def:51 → binary_sensor.available from appliance.washing_machine available",
+		},
+	}
+
+	decl := TListDeclaration{
+		title:    "nodes",
+		patterns: []TListPattern{{domain: "binary_sensor", pathSuffix: "node", wildcardLeaf: false}},
+	}
+	entries := resolveListEntries(decl, state)
+
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1 (the real node only): %+v", len(entries), entries)
+	}
+	if entries[0].entityID != "binary_sensor.infrastructural_apartment_shower_room_washing_machine_node" {
+		t.Errorf("entries[0].entityID = %q, want the real washing_machine node", entries[0].entityID)
 	}
 }
 
@@ -778,7 +816,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -815,7 +853,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -855,7 +893,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -925,6 +963,28 @@ func TestParseHostsIntegrationBodyConstantDeviceAttributes(t *testing.T) {
 	}
 	if got, want := merged["hw_version"], (THostConstantAttribute{Value: "1928930", Forced: true}); got != want {
 		t.Errorf("merged[hw_version] = %+v, want %+v", got, want)
+	}
+}
+
+// TestParseHostsIntegrationBodyIgnoreOtherCapabilities is the regression test for a real bug found
+// live 2026-09-21 (Vienna): the FRITZ!Box's own "node.fritz_box" ping device kept getting an
+// auto-generated diagnostic "image" entity suggested in suggestions/home_assistant_main.txt (kind-3)
+// -- known noise, not a genuine future capability worth positioning. "ignore other capabilities;"
+// opts a "hosts" device out of that suggestion entirely (see
+// THostDevice.IgnoreOtherCapabilities' own doc comment).
+func TestParseHostsIntegrationBodyIgnoreOtherCapabilities(t *testing.T) {
+	body := []string{
+		"device node.fritz_box fritz.box ping with:",
+		"  ignore other capabilities;",
+		"end;",
+	}
+
+	devices, warnings := parseHostsIntegrationBody(body)
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(devices) != 1 || !devices[0].IgnoreOtherCapabilities {
+		t.Errorf("expected IgnoreOtherCapabilities to be set, got %+v", devices)
 	}
 }
 
@@ -1005,7 +1065,7 @@ func TestParseDiscoveryIntegrationBody(t *testing.T) {
 		"device discovery.ems_esp with:",
 		`  identifiers "ems-esp-extra";`,
 		"  device discovery.ems_esp_boiler with:",
-		"    sensor.outdoor_temperature: sensor.boiler_outdoortemp;",
+		"    sensor.outdoor_temperature boiler_outdoortemp;",
 		"  end;",
 		"end;",
 	}
@@ -1047,12 +1107,283 @@ func TestParseDiscoveryIntegrationBody(t *testing.T) {
 	}
 	cap, ok := boiler.Capabilities["outdoor_temperature"]
 	if !ok || cap.Domain != "sensor" || cap.Leaf != "boiler_outdoortemp" {
-		t.Errorf("boiler Capabilities[outdoor_temperature] = %+v, ok=%v, want Domain sensor, Leaf boiler_outdoortemp (domain prefix stripped)", cap, ok)
+		t.Errorf("boiler Capabilities[outdoor_temperature] = %+v, ok=%v, want Domain sensor, Leaf boiler_outdoortemp", cap, ok)
 	}
 }
 
-func TestExtractDiscoveryEntityDeclarationLastDotIsLeafBoundary(t *testing.T) {
-	decl, ok := extractDiscoveryEntityDeclaration("entity sensor.social:garage_door/temperature from discovery.ems_esp.boiler_outdoortemp;")
+// TestParseDiscoveryIntegrationBodyIgnoreOtherCapabilities is the regression test for a real bug
+// found live 2026-09-21 (Vienna): declaring the Zigbee2MQTT bridge itself as a discovery gateway
+// (identifiers matching the bridge's own MQTT identifier) made EVERY other Zigbee2MQTT device
+// match it too via the coordinator's own one-hop via_device rule (every single device on the
+// network sets its own via_device to the bridge) -- so every other device's undeclared leaves
+// started appearing lumped under this one gateway in suggestions/discovery.txt. "ignore other
+// capabilities;" opts a gateway out of that one-hop absorption entirely (see
+// TDiscoveryGatewayDevice.IgnoreOtherCapabilities's own doc comment).
+func TestParseDiscoveryIntegrationBodyIgnoreOtherCapabilities(t *testing.T) {
+	body := []string{
+		"device node.zigbee2mqtt_bridge with:",
+		`  identifiers "zigbee2mqtt_bridge_0x00124b0029e8c409";`,
+		"  ignore other capabilities;",
+		"  sensor.version bridge_0x00124b0029e8c409_version_zigbee2mqtt;",
+		"end;",
+	}
+
+	devices, warnings := parseDiscoveryIntegrationBody(body)
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("got %d devices, want 1: %+v", len(devices), devices)
+	}
+	if !devices[0].IgnoreOtherCapabilities {
+		t.Errorf("expected IgnoreOtherCapabilities to be set, got %+v", devices[0])
+	}
+}
+
+// TestParseDiscoveryIntegrationBodyWithoutIgnoreOtherCapabilitiesDefaultsFalse confirms the new
+// field defaults to false for every ordinary gateway declaration -- the flag must be strictly
+// opt-in, never silently applying to gateways that never asked for it.
+func TestParseDiscoveryIntegrationBodyWithoutIgnoreOtherCapabilitiesDefaultsFalse(t *testing.T) {
+	body := []string{
+		"device discovery.ems_esp with:",
+		"  sensor.outdoor_temperature boiler_outdoortemp;",
+		"end;",
+	}
+
+	devices, warnings := parseDiscoveryIntegrationBody(body)
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(devices) != 1 || devices[0].IgnoreOtherCapabilities {
+		t.Errorf("expected IgnoreOtherCapabilities false by default, got %+v", devices)
+	}
+}
+
+// TestParseDiscoveryIntegrationBodyAvailabilityCapability is the "binary_sensor.node: <sibling> is
+// available;" sugar's own coverage (PROJECT.md item 7, 2026-09-15) -- a capability whose source
+// ends in " is available" names a SIBLING capability (same device, own local label) to track the
+// availability of, not a raw gateway leaf.
+func TestParseDiscoveryIntegrationBodyAvailabilityCapability(t *testing.T) {
+	body := []string{
+		"device discovery.vidja_left_1 with:",
+		`  identifiers "zigbee2mqtt_0x84b4dbfffefbb43a";`,
+		"  light.core 0x84b4dbfffefbb43a_light_zigbee2mqtt;",
+		"  binary_sensor.node light.core is available;",
+		"end;",
+	}
+
+	devices, warnings := parseDiscoveryIntegrationBody(body)
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("got %d devices, want 1: %+v", len(devices), devices)
+	}
+
+	core, ok := devices[0].Capabilities["core"]
+	if !ok || core.Domain != "light" || core.Leaf != "0x84b4dbfffefbb43a_light_zigbee2mqtt" || core.AvailabilityOf != "" {
+		t.Errorf("Capabilities[core] = %+v, ok=%v, want a plain raw-leaf capability", core, ok)
+	}
+
+	node, ok := devices[0].Capabilities["node"]
+	if !ok || node.Domain != "binary_sensor" || node.Leaf != "" || node.AvailabilityOf != "core" || node.AvailabilityOfDomain != "light" {
+		t.Errorf("Capabilities[node] = %+v, ok=%v, want Domain binary_sensor, Leaf \"\", AvailabilityOf \"core\", AvailabilityOfDomain \"light\"", node, ok)
+	}
+}
+
+// TestParseDiscoveryIntegrationBodyRejectsOldColonForm is the regression test for the 2026-09-19
+// grammar restriction: discoveryCapabilityPattern briefly accepted an OPTIONAL ":" between
+// <label> and <source> as a trial (both houses' Physical.def/Logical.def were then rewritten to
+// the colon-less form and verified byte-identical on regenerate) -- now that the migration is
+// complete, the old "light.core: 0x...;" colon form must be REJECTED outright, not silently
+// tolerated, so a stray old-style line is caught rather than silently ignored.
+func TestParseDiscoveryIntegrationBodyRejectsOldColonForm(t *testing.T) {
+	body := []string{
+		"device discovery.vidja_left_1 with:",
+		`  identifiers "zigbee2mqtt_0x84b4dbfffefbb43a";`,
+		"  light.core: 0x84b4dbfffefbb43a_light_zigbee2mqtt;",
+		"end;",
+	}
+
+	devices, warnings := parseDiscoveryIntegrationBody(body)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "unrecognised line") {
+		t.Fatalf("expected exactly one \"unrecognised line\" warning for the old colon form, got: %v", warnings)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("got %d devices, want 1: %+v", len(devices), devices)
+	}
+	if _, ok := devices[0].Capabilities["core"]; ok {
+		t.Errorf("Capabilities = %+v, want the old colon-form line rejected, not silently parsed", devices[0].Capabilities)
+	}
+}
+
+// TestParseDiscoveryIntegrationBodyAvailabilityCapabilityRequiresDomain proves a bare,
+// non-domain-qualified "is available" sibling reference is refused (2026-09-15): a device may
+// declare two same-named capabilities under different domains (Capabilities is keyed by label
+// alone, so only the domain distinguishes them at the DSL-author level), so the reference must
+// always say which one it means.
+func TestParseDiscoveryIntegrationBodyAvailabilityCapabilityRequiresDomain(t *testing.T) {
+	body := []string{
+		"device discovery.vidja_left_1 with:",
+		`  identifiers "zigbee2mqtt_0x84b4dbfffefbb43a";`,
+		"  light.core 0x84b4dbfffefbb43a_light_zigbee2mqtt;",
+		"  binary_sensor.node core is available;",
+		"end;",
+	}
+
+	devices, warnings := parseDiscoveryIntegrationBody(body)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "isn't domain-qualified") {
+		t.Fatalf("warnings = %v, want exactly one mentioning \"isn't domain-qualified\"", warnings)
+	}
+	if _, ok := devices[0].Capabilities["node"]; ok {
+		t.Errorf("expected no \"node\" capability registered for a bare, non-domain-qualified reference")
+	}
+}
+
+func TestParseDiscoveryIntegrationBodyHiddenCapability(t *testing.T) {
+	body := []string{
+		"device discovery.door_aqara_multi with:",
+		`  identifiers "zigbee2mqtt_0x00158d0003f0d585";`,
+		"  hidden sensor.pressure_raw 0x00158d0003f0d585_pressure_zigbee2mqtt;",
+		`  derived sensor.pressure from sensor.pressure_raw via "($ | float(0)) + 20";`,
+		"end;",
+	}
+
+	devices, warnings := parseDiscoveryIntegrationBody(body)
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("got %d devices, want 1: %+v", len(devices), devices)
+	}
+
+	rawCap, ok := devices[0].Capabilities["pressure_raw"]
+	if !ok || rawCap.Domain != "sensor" || rawCap.Leaf != "0x00158d0003f0d585_pressure_zigbee2mqtt" || !rawCap.Hidden {
+		t.Errorf("Capabilities[pressure_raw] = %+v, ok=%v, want a hidden raw-leaf capability", rawCap, ok)
+	}
+
+	derivedCap, ok := devices[0].Capabilities["pressure"]
+	if !ok || derivedCap.DerivedFromCapability != "pressure_raw" || derivedCap.Hidden {
+		t.Errorf("Capabilities[pressure] = %+v, ok=%v, want a non-hidden capability derived from pressure_raw", derivedCap, ok)
+	}
+}
+
+// TestParseDiscoveryIntegrationBodySourceDomainQualifiedLeaf is a focused unit test for the
+// "<raw-domain>:<leaf>" qualifier (2026-09-15, Vienna's Moes scene-remote buttons): a leaf id
+// published by the gateway under more than one raw MQTT discovery domain for the same underlying
+// property needs to say which one it means.
+func TestParseDiscoveryIntegrationBodySourceDomainQualifiedLeaf(t *testing.T) {
+	body := []string{
+		"device discovery.hallway_door_moes with:",
+		`  identifiers "zigbee2mqtt_0x70ac08fffe4f0c15";`,
+		"  event.core event:0x70ac08fffe4f0c15_action_zigbee2mqtt;",
+		"  sensor.battery_level 0x70ac08fffe4f0c15_battery_zigbee2mqtt;",
+		"end;",
+	}
+
+	devices, warnings := parseDiscoveryIntegrationBody(body)
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("got %d devices, want 1: %+v", len(devices), devices)
+	}
+
+	core, ok := devices[0].Capabilities["core"]
+	if !ok || core.Domain != "event" || core.Leaf != "0x70ac08fffe4f0c15_action_zigbee2mqtt" || core.SourceDomain != "event" {
+		t.Errorf("Capabilities[core] = %+v, ok=%v, want Domain event, Leaf 0x70ac08fffe4f0c15_action_zigbee2mqtt, SourceDomain event", core, ok)
+	}
+
+	// The un-qualified capability (no ':' in its own leaf) must be unaffected -- SourceDomain
+	// stays empty, matching whichever raw domain publishes it (the pre-existing behaviour every
+	// other capability declared so far relies on, e.g. cycling_fan's cross-domain "fan.core:
+	// 0x..._switch_zigbee2mqtt;").
+	batteryLevel, ok := devices[0].Capabilities["battery_level"]
+	if !ok || batteryLevel.SourceDomain != "" {
+		t.Errorf("Capabilities[battery_level] = %+v, ok=%v, want SourceDomain \"\" (unqualified)", batteryLevel, ok)
+	}
+}
+
+func TestDiscoveryDerivedFromHiddenCapability(t *testing.T) {
+	const miniDSL = `space social:hallway with:
+  device infrastructural:door/aqara_multi from discovery.door_aqara_multi with:
+    entity sensor.physical:pressure from pressure;
+  end;
+end;`
+
+	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
+		"discovery.door_aqara_multi": {
+			DeviceID:    "discovery.door_aqara_multi",
+			Identifiers: []string{"zigbee2mqtt_0x00158d0003f0d585"},
+			Capabilities: map[string]TDiscoveryCapability{
+				"pressure_raw": {Domain: "sensor", Leaf: "0x00158d0003f0d585_pressure_zigbee2mqtt", Hidden: true},
+				"pressure":     {Domain: "sensor", DerivedFromCapability: "pressure_raw", DerivedViaTemplate: "($ | float(0)) + 20"},
+			},
+		},
+	}
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	admin := result.Administration
+
+	// A "derived" capability whose sibling is a hidden plain raw leaf relays the SIBLING's own
+	// gateway+leaf directly (never materializing the hidden capability as its own entity/local
+	// template) -- ValueTemplateWrap carries the "via" template, raw ("$" not "$1": the
+	// coordinator, not the generator, does this substitution -- exactly one source, no need for
+	// numbered placeholders).
+	link, ok := admin.DiscoveryEntityLinks["sensor.physical_hallway_door_aqara_multi_pressure"]
+	if !ok {
+		t.Fatalf("expected DiscoveryEntityLinks[sensor.physical_hallway_door_aqara_multi_pressure], got %+v", admin.DiscoveryEntityLinks)
+	}
+	if link.GatewayDeviceID != "discovery.door_aqara_multi" || link.Leaf != "0x00158d0003f0d585_pressure_zigbee2mqtt" {
+		t.Errorf("link = %+v, want gateway discovery.door_aqara_multi, leaf 0x00158d0003f0d585_pressure_zigbee2mqtt (the HIDDEN sibling's own raw leaf)", link)
+	}
+	if link.ValueTemplateWrap != "($ | float(0)) + 20" {
+		t.Errorf("link.ValueTemplateWrap = %q, want \"($ | float(0)) + 20\" (the \"via\" template, untouched)", link.ValueTemplateWrap)
+	}
+}
+
+func TestDiscoveryDeviceBlockRejectsHiddenCapabilityPositionedDirectly(t *testing.T) {
+	const miniDSL = `space social:hallway with:
+  device infrastructural:door/aqara_multi from discovery.door_aqara_multi with:
+    entity sensor.physical:pressure_raw from pressure_raw;
+  end;
+end;`
+
+	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
+		"discovery.door_aqara_multi": {
+			DeviceID:    "discovery.door_aqara_multi",
+			Identifiers: []string{"zigbee2mqtt_0x00158d0003f0d585"},
+			Capabilities: map[string]TDiscoveryCapability{
+				"pressure_raw": {Domain: "sensor", Leaf: "0x00158d0003f0d585_pressure_zigbee2mqtt", Hidden: true},
+			},
+		},
+	}
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	// A hidden capability is never auto-implied as its own entity (its only sanctioned use is as
+	// a "derived ... from ...;" sibling's own source, resolved directly off Physical.def's
+	// gateway.Capabilities map) -- so the explicit line must simply be refused, leaving no trace
+	// at all: no DiscoveryEntityLinks entry, no EntityRecord.
+	if _, ok := result.Administration.DiscoveryEntityLinks["sensor.physical_hallway_door_aqara_multi_pressure_raw"]; ok {
+		t.Errorf("expected no link registered for a hidden capability positioned directly")
+	}
+	for _, rec := range result.Administration.EntityRecordsBySpace["social/hallway"] {
+		if strings.Contains(rec.Name, "pressure_raw") {
+			t.Errorf("hidden capability must not be positioned even when explicitly referenced, got %+v", rec)
+		}
+	}
+}
+
+func TestExtractDiscoveryEntityDeclarationGatewayAndLeafSeparatedByWith(t *testing.T) {
+	decl, ok := extractDiscoveryEntityDeclaration("entity sensor.social:garage_door/temperature from discovery.ems_esp with boiler_outdoortemp;")
 	if !ok {
 		t.Fatalf("expected line to parse")
 	}
@@ -1060,7 +1391,7 @@ func TestExtractDiscoveryEntityDeclarationLastDotIsLeafBoundary(t *testing.T) {
 		t.Errorf("EntitySpec = %q, want %q", decl.EntitySpec, "sensor.social:garage_door/temperature")
 	}
 	if decl.GatewayDeviceID != "discovery.ems_esp" {
-		t.Errorf("GatewayDeviceID = %q, want %q (must split on the LAST dot, not the first)", decl.GatewayDeviceID, "discovery.ems_esp")
+		t.Errorf("GatewayDeviceID = %q, want %q (dotted gateway id, separated from the leaf by \"with\", not a dot)", decl.GatewayDeviceID, "discovery.ems_esp")
 	}
 	if decl.Leaf != "boiler_outdoortemp" {
 		t.Errorf("Leaf = %q, want %q", decl.Leaf, "boiler_outdoortemp")
@@ -1078,7 +1409,7 @@ func TestRegisterDiscoveryEntityLinkViaParse(t *testing.T) {
 	// ("garage_door/temperature") isn't merged with any outer space context -- avoids the same
 	// double-counting trap normalizeEntityFullName has for any relative spec (see
 	// deviceSpecLeafPath's doc comment, Conceptual_DeviceEntities.go).
-	const miniDSL = `entity sensor.social:garage_door/temperature from discovery.ems_esp_boiler.outdoor_temperature;`
+	const miniDSL = `entity sensor.social:garage_door/temperature from discovery.ems_esp_boiler with outdoor_temperature;`
 
 	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
 		"discovery.ems_esp_boiler": {
@@ -1088,7 +1419,7 @@ func TestRegisterDiscoveryEntityLinkViaParse(t *testing.T) {
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1117,13 +1448,190 @@ func TestRegisterDiscoveryEntityLinkViaParse(t *testing.T) {
 	}
 }
 
+// TestDiscoveryDeviceBlockWithNodeCapability is the end-to-end coverage for PROJECT.md item 7's
+// 2026-09-15 work: a "device <spec> from discovery.<gateway> with: ... end;" block (the same shape
+// already proven live for hassbridge's own "device infrastructural:vacuum from appliance.vacuum
+// with: ...;"), with a "node" capability declared as "... is available;" over a sibling capability
+// -- deliberately declared BEFORE its sibling in the DSL text, proving the deferred/retry-at-EOF
+// resolution actually works order-independently (parser.go's existing pendingCapabilityLinks
+// mechanism, reused here rather than inventing a new one).
+// TestDiscoveryDeviceBlockAutoImpliesNodeCapability proves the "node" entity no longer needs an
+// explicit "entity binary_sensor.infrastructural:node from node;" line inside the device block --
+// it's auto-registered from the device positioning header alone, exactly like a "hosts"/
+// "home_assistant" device's own node, the moment the gateway has a "node" capability declared in
+// Physical.def. Same fixture as TestDiscoveryDeviceBlockWithNodeCapability, minus that one line.
+func TestDiscoveryDeviceBlockAutoImpliesNodeCapability(t *testing.T) {
+	const miniDSL = `space social:vidja with:
+  device infrastructural:left/1 from discovery.vidja_left_1 with:
+    entity light.physical: from core;
+  end;
+end;`
+
+	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
+		"discovery.vidja_left_1": {
+			DeviceID:    "discovery.vidja_left_1",
+			Identifiers: []string{"zigbee2mqtt_0x84b4dbfffefbb43a"},
+			Capabilities: map[string]TDiscoveryCapability{
+				"core": {Domain: "light", Leaf: "0x84b4dbfffefbb43a_light_zigbee2mqtt"},
+				"node": {Domain: "binary_sensor", AvailabilityOf: "core", AvailabilityOfDomain: "light"},
+			},
+		},
+	}
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	admin := result.Administration
+
+	var node *TEntityRecord
+	for i, rec := range admin.EntityRecordsBySpace["social/vidja"] {
+		if rec.Name == "binary_sensor.infrastructural/vidja/left/1/node" {
+			node = &admin.EntityRecordsBySpace["social/vidja"][i]
+		}
+	}
+	if node == nil {
+		t.Fatalf("expected binary_sensor.infrastructural/vidja/left/1/node to be auto-registered with no explicit line, got %+v", admin.EntityRecordsBySpace["social/vidja"])
+	}
+	if len(node.ConditionSources) != 1 || node.ConditionSources[0] != "light.physical_vidja_left_1" {
+		t.Errorf("node.ConditionSources = %v, want [\"light.physical_vidja_left_1\"]", node.ConditionSources)
+	}
+	if node.ConditionExpr != "$1 not in ['unavailable', 'unknown']" {
+		t.Errorf("node.ConditionExpr = %q, want the standard \"is available\" liveness check", node.ConditionExpr)
+	}
+}
+
+// TestDiscoveryDeviceBlockNoNodeCapabilitySkipsSilently proves a discovery device with no "node"
+// capability declared at all is left alone -- no auto-registered entity, no warning (unlike
+// hosts/hassbridge, which DO warn: MQTT discovery gateways aren't uniformly controlled, so
+// declaring no liveness capability is a legitimate, unremarkable choice here).
+func TestDiscoveryDeviceBlockNoNodeCapabilitySkipsSilently(t *testing.T) {
+	const miniDSL = `space social:vidja with:
+  device infrastructural:left/1 from discovery.vidja_left_1 with:
+    entity light.physical: from core;
+  end;
+end;`
+
+	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
+		"discovery.vidja_left_1": {
+			DeviceID:    "discovery.vidja_left_1",
+			Identifiers: []string{"zigbee2mqtt_0x84b4dbfffefbb43a"},
+			Capabilities: map[string]TDiscoveryCapability{
+				"core": {Domain: "light", Leaf: "0x84b4dbfffefbb43a_light_zigbee2mqtt"},
+			},
+		},
+	}
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	admin := result.Administration
+
+	for _, rec := range admin.EntityRecordsBySpace["social/vidja"] {
+		if strings.HasSuffix(rec.Name, "/node") {
+			t.Fatalf("expected no auto-registered node entity, got %+v", rec)
+		}
+	}
+}
+
+// TestDiscoveryDeviceBlockAvailabilityDomainMismatchIsRejected proves a "node" capability
+// referencing a sibling under the WRONG domain (e.g. "sensor.core is available;" when "core" was
+// actually declared as "light.core: ...;") is refused rather than silently resolved against
+// whichever capability happens to share that label.
+func TestDiscoveryDeviceBlockAvailabilityDomainMismatchIsRejected(t *testing.T) {
+	const miniDSL = `space social:vidja with:
+  device infrastructural:left/1 from discovery.vidja_left_1 with:
+    entity light.physical: from core;
+  end;
+end;`
+
+	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
+		"discovery.vidja_left_1": {
+			DeviceID:    "discovery.vidja_left_1",
+			Identifiers: []string{"zigbee2mqtt_0x84b4dbfffefbb43a"},
+			Capabilities: map[string]TDiscoveryCapability{
+				"core": {Domain: "light", Leaf: "0x84b4dbfffefbb43a_light_zigbee2mqtt"},
+				// Wrongly claims "core" is domain "sensor" -- it's actually "light" above.
+				"node": {Domain: "binary_sensor", AvailabilityOf: "core", AvailabilityOfDomain: "sensor"},
+			},
+		},
+	}
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	for _, rec := range result.Administration.EntityRecordsBySpace["social/vidja"] {
+		if strings.HasSuffix(rec.Name, "/node") {
+			t.Fatalf("expected no auto-registered node entity for a domain-mismatched reference, got %+v", rec)
+		}
+	}
+}
+
+func TestDiscoveryDeviceBlockWithDerivedCapability(t *testing.T) {
+	const miniDSL = `space social:hallway with:
+  device infrastructural:door from discovery.aqara_windoor with:
+    entity binary_sensor.social: from door;
+    entity sensor.infrastructural:battery_level from battery_level;
+    entity sensor.infrastructural:battery_alert from battery_alert;
+  end;
+end;`
+
+	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
+		"discovery.aqara_windoor": {
+			DeviceID:    "discovery.aqara_windoor",
+			Identifiers: []string{"zigbee2mqtt_0x00158d0003d4e964"},
+			Capabilities: map[string]TDiscoveryCapability{
+				"door":          {Domain: "binary_sensor", Leaf: "0x00158d0003d4e964_contact_zigbee2mqtt"},
+				"battery_level": {Domain: "sensor", Leaf: "0x00158d0003d4e964_battery_zigbee2mqtt"},
+				"battery_alert": {Domain: "binary_sensor", DerivedFromCapability: "battery_level", DerivedViaTemplate: "'on' if (($ | int(0)) < 10) else 'off'"},
+			},
+		},
+	}
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	admin := result.Administration
+
+	link, ok := admin.DiscoveryEntityLinks["sensor.infrastructural_hallway_door_battery_level"]
+	if !ok {
+		t.Fatalf("expected DiscoveryEntityLinks[sensor.infrastructural_hallway_door_battery_level], got %+v", admin.DiscoveryEntityLinks)
+	}
+	if link.GatewayDeviceID != "discovery.aqara_windoor" || link.Leaf != "0x00158d0003d4e964_battery_zigbee2mqtt" {
+		t.Errorf("link = %+v, want gateway discovery.aqara_windoor, leaf 0x00158d0003d4e964_battery_zigbee2mqtt", link)
+	}
+
+	var alert *TEntityRecord
+	for i, rec := range admin.EntityRecordsBySpace["social/hallway"] {
+		if rec.Name == "sensor.infrastructural/hallway/door/battery_alert" {
+			alert = &admin.EntityRecordsBySpace["social/hallway"][i]
+		}
+	}
+	if alert == nil {
+		t.Fatalf("expected sensor.infrastructural/hallway/door/battery_alert to be registered, got %+v", admin.EntityRecordsBySpace["social/hallway"])
+	}
+	if len(alert.ConditionSources) != 1 || alert.ConditionSources[0] != "sensor.infrastructural_hallway_door_battery_level" {
+		t.Errorf("alert.ConditionSources = %v, want [\"sensor.infrastructural_hallway_door_battery_level\"] (the sibling \"battery_level\" capability's own resolved entity_id, resolved despite \"battery_alert\" being declared AFTER \"battery_level\" in the DSL text)", alert.ConditionSources)
+	}
+	if alert.ConditionExpr != "'on' if (($1 | int(0)) < 10) else 'off'" {
+		t.Errorf("alert.ConditionExpr = %q, want the \"via\" template with \"$\" substituted for \"$1\"", alert.ConditionExpr)
+	}
+}
+
 func TestRegisterDiscoveryEntityLinkWarnsOnUnknownGateway(t *testing.T) {
 	const miniDSL = `space social:garage_door with:
-  entity sensor.social:garage_door/temperature from discovery.unknown_gateway.leaf;
+  entity sensor.social:garage_door/temperature from discovery.unknown_gateway with leaf;
 end;`
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, map[string]TDiscoveryGatewayDevice{}, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, map[string]TDiscoveryGatewayDevice{}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
