@@ -80,11 +80,128 @@ import (
 // into it for a space-relative spec -- doing so again in deviceDisplayName would double the
 // location segments (e.g. ".../house/laundry_kitchen/rack/house/laundry_kitchen/rack/...").
 func deviceSpecLeafPath(spec string) string {
-	colonIdx := strings.Index(spec, ":")
-	if colonIdx < 0 {
+	// A multi-sphere spec (2026-09-24, see isMultiSphereDeviceNamePath's own doc comment) is
+	// preserved VERBATIM here -- deviceDisplayName never sees this value directly any more for
+	// such a spec (registerDevicePositioning resolves the "infrastructural" entry separately for
+	// display purposes instead), and every per-entity naming call
+	// (registerXXXCapabilityEntityLink -> namingSpacePath) needs the full, unresolved text so it
+	// can pick the entry matching THAT entity's own sphere.
+	if isMultiSphereDeviceNamePath(spec) {
 		return spec
 	}
+	colonIdx := strings.Index(spec, ":")
+	if colonIdx < 0 {
+		// No colon at all -- spec IS the leaf path outright. Still trim a leading '/' (the
+		// "absolute, no space-prefix" leaf shape, e.g. "as /smarty") the same as the colon branch
+		// below always has, so deviceDisplayName's own "spaceName + \"/\" + path" join never
+		// doubles up the separator.
+		return strings.TrimPrefix(spec, "/")
+	}
+	// Reached only for a spec built internally with a single "infrastructural:" prefix (e.g.
+	// Conceptual_DeviceExportRegistration.go's own "infrastructural:/"+bareLocalName construction)
+	// -- isMultiSphereDeviceNamePath deliberately excludes a lone "infrastructural:" entry (a
+	// user-authored "as infrastructural:X" is rejected outright by registerDevicePositioning
+	// instead, forcing the bare "as X" form), so this old single-strip behaviour still applies to
+	// that internal caller.
 	return strings.TrimPrefix(spec[colonIdx+1:], "/")
+}
+
+// isMultiSphereDeviceNamePath reports whether s is a sphere-qualified "as" clause -- one or more
+// space-separated "<sphere>:<path>" tokens, each naming a KNOWN sphere (2026-09-24, confirmed with
+// the user: unlike a device's own identity, which has no sphere of its own, a device's LEAF can
+// legitimately differ per sphere -- e.g. a brand-qualifying suffix like "frient" is useful
+// "infrastructural" grouping information but has no business leaking into a "physical"/"social"
+// reading's own name: "device sensors.X as physical:front infrastructural:front/frient with: ...
+// entity binary_sensor.physical:motion from core; entity binary_sensor.infrastructural:node; ...
+// end;" gives the motion entity the plain "front" leaf while the node entity still gets
+// "front/frient"). A SINGLE lone "infrastructural:<path>" entry does NOT count (returns false) --
+// that's the redundant single-sphere form registerDevicePositioning rejects outright (a device has
+// no sphere of its own in the single-sphere case, so it must be written as a bare "as <path>"
+// instead); this function only recognises the genuinely multi-sphere-relevant shapes: 2+ tokens, or
+// a single token naming a sphere OTHER than "infrastructural".
+func isMultiSphereDeviceNamePath(s string) bool {
+	tokens := strings.Fields(s)
+	if len(tokens) == 0 {
+		return false
+	}
+	if len(tokens) == 1 {
+		colonIdx := strings.Index(tokens[0], ":")
+		if colonIdx <= 0 {
+			return false
+		}
+		sphere := tokens[0][:colonIdx]
+		return isKnownSphere(sphere) && sphere != "infrastructural"
+	}
+	for _, tok := range tokens {
+		colonIdx := strings.Index(tok, ":")
+		if colonIdx <= 0 || !isKnownSphere(tok[:colonIdx]) {
+			return false
+		}
+	}
+	return true
+}
+
+// parseMultiSphereDeviceNamePath splits a multi-sphere "as" clause (isMultiSphereDeviceNamePath
+// must already be true for s) into its own sphere->path entries, plus the order they were written
+// in (order matters only as the deterministic fallback in resolveDeviceNamePathForSphere, when
+// neither the requested sphere nor "infrastructural" has an entry).
+func parseMultiSphereDeviceNamePath(s string) (entries map[string]string, order []string) {
+	entries = map[string]string{}
+	for _, tok := range strings.Fields(s) {
+		colonIdx := strings.Index(tok, ":")
+		sphere, path := tok[:colonIdx], tok[colonIdx+1:]
+		if _, exists := entries[sphere]; !exists {
+			order = append(order, sphere)
+		}
+		entries[sphere] = path
+	}
+	return entries, order
+}
+
+// resolveDeviceNamePathForSphere resolves deviceNamePath -- either a single bare leaf path (the
+// common case, used unchanged for every entity regardless of its own sphere) or a multi-sphere "as"
+// clause (isMultiSphereDeviceNamePath) -- to the ONE leaf path that applies to an entity of the
+// given sphere. Falls back to the "infrastructural" entry, then to whichever entry was written
+// first, if the requested sphere has no entry of its own -- a device positioning every capability
+// under one or two spheres has no reason to also enumerate the rare third one.
+func resolveDeviceNamePathForSphere(deviceNamePath, sphere string) string {
+	if !isMultiSphereDeviceNamePath(deviceNamePath) {
+		return deviceNamePath
+	}
+	entries, order := parseMultiSphereDeviceNamePath(deviceNamePath)
+	if path, ok := entries[sphere]; ok {
+		return path
+	}
+	if path, ok := entries["infrastructural"]; ok {
+		return path
+	}
+	if len(order) > 0 {
+		return entries[order[0]]
+	}
+	return ""
+}
+
+// explicitSphereOfSpec extracts an entity spec's own sphere (e.g. "physical" from
+// "binary_sensor.physical:motion", "social" from the bare-known-sphere form "vacuum.social") --
+// mirrors the sphere half of normalizeEntityFullName's own no-colon/colon parsing, kept separate
+// since namingSpacePath needs the sphere ALONE, before any space-context folding, to pick the right
+// entry out of a multi-sphere deviceNamePath (resolveDeviceNamePathForSphere). Returns "" for a
+// spec with no explicit/known sphere at all (the domain-default-sphere bare form, e.g.
+// "sensor.status") -- resolveDeviceNamePathForSphere's own "infrastructural" fallback applies then.
+func explicitSphereOfSpec(spec string) string {
+	dotIdx := strings.Index(spec, ".")
+	if dotIdx <= 0 || dotIdx >= len(spec)-1 {
+		return ""
+	}
+	remainder := spec[dotIdx+1:]
+	colonIdx := strings.Index(remainder, ":")
+	if colonIdx < 0 {
+		if isKnownSphere(remainder) {
+			return remainder
+		}
+		return ""
+	}
+	return remainder[:colonIdx]
 }
 
 // namingSpacePath returns the space path to resolve spec against: spacePath itself, unless
@@ -122,6 +239,10 @@ func deviceSpecLeafPath(spec string) string {
 // node-naming had exactly this same intent, by hand, before this rule existed to do it for a
 // device-block positioning).
 func namingSpacePath(spec string, spacePath []string, deviceNamePath string) []string {
+	// Resolve a multi-sphere deviceNamePath (isMultiSphereDeviceNamePath) down to the one entry
+	// matching THIS entity's own sphere before anything else below -- a no-op for the ordinary
+	// single-leaf case (resolveDeviceNamePathForSphere returns deviceNamePath unchanged then).
+	deviceNamePath = resolveDeviceNamePathForSphere(deviceNamePath, explicitSphereOfSpec(spec))
 	if deviceNamePath == "" || !specHasExplicitSpherePath(spec) {
 		return spacePath
 	}
@@ -130,16 +251,95 @@ func namingSpacePath(spec string, spacePath []string, deviceNamePath string) []s
 	}
 	if dotIdx := strings.Index(spec, "."); dotIdx > 0 {
 		domain := spec[:dotIdx]
-		if domain == deviceNamePath {
-			return spacePath
+		// clipped is deviceNamePath with a trailing segment matching domain removed ("" if
+		// deviceNamePath IS the domain outright, e.g. "vacuum" for a vacuum.* spec -- nothing
+		// remains after clipping, same as the no-slash case immediately below).
+		clipped := ""
+		tailMatchesDomain := domain == deviceNamePath
+		if !tailMatchesDomain {
+			if lastSlash := strings.LastIndex(deviceNamePath, "/"); lastSlash >= 0 && domain == deviceNamePath[lastSlash+1:] {
+				tailMatchesDomain = true
+				clipped = deviceNamePath[:lastSlash]
+			}
 		}
-		if lastSlash := strings.LastIndex(deviceNamePath, "/"); lastSlash >= 0 && domain == deviceNamePath[lastSlash+1:] {
-			return spacePath
+		if tailMatchesDomain {
+			// Real bug found live 2026-09-24 (Junglinster's "backups/switch" device, "entity
+			// switch.social: from core;"): when spec's own leaf is non-empty ("light.social:main",
+			// "switch.social:imac"), that leaf already supplies the entity's whole distinguishing
+			// identity, so suppressing deviceNamePath entirely here is correct -- it would
+			// otherwise duplicate ("main/light" + spec leaf "main" -> "..._main_light_main"). But
+			// when spec's own leaf is EMPTY (a bare "switch.social:" relying entirely on the
+			// device's own compound name for identity), full suppression leaves NO identity
+			// source at all -- confirmed live: "backups/switch" resolved to the bare, collapsed
+			// "switch.social_house_storage_room", indistinguishable from (and colliding with) any
+			// other bare switch in that space. Fold in the CLIPPED deviceNamePath instead (the
+			// domain-matching tail segment removed, same as "vacuum.social:"'s own domain-only
+			// case already did before this fix -- clipped is "" there too, so behaviour for that
+			// precedent is unchanged).
+			if deviceSpecLeafPath(spec) != "" || clipped == "" {
+				return spacePath
+			}
+			extended := make([]string, len(spacePath), len(spacePath)+1)
+			copy(extended, spacePath)
+			return append(extended, clipped)
 		}
 	}
 	extended := make([]string, len(spacePath), len(spacePath)+1)
 	copy(extended, spacePath)
 	return append(extended, deviceNamePath)
+}
+
+// resolveDeviceEntityFullName is normalizeEntityFullName(spec, namingSpacePath(spec, spacePath,
+// deviceNamePath))'s own shared wrapper, adding ONE more piece of domain-suppression on top: an
+// entity's OWN declared path is stripped of a trailing segment that equals its own domain (e.g.
+// "entity light.social:light;" reads as ".../main/light" once the device's own "social:main" leaf
+// folds in, then drops the redundant trailing "light" the same way a domain-matching DEVICE leaf
+// already does) -- confirmed with the user 2026-09-24: "it *must* be possible to use entity
+// light.social:light with the clear intuition that... at the end the light at the end is stripped
+// again," independent of namingSpacePath's own separate suppression for a domain-matching tail on
+// the DEVICE's own leaf (a different source of the same redundancy).
+//
+// Deliberately scoped to deviceNamePath != "" (i.e. only when this entity is positioned inside a
+// "device ... with:" block) rather than folded into normalizeEntityFullName itself as a blanket
+// rule for every entity spec everywhere -- a real regression caught live: "entity
+// vacuum.physical:vacuum from hass.roomba vacuum.roomba;" (remote_instance_entity_reporting_test.go)
+// is a bare hassbridge reference with NO device leaf of its own, where "vacuum" is a genuine,
+// meaningful qualifier that only coincidentally matches its own domain word -- stripping it there
+// would be wrong, not redundant.
+func resolveDeviceEntityFullName(spec string, spacePath []string, deviceNamePath string) string {
+	extendedSpacePath := namingSpacePath(spec, spacePath, deviceNamePath)
+	if deviceNamePath != "" {
+		spec = stripEntityOwnTrailingDomainSegment(spec)
+	}
+	return normalizeEntityFullName(spec, extendedSpacePath)
+}
+
+// stripEntityOwnTrailingDomainSegment removes spec's own trailing path segment (the part after the
+// sphere's ':') when it exactly equals spec's own domain -- "light.social:light" ->
+// "light.social:", "light.social:main/light" -> "light.social:main". See
+// resolveDeviceEntityFullName's own doc comment for why this is a separate, narrowly-scoped step
+// rather than a change to normalizeEntityFullName's own general parsing.
+func stripEntityOwnTrailingDomainSegment(spec string) string {
+	dotIdx := strings.Index(spec, ".")
+	if dotIdx <= 0 {
+		return spec
+	}
+	domain := spec[:dotIdx]
+	colonIdx := strings.Index(spec, ":")
+	if colonIdx < 0 {
+		return spec
+	}
+	pathPart := spec[colonIdx+1:]
+	if lastSlash := strings.LastIndex(pathPart, "/"); lastSlash >= 0 {
+		if pathPart[lastSlash+1:] == domain {
+			return spec[:colonIdx+1] + pathPart[:lastSlash]
+		}
+		return spec
+	}
+	if pathPart == domain {
+		return spec[:colonIdx+1]
+	}
+	return spec
 }
 
 // specHasExplicitSpherePath reports whether spec (e.g. "sensor.physical:co2") names its sphere
@@ -193,23 +393,37 @@ func hasDeviceLeafOverride(spec string) bool {
 	return strings.Contains(remainder[colonIdx+1:], ":")
 }
 
-func deviceDisplayName(spaceName, sphere, path string) string {
-	var suffix string
+// deviceDisplayName has no sphere of its own to prepend: a device isn't an entity, so its "as
+// SS:NN" clause's SS (needed only to compute deviceIdentity via the entity-identity machinery,
+// extractEntityIdentity/normalizeEntityFullName) never shows up in the device's own display text
+// -- confirmed by the user 2026-09-24: dropped even for the one non-"infrastructural" precedent
+// (the 11 solar_panels devices, "as social:solar_panels..."), which used to read
+// "social/house/.../solar_panels" and now reads "house/.../solar_panels" like everything else.
+// Spaces/areas keep their own real sphere in their own display text -- see spaceAreaDisplayName,
+// OpenSpace's own caller, which builds on the same suffix computed here.
+func deviceDisplayName(spaceName, path string) string {
 	if spaceName == "" || spaceName == "root" {
-		suffix = path
-	} else {
-		segments := strings.Split(spaceName, "/")
-		if len(segments) > 1 {
-			segments = segments[1:] // drop the space's own leading sphere token
-		} else {
-			segments = nil
-		}
-		if len(segments) == 0 {
-			suffix = path
-		} else {
-			suffix = strings.Join(segments, "/") + "/" + path
-		}
+		return path
 	}
+	segments := strings.Split(spaceName, "/")
+	if len(segments) > 1 {
+		segments = segments[1:] // drop the space's own leading sphere token
+	} else {
+		segments = nil
+	}
+	if len(segments) == 0 {
+		return path
+	}
+	return strings.Join(segments, "/") + "/" + path
+}
+
+// spaceAreaDisplayName is deviceDisplayName's own counterpart for a "space <spec> as area with:"
+// block's HA Area name (OpenSpace, administration.go) -- unlike a device, a SPACE's own sphere is
+// real, meaningful location semantics (almost always "social" for an "as area" space), so it keeps
+// prefixing sphere when non-"infrastructural", exactly as deviceDisplayName itself used to before
+// the user's 2026-09-24 clarification that devices (unlike spaces) don't have a sphere of their own.
+func spaceAreaDisplayName(spaceName, sphere, path string) string {
+	suffix := deviceDisplayName(spaceName, path)
 	if sphere == "infrastructural" {
 		return suffix
 	}
@@ -265,20 +479,15 @@ func registerHostAttributeEntity(administration *TAdministrationState, mat THost
 	}
 }
 
-// registerHostNodeEntity builds the base TDeviceConceptualLink for a "hosts" device: its node
-// entity (unconditional -- every hosts device gets one, regardless of what attributes it declares
-// or requests, unlike hassbridge's optional "node" capability) plus DisplayName/ConstantAttributes
-// (mergedConstantAttributes, including the "as area" suggested_area default). Used by
-// registerHostDevicePositioning (Conceptual_DevicePositioning.go, the "device <spec> from
-// <device-id>;" light positioning form) so every hosts device's node/constant-attribute handling
-// goes through one place. Returns the link plus any warnings
-// (mergedConstantAttributes' own); the caller still owns registering per-attribute entities (if
-// any) and writing the link into administration.DeviceConceptualLinks.
-func registerHostNodeEntity(administration *TAdministrationState, mat THostsEntityMaterialization, device THostDevice, deviceIdentity TEntityIdentity, spaceName, displayName, provenance string) (TDeviceConceptualLink, []string) {
-	nodeFullName := fmt.Sprintf("%s.%s/%s/%s", mat.NodeDomain, deviceIdentity.Sphere, deviceIdentity.Path, mat.NodeSuffix)
-	administration.RegisterDiscoveryImpliedEntity(spaceName, nodeFullName, provenance, device.DeviceID+"!node", false)
-	nodeDeviceClass, _, _, nodeIcon := resolveCapabilityDefaults(administration.CapabilityDefaults, mat.NodeDomain, mat.NodeSuffix)
-
+// registerHostDeviceIdentity builds the base TDeviceConceptualLink for a "hosts" device:
+// DisplayName/ConstantAttributes (mergedConstantAttributes, including the "as area" suggested_area
+// default) and HostIdentity -- no node entity (2026-09-24: "node" is now an ordinary explicit
+// capability reference for every kind, including hosts, never auto-registered at positioning time --
+// see registerHostCapabilityEntityLink's own "node" branch, Conceptual_DeviceCapabilityEntities.go).
+// Used by registerHostDevicePositioning so every hosts device's identity/constant-attribute handling
+// goes through one place. Returns the link plus any warnings (mergedConstantAttributes' own); the
+// caller still owns writing the link into administration.DeviceConceptualLinks.
+func registerHostDeviceIdentity(administration *TAdministrationState, mat THostsEntityMaterialization, device THostDevice, deviceIdentity TEntityIdentity, displayName string) (TDeviceConceptualLink, []string) {
 	constantAttrs, warnings := mergedConstantAttributes(mat, device)
 	// A device positioned inside an "as area" space gets that area as its suggested_area
 	// default -- unless the device already has its own explicit override (device always wins,
@@ -294,14 +503,23 @@ func registerHostNodeEntity(administration *TAdministrationState, mat THostsEnti
 	}
 
 	return TDeviceConceptualLink{
-		NodeEntityID:       toHomeAssistantEntityID(nodeFullName),
-		NodeDeviceClass:    nodeDeviceClass,
-		NodeIcon:           nodeIcon,
 		DisplayName:        displayName,
 		ConstantAttributes: linkConstantAttrs,
 		AttributeEntityIDs: map[string]TDeviceAttributeLink{},
 		HostIdentity:       deviceIdentity,
 	}, warnings
+}
+
+// registerHostNodeAttribute resolves a "hosts" device's own "node" entity from an already-resolved
+// fullName (its sphere/path) -- shared by registerHostCapabilityEntityLink's own explicit "node"
+// reference (Conceptual_DeviceCapabilityEntities.go) and autoMaterializePhysicalCapability's
+// on-demand synthetic materialization (Conceptual_LogicalEntities.go), so the two paths can never
+// drift. Returns the resolved entityID plus typing metadata; the caller decides where to store them
+// (a real DeviceConceptualLink's NodeEntityID/NodeDeviceClass/NodeIcon vs a synthetic one's).
+func registerHostNodeAttribute(administration *TAdministrationState, mat THostsEntityMaterialization, device THostDevice, fullName, spaceName, provenance string) (entityID, deviceClass, icon string) {
+	administration.RegisterDiscoveryImpliedEntity(spaceName, fullName, provenance, device.DeviceID+"!node", false)
+	deviceClass, _, _, icon = resolveCapabilityDefaults(administration.CapabilityDefaults, mat.NodeDomain, mat.NodeSuffix)
+	return toHomeAssistantEntityID(fullName), deviceClass, icon
 }
 
 // registerHassBridgeAttributeEntity registers one named capability (e.g. "production/current/power")

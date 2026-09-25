@@ -141,6 +141,7 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 	if strings.TrimSpace(physicalContent) == "" {
 		return nil
 	}
+	physicalContent = resolveDerivedConditionOneLiners(physicalContent)
 	var jinjaWarnings []string
 	physicalContent, jinjaWarnings = resolveJinjaTemplateCallsInDerivedLines(physicalContent, loadJinjaTemplateDefinitions(definitionDir))
 	for _, w := range jinjaWarnings {

@@ -132,7 +132,12 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 		fmt.Printf("[physical] %s\n", w)
 	}
 
-	for _, w := range validateNoConflictingDeviceNames(hostDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, logicalByID) {
+	localDevicesByID, localDeviceWarnings := collectLocalDevicesByID(definitionDir)
+	for _, w := range localDeviceWarnings {
+		fmt.Printf("[physical] %s\n", w)
+	}
+
+	for _, w := range validateNoConflictingDeviceNames(hostDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, localDevicesByID, logicalByID) {
 		fmt.Printf("[physical] %s\n", w)
 	}
 
@@ -156,6 +161,10 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 		fmt.Printf("[physical] %s\n", w)
 	}
 
+	for _, w := range validateNoOverlappingCapabilitySuffixes(discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, localDevicesByID, logicalByID) {
+		fmt.Printf("[physical] %s\n", w)
+	}
+
 	capabilityDefaults, capabilityDefaultsWarnings := collectCapabilityDefaults(definitionDir, sharedDefinitionDir)
 	for _, w := range capabilityDefaultsWarnings {
 		fmt.Printf("[physical] %s\n", w)
@@ -172,7 +181,7 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 
 	var report strings.Builder
 	parseResult, err := ParseEntitiesAndFillAdministration(
-		strings.Split(entitiesContent, "\n"), entitiesLineNos, entitiesPath, ctx, &report, hostDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, logicalByID, capabilityDefaults)
+		strings.Split(entitiesContent, "\n"), entitiesLineNos, entitiesPath, ctx, &report, hostDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, localDevicesByID, logicalByID, capabilityDefaults)
 	if err != nil {
 		return nil, err
 	}
@@ -247,9 +256,9 @@ func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutput
 		}
 	}
 
-	listsContent, _, listLayerWarnings := collectLayerContent(definitionDir, []string{"Lists.def"}, LayerConceptual)
+	listsContent, _, listLayerWarnings := collectLayerContent(definitionDir, []string{"External.def"}, LayerExternal)
 	for _, w := range listLayerWarnings {
-		fmt.Printf("[conceptual] %s\n", w)
+		fmt.Printf("[external] %s\n", w)
 	}
 	if strings.TrimSpace(listsContent) != "" {
 		if err := generateListFiles(listOutputDir, []byte(listsContent), admin); err != nil {
@@ -264,30 +273,60 @@ func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutput
 
 // --- configuration.yaml ---
 
-const configurationYAMLBody = "default_config:\n\nhomeassistant:\n  packages: !include_dir_named integrations\n  customize: !include_dir_merge_named customization\n"
+// configurationYAMLBody is built dynamically now (generateConfigurationFile), not a fixed
+// constant -- see integrationDefs' own doc comment for why. Kept only as the fixed preamble
+// (default_config + homeassistant:/customize) every domain line gets appended after.
+const configurationYAMLPreamble = "default_config:\n\nhomeassistant:\n  customize: !include_dir_merge_named customization\n"
 
+// generateConfigurationFile writes configuration.yaml with one plain top-level key per
+// integrationDefs entry (each an "!include integrations/<file>", never a "homeassistant:
+// packages:" wrapper) -- see integrationDefs' own doc comment for the real incident this fixes.
 func generateConfigurationFile(outputDir string, _ *TAdministrationState) error {
-	return writeYAMLFile(filepath.Join(outputDir, "configuration.yaml"), generatorHeader+configurationYAMLBody)
+	var sb strings.Builder
+	sb.WriteString(configurationYAMLPreamble)
+	sb.WriteString("\n")
+	for _, def := range integrationDefs {
+		sb.WriteString(def.domain + ": !include integrations/" + def.file + "\n")
+	}
+	return writeYAMLFile(filepath.Join(outputDir, "configuration.yaml"), generatorHeader+sb.String())
 }
 
 // --- integration aggregator files ---
 
-// integrationDefs maps integration filename to !include directive content.
-var integrationDefs = []struct{ file, content string }{
-	{"automation.yaml", "automation: !include_dir_merge_list ../automation"},
-	{"binary_sensor.yaml", "binary_sensor: !include_dir_list ../entities/binary_sensor"},
-	{"input_boolean.yaml", "input_boolean: !include_dir_merge_named ../entities/input_boolean"},
-	{"input_datetime.yaml", "input_datetime: !include_dir_merge_named ../entities/input_datetime"},
-	{"input_number.yaml", "input_number: !include_dir_merge_named ../entities/input_number"},
-	{"input_select.yaml", "input_select: !include_dir_merge_named ../entities/input_select"},
-	{"light.yaml", "light: !include_dir_list ../entities/light"},
-	{"scene.yaml", "scene: !include_dir_merge_list ../scene"},
-	{"script.yaml", "script: !include_dir_merge_named ../script"},
-	{"sensor.yaml", "sensor: !include_dir_list ../entities/sensor"},
-	{"switch.yaml", "switch: !include_dir_list ../entities/switch"},
-	{"template.yaml", "template: !include_dir_list ../entities/template"},
-	{"timer.yaml", "timer: !include_dir_merge_named ../entities/timer"},
-	{"tts.yaml", "tts:\n  - platform: google_translate"},
+// integrationDefs maps each domain's own generated skeleton file to its !include directive
+// content (the file's own body -- no "<domain>: " prefix; the domain key itself now lives in
+// configuration.yaml, which !includes this file directly as that key's value).
+//
+// Real incident, 2026-09-22/23 (Junglinster, environment.weather's pressure sensor): these files
+// used to be self-contained "<domain>: <content>" package fragments, referenced from
+// configuration.yaml via "homeassistant: packages: !include_dir_named integrations" -- but Home
+// Assistant has a long-standing, upstream wontfix limitation that packages are NEVER reprocessed
+// by any reload service (not "<domain>.reload", not "homeassistant.reload_all", not even
+// "homeassistant.reload_core_config" -- github.com/home-assistant/core#12069, closed wontfix).
+// Since this project's meta-reload mechanism (PublishMetaReload -> reload_all,
+// remote_instance_meta_control.go) exists specifically so a deploy doesn't need a full restart,
+// wrapping every domain in a package silently defeated that for the WHOLE generated config, not
+// just this one device -- confirmed live: a brand-new template sensor file, correctly deployed,
+// stayed absent from the running instance until a manual reload. No DSL feature or generated
+// output anywhere ever exercised a package's actual point (multiple domains merged from one
+// file) -- every entry below was always exactly one file, one domain -- so there was nothing to
+// lose by splitting each into a plain top-level "<domain>: !include ..." key instead, which DOES
+// support normal reload semantics. See PROJECT.md item 20 for the full incident writeup.
+var integrationDefs = []struct{ file, domain, content string }{
+	{"automation.yaml", "automation", "!include_dir_merge_list ../automation"},
+	{"binary_sensor.yaml", "binary_sensor", "!include_dir_list ../entities/binary_sensor"},
+	{"input_boolean.yaml", "input_boolean", "!include_dir_merge_named ../entities/input_boolean"},
+	{"input_datetime.yaml", "input_datetime", "!include_dir_merge_named ../entities/input_datetime"},
+	{"input_number.yaml", "input_number", "!include_dir_merge_named ../entities/input_number"},
+	{"input_select.yaml", "input_select", "!include_dir_merge_named ../entities/input_select"},
+	{"light.yaml", "light", "!include_dir_list ../entities/light"},
+	{"scene.yaml", "scene", "!include_dir_merge_list ../scene"},
+	{"script.yaml", "script", "!include_dir_merge_named ../script"},
+	{"sensor.yaml", "sensor", "!include_dir_list ../entities/sensor"},
+	{"switch.yaml", "switch", "!include_dir_list ../entities/switch"},
+	{"template.yaml", "template", "!include_dir_list ../entities/template"},
+	{"timer.yaml", "timer", "!include_dir_merge_named ../entities/timer"},
+	{"tts.yaml", "tts", "- platform: google_translate"},
 }
 
 func generateIntegrationFiles(outputDir string, _ *TAdministrationState) error {
@@ -1747,6 +1786,11 @@ var subdomainIcons = map[string]string{
 	"radio":           "mdi:signal",
 	"washing_machine": "mdi:washing-machine",
 	"wind_direction":  "mdi:compass-outline",
+	// Added 2026-09-25 (the Overkiz/Somfy cover migration): generic enough to apply to any future
+	// device using the same button/number shape, not Somfy-specific.
+	"identify":          "mdi:led-on",
+	"my_position":       "mdi:map-marker-distance",
+	"go_to_my_position": "mdi:map-marker-right",
 }
 
 // domainDefaultIcons maps HA entity domains to a fallback icon when no subdomain-specific
@@ -1754,6 +1798,10 @@ var subdomainIcons = map[string]string{
 var domainDefaultIcons = map[string]string{
 	"cover": "mdi:blinds-horizontal",
 	"light": "mdi:lightbulb-group",
+	// Added 2026-09-25 (the Overkiz/Somfy cover migration, first real hassbridge use of either
+	// domain): generic per-domain fallbacks, not Somfy-specific.
+	"button": "mdi:gesture-tap-button",
+	"number": "mdi:numeric",
 }
 
 // iconForEntity returns the icon string for an entity: an explicit rec.EntityIcon first, then a
@@ -4514,7 +4562,7 @@ type TListDeclaration struct {
 	detailLevel int
 }
 
-// generateListFiles parses Lists.def content and writes a list.* file for each declaration.
+// generateListFiles parses External.def content and writes a list.* file for each declaration.
 func generateListFiles(outputDir string, content []byte, admin *TAdministrationState) error {
 	declarations := parseListDeclarations(string(content))
 	for _, decl := range declarations {
@@ -4536,7 +4584,7 @@ func generateListFiles(outputDir string, content []byte, admin *TAdministrationS
 	return nil
 }
 
-// parseListDeclarations extracts all list declarations from Lists.def source.
+// parseListDeclarations extracts all list declarations from External.def source.
 func parseListDeclarations(src string) []TListDeclaration {
 	var declarations []TListDeclaration
 	lines := strings.Split(src, "\n")
@@ -4704,7 +4752,7 @@ func resolveListEntries(decl TListDeclaration, admin *TAdministrationState) []TL
 				// positioned gets an ugly synthetic node ("physical/<device-id>/node") purely so
 				// the dependency's own availability AND-condition has something real to read --
 				// see resolveLogicalDependencyNodeEntities' own doc comment. Not a genuine,
-				// deliberately positioned device worth a Lists.def entry (real case found live:
+				// deliberately positioned device worth an External.def entry (real case found live:
 				// appliance.washing_machine's "dependency on node.candy;" kept surfacing in
 				// list.nodes as if node.candy were a real, standalone device).
 				continue

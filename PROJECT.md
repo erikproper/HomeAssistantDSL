@@ -1,28 +1,80 @@
 ** TODO 
 
-1. Adding by Erik in Junglinster:
-- DONE (2026-09-21, Vienna): weather.forecast => pressure + node, via new environment.weather
-  Logical.def device (sensor.social_forecast_pressure, binary_sensor.social_node). Still open here:
-  the same for Junglinster.
-- terrace/garden/tuya
-- house/server_room/rack/tuya
-- BEFORE migrating JLI: apply the same "frame"->"ha2mqtt" rename there first (done for Vienna
-  2026-09-21) -- whatever Junglinster's own secondary HA instance (hassbridge bridging) is
-  currently called, rename its Physical.def "home_assistant <qualifier>: <name>;" qualifier to
-  something describing what it actually does, not where it happened to run. The generator's own
-  output-directory bug this exposed (remote_instance_automations.go's generateInstanceAutomationTrees
-  keying hass/<X>/ by the qualifier instead of the right-hand incarnation value) is already fixed,
-  so Junglinster won't hit that specific pitfall -- but the rename itself (Physical.def qualifier +
-  deploy script filename/content + coordinator redeploy + a container restart to force a fresh
-  state republish) still needs doing by hand there too.
+1. Joint work:
+ 
 - migrate JLI
+
+- radio's on rings
 - check suggested in JLI
-- sun in JLI
-- fritzbox JLI
-- dsmr-gateway
-- envoy-wifi vs envoy
-- device names in JLI
-- complete conceptual import
+- check if all unused zwave is cleaned out
+
+- General check on path-based device names (UI)
+
+- revisit the "core" usage. Can be more subtle. motion, open, switch, light, etc.
+
+- reduce/remove!! "as sss:eee"? Use positioning, and add device (aqara) name to the infra entities.
+
+- fix physical. Carefull with taps and moeses because of the manual automations.
+- physical to social
+- final update of bl/ba/node/.. tabs
+
+- devices for integrations
+    device ddd.eee with:
+      this integration;
+      depends ...;
+    end;
+  The "this integration" adds the node as default.
+  Also when we cannot detect this.
+  That node is also given as a potential (integration dependent) implied dependence on all entities based on devices within this integration.
+
+- depencency versus via ... connexoon. Via is the stronger version of dependency?
+
+- Check area assignments
+
+1b. "Code cleaning (dead code, superseded generator logic, parser)
+==> Start by checking the dead DSL constructs, and clean the assocuated code." such that we do not forget ...
+Actually. Start by cleaning out unneeded macros first ...
+
+==> Do we still need the macros?
+
+Inventory done 2026-09-22 (Vienna vs Junglinster contrast, memory: project_macro_cleanup_after_junglinster.md):
+- DONE 2026-09-22: Macros.def's `zwave_node`/`windy`/`sunny` removed, plus the dead
+  `hasSecondColonSeparator` check (expander.go/par  ser.go, both call sites + the function). NOT
+  `device` -- caught before removing it: `thermostat` (Junglinster still has 9 live uses) calls
+  `device` internally (Macros.def's own `call device climate.physical/...;`), so it's still a real
+  transitive dependency despite zero DIRECT callers in either house's Conceptual.def. Verified
+  byte-identical regenerate on both houses (`diff -rq` against the pre-change `hass/` tree) before
+  and after.
+- Vienna 0, Junglinster still heavy use (blocked on Junglinster's own migration, one device at a
+  time, same playbook as Vienna's): Macros.def's `providing`(39)/`battery_level_device`(45)/
+  `media_player_device`(12)/`light_device`(11)/`battery_level`(9)/`switch_device`(9)/
+  `thermostat`(9)/`battery_alert`(4)/`power_switch`(4).
+- Vienna 0, Junglinster 7: `definition as switched_device ...;` -- this is the light.social:main
+  (Zigbee+Z-Wave) case from today's chat; its replacement is the still-unbuilt "aggregate"
+  Logical-layer operation, not just a migration-count question.
+- Vienna 0, Junglinster 3 (frozen, deliberate): the flat `entity ... from ... ...;` form (3
+  bedroom "health" lines) -- needs an explicit decision, not just migration, before a parser ban.
+- Explicitly NOT part of this cleanup: discovery_passthrough stays regardless (reusable
+  architecture, not dead code).
+- PENDING (found 2026-09-24, during PROJECT.md item 11's node-override work): Logical.def's old
+  "<domain>.<label> <entity> is available with: enabler <ref>; delay_off <time>; dependency on
+  <device-id>; end;" grammar -- `TLogicalCapability.IsAvailable`/`.EnablerEntity`/capability-level
+  `.DependsOn`, and their sole consumers `registerLogicalIsAvailableCapability`/
+  `resolveLogicalDependencyNodeEntities` (Conceptual_LogicalEntities.go/
+  integration_logical_storage.go) -- is now fully superseded by the unified "derived <domain>.<label>
+  with: condition <bool-expr>; end;" mechanism. Confirmed zero remaining usages in either house's
+  live Logical.def after migrating Vienna's apple_tv_complement/tv_complement/sonos_complement/
+  sonos_roam_complement/washing_machine off it 2026-09-24 (Junglinster never used this shape at
+  all). Device-level "dependency on <id>;" (TLogicalDevice.DependsOn) is UNRELATED and stays -- it
+  feeds hassbridge/import's own raw MQTT availability, a physical-layer concern Note 4 explicitly
+  keeps. When removing: integration_logical_parser.go's `logicalCapabilityPattern`/
+  `logicalCapabilityWithBlockPattern` themselves stay too (still shared with the live switch.media
+  coercion/absorb shapes) -- only their "is available" suffix and the enabler/delay_off/
+  capability-scoped-dependency-on body-line handling nested inside a capability's own "with:" block
+  is dead. As with every other entry here: verify byte-identical regenerate on both houses before
+  and after.
+
+1d. (Enforced) default units for e.g. pressure as well as the precision.
 
 2. Stick migration for Pi3 and PiB:
 - Copy the pi3 stick in vienna to one of these sticks
@@ -56,6 +108,21 @@ verbatim to the next stick.
 
 And sudo hostnamectl set-hostname <name> for the rename — also trivially safe once it's the only one running. 
 
+Note (2026-09-23, found live): the cloned Fedora-on-stick image carries over whatever timezone the
+SOURCE stick had set (`timedatectl`), not each clone's own correct one -- confirmed live on 3 of 4
+already-deployed hosts cloned from it (protocols-server-1 @ Vienna, frame @ Vienna,
+protocols-server-1 @ Junglinster, all found set to `America/New_York` instead of
+`Europe/Vienna`/`Europe/Luxembourg` respectively; only protocols-server-2/ha2mqtt @ Junglinster had
+already been manually corrected). Both houses' main HAOS instances were unaffected -- this is
+specific to the Fedora-on-stick clones. Fixed live on all three wrong ones via `sudo timedatectl
+set-timezone <Europe/Vienna|Europe/Luxembourg>`. The two NOT-YET-DEPLOYED cloned sticks (the
+Vienna frame replacement and the Frame@Junglinster migration target, item 2's own "Copy the pi3
+stick... to one of these sticks" / "Migrate frame.junglinster... on fedora" bullets above) are
+ALSO confirmed still set to US time -- add "`sudo timedatectl set-timezone ...`" to this item's own
+checklist, to run BEFORE first bringing either of them into live service, not after (a wrong
+timezone silently skews every log timestamp and can otherwise confuse time-sensitive scheduling
+until caught).
+
 3. Once Frame@Junglinster is migrated to Fedora (item 2): 
 ==> As we will use a cloned USB stick, the things below might already
 work "out of the stick".
@@ -67,7 +134,6 @@ back up its `~/bin` folder the same way
    folder, since it holds various hand-tuned, monitor/location-specific scripts that would be
    painful to reconstruct.
 
-4. MQTT (local) broker in container on p-s-1 @JLI
 
 5. Z-Wave migration from winsock to MQTT. Also on a device per device base, but no MQTT passthrough needed.
    Pre-work notes from the original roadmap: new environment is Home Assistant Green + a
@@ -136,6 +202,9 @@ back up its `~/bin` folder the same way
     - [ ] Only decommission/repurpose the old Sonoff dongle once the above is verified stable, not
           immediately.
 
+4. MQTT (local) broker in container on p-s-1 @JLI
+
+
 7. Zigbee2MQTT (legacy-to-conceptual MQTT passthrough, so entities migrate gradually) migration of devices in Junglinster.
     [FLAGGED 2026-09-12: no body yet, unlike item 4's own detailed "discovery_migration"
     design -- likely shares that same mechanism, but Junglinster's own specifics (which
@@ -196,35 +265,6 @@ back up its `~/bin` folder the same way
       identical to what it was before, which at least avoids adding an extra rename step on top
       of the recovery.]
 
-8. Overkiz-based SOMFY cover control: homeassistant@protocols-server-2 -> MQTT.
-      DONE (2026-09-09): the command-automation question this item used to flag as open --
-      "which commands a capability/domain supports, and how one maps to a remote service call on
-      the bridged instance" -- is resolved for the same-broker case: homeassistant/
-      hassbridge_commands.go's domainCommands/domainDiscoveryExtras tables (switch, vacuum today),
-      homeassistant/remote_instance_entity_commands.go's per-entity-per-command automations
-      (exactly the `command_<fully_qualified_entity_name>_<command>.yaml` naming this item already
-      sketched), and house_event_bus_coordinator/discoveryhassbridge.go's command_topic wiring.
-      Adding "cover" (open/close/stop) for these SOMFY covers is now a one-entry addition to
-      domainCommands, not open design. Cross-house command export (this item's own "check if
-      exports of commands would still work") is explicitly NOT built yet -- deferred as Phase 2,
-      same plan.
-
-      [Note added 2026-09-14: when this item's own "protocols-server-2 -> MQTT" migration is
-      picked up, house_event_bus_coordinator/discoverybridge.go's buildRelayedDiscoveryConfig now
-      clones a declared gateway device's ENTIRE original discovery payload (only overriding
-      unique_id/default_entity_id/name/state_topic/command_topic/origin), rather than
-      reconstructing a narrow subset of fields from scratch -- built for item 4's Zigbee light
-      migration (position/brightness/color-mode-shaped fields silently dropped before this fix),
-      but the same "a cover has several capability-specific fields a hand-picked reconstruction
-      would risk dropping (position, tilt, device_class, ...)" problem applies here too. Vienna's
-      own Zigbee-based blinds/covers, once migrated under item 4, are a real worked example to
-      copy the pattern from for these SOMFY covers.]
-
-9. Volvo integration's cloud auth is broken on the "main" (Junglinster) HA incarnation (401
-    Unauthorized, confirmed 2026-08-24 via the assumed-entities warning system flagging 18 missing
-    `sensor.social_cars_xc40_*`/etc. entities) -- needs re-authenticating in HA's own UI. Not a
-    code issue -- just a standing operational reminder for whenever you're next in that UI.
-
 9b. Maybe replace ":" with "|"?
 
 10. Ensure we have now all the integrations we need.
@@ -233,6 +273,23 @@ Also: Check for more of the existing integrations, like fritzbox, ems-esp, etc.
 Also: EMS heater device -- not started, design/syntax not yet worked out.
 
 11. Logical layer + available nuances in relation to "via device"  (netatmo radio module via main module) and aggregation.
+- Note (2026-09-22, from the coordinator-scope discussion that led to item 19's operational-role
+  split -- see memory: project_event_bus_operational_vs_coordinative_roles.md and
+  project_junglinster_coordinator_crash_loop_2026_09_22.md): Logical.def work breaks down into (at
+  least) four distinct situations, worth keeping distinct rather than treating "the logical layer"
+  as one undifferentiated bucket when this item is actually designed:
+    1. Simply clustering existing capabilities (no new computation, just regrouping/naming).
+    2. Defining derived entities that require TIMING (delay_on/delay_off, and similar).
+    3. Defining derived entities that rely on OTHER entities from OTHER devices (or from the main
+       HA instance) -- cross-device composition.
+    4. Defining ABSTRACTED entities that accommodate for shortcomings in the actual device (e.g. a
+       device that never reports its own state back, or one that works via multi-broadcast radio
+       messages rather than a clean request/reply) -- this is the FHEM-motivated case from item 19.
+  Of these, (2) and (4) are the two that could plausibly be implemented either IN the coordinator
+  or in a separate component (per item 19's own reasoning: (4) in particular is operational, not
+  coordinative, and may belong in that same higher-reliability separate role rather than the
+  coordinator) -- an open design question, not yet decided, to resolve when this item is picked up
+  together with item 19.
 - Deal with the "physical" sphere. Should be empty, where contributing sensors need a conceptual name as well based on the location the material (= real physical) world. 
 - Node/battery_alert rules: DONE -- Rule 1 (node required, live since 2026-09-10) and Rule 2
   (battery_level iff battery_alert, live since 2026-09-11 once both houses' real macro-driven
@@ -251,6 +308,26 @@ Also: EMS heater device -- not started, design/syntax not yet worked out.
   (only when the dependent device is actually positioned/exported -- mirror the existing
   `hasLink`-style gating), and (b) adding the referenced entity to kind-5's existence-check list.
   Full design/implementation detail: memory/project_logical_layer_dependency_on.md.
+- Device-positioning grammar redesign (2026-09-24, in progress): `device <spec> from <device-id>
+  [with:]` / `device from <device-id> with:` collapse into one `device <device-id> [as
+  [sphere:]leaf] with: ...;` construct (device-id first, no "from"; "as" replaces `<spec>`,
+  defaulting to `infrastructural`), plus a `with <entity-statement>;` one-liner for the common
+  single-capability case. Same device-id legal in as many blocks as needed, no first/subsequent
+  distinction (register-once-merge-repeatedly; the old "already positioned, ignoring duplicate"
+  guard is retired for this construct -- real double-declarations are already caught at the entity
+  level). "node" stops being auto-registered anywhere, including `hosts` (today's one unconditional
+  case) -- every kind now needs an explicit `entity binary_sensor.<sphere>:node;`-shaped line, same
+  as any other capability; the Logical.def "node override" mechanism moves from being
+  positioning-triggered to a check at the top of the generic per-capability dispatcher instead.
+  Deliberate tradeoff, confirmed with the user: `hosts` becoming explicit is more verbose for the
+  simple ping/cpu case, accepted anyway to avoid making the mechanism depend on which specific
+  integration a device happens to be. Note for later (2026-09-24, refined): rather than reviving the
+  old macro mechanism specifically for this, look at a "device type" TEMPLATE construct instead -- a
+  named template that expands into a full `device ... end;` clause for the common "basic node"
+  shape, rather than a single-line substitution. Not inherently a logical-layer thing, but this is
+  the natural moment to look into it since it falls directly out of this same redesign -- worth
+  scoping properly (what else besides "basic node" would want a device-type template, parameters,
+  where it's declared) when picked up, not bolted on ad hoc.
 - complement device DDD with:
     from DDDx:
       CCCx [as CCCy];
@@ -399,6 +476,7 @@ node, temperature, etc, as "sub domains".
 First move to this first class treatment of sub-domains from conceptual to physical layer imports.
 What is generated for the homes after this step, should still be conforming to what was generated before
 Existing domains are "catch alls"
+In doing so also look at the use of "core". We might actually replace this with "switch.switch" shorted to switch.switch or "motion.motion" shorted to motion.
 
 12b. Now change the generated friendly names to '<sphere>/<path>/<(sub)domain>' for all.
 Also adjust the names of generated automations.
@@ -424,12 +502,34 @@ Also adjust the names of generated automations.
      natural source where Supervisor is present, but a plain Container install (e.g.
      protocols-server-2, if still bare Container) has no update entity to poll at all -- needs its
      own per-install-type sourcing story before this can be built uniformly.
+   - (3) "Guarding automations" (2026-09-22, not yet designed): some HA-based integrations have
+     their own quirks -- concrete case found live the same day, a Netatmo integration on
+     Junglinster's `ha2mqtt` instance that went unavailable and needed a manual reload to recover
+     (see memory: project_via_device_sibling_correction_bug_2026_09_22.md and
+     project_junglinster_coordinator_crash_loop_2026_09_22.md for the same-day incidents this
+     surfaced during). The general pattern: if an integration-backed entity is unavailable, attempt
+     a reload of that integration, rate-limited (e.g. max 4 attempts per hour) to avoid a reload
+     storm on a genuinely-down integration. The user's own stated preference: implement as a
+     GENERATOR-CREATED automation living ON the affected instance itself (e.g. `ha2mqtt`) -- not a
+     separate "guarding coordinator" component -- consistent with this item's own existing "meta
+     sphere" shape (per-instance automations feeding coordinator-published status).
+     Refined same day: guard rules are declared in Physical.def's own INTEGRATION sections (per
+     integration type, alongside that integration's other declarations -- e.g. inside a
+     `home_assistant` block), not as a separate generic "meta" DSL construct bolted on elsewhere.
+     Their parsing is INTEGRATION-SPECIFIC, matching this project's existing per-integration parser
+     architecture (e.g. integration_hassbridge_parser.go, integration_hosts_parser.go, ... -- each
+     integration type owns its own grammar) -- a Netatmo-flavoured guard rule need not look
+     syntactically like, say, a Zigbee2MQTT one. Needs its own design pass: how the automation
+     identifies "this entity is unavailable because of an integration fault" (vs. genuinely offline
+     hardware), how the rate limit is tracked/reset, and how many/which integrations this should
+     cover beyond Netatmo.
 
 13. Check aggregation of sensors. If one is down, what do we do with data?
 
 13b. Jointly check the consistency and cleanliness of the DSL.
 
 14. Code cleaning (dead code, superseded generator logic, parser)
+==> Start by checking the dead DSL constructs, and clean the assocuated code.
 - Rename the `homeassistant_instances/...` MQTT topic tree (bootstrap/bridge protocol,
   discoveryhassbridge.go) to `homeassistant.instances/...`, matching this project's own
   dot-separated discovery-prefix convention (`homeassistant.physical`/`homeassistant.conceptual`)
@@ -479,6 +579,10 @@ Also adjust the names of generated automations.
 
 17. Check completeness of reported meta data
 
+17a. (2026-09-24) Zigbee2MQTT liveness check: detect when a house's own Z2M bridge itself is down
+     (not just an individual device), and if so, bulk-mark every Z2M-sourced entity in that house
+     as unavailable, rather than leaving each one showing its own last-known (stale) state.
+
 18. Maybe introduce some macro mechanism to make standard derivations (like adjustments and battery levels easier and standardized)
 
 19b. Check syntax and with/from logic
@@ -486,6 +590,36 @@ Also adjust the names of generated automations.
 19c. RAW mqtt as integration; also see notes below on MQTT/JSON structures. So, a situation in which we have MQTT topics, but no discovery data. Then this integration needs to combine this into a discovery compliant topic structure. Sometimes easy to do based on topic and payload. But take the vacuum. If the composed state is represented as a different topics these need to be joint by the coordinator.
 
 19. FHEM/FS20 integration
+
+    Note (2026-09-22, architectural decision, not yet designed in detail): some integrations
+    (FHEM is the motivating case) bridge devices that accept on/off commands but never report
+    their own state back. Relaying the command alone (FHEM2MQTT's job) isn't enough -- something
+    needs to remember the "expected" state and periodically re-broadcast/re-enforce it, since
+    there's no device-reported feedback loop to rely on.
+
+    Decided: this "expected state + periodic re-enforcement" responsibility does NOT belong inside
+    the coordinator, even though it first looked like a natural extension of it. The coordinator's
+    job is COORDINATIVE ("what is available", discovery/existence bookkeeping) -- this new
+    responsibility is OPERATIONAL (actually exchanging state/command messages, materially part of
+    keeping devices in their expected state). Consequences:
+    - It should be its own separate "role" on the Event Bus, in its OWN container -- not folded
+      into the existing coordinator process.
+    - It needs to be held to a materially HIGHER reliability bar than the coordinator: an
+      operational-role crash means devices can silently drift from their expected state (a real
+      user-facing failure), whereas a coordinator crash (like the Junglinster incident this same
+      day, see memory: project_junglinster_coordinator_crash_loop_2026_09_22.md) does NOT affect
+      live state/command exchange at all -- FHEM2MQTT-style relays keep working regardless of
+      whether the coordinator is up. This is the reasoning for why the coordinator, as currently
+      built, is allowed to be less bulletproof than a component like this one would need to be.
+
+    Not yet designed: how this new role subscribes/publishes relative to the existing coordinator
+    and per-integration relays, how "expected state" is declared (DSL-level?), re-enforcement
+    cadence, and how this interacts with FHEM/FS20's own protocol specifics.
+
+    See item 11's own 2026-09-22 note for how this fits into the broader Logical.def design: this
+    FHEM case is specifically situation (4), "abstracted entities that accommodate for device
+    shortcomings" -- one of two Logical.def situations (alongside (2), timing-based derivations)
+    where the coordinator-vs-separate-component question is still genuinely open.
 
 20. Publish -- Architecture.md should be ready for others to read, alongside an up-to-date
     README.md, on GitHub.
@@ -509,6 +643,41 @@ Also adjust the names of generated automations.
     genuinely failing to reach the later steps, or whether automation.reload DID run and something
     else is the reason our automations didn't see the event; parked per the user's own instruction,
     not investigated further this session. Worth checking specifically when this item is picked up.
+
+    Third occurrence, 2026-09-22/23 (Junglinster, the `environment.weather` device's
+    `sensor.physical_terrace_weather_pressure`) ROOT-CAUSED: a BRAND-NEW template sensor file,
+    correctly deployed to `/config/entities/template/sensor/physical/...` (confirmed via direct file
+    read), stayed genuinely absent from the running instance until a MANUAL YAML reload, despite the
+    deploy's own `PublishMetaReload` -> `homeassistant.reload_all` firing correctly. Root cause,
+    confirmed via HA's own upstream tracker: both houses' generated `configuration.yaml` route
+    EVERY domain (template, automation, binary_sensor, sensor, switch, script, scene, the input_*
+    helpers -- all of it) through `homeassistant: packages: !include_dir_named integrations`, and
+    Home Assistant has a long-standing, wontfix upstream limitation that **packages are never
+    reprocessed by any reload service** -- not `<domain>.reload`, not `homeassistant.reload_all`
+    (just a loop over those same per-domain hooks), and not even `homeassistant.reload_core_config`
+    (github.com/home-assistant/core#12069, "Reload core config does not load packages," closed
+    wontfix). Only a full restart re-runs the package merge. This isn't a narrow "new files
+    specifically" gap -- it means `reload_all` is architecturally a no-op for this project's ENTIRE
+    generated native-instance config, which reframes the 2026-09-10/09-11 incidents above as the
+    exact same root cause, not a separate flaky-service problem. Full analysis, sources, and the
+    live investigation transcript: this session's chat, 2026-09-23.
+
+    DONE+DEPLOYED 2026-09-23: `configuration.yaml` generation (generator.go's `integrationDefs`/
+    `generateConfigurationFile`, plus `remote_instance_automations.go`'s remote-instance skeleton)
+    reworked to drop the `packages:` wrapper entirely -- confirmed every per-domain
+    `integrations/<domain>.yaml` file was always a single `!include*` line for exactly ONE domain,
+    never genuine cross-domain package grouping, so nothing was lost. Each domain (template,
+    automation, binary_sensor, sensor, switch, script, scene, the input_* helpers, tts) is now a
+    plain top-level key in `configuration.yaml` (`<domain>: !include integrations/<domain>.yaml`),
+    restoring normal per-domain reload semantics -- `homeassistant.reload_all` should now actually
+    work for this project's generated config, closing the 2026-09-10/09-11/09-22 incidents above.
+    Deployed to all four live instances (Vienna main + ha2mqtt, Junglinster main + ha2mqtt), each via
+    file deploy + a one-time `homeassistant.restart` (this specific structural change needs a
+    restart to take effect the first time -- the same packages limitation being fixed here), each
+    cross-checked healthy after (HTTP 200, zero config/setup errors, entity registry counts intact:
+    128/1078/739/5287 respectively). Full test suite green throughout
+    (TestGenerateInstanceAutomationTreesWritesMainAndRemoteTrees updated to assert the new plain-key
+    shape instead of the old packages one).
 
     Also before then (2026-09-15): a "pretty printing" option for the `.def` files themselves --
     both houses' Physical.def/Spaces.def have drifted into inconsistent column-alignment/spacing

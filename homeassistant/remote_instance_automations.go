@@ -216,10 +216,10 @@ func collectHassBridgeDeviceInfoByInstance(hassBridgeDevicesByID map[string]THas
 
 // automationIntegrationDef is integrationDefs' own "automation.yaml" entry (generator.go) --
 // looked up rather than duplicated, so a remote instance's skeleton can't drift from main's.
-func automationIntegrationDef() (file, content string) {
+func automationIntegrationDef() (file, domain, content string) {
 	for _, def := range integrationDefs {
 		if def.file == "automation.yaml" {
-			return def.file, def.content
+			return def.file, def.domain, def.content
 		}
 	}
 	panic("integrationDefs has no \"automation.yaml\" entry")
@@ -249,18 +249,25 @@ func automationIntegrationDef() (file, content string) {
 // manifest dependencies (homeassistant/components/default_config/manifest.json) at the HA version
 // running 2026-09-09; a future HA upgrade adding a new dependency there won't automatically be
 // picked up here.
-const remoteInstanceConfigurationYAMLBody = "assist_pipeline:\ncloud:\nconversation:\ndhcp:\nenergy:\nfile:\ngo2rtc:\nhistory:\nhomeassistant_alerts:\nlogbook:\nmedia_source:\nmobile_app:\nmy:\nssdp:\nstream:\nsun:\nusage_prediction:\nusb:\nwebhook:\nzeroconf:\n\nhomeassistant:\n  packages: !include_dir_named integrations\n"
+const remoteInstanceConfigurationYAMLPreamble = "assist_pipeline:\ncloud:\nconversation:\ndhcp:\nenergy:\nfile:\ngo2rtc:\nhistory:\nhomeassistant_alerts:\nlogbook:\nmedia_source:\nmobile_app:\nmy:\nssdp:\nstream:\nsun:\nusage_prediction:\nusb:\nwebhook:\nzeroconf:\n"
 
 // writeRemoteInstanceSkeleton writes the minimal skeleton a remote instance's tree needs around
 // its automation/ content to actually be includable by HA: configuration.yaml (scoped to what
-// this generator actually produces for a remote instance -- packages only, no customize line) and
-// integrations/automation.yaml alone (not the full integrationDefs set main's tree has, since
+// this generator actually produces for a remote instance -- automation only, no customize line)
+// and integrations/automation.yaml alone (not the full integrationDefs set main's tree has, since
 // this generator produces no other domain's content for a remote instance).
+//
+// configuration.yaml declares "automation" as a plain top-level "!include integrations/
+// automation.yaml" key, never a "homeassistant: packages:" wrapper -- same reasoning as
+// integrationDefs' own doc comment (generator.go): packages are never reprocessed by any reload
+// service, which would silently defeat this project's whole meta-reload mechanism for remote
+// instances too.
 func writeRemoteInstanceSkeleton(instanceOutputDir string) error {
-	if err := writeYAMLFile(filepath.Join(instanceOutputDir, "configuration.yaml"), generatorHeader+remoteInstanceConfigurationYAMLBody); err != nil {
+	file, domain, content := automationIntegrationDef()
+	body := generatorHeader + remoteInstanceConfigurationYAMLPreamble + "\n" + domain + ": !include integrations/" + file + "\n"
+	if err := writeYAMLFile(filepath.Join(instanceOutputDir, "configuration.yaml"), body); err != nil {
 		return err
 	}
-	file, content := automationIntegrationDef()
 	return writeYAMLFile(filepath.Join(instanceOutputDir, "integrations", file), generatorHeader+content+"\n")
 }
 

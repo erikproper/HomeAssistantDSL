@@ -98,24 +98,24 @@ type TAdministrationState struct {
 	SpaceSwitchOnByName map[string][]string
 
 	// Physical.def device id -> conceptual-layer HA entity ids implied for it by a
-	// "device <spec> from <device-id>;" positioning declaration (Conceptual_DevicePositioning.go)
-	// and any "entity <spec> from <device-id> <capability>;" links registered against it
-	// (Conceptual_DeviceCapabilityEntities.go) in Spaces.def. Read by
-	// generateCoordinatorDevicesFile to enrich coordinator/devices.yaml.
+	// "device <device-id> [as ...] with: ...;" positioning declaration
+	// (Conceptual_DevicePositioning.go) and any "entity <spec> from <device-id> <capability>;"
+	// links registered against it (Conceptual_DeviceCapabilityEntities.go) in Conceptual.def. Read
+	// by generateCoordinatorDevicesFile to enrich coordinator/devices.yaml.
 	DeviceConceptualLinks map[string]TDeviceConceptualLink
 
-	// DevicePositioningProvenance records the provenance string of the FIRST "device <spec> from
-	// <device-id> [with: ...];" positioning line seen for each device id -- used solely to give a
-	// duplicate positioning warning (registerDevicePositioning) a "first: .../second: ..." pair,
-	// mirroring AppendEntityRecord's own identical style. Real bug found live 2026-09-16 (Vienna's
-	// Conceptual.def): "device infrastructural:sonos/left from appliance.sonos-left;" was declared
-	// TWICE, verbatim, with no warning at all -- the second positioning's own auto-implied "node"
-	// silently no-opped via RegisterDiscoveryImpliedEntity's identical-entityName short-circuit
-	// (administration.go), which produces no warning by design (it's also the normal, harmless path
-	// for two DIFFERENT capability lines that happen to resolve to the same entity). A repeated
-	// DEVICE POSITIONING is a different, always-a-mistake case -- no legitimate DSL construct
-	// positions the same device id twice, so this is checked directly instead.
-	DevicePositioningProvenance map[string]string
+	// EntityNameOwnerBySpace maps a space name to (final entity_id -> sourceKey, "<device-id>!
+	// <capability>") for whichever device/capability FIRST registered that entity_id via
+	// RegisterDiscoveryImpliedEntity. Lets that function's own per-space "already registered this
+	// exact entity name" short-circuit distinguish a harmless repeat (the SAME device's own
+	// capability touched again) from a real collision (a DIFFERENT device's capability landing on
+	// the same final entity_id, e.g. two devices "weaving" onto the same conceptual position both
+	// offering a "node" capability) and report the latter by name (2026-09-25: replaced the old,
+	// coarser DeviceIdentityOwner position-level check, which warned on two devices merely sharing a
+	// position regardless of whether their own entities actually collided -- a real false positive,
+	// Vienna's "sensors.hallway_door_aqara_multi"/"sensors.hallway_aqara_windoor" both "as
+	// infrastructural:apartment/hallway/door" with no actual entity overlap).
+	EntityNameOwnerBySpace map[string]map[string]string
 
 	// Our own HA entity id -> which "discovery" integration gateway device/leaf it's sourced
 	// from, for an "entity <spec> from <gateway-id>.<leaf>;" declaration in Spaces.def.
@@ -540,7 +540,7 @@ func newAdministrationState() *TAdministrationState {
 		SpaceSwitchOnByName:          map[string][]string{},
 		NodeRepresentativeByEntityID: map[string]string{},
 		DeviceConceptualLinks:        map[string]TDeviceConceptualLink{},
-		DevicePositioningProvenance:  map[string]string{},
+		EntityNameOwnerBySpace:       map[string]map[string]string{},
 		DiscoveryEntityLinks:         map[string]TDiscoveryEntityLink{},
 		DependsOnAvailabilityTopics:  map[string][]string{},
 		LogicalEntityLinks:           map[string]TLogicalEntityLink{},
@@ -650,7 +650,7 @@ func (state *TAdministrationState) OpenSpace(spaceKind, spaceName string, isArea
 		if colonIdx := strings.Index(spaceName, ":"); colonIdx > 0 {
 			enclosing := formatNestedSpaceName(state.SpacePath)
 			sphere := spaceName[:colonIdx]
-			areaName = deviceDisplayName(enclosing, sphere, deviceSpecLeafPath(spaceName))
+			areaName = spaceAreaDisplayName(enclosing, sphere, deviceSpecLeafPath(spaceName))
 		}
 	}
 	state.AreaStack = append(state.AreaStack, areaName)
@@ -1062,8 +1062,27 @@ func (state *TAdministrationState) RegisterDiscoveryImpliedEntity(spaceName, ent
 
 	if state.EntityRecordSeenBySpace[spaceName] != nil {
 		if _, seen := state.EntityRecordSeenBySpace[spaceName][entityName]; seen {
+			// A repeat registration of the exact same entityName within a space is normally just
+			// the same device's own capability being re-touched (harmless). It's a real collision
+			// only when a DIFFERENT device's own capability lands on that same final entity_id --
+			// e.g. two Aqara sensors positioned "as" the same conceptual location, both offering a
+			// "node" capability. sourceKey is always "<device-id>!<capability>" (see every call
+			// site), so splitting on "!" recovers the owning device id without a separate map.
+			if owner, seenOwner := state.EntityNameOwnerBySpace[spaceName][entityName]; seenOwner && sourceKey != "" {
+				if ownerDeviceID, _, _ := strings.Cut(owner, "!"); ownerDeviceID != "" {
+					if currentDeviceID, _, _ := strings.Cut(sourceKey, "!"); currentDeviceID != "" && currentDeviceID != ownerDeviceID {
+						fmt.Fprintf(os.Stderr, "[WARNING] %s: entity %q would be registered by both device %q and device %q -- give one of them a distinguishing \"as\" leaf\n", provenanceLabel(provenance), entityName, ownerDeviceID, currentDeviceID)
+					}
+				}
+			}
 			return
 		}
+	}
+	if sourceKey != "" {
+		if state.EntityNameOwnerBySpace[spaceName] == nil {
+			state.EntityNameOwnerBySpace[spaceName] = map[string]string{}
+		}
+		state.EntityNameOwnerBySpace[spaceName][entityName] = sourceKey
 	}
 	record := TEntityRecord{
 		Name:                  entityName,

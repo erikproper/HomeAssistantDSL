@@ -45,7 +45,7 @@ New/
 | `Settings.def` | Per-house variable overrides (also holds real secrets — gitignored) |
 | `Physical.def` | Physical layer: MQTT/Home Assistant main target, integration device declarations |
 | `Spaces.def` | Conceptual layer: space and entity declarations |
-| `Lists.def` | Lovelace list declarations |
+| `External.def` | External layer: Lovelace list declarations |
 
 ## Entity specification model
 
@@ -328,9 +328,9 @@ macro name [no_raw] [space_level] ( $positional type, ... ) { $named type [op], 
 end;
 ```
 
-## Lists.def syntax
+## External.def syntax
 
-`Lists.def` declares Lovelace entity-card lists. Each declaration produces a `list.<name>` file in the house directory.
+`External.def` declares Lovelace entity-card lists. Each declaration produces a `list.<name>` file in the house directory.
 
 ```
 list "Title" all <pattern> [<pattern> ...] [as cards] [with:

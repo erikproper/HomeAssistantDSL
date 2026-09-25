@@ -117,6 +117,15 @@ func generateHassBridgeFile(outputRoot string, hassBridgeDevicesByID map[string]
 			if len(device.Capabilities[name].Attributes) > 0 {
 				capLines.WriteString("        has_attributes: true\n")
 			}
+			// has_position (added 2026-09-25, cover's own current-position feature): same
+			// yes/no-signal shape as has_attributes above -- the actual position source is fully
+			// resolved into the reporting automation's own combined {'state':...,'position':...}
+			// JSON payload here, generator-side (remote_instance_entity_reporting.go); the
+			// coordinator only needs to know whether to point position_topic/position_template at
+			// that SAME state_topic (house_event_bus_coordinator/discoveryhassbridge.go).
+			if len(device.Capabilities[name].Position) > 0 {
+				capLines.WriteString("        has_position: true\n")
+			}
 			// commands/discovery_extra (added 2026-09-09): fully resolved here, off this
 			// capability's own Domain, so the coordinator stays domain-agnostic -- it only ever
 			// merges whatever this file already says into a discovery config, with no per-domain
@@ -126,8 +135,21 @@ func generateHassBridgeFile(outputRoot string, hassBridgeDevicesByID map[string]
 				capLines.WriteString("        commands:\n")
 				for _, command := range commands {
 					capLines.WriteString("          " + command.Name + ":\n")
-					capLines.WriteString("            payload: \"" + command.Payload + "\"\n")
-					capLines.WriteString("            discovery_key: " + command.DiscoveryKey + "\n")
+					// ValueTrigger commands (e.g. "number"'s set_value, cover's set_position) carry
+					// no fixed payload/discovery_key at all -- see commandSpec's own doc comment.
+					if command.Payload != "" {
+						capLines.WriteString("            payload: \"" + command.Payload + "\"\n")
+					}
+					if command.DiscoveryKey != "" {
+						capLines.WriteString("            discovery_key: " + command.DiscoveryKey + "\n")
+					}
+					if command.ValueTrigger {
+						capLines.WriteString("            value_trigger: true\n")
+						capLines.WriteString("            data_key: " + commandDataKey(command) + "\n")
+					}
+					if command.TopicKey != "" {
+						capLines.WriteString("            topic_key: " + command.TopicKey + "\n")
+					}
 				}
 				if extra, hasExtra := domainDiscoveryExtras[device.Capabilities[name].Domain]; hasExtra {
 					extraKeys := make([]string, 0, len(extra))
@@ -137,12 +159,14 @@ func generateHassBridgeFile(outputRoot string, hassBridgeDevicesByID map[string]
 					sort.Strings(extraKeys)
 					capLines.WriteString("        discovery_extra:\n")
 					for _, key := range extraKeys {
-						capLines.WriteString("          " + key + ":\n")
 						switch values := extra[key].(type) {
 						case []string:
+							capLines.WriteString("          " + key + ":\n")
 							for _, value := range values {
 								capLines.WriteString("            - " + value + "\n")
 							}
+						case string:
+							capLines.WriteString("          " + key + ": \"" + values + "\"\n")
 						default:
 							panic(fmt.Sprintf("hassbridge_commands.go: domainDiscoveryExtras[%q][%q] has unsupported type %T", device.Capabilities[name].Domain, key, extra[key]))
 						}

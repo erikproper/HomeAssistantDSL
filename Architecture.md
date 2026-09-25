@@ -346,6 +346,24 @@ enabler ...;]` capability shape already uses (e.g. Vienna's `apple_tv`/`tv` `nod
 share one code path — they're deliberately separate, matching which side of the MQTT boundary the
 entity in question lives on.
 
+**A non-bridgeable entity pulls its whole device onto the same side of the boundary (2026-09-24).**
+The workaround above is per-*domain*: `weather`/`media_player`/etc. themselves can't be MQTT-
+discovered. But a device can mix a non-bridgeable entity with otherwise perfectly MQTT-capable
+ones — a Ring doorbell's own camera (native-only) alongside its ding/motion/battery `binary_sensor`/
+`sensor` entities (both MQTT-discoverable domains in isolation). Splitting such a device across the
+boundary — camera hard-wired locally, the rest relayed over MQTT — would fragment one physical
+device's entities across two completely different registration mechanisms for no benefit; the whole
+device is instead declared through Physical.def's `local` integration kind (`camera.core;`,
+`binary_sensor.ding;`, ... all as bare "possibly locally defined" acknowledgements, confirmed to
+really exist by Conceptual.def's own positioning, same existence-tracking discipline a plain bare
+`entity <spec>;` declaration already has — `integration_local_parser.go`/`Conceptual_LocalEntities.go`).
+So the practical rule is: one non-bridgeable entity anywhere on a device is enough to pull every
+entity of that device onto the `local` side, even the ones that individually could have gone via MQTT.
+This is also why the media-player devices from this section's own `apple_tv`/`tv`/`sonos` examples
+were later folded onto the exact same `local` mechanism (2026-09-24) — a `media_player`'s own
+combined-availability "node" and `switch.media` coercion aren't separately bridgeable either, so the
+whole device belongs there, not split.
+
 ### 6.8 Typing-metadata defaults: `Defaults.def`, never coordinator-invented
 
 Every entity the coordinator discovery-publishes carries HA typing metadata — `device_class`,

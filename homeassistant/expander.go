@@ -1278,14 +1278,6 @@ func (ctx *TMacroExpansionContext) MacroDefinitionWarnings(macro *TParsedCreatio
 			continue
 		}
 
-		// A second ':' in an entity spec is legacy sub-domain notation; '/' must be used instead.
-		if hasSecondColonSeparator(specificationToken) {
-			warnings = append(warnings,
-				fmt.Sprintf("line %d: entity specification %q uses a second ':' sub-domain separator (legacy); use '/' instead",
-					bodyLineIndex+1, specificationToken),
-			)
-		}
-
 		for _, variableReference := range variableReferencePattern.FindAllString(specificationToken, -1) {
 			variableName := extractVariableName(variableReference)
 			if variableName == "entity" || variableName == "sphere" {
@@ -1659,32 +1651,20 @@ func isExtensionalEntityReference(spec string) bool {
 		afterDot := spec[dotIdx+1:]
 		// A spec is only extensional if it has at least one '/' after the dot AND
 		// contains no ':' — a remaining ':' means the space path still needs inserting.
-		if strings.Count(afterDot, "/") >= 1 && !strings.Contains(afterDot, ":") {
+		// A leading '/' right after the dot is never a real extensional reference either (a
+		// resolved reference's sphere segment is always a bare word, e.g.
+		// "sensor.infrastructural/co2" -- never "sensor./co2") -- it's a bare "device.<leaf-path>"
+		// spec whose own leaf happens to start with '/' (the "absolute, no space-prefix" leaf
+		// shape a device's own "as <leaf-path>" clause can carry, since it can no longer carry an
+		// explicit sphere at all -- confirmed 2026-09-24, real bug found live: without this guard,
+		// "device./smarty" was misdetected as already-resolved and returned verbatim, skipping
+		// lookupDefaultSphere("device") entirely and leaving every attribute anchored to that
+		// device with an empty sphere segment in its own final name).
+		if strings.Count(afterDot, "/") >= 1 && !strings.Contains(afterDot, ":") && !strings.HasPrefix(afterDot, "/") {
 			return true
 		}
 	}
 	return false
-}
-
-// hasSecondColonSeparator reports whether an entity specification contains a legacy
-// sub-domain separator: a second ':' that is not part of a '::' relative-path prefix.
-// Example: "sensor.physical:dishwasher/robb:temperature" is invalid — use '/' instead.
-func hasSecondColonSeparator(spec string) bool {
-	dotIdx := strings.Index(spec, ".")
-	if dotIdx < 0 {
-		return false
-	}
-	remainder := spec[dotIdx+1:]
-	colonIdx := strings.Index(remainder, ":")
-	if colonIdx < 0 {
-		return false
-	}
-	pathPart := remainder[colonIdx+1:]
-	// '::' relative-path prefix: skip the second colon and check the rest.
-	if strings.HasPrefix(pathPart, ":") {
-		pathPart = pathPart[1:]
-	}
-	return strings.Contains(pathPart, ":")
 }
 
 func extractEntityIdentity(fullName string) TEntityIdentity {

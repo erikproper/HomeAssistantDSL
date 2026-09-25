@@ -150,6 +150,36 @@ func TestBuildSuggestionReportFromExistenceExcludesUsedAndUnresolved(t *testing.
 	}
 }
 
+// TestBuildSuggestionReportFromExistenceExcludesUnknownState is the regression test for the Volvo
+// XC40 case (2026-09-25): a vehicle integration announces a fixed, generic capability set,
+// most of which this particular car never actually populates -- HA reports those as state
+// "unknown" forever. Suggesting them wastes the DSL author's time confirming each one is bogus by
+// hand, so both the per-device and the orphan branch must skip an entity whose last-known State is
+// exactly "unknown", even though its Status is otherwise known-to-exist.
+func TestBuildSuggestionReportFromExistenceExcludesUnknownState(t *testing.T) {
+	status := TEntityExistenceStatusPayload{
+		"utility.xc40": {Entities: map[string]TEntityExistenceStatusEntry{
+			"binary_sensor.volvo_xc40_sunroof":     {Status: existenceStatusKnownToExist, State: "unknown"},
+			"binary_sensor.volvo_xc40_door_front_left": {Status: existenceStatusKnownToExist, State: "off"},
+		}},
+		"": {Entities: map[string]TEntityExistenceStatusEntry{
+			"sensor.volvo_xc40_orphan_unknown": {Status: existenceStatusKnownToExist, State: "unknown"},
+			"sensor.volvo_xc40_orphan_real":    {Status: existenceStatusKnownToExist, State: "42"},
+		}},
+	}
+
+	report := buildSuggestionReportFromExistence(status, nil, nil, nil)
+
+	if !containsAll(report, "binary_sensor.volvo_xc40_door_front_left;", "sensor.volvo_xc40_orphan_real") {
+		t.Errorf("report missing expected real-state entities:\n%s", report)
+	}
+	for _, unwanted := range []string{"binary_sensor.volvo_xc40_sunroof;", "sensor.volvo_xc40_orphan_unknown"} {
+		if strings.Contains(report, unwanted) {
+			t.Errorf("report must exclude unknown-state entity %q, got:\n%s", unwanted, report)
+		}
+	}
+}
+
 // TestBuildSuggestionReportFromExistenceGuessesTailWhenNoKeywordMatches is the concrete case that
 // motivated commonEntityLocalNamePrefix: a device whose not-yet-declared entities share no
 // recognized keyword, but do share a naming prefix with the device's OWN already-declared

@@ -239,10 +239,15 @@ func TestDiscoveryPublisherRetireMissing(t *testing.T) {
 		t.Fatalf("Publish error: %v", err)
 	}
 
-	retired := p.RetireMissing(client, "main", map[string]bool{"homeassistant/sensor/coordinator/b/config": true})
+	jobs := make(chan TDiscoveryRelayJob, 100)
+	retired := p.RetireMissing(client, "main", map[string]bool{"homeassistant/sensor/coordinator/b/config": true}, jobs)
 	if len(retired) != 1 || retired[0] != "homeassistant/sensor/coordinator/a/config" {
 		t.Errorf("RetireMissing returned %v, want [homeassistant/sensor/coordinator/a/config]", retired)
 	}
+	drainDiscoveryRelayQueue(jobs, p)
+	// persist() itself is now debounced (schedulePersist); flush synchronously here rather than
+	// waiting on a real timer -- see schedulePersist's own doc comment.
+	p.persist()
 
 	reloaded := newDiscoveryPublisher(manifestPath)
 	if _, known := reloaded.known[manifestKey("main", "homeassistant/sensor/coordinator/a/config")]; known {
@@ -271,13 +276,18 @@ func TestDiscoveryPublisherRetireMissingExemptsPassthroughTopics(t *testing.T) {
 	}
 
 	// expected is empty -- passthrough topics are never in any generator-computed expected set.
-	retired := p.RetireMissing(client, "main", map[string]bool{})
+	jobs := make(chan TDiscoveryRelayJob, 100)
+	retired := p.RetireMissing(client, "main", map[string]bool{}, jobs)
 	if len(retired) != 0 {
 		t.Errorf("RetireMissing retired %v, want nothing -- passthrough topics must be exempt", retired)
 	}
+	drainDiscoveryRelayQueue(jobs, p)
 	if !p.Knows("main", passthroughTopic) {
 		t.Errorf("expected the passthrough topic to still be known after RetireMissing")
 	}
+	// persist() itself is now debounced (schedulePersist); flush synchronously here rather than
+	// waiting on a real timer -- see schedulePersist's own doc comment.
+	p.persist()
 
 	reloaded := newDiscoveryPublisher(manifestPath)
 	if !reloaded.passthrough[manifestKey("main", passthroughTopic)] {
@@ -285,9 +295,11 @@ func TestDiscoveryPublisherRetireMissingExemptsPassthroughTopics(t *testing.T) {
 	}
 	// A second RetireMissing call, after a fresh process restart (simulated by reloading from
 	// disk), must still exempt it -- the exemption has to be persisted, not just in-memory.
-	if retired := reloaded.RetireMissing(client, "main", map[string]bool{}); len(retired) != 0 {
+	reloadedJobs := make(chan TDiscoveryRelayJob, 100)
+	if retired := reloaded.RetireMissing(client, "main", map[string]bool{}, reloadedJobs); len(retired) != 0 {
 		t.Errorf("RetireMissing after reload retired %v, want nothing", retired)
 	}
+	drainDiscoveryRelayQueue(reloadedJobs, reloaded)
 }
 
 // TestDiscoveryPublisherRetireOneForgetsPassthroughMarking confirms an explicit RetireOne (the
@@ -498,10 +510,12 @@ func TestWatchForOrphanedDiscoveryTopicsRetiresContentMismatch(t *testing.T) {
 	client := &fakeClient{retained: []fakeMessage{{topic: topic, payload: []byte(`{"old":true}`)}}}
 
 	publisher := newDiscoveryPublisher("")
-	err := watchForOrphanedDiscoveryTopics(client, publisher, "main", map[string]bool{topic: true}, map[string]string{topic: `{"new":true}`}, map[string]bool{}, testPrefix)
+	jobs := make(chan TDiscoveryRelayJob, 100)
+	err := watchForOrphanedDiscoveryTopics(client, publisher, "main", map[string]bool{topic: true}, map[string]string{topic: `{"new":true}`}, map[string]bool{}, testPrefix, jobs)
 	if err != nil {
 		t.Fatalf("watchForOrphanedDiscoveryTopics error: %v", err)
 	}
+	drainDiscoveryRelayQueue(jobs, publisher)
 	if len(client.published) != 1 {
 		t.Fatalf("got %d publishes, want 1 (the retirement): %+v", len(client.published), client.published)
 	}
@@ -516,10 +530,12 @@ func TestWatchForOrphanedDiscoveryTopicsLeavesMatchingContentAlone(t *testing.T)
 	client := &fakeClient{retained: []fakeMessage{{topic: topic, payload: []byte(`{"same":true}`)}}}
 
 	publisher := newDiscoveryPublisher("")
-	err := watchForOrphanedDiscoveryTopics(client, publisher, "main", map[string]bool{topic: true}, map[string]string{topic: `{"same":true}`}, map[string]bool{}, testPrefix)
+	jobs := make(chan TDiscoveryRelayJob, 100)
+	err := watchForOrphanedDiscoveryTopics(client, publisher, "main", map[string]bool{topic: true}, map[string]string{topic: `{"same":true}`}, map[string]bool{}, testPrefix, jobs)
 	if err != nil {
 		t.Fatalf("watchForOrphanedDiscoveryTopics error: %v", err)
 	}
+	drainDiscoveryRelayQueue(jobs, publisher)
 	if len(client.published) != 0 {
 		t.Fatalf("got %d publishes, want 0 (content already matches): %+v", len(client.published), client.published)
 	}
@@ -531,10 +547,12 @@ func TestWatchForOrphanedDiscoveryTopicsRetiresUnexpectedLegacyTopic(t *testing.
 	client := &fakeClient{retained: []fakeMessage{{topic: legacyTopic, payload: []byte(`{"old":true}`)}}}
 
 	publisher := newDiscoveryPublisher("")
-	err := watchForOrphanedDiscoveryTopics(client, publisher, "main", map[string]bool{}, map[string]string{}, map[string]bool{}, testPrefix)
+	jobs := make(chan TDiscoveryRelayJob, 100)
+	err := watchForOrphanedDiscoveryTopics(client, publisher, "main", map[string]bool{}, map[string]string{}, map[string]bool{}, testPrefix, jobs)
 	if err != nil {
 		t.Fatalf("watchForOrphanedDiscoveryTopics error: %v", err)
 	}
+	drainDiscoveryRelayQueue(jobs, publisher)
 	if len(client.published) != 1 || client.published[0].topic != legacyTopic {
 		t.Fatalf("published = %+v, want a single empty retire of %q", client.published, legacyTopic)
 	}
@@ -550,10 +568,12 @@ func TestWatchForOrphanedDiscoveryTopicsRetiresDeclaredCleanNodeUnconditionally(
 	client := &fakeClient{retained: []fakeMessage{{topic: legacyTopic, payload: []byte(`{"anything":true}`)}}}
 
 	publisher := newDiscoveryPublisher("")
-	err := watchForOrphanedDiscoveryTopics(client, publisher, "main", map[string]bool{}, map[string]string{}, map[string]bool{"ems-esp": true}, testPrefix)
+	jobs := make(chan TDiscoveryRelayJob, 100)
+	err := watchForOrphanedDiscoveryTopics(client, publisher, "main", map[string]bool{}, map[string]string{}, map[string]bool{"ems-esp": true}, testPrefix, jobs)
 	if err != nil {
 		t.Fatalf("watchForOrphanedDiscoveryTopics error: %v", err)
 	}
+	drainDiscoveryRelayQueue(jobs, publisher)
 	if len(client.published) != 1 || client.published[0].topic != legacyTopic {
 		t.Fatalf("published = %+v, want a single empty retire of %q", client.published, legacyTopic)
 	}
@@ -562,6 +582,7 @@ func TestWatchForOrphanedDiscoveryTopicsRetiresDeclaredCleanNodeUnconditionally(
 	// component/object_id under the same declared node_id -- the whole point of the wildcard.
 	other := "homeassistant/climate/ems-esp/thermostat_hc1/config"
 	client.subscribedHandlers[0](client, fakeMessage{topic: other, payload: []byte(`{"else":true}`)})
+	drainDiscoveryRelayQueue(jobs, publisher)
 	if len(client.published) != 2 || client.published[1].topic != other {
 		t.Fatalf("published = %+v, want the second, differently-shaped topic also retired", client.published)
 	}
@@ -589,7 +610,8 @@ func TestWatchForOrphanedDiscoveryTopicsIgnoresContentDriftAfterSettleWindow(t *
 	client := &fakeClient{} // nothing retained yet at subscribe time
 
 	publisher := newDiscoveryPublisher("")
-	if err := watchForOrphanedDiscoveryTopics(client, publisher, "main", map[string]bool{topic: true}, map[string]string{topic: `{"live_enriched":false}`}, map[string]bool{}, testPrefix); err != nil {
+	jobs := make(chan TDiscoveryRelayJob, 100)
+	if err := watchForOrphanedDiscoveryTopics(client, publisher, "main", map[string]bool{topic: true}, map[string]string{topic: `{"live_enriched":false}`}, map[string]bool{}, testPrefix, jobs); err != nil {
 		t.Fatalf("watchForOrphanedDiscoveryTopics error: %v", err)
 	}
 
@@ -599,6 +621,7 @@ func TestWatchForOrphanedDiscoveryTopicsIgnoresContentDriftAfterSettleWindow(t *
 		t.Fatalf("expected exactly one Subscribe call, got %d", len(client.subscribedHandlers))
 	}
 	client.subscribedHandlers[0](client, fakeMessage{topic: topic, payload: []byte(`{"live_enriched":true}`)})
+	drainDiscoveryRelayQueue(jobs, publisher)
 
 	if len(client.published) != 0 {
 		t.Fatalf("got %d publishes, want 0 (a legitimate live-enriched republish must not be retired): %+v", len(client.published), client.published)
@@ -628,9 +651,11 @@ func TestWatchForOrphanedDiscoveryTopicsForgetsRetiredTopicFromManifest(t *testi
 	// Now the topic is no longer expected (e.g. "export" got removed) -- the watcher sees it
 	// arrive and retires it.
 	watchClient := &fakeClient{retained: []fakeMessage{{topic: topic, payload: []byte(content)}}}
-	if err := watchForOrphanedDiscoveryTopics(watchClient, publisher, "cloud_coordinator", map[string]bool{}, map[string]string{}, map[string]bool{}, testPrefix); err != nil {
+	jobs := make(chan TDiscoveryRelayJob, 100)
+	if err := watchForOrphanedDiscoveryTopics(watchClient, publisher, "cloud_coordinator", map[string]bool{}, map[string]string{}, map[string]bool{}, testPrefix, jobs); err != nil {
 		t.Fatalf("watchForOrphanedDiscoveryTopics error: %v", err)
 	}
+	drainDiscoveryRelayQueue(jobs, publisher)
 	if len(watchClient.published) != 1 || len(watchClient.published[0].payload) != 0 {
 		t.Fatalf("published = %+v, want a single empty retire", watchClient.published)
 	}
@@ -652,10 +677,12 @@ func TestWatchForOrphanedDiscoveryTopicsIgnoresUnrelatedTopics(t *testing.T) {
 	client := &fakeClient{retained: []fakeMessage{{topic: other, payload: []byte(`{"unrelated":true}`)}}}
 
 	publisher := newDiscoveryPublisher("")
-	err := watchForOrphanedDiscoveryTopics(client, publisher, "main", map[string]bool{}, map[string]string{}, map[string]bool{}, testPrefix)
+	jobs := make(chan TDiscoveryRelayJob, 100)
+	err := watchForOrphanedDiscoveryTopics(client, publisher, "main", map[string]bool{}, map[string]string{}, map[string]bool{}, testPrefix, jobs)
 	if err != nil {
 		t.Fatalf("watchForOrphanedDiscoveryTopics error: %v", err)
 	}
+	drainDiscoveryRelayQueue(jobs, publisher)
 	if len(client.published) != 0 {
 		t.Fatalf("got %d publishes, want 0 (not a coordinator-owned topic): %+v", len(client.published), client.published)
 	}

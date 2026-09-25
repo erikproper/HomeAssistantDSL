@@ -101,6 +101,19 @@ type THassBridgeCapability struct {
 	// not an enum whitelist" tolerance ValueMap already has -- avoids a parse-order dependency
 	// between "attribute NAME: ...;" and "map NAME: ...;" lines appearing in either order.
 	AttributeValueMaps map[string]map[string]string
+	// Position (added 2026-09-25, PROJECT.md item 8's Overkiz/Somfy migration -- matching the
+	// discovery-kind Z-Wave awnings cover's own existing full position-control feature set)
+	// declares this capability's own current-position source via "derived value <source>;" (same one
+	// place map:/unit:/... goes, source unquoted, same "<entity>[!<attribute>]" convention as
+	// Sources -- almost always "!current_position", e.g. "cover.living_room_front!
+	// current_position"). Keyed per-instance for the same roaming reason Sources/Attributes are.
+	// Feeds a "position" key riding alongside "state" in this capability's own JSON state payload
+	// (remote_instance_entity_reporting.go, generalising the vacuum-only domainStatePayloadTemplate
+	// mechanism to a per-capability one) and the coordinator's position_topic/position_template
+	// (house_event_bus_coordinator/discoveryhassbridge.go), read off that SAME state_topic rather
+	// than a separate one. Empty/nil means this capability reports no position at all -- unchanged
+	// behaviour for every capability declared before this field existed.
+	Position map[string]string
 }
 
 // THassBridgeDevice is one "device <id> with: ... end;" declaration inside Physical.def's

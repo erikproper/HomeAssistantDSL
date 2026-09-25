@@ -386,8 +386,14 @@ func main() {
 	}
 
 	publisher := newDiscoveryPublisher(filepath.Join(coordinatorDir, "discovery_topics.json"))
-	publisher.RetireMissing(client, "main", expectedTopics)
-	if err := watchForOrphanedDiscoveryTopics(client, publisher, "main", expectedTopics, expectedHostsContent, declaredCleanNodeIDs, conceptualPrefix); err != nil {
+	// Created here, ahead of watchForOrphanedDiscoveryTopics below (rather than down at its
+	// pre-2026-09-22 spot, alongside subscribeDiscoveryBridge) -- see watchForOrphanedDiscoveryTopics'
+	// own doc comment for the real incident this ordering fixes: its own retirements must go
+	// through this same throttled queue from their very first call, not just the discoverybridge.go
+	// ones added on 2026-09-14.
+	discoveryRelayJobs := newDiscoveryRelayQueue(publisher, discoveryRelayDefaultThrottle)
+	publisher.RetireMissing(client, "main", expectedTopics, discoveryRelayJobs)
+	if err := watchForOrphanedDiscoveryTopics(client, publisher, "main", expectedTopics, expectedHostsContent, declaredCleanNodeIDs, conceptualPrefix, discoveryRelayJobs); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
@@ -412,9 +418,9 @@ func main() {
 		for t := range expectedHassBridgeCloudTopics(hassBridgeFile, devicesFile.Installation, conceptualPrefix) {
 			expectedCloudTopics[t] = true
 		}
-		publisher.RetireMissing(cloudClient, "cloud_coordinator", expectedCloudTopics)
+		publisher.RetireMissing(cloudClient, "cloud_coordinator", expectedCloudTopics, discoveryRelayJobs)
 		cloudPrefix := devicesFile.Installation + "/" + conceptualPrefix
-		if err := watchForOrphanedDiscoveryTopics(cloudClient, publisher, "cloud_coordinator", expectedCloudTopics, expectedCloudContent, declaredCleanNodeIDs, cloudPrefix); err != nil {
+		if err := watchForOrphanedDiscoveryTopics(cloudClient, publisher, "cloud_coordinator", expectedCloudTopics, expectedCloudContent, declaredCleanNodeIDs, cloudPrefix, discoveryRelayJobs); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -455,9 +461,10 @@ func main() {
 	// subscribeDiscoveryBridge's handler decides to make, so a large retained-backlog replay burst
 	// can no longer starve an unrelated client.Subscribe call of its own ack (the actual crash-loop
 	// mechanism) or saturate the shared broker/network (the "No ACK from MQTT server" symptom
-	// confirmed live on HA's own side during the same incident).
+	// confirmed live on HA's own side during the same incident). discoveryRelayJobs itself is
+	// created earlier now (above, ahead of watchForOrphanedDiscoveryTopics) -- see that function's
+	// own doc comment for why.
 	passthroughDeviceTracker := newPassthroughDeviceTracker(filepath.Join(coordinatorDir, "discovery_passthrough_devices.json"))
-	discoveryRelayJobs := newDiscoveryRelayQueue(publisher, discoveryRelayDefaultThrottle)
 	if discoveryFile.PhysicalPrefix != "" {
 		// PROJECT.md 1.8: kind-2's own passive counterpart to kind-3's entity-existence inquiry --
 		// no active inquiry needed (a gateway self-announces), but the coordinator still needs to

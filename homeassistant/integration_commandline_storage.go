@@ -59,6 +59,7 @@ type TCommandlineDevice struct {
 // collectHostsDevicesByID's own policy.
 func collectCommandlineDevicesByID(definitionDir string) (map[string]TCommandlineDevice, []string) {
 	physicalContent, mergedLineNos, warnings := collectLayerContent(definitionDir, []string{"Physical.def"}, LayerPhysical)
+	physicalContent = resolveDerivedConditionOneLiners(physicalContent)
 	blocks, blockWarnings := parseIntegrationBlocks(physicalContent, mergedLineNos)
 	warnings = append(warnings, blockWarnings...)
 

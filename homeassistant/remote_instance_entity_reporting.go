@@ -286,8 +286,8 @@ func generateHassBridgeEntityReportingAutomations(instanceHAOutputDir, name stri
 				continue
 			}
 			topic := "homeassistant_instances/" + name + "/bridge/" + attr.EntityID + "/state"
-			payloadExpr := applyStatePayloadTemplate(cap.Domain, mappedExpr)
-			body := entityReportingAutomationBody(attr.Identity, []string{triggerEntity}, topic, payloadExpr, "")
+			payloadExpr, triggerEntities := buildHassBridgeStatePayload(cap, name, mappedExpr, triggerEntity)
+			body := entityReportingAutomationBody(attr.Identity, triggerEntities, topic, payloadExpr, "")
 			// "infrastructural" regardless of the reported entity's own conceptual sphere
 			// (physical/social/whatever it is) -- this automation is physical-layer plumbing
 			// (how the value gets from the remote instance onto MQTT), not a conceptual placement

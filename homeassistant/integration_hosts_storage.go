@@ -129,6 +129,7 @@ func dedupedHostNames(devices []THostDevice) []string {
 // rather than inside the lower-level parser.
 func collectHostsDevicesByID(definitionDir string) (map[string]THostDevice, []string) {
 	physicalContent, mergedLineNos, warnings := collectLayerContent(definitionDir, []string{"Physical.def"}, LayerPhysical)
+	physicalContent = resolveDerivedConditionOneLiners(physicalContent)
 	blocks, blockWarnings := parseIntegrationBlocks(physicalContent, mergedLineNos)
 	warnings = append(warnings, blockWarnings...)
 	installation := resolveInstallationName(definitionDir)

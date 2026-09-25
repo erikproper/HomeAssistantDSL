@@ -411,7 +411,7 @@ func extractValueJSONKey(inner string) (key string, ok bool) {
 	return quoted[1 : len(quoted)-1], true
 }
 
-func buildRelayedDiscoveryConfig(entityID, gatewayID string, rawPayload map[string]interface{}, payload tDecodedDiscoveryPayload, link TDiscoveryEntityLink, prefix, installation string) (topic string, body map[string]interface{}, ok bool) {
+func buildRelayedDiscoveryConfig(entityID, gatewayID string, rawPayload map[string]interface{}, payload tDecodedDiscoveryPayload, link TDiscoveryEntityLink, prefix, installation, rawDomain string) (topic string, body map[string]interface{}, ok bool) {
 	dotIdx := strings.Index(entityID, ".")
 	if dotIdx < 0 || payload.UniqueID == "" {
 		return "", nil, false
@@ -426,6 +426,22 @@ func buildRelayedDiscoveryConfig(entityID, gatewayID string, rawPayload map[stri
 	}
 	for _, pair := range discoveryAbbreviatedKeyPairs {
 		delete(body, pair[0])
+	}
+	// A "derived ... via jinja ...;" capability can relay a HIDDEN sibling leaf published under a
+	// DIFFERENT raw domain than the derived capability's own target domain -- e.g. a sensor-domain
+	// power leaf (Zigbee2MQTT's own native discovery gives it device_class "power"/unit "W"/
+	// state_class "measurement") feeding a binary_sensor-domain "consumes" capability. Those three
+	// fields are only ever meaningful within the domain that originated them (unit_of_measurement/
+	// state_class aren't even valid MQTT binary_sensor schema fields at all), so wholesale-copying
+	// them across a domain change is wrong regardless of which values they happen to hold -- real
+	// bug found live 2026-09-25 (Junglinster's furnace "consumes" binary_sensor showing permanently
+	// unavailable after being hidden-relayed from its own power leaf). Cleared here, before the
+	// explicit link/payload-driven override below (which still applies normally either way) --
+	// same-domain relays (the common case) are completely unaffected.
+	if rawDomain != "" && rawDomain != domain {
+		delete(body, "device_class")
+		delete(body, "unit_of_measurement")
+		delete(body, "state_class")
 	}
 
 	body["unique_id"] = stableID
@@ -455,14 +471,38 @@ func buildRelayedDiscoveryConfig(entityID, gatewayID string, rawPayload map[stri
 		// confirmed live (no validation error/warning appeared for any already-working entity
 		// carrying both).
 		body["state_value_template"] = valueTemplate
+		// Real bug, 2026-09-25 (Junglinster's furnace "consumes" binary_sensor, first real use of
+		// a "derived ... via ...;" wrap on a binary_sensor-domain relay): every jinja macro/formula
+		// this codebase writes for an on/off derivation (${int_more_then}/${int_less_then}, and any
+		// hand-written "'on' if ... else 'off'" formula) renders lowercase "on"/"off" literal
+		// strings -- correct for HA's TEMPLATE platform (lenient, accepts many truthy forms), but
+		// MQTT's binary_sensor schema does an exact, case-sensitive string match against
+		// payload_on/payload_off, which default to "ON"/"OFF" (uppercase) when unset. Neither
+		// rawPayload nor link ever supplies these for a wrapped relay, so the rendered "on"/"off"
+		// matched neither default, leaving the entity stuck on "unknown" forever (messages arrived
+		// and rendered fine, HA just had no matching payload to recognise as a state). Only set when
+		// a wrap is actually applied -- an unwrapped same-domain binary_sensor relay keeps whatever
+		// payload_on/payload_off the raw native payload already carries (wholesale-copied above).
+		if domain == "binary_sensor" && link.ValueTemplateWrap != "" {
+			body["payload_on"] = "on"
+			body["payload_off"] = "off"
+		}
 	}
-	if deviceClass := firstNonEmpty(payload.DeviceClass, link.DeviceClass); deviceClass != "" {
+	// payload.DeviceClass/Unit/StateClass are decoded from the SAME raw payload as the wholesale
+	// body copy above, so they carry the identical cross-domain contamination when rawDomain !=
+	// domain -- gated the same way, for the same reason (see this function's own doc comment on the
+	// delete() block above). Only link's own explicit, domain-aware override may apply then.
+	nativeDeviceClass, nativeUnit, nativeStateClass := payload.DeviceClass, payload.Unit, payload.StateClass
+	if rawDomain != "" && rawDomain != domain {
+		nativeDeviceClass, nativeUnit, nativeStateClass = "", "", ""
+	}
+	if deviceClass := firstNonEmpty(nativeDeviceClass, link.DeviceClass); deviceClass != "" {
 		body["device_class"] = deviceClass
 	}
-	if unit := firstNonEmpty(payload.Unit, link.Unit); unit != "" {
+	if unit := firstNonEmpty(nativeUnit, link.Unit); unit != "" {
 		body["unit_of_measurement"] = unit
 	}
-	if stateClass := firstNonEmpty(payload.StateClass, link.StateClass); stateClass != "" {
+	if stateClass := firstNonEmpty(nativeStateClass, link.StateClass); stateClass != "" {
 		body["state_class"] = stateClass
 	}
 	if link.Icon != "" {
@@ -598,6 +638,7 @@ func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation s
 				// devices sat untracked-in-suggestions for over a day of normal operation).
 				if passthroughDeviceTracker.Record(deviceIdentifier, payload.DeviceName, domain, payload.UniqueID) {
 					passthroughDeviceTracker.ScheduleStatusPublish(client, cloudClient, ownInstallation, PassthroughStatusDebounceDelay)
+					passthroughDeviceTracker.SchedulePersist(PassthroughStatusDebounceDelay)
 				}
 			}
 			if matchesAnyPassthroughPrefix(payload.StateTopic, passthroughPrefixes) || matchesAnyPassthroughPrefix(payload.CommandTopic, passthroughPrefixes) {
@@ -697,7 +738,7 @@ func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation s
 			if link.SourceDomain != "" && topicComponent(msg.Topic(), discoveryFile.PhysicalPrefix) != link.SourceDomain {
 				continue
 			}
-			topic, body, ok := buildRelayedDiscoveryConfig(entityID, gatewayID, rawPayload, payload, link, conceptualPrefix, ownInstallation)
+			topic, body, ok := buildRelayedDiscoveryConfig(entityID, gatewayID, rawPayload, payload, link, conceptualPrefix, ownInstallation, topicComponent(msg.Topic(), discoveryFile.PhysicalPrefix))
 			if !ok {
 				continue
 			}

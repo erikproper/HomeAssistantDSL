@@ -24,7 +24,8 @@ func TestExtractDeviceSourceEntityDeclarationDoesNotMatchDiscoveryShape(t *testi
 }
 
 func TestDeviceSourceEntityRegistersAndFeedsHassBridgeFile(t *testing.T) {
-	const miniDSL = `device infrastructural:laserjet from hass.laserjet;
+	const miniDSL = `device hass.laserjet as laserjet with:
+end;
 entity binary_sensor.infrastructural:laserjet/jammed as switch.laserjet_jam_sensor from hass.laserjet;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
@@ -34,7 +35,7 @@ entity binary_sensor.infrastructural:laserjet/jammed as switch.laserjet_jam_sens
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -72,7 +73,8 @@ entity binary_sensor.infrastructural:laserjet/jammed as switch.laserjet_jam_sens
 // capability positioned this way silently lost its typing in HA, even though the sibling
 // registerHassBridgeAttributeEntity path always has.
 func TestDeviceCapabilityEntityResolvesTypingDefaults(t *testing.T) {
-	const miniDSL = `device infrastructural:davids_bedroom from hass.davids_bedroom;
+	const miniDSL = `device hass.davids_bedroom as davids_bedroom with:
+end;
 entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
@@ -85,7 +87,7 @@ entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, capabilityDefaults)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, capabilityDefaults)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -120,7 +122,8 @@ entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
 // just affect the new "derived" fields: a device already using "map:" (ValueMap) would have hit
 // this silently too, had any real Spaces.def happened to position it this way.
 func TestDeviceCapabilityEntityPreservesValueMapAndDerivedFields(t *testing.T) {
-	const miniDSL = `device infrastructural:roomba from hass.roomba;
+	const miniDSL = `device hass.roomba as roomba with:
+end;
 entity sensor.physical:vacuum/status from hass.roomba status;
 entity binary_sensor.physical:vacuum/battery_alert from hass.roomba battery_alert;`
 
@@ -133,7 +136,7 @@ entity binary_sensor.physical:vacuum/battery_alert from hass.roomba battery_aler
 	}
 
 	var report strings.Builder
-	_, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil)
+	_, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -154,7 +157,8 @@ entity binary_sensor.physical:vacuum/battery_alert from hass.roomba battery_aler
 // construct runs) is preserved, never overwritten by a conflicting capabilityDefaults rule -- same
 // precedence registerHassBridgeAttributeEntity's own path already guarantees.
 func TestDeviceCapabilityEntityExplicitTypingWinsOverDefaults(t *testing.T) {
-	const miniDSL = `device infrastructural:davids_bedroom from hass.davids_bedroom;
+	const miniDSL = `device hass.davids_bedroom as davids_bedroom with:
+end;
 entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
@@ -167,7 +171,7 @@ entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, capabilityDefaults)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, capabilityDefaults)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -190,7 +194,7 @@ func TestDeviceSourceEntityWarnsWithoutPriorDevicePositioning(t *testing.T) {
 	}
 
 	var report strings.Builder
-	_, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil)
+	_, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -244,7 +248,8 @@ func TestDeviceSourceEntityWarnsOnUnknownDevice(t *testing.T) {
 func TestDeviceCapabilityEntityBeforePositioningStillResolves(t *testing.T) {
 	const miniDSL = `space social:david_bedroom with:
   entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;
-  device infrastructural:netatmo from hass.davids_bedroom;
+  device hass.davids_bedroom as netatmo with:
+  end;
 end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
@@ -258,7 +263,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}

@@ -5,50 +5,188 @@ import (
 	"testing"
 )
 
-// TestRegisterDevicePositioningWarnsOnDuplicatePositioning is a regression test for a real bug
-// found live 2026-09-16: Vienna's Conceptual.def declared "device infrastructural:sonos/left from
-// appliance.sonos-left;" TWICE, verbatim, with no warning at all -- the second positioning's own
-// auto-implied "node" silently no-opped via RegisterDiscoveryImpliedEntity's identical-entityName
-// short-circuit (administration.go), which is by design for a DIFFERENT, harmless case (two
-// distinct capability lines resolving to the same entity) and produces no warning of its own. A
-// repeated DEVICE POSITIONING is always a mistake -- no legitimate DSL construct does this.
-func TestRegisterDevicePositioningWarnsOnDuplicatePositioning(t *testing.T) {
-	const dsl = `device infrastructural:sonos/left from appliance.sonos-left;
-device infrastructural:sonos/left from appliance.sonos-left;`
+func TestExtractDeviceWithBlockHeader(t *testing.T) {
+	decl, ok := extractDeviceWithBlockHeader("device host.xanadu as xanadu with:")
+	if !ok {
+		t.Fatalf("expected the header to match")
+	}
+	if decl.Spec != "xanadu" || decl.DeviceID != "host.xanadu" {
+		t.Fatalf("got %+v", decl)
+	}
+	if _, ok := extractDeviceWithBlockHeader("device host.xanadu as xanadu;"); ok {
+		t.Errorf("expected no match for a line with no \"with:\" at all")
+	}
+}
 
-	hostDevicesByID := map[string]THostDevice{
-		"appliance.sonos-left": {DeviceID: "appliance.sonos-left", HostName: "sonoszp-left", IntegrationType: "ping"},
+// TestExtractDeviceWithBlockHeaderNoAs confirms "as" is optional -- Spec is empty, matching a
+// device positioned with no compound name of its own.
+func TestExtractDeviceWithBlockHeaderNoAs(t *testing.T) {
+	decl, ok := extractDeviceWithBlockHeader("device switches.server_room_zwave_054 with:")
+	if !ok {
+		t.Fatalf("expected the header to match")
+	}
+	if decl.Spec != "" || decl.DeviceID != "switches.server_room_zwave_054" {
+		t.Fatalf("got %+v, want empty Spec and the bare device-id", decl)
+	}
+}
+
+// TestExtractDeviceWithOneLiner covers the "with <entity-statement>;" sugar (2026-09-24), including
+// the compound "as" leaf path from the user's own real example (node 67's own infrastructural
+// identity).
+func TestExtractDeviceWithOneLiner(t *testing.T) {
+	decl, entity, ok := extractDeviceWithOneLiner("device switches.garage_fuse_cabinet_zwave_067 as fuse_cabinet/zwave/067 with entity binary_sensor.infrastructural:node;")
+	if !ok {
+		t.Fatalf("expected the one-liner to match")
+	}
+	if decl.DeviceID != "switches.garage_fuse_cabinet_zwave_067" || decl.Spec != "fuse_cabinet/zwave/067" {
+		t.Fatalf("got decl=%+v", decl)
+	}
+	if entity != "entity binary_sensor.infrastructural:node;" {
+		t.Errorf("entity = %q, want the embedded entity statement verbatim", entity)
+	}
+}
+
+// TestExtractDeviceWithOneLinerNoAs covers the shortest real example from the user's own request.
+func TestExtractDeviceWithOneLinerNoAs(t *testing.T) {
+	decl, entity, ok := extractDeviceWithOneLiner("device switches.garage_fuse_cabinet_zwave_067 with entity binary_sensor.infrastructural:fuse_cabinet/zwave/067/node;")
+	if !ok {
+		t.Fatalf("expected the one-liner to match")
+	}
+	if decl.DeviceID != "switches.garage_fuse_cabinet_zwave_067" || decl.Spec != "" {
+		t.Fatalf("got decl=%+v", decl)
+	}
+	if entity != "entity binary_sensor.infrastructural:fuse_cabinet/zwave/067/node;" {
+		t.Errorf("entity = %q", entity)
+	}
+	if _, _, ok := extractDeviceWithOneLiner("device switches.X with:"); ok {
+		t.Errorf("expected no match for a plain block header (no embedded entity statement)")
+	}
+}
+
+// TestRegisterDevicePositioningIsIdempotentAcrossThreeOccurrences is the core regression test for
+// the 2026-09-24 register-once-merge-repeatedly redesign: the SAME device-id positioned via THREE
+// separate "device <id> [as ...] with:" blocks (two contributing entities in different spaces, one
+// establishing the device's own infrastructural identity) -- mirroring the real Z-Wave node
+// 54/55 shape this session's own migrations needed. No "already positioned" warning, and the FIRST
+// occurrence's own "as" leaf (not the later ones') determines DisplayName.
+func TestRegisterDevicePositioningIsIdempotentAcrossThreeOccurrences(t *testing.T) {
+	const dsl = `space social:front as area with:
+  device switches.zwave_054 as ring with:
+    entity switch.social:main from core_1;
+  end;
+end;
+
+space social:rear with:
+  device switches.zwave_054 with:
+    entity switch.social:rear from core_2;
+  end;
+end;
+
+device switches.zwave_054 as fuse_cabinet/zwave/054 with entity binary_sensor.infrastructural:node;`
+
+	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
+		"switches.zwave_054": {
+			DeviceID:    "switches.zwave_054",
+			Identifiers: []string{"zwavejs2mqtt_054"},
+			Capabilities: map[string]TDiscoveryCapability{
+				"core_1": {Domain: "switch", Leaf: "054-37-1-currentValue"},
+				"core_2": {Domain: "switch", Leaf: "054-37-2-currentValue"},
+				"node":   {Domain: "binary_sensor", Leaf: "054-37-1-currentValue"},
+			},
+		},
 	}
 
 	var report strings.Builder
-	var result TExpansionParseResult
-	var err error
-	stderr := captureStderr(t, func() {
-		result, err = ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil)
-	})
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	if !strings.Contains(stderr, `device "appliance.sonos-left" is already positioned`) {
-		t.Errorf("expected a duplicate-positioning warning, got stderr: %s", stderr)
+	if report.Len() != 0 {
+		t.Logf("report (not necessarily an error): %s", report.String())
 	}
-	if _, ok := result.Administration.DeviceConceptualLinks["appliance.sonos-left"]; !ok {
-		t.Errorf("expected the FIRST positioning to still register DeviceConceptualLinks[appliance.sonos-left]")
+	admin := result.Administration
+
+	link, ok := admin.DeviceConceptualLinks["switches.zwave_054"]
+	if !ok {
+		t.Fatalf("expected a DeviceConceptualLinks entry for switches.zwave_054")
+	}
+	// DisplayName comes from the FIRST occurrence's own "as ring" (space "front", "as area"), not
+	// the third occurrence's "as fuse_cabinet/zwave/054".
+	if link.DisplayName != "front/ring" {
+		t.Errorf("DisplayName = %q, want %q (from the FIRST occurrence only)", link.DisplayName, "front/ring")
+	}
+	// Discovery-kind capabilities never populate DeviceConceptualLinks.AttributeEntityIDs (that's a
+	// hosts/hassbridge/import-only mechanism, see TestDiscoveryDeviceKeepsOwnPhysicalPositioningWhenGainingLogicalCapabilities's
+	// own comment) -- they resolve via the separate DiscoveryEntityLinks map instead, keyed by
+	// entity_id. Confirm all three blocks' own capabilities resolved against the SAME gateway
+	// device, which is what "register-once-merge-repeatedly" actually needs to guarantee here.
+	wantLeafByGatewayEntity := map[string]string{
+		"switch.social_front_ring_main":                             "054-37-1-currentValue",
+		"switch.social_rear_rear":                                   "054-37-2-currentValue",
+		"binary_sensor.infrastructural_fuse_cabinet_zwave_054_node": "054-37-1-currentValue",
+	}
+	for entityID, wantLeaf := range wantLeafByGatewayEntity {
+		discLink, ok := admin.DiscoveryEntityLinks[entityID]
+		if !ok {
+			t.Errorf("DiscoveryEntityLinks missing %q, want it resolved via switches.zwave_054", entityID)
+			continue
+		}
+		if discLink.GatewayDeviceID != "switches.zwave_054" {
+			t.Errorf("DiscoveryEntityLinks[%q].GatewayDeviceID = %q, want switches.zwave_054", entityID, discLink.GatewayDeviceID)
+		}
+		if discLink.Leaf != wantLeaf {
+			t.Errorf("DiscoveryEntityLinks[%q].Leaf = %q, want %q", entityID, discLink.Leaf, wantLeaf)
+		}
+	}
+	if len(admin.DiscoveryEntityLinks) != 3 {
+		t.Errorf("DiscoveryEntityLinks = %v, want exactly 3 entries (core_1, core_2, node all merged from three separate blocks)", admin.DiscoveryEntityLinks)
+	}
+}
+
+// TestRegisterDevicePositioningOrderIndependent mirrors the pre-2026-09-24
+// TestDeviceFromOnlyBlockIsOrderIndependent: declaration order within the file must never matter,
+// including when the block carrying the device's own "as" leaf comes LAST.
+func TestRegisterDevicePositioningOrderIndependent(t *testing.T) {
+	const dsl = `device hass.multiswitch with:
+  entity light.social::carport from core_1;
+end;
+
+device hass.multiswitch with:
+  entity light.social::main from core_2;
+end;
+
+device hass.multiswitch as multiswitch with entity binary_sensor.infrastructural:node;`
+
+	hassBridgeDevicesByID := map[string]THassBridgeDevice{
+		"hass.multiswitch": {DeviceID: "hass.multiswitch", Instances: []string{"main"}, Capabilities: map[string]THassBridgeCapability{
+			"core_1": {Domain: "light", Sources: map[string]string{"main": "switch.raw_core_1"}},
+			"core_2": {Domain: "light", Sources: map[string]string{"main": "switch.raw_core_2"}},
+			"node":   {Domain: "binary_sensor", Sources: map[string]string{"main": "switch.raw_node"}},
+		}},
+	}
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	link := result.Administration.DeviceConceptualLinks["hass.multiswitch"]
+	if len(link.AttributeEntityIDs) != 3 {
+		t.Fatalf("AttributeEntityIDs: got %d entries (%v), want 3 (core_1, core_2, node all resolved)", len(link.AttributeEntityIDs), link.AttributeEntityIDs)
+	}
+	for _, want := range []string{"core_1", "core_2", "node"} {
+		if _, ok := link.AttributeEntityIDs[want]; !ok {
+			t.Errorf("AttributeEntityIDs missing %q -- a block before the \"as\"-carrying one never resolved", want)
+		}
 	}
 }
 
 // TestRegisterDevicePositioningForStandaloneCommandlineDevice is a regression test for a real gap
 // found live 2026-09-10: a "commandline" integration device with no sibling "hosts"/"home_assistant"
-// device sharing its DeviceID (e.g. a picture frame modelled as its own appliance.picture_frame
-// identity, not piggybacking on host.frame) had no way to ever get positioned at all --
-// registerDevicePositioning only recognised hosts/hassbridge/import device kinds, and
-// registerCommandlineCapabilityEntityLink requires a DeviceConceptualLinks entry to already exist
-// (by design, for the sibling-sharing case), so a standalone commandline device's own "device
-// <spec> from <device-id> with: ...;" positioning line just warned "not found" and its capability
-// reference then warned "no positioning yet" -- confirmed live on Vienna's real Physical.def/
-// Spaces.def.
+// device sharing its DeviceID had no way to ever get positioned at all.
 func TestRegisterDevicePositioningForStandaloneCommandlineDevice(t *testing.T) {
-	const dsl = `device infrastructural:picture_frame from appliance.picture_frame with:
+	const dsl = `device appliance.picture_frame as picture_frame with:
   entity switch.social:picture_frame from slideshow;
 end;`
 
@@ -63,7 +201,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, nil, commandlineDevicesByID, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, nil, commandlineDevicesByID, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -84,30 +222,16 @@ end;`
 	}
 }
 
-func TestExtractDeviceWithBlockHeader(t *testing.T) {
-	decl, ok := extractDeviceWithBlockHeader("device infrastructural:xanadu from host.xanadu with:")
-	if !ok {
-		t.Fatalf("expected the header to match")
-	}
-	if decl.Spec != "infrastructural:xanadu" || decl.DeviceID != "host.xanadu" {
-		t.Fatalf("got %+v", decl)
-	}
-	if _, ok := extractDeviceWithBlockHeader("device infrastructural:xanadu from host.xanadu;"); ok {
-		t.Errorf("expected no match for the bare (non-with:) positioning form")
-	}
-}
-
-// TestDeviceWithBlockMatchesTwoStatementFormForHosts confirms "device <spec> from <device-id>
-// with: ... end;" produces an IDENTICAL DeviceConceptualLinks entry to writing the same thing out
-// longhand -- a bare "device <spec> from <device-id>;" positioning statement followed by one fully
-// spelled-out "entity <spec> from <device-id> <capability>;" line per attribute (no "for:"
-// abbreviation, which the with-block's body lines expand into internally, PROJECT.md unification
-// plan 2026-09-01) -- for a "hosts" device.
+// TestDeviceWithBlockMatchesTwoStatementFormForHosts confirms the merged "with:" block form
+// produces an IDENTICAL DeviceConceptualLinks entry to writing each capability out as its own
+// separate "device ... with entity ...;" one-liner, for a "hosts" device -- including "node"
+// itself, now an explicit reference like any other capability (2026-09-24).
 func TestDeviceWithBlockMatchesTwoStatementFormForHosts(t *testing.T) {
-	const twoStatementDSL = `device infrastructural:xanadu from host.xanadu;
+	const separateLinesDSL = `device host.xanadu as xanadu with entity binary_sensor.infrastructural:node;
 entity sensor.infrastructural:xanadu/cpu/load        from host.xanadu load;
 entity sensor.infrastructural:xanadu/cpu/temperature from host.xanadu temperature;`
-	const mergedDSL = `device infrastructural:xanadu from host.xanadu with:
+	const mergedDSL = `device host.xanadu as xanadu with:
+  entity binary_sensor.infrastructural:node;
   entity sensor.infrastructural:xanadu/cpu/load        from load;
   entity sensor.infrastructural:xanadu/cpu/temperature from temperature;
 end;`
@@ -117,11 +241,11 @@ end;`
 	}
 
 	var reportA, reportB strings.Builder
-	resultA, errA := ParseEntitiesAndFillAdministration(strings.Split(twoStatementDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &reportA, hostDevicesByID, nil, nil, nil, nil, nil, nil)
+	resultA, errA := ParseEntitiesAndFillAdministration(strings.Split(separateLinesDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &reportA, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if errA != nil {
-		t.Fatalf("two-statement parse error: %v", errA)
+		t.Fatalf("separate-lines parse error: %v", errA)
 	}
-	resultB, errB := ParseEntitiesAndFillAdministration(strings.Split(mergedDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &reportB, hostDevicesByID, nil, nil, nil, nil, nil, nil)
+	resultB, errB := ParseEntitiesAndFillAdministration(strings.Split(mergedDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &reportB, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if errB != nil {
 		t.Fatalf("merged-form parse error: %v", errB)
 	}
@@ -129,172 +253,22 @@ end;`
 	linkA := resultA.Administration.DeviceConceptualLinks["host.xanadu"]
 	linkB := resultB.Administration.DeviceConceptualLinks["host.xanadu"]
 	if linkA.NodeEntityID != linkB.NodeEntityID {
-		t.Errorf("NodeEntityID: two-statement %q vs merged %q, want identical", linkA.NodeEntityID, linkB.NodeEntityID)
+		t.Errorf("NodeEntityID: separate-lines %q vs merged %q, want identical", linkA.NodeEntityID, linkB.NodeEntityID)
 	}
 	if len(linkA.AttributeEntityIDs) != len(linkB.AttributeEntityIDs) {
-		t.Fatalf("AttributeEntityIDs count: two-statement %v vs merged %v, want identical", linkA.AttributeEntityIDs, linkB.AttributeEntityIDs)
+		t.Fatalf("AttributeEntityIDs count: separate-lines %v vs merged %v, want identical", linkA.AttributeEntityIDs, linkB.AttributeEntityIDs)
 	}
 	for attr, wantLink := range linkA.AttributeEntityIDs {
 		gotLink, ok := linkB.AttributeEntityIDs[attr]
 		if !ok || gotLink != wantLink {
-			t.Errorf("AttributeEntityIDs[%q]: two-statement %+v vs merged %+v, want identical", attr, wantLink, gotLink)
+			t.Errorf("AttributeEntityIDs[%q]: separate-lines %+v vs merged %+v, want identical", attr, wantLink, gotLink)
 		}
 	}
 }
 
-// TestDeviceWithBlockMatchesTwoStatementFormForHassBridge is the same equivalence check as
-// TestDeviceWithBlockMatchesTwoStatementFormForHosts, for a native "home_assistant" bridge device,
-// confirming the merged construct works identically for both device kinds it supports.
-func TestDeviceWithBlockMatchesTwoStatementFormForHassBridge(t *testing.T) {
-	const twoStatementDSL = `device infrastructural:laserjet from hass.laserjet;
-entity sensor.status   from hass.laserjet sensor.status;
-entity sensor.cardrige from hass.laserjet sensor.cardrige;`
-	const mergedDSL = `device infrastructural:laserjet from hass.laserjet with:
-  entity sensor.status   from sensor.status;
-  entity sensor.cardrige from sensor.cardrige;
-end;`
-
-	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.laserjet": {DeviceID: "hass.laserjet", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{
-			"node":     {Domain: "binary_sensor", Sources: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w is available"}},
-			"status":   {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w"}},
-			"cardrige": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w_black_cartridge_hp_ce285a"}},
-		}},
-	}
-
-	var reportA, reportB strings.Builder
-	resultA, errA := ParseEntitiesAndFillAdministration(strings.Split(twoStatementDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &reportA, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil)
-	if errA != nil {
-		t.Fatalf("two-statement parse error: %v", errA)
-	}
-	resultB, errB := ParseEntitiesAndFillAdministration(strings.Split(mergedDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &reportB, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil)
-	if errB != nil {
-		t.Fatalf("merged-form parse error: %v", errB)
-	}
-
-	linkA := resultA.Administration.DeviceConceptualLinks["hass.laserjet"]
-	linkB := resultB.Administration.DeviceConceptualLinks["hass.laserjet"]
-	if len(linkA.AttributeEntityIDs) != len(linkB.AttributeEntityIDs) {
-		t.Fatalf("AttributeEntityIDs count: two-statement %v vs merged %v, want identical", linkA.AttributeEntityIDs, linkB.AttributeEntityIDs)
-	}
-	for attr, wantLink := range linkA.AttributeEntityIDs {
-		gotLink, ok := linkB.AttributeEntityIDs[attr]
-		if !ok || gotLink != wantLink {
-			t.Errorf("AttributeEntityIDs[%q]: two-statement %+v vs merged %+v, want identical", attr, wantLink, gotLink)
-		}
-	}
-}
-
-func TestExtractDevicePositioningDeclaration(t *testing.T) {
-	decl, ok := extractDevicePositioningDeclaration("device infrastructural:netatmo from hass.davids_bedroom;")
-	if !ok {
-		t.Fatalf("expected the line to match")
-	}
-	if decl.Spec != "infrastructural:netatmo" || decl.DeviceID != "hass.davids_bedroom" {
-		t.Fatalf("got %+v", decl)
-	}
-}
-
-// TestDevicePositioningWithNodeCapabilityDoesNotDropRestOfSpace is a regression test for a real
-// bug hit live 2026-08-27: collectDevicePositioningDeclarations runs as a file-wide pre-pass,
-// before the main parse loop reaches the space's own "with:" header. When the positioned device
-// declares a "node" capability, registerDevicePositioning auto-registers that node entity via
-// RegisterDiscoveryImpliedEntity, which writes straight into realAdmin.EntitiesBySpace for the
-// space -- before the space has ever gone through EnsureSpaceRegistered. EnsureSpaceRegistered's
-// own idempotency check (administration.go) keys off exactly that map's presence, so when the
-// main loop later opens the space for real, it wrongly believes the space was already registered
-// and never appends it to SpaceOrder. Every pass that walks SpaceOrder (entity/customization file
-// generation, DeriveBinarySensorSubdomainAggregates) then silently skips the *entire* space --
-// not just the node entity -- with no warning anywhere. Confirmed live: an entire bedroom's worth
-// of entities (cover, climate, window, light group) vanished from generated output the moment
-// this construct was used on a device with a "node" capability, traced down to this exact
-// bookkeeping gap.
-func TestDevicePositioningWithNodeCapabilityDoesNotDropRestOfSpace(t *testing.T) {
-	const miniDSL = `space social:david_bedroom with:
-  device infrastructural:netatmo from hass.davids_bedroom;
-  entity binary_sensor.physical:windows/aqara_magnet/window;
-end;`
-
-	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.davids_bedroom": {
-			DeviceID:  "hass.davids_bedroom",
-			Instances: []string{"protocols-server-2"},
-			Capabilities: map[string]THassBridgeCapability{
-				"node": {Domain: "binary_sensor", Sources: map[string]string{"protocols-server-2": "sensor.davids_bedroom_connectivity"}},
-			},
-		},
-	}
-
-	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-	admin := result.Administration
-
-	foundInSpaceOrder := false
-	for _, name := range admin.SpaceOrder {
-		if name == "social/david_bedroom" {
-			foundInSpaceOrder = true
-			break
-		}
-	}
-	if !foundInSpaceOrder {
-		t.Fatalf("SpaceOrder = %v, want it to contain %q -- a space touched by collectDevicePositioningDeclarations must still be registered when the main loop's OpenSpace reaches it", admin.SpaceOrder, "social/david_bedroom")
-	}
-
-	records := admin.EntityRecordsBySpace["social/david_bedroom"]
-	foundWindow := false
-	for _, rec := range records {
-		if strings.Contains(rec.Name, "windows/aqara_magnet/window") {
-			foundWindow = true
-			break
-		}
-	}
-	if !foundWindow {
-		t.Errorf("EntityRecordsBySpace[%q] = %+v, want it to include the window entity declared after the device-positioning line", "social/david_bedroom", records)
-	}
-}
-
-// TestRegisterDevicePositioningWarnsWhenNoNodeCapabilityDeclared is the regression test for a real
-// gap caught live 2026-08-29: "device <spec> from <device-id>;" auto-registers that device's own
-// "node" (liveness) entity when one is declared, but used to silently do nothing at all when none
-// was -- several real home_assistant bridge devices had no "node" capability and nothing ever
-// flagged it. Must now warn, naming the device.
-func TestRegisterDevicePositioningWarnsWhenNoNodeCapabilityDeclared(t *testing.T) {
-	administration := newAdministrationState()
-	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.no_node": {
-			DeviceID:     "hass.no_node",
-			Instances:    []string{"protocols-server-2"},
-			Capabilities: map[string]THassBridgeCapability{"temperature": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.no_node_temperature"}}},
-		},
-	}
-	decl := TDevicePositioningDeclaration{Spec: "infrastructural:no_node", DeviceID: "hass.no_node"}
-
-	warnings, _ := registerDevicePositioning(administration, decl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, "test.def", 1)
-	if len(warnings) != 1 {
-		t.Fatalf("got %d warnings, want 1: %v", len(warnings), warnings)
-	}
-	if !strings.Contains(warnings[0], "hass.no_node") || !strings.Contains(warnings[0], "no \"node\" capability declared") {
-		t.Errorf("warning = %q, want it to name the device and explain the missing \"node\" capability", warnings[0])
-	}
-
-	// The device's own conceptual link (DisplayName/ConstantAttributes) must still register --
-	// only the node auto-registration is skipped, not the whole positioning.
-	if _, ok := administration.DeviceConceptualLinks["hass.no_node"]; !ok {
-		t.Errorf("expected DeviceConceptualLinks[hass.no_node] to still be populated despite the missing node capability")
-	}
-}
-
-// TestRegisterDevicePositioningNoWarningWhenNodeCapabilityDeclared confirms the warning is scoped
-// precisely to the missing-node case, not raised for a normal, correctly-declared device.
-// TestRegisterDevicePositioningInheritsEnclosingAreaFromNestedSpace is a regression test for a
-// real gap found live 2026-09-08: a hassbridge device positioned inside a space nested under an
-// "as area" ancestor (e.g. Junglinster's "space social:front with: ...;" nested under "space
-// social:terrace as area with: ...;") never picked up the enclosing area as its own
-// suggested_area, unlike a "hosts" device in the exact same position -- registerHostNodeEntity
-// (Conceptual_DeviceEntities.go) already called CurrentArea(), this hassbridge path never did.
+// TestRegisterDevicePositioningInheritsEnclosingAreaFromNestedSpace is a regression test for a real
+// gap found live 2026-09-08: a hassbridge device positioned inside a space nested under an "as
+// area" ancestor never picked up the enclosing area as its own suggested_area.
 func TestRegisterDevicePositioningInheritsEnclosingAreaFromNestedSpace(t *testing.T) {
 	administration := newAdministrationState()
 	administration.OpenSpace(SpaceKindRegular, "social:terrace", true) // "as area"
@@ -316,9 +290,9 @@ func TestRegisterDevicePositioningInheritsEnclosingAreaFromNestedSpace(t *testin
 			},
 		},
 	}
-	decl := TDevicePositioningDeclaration{Spec: "infrastructural:netatmo", DeviceID: "hass.living_room_terrace"}
+	decl := TDevicePositioningDeclaration{Spec: "netatmo", DeviceID: "hass.living_room_terrace"}
 
-	warnings, _ := registerDevicePositioning(administration, decl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, "test.def", 1)
+	warnings := registerDevicePositioning(administration, decl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, "test.def", 1)
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
@@ -331,8 +305,7 @@ func TestRegisterDevicePositioningInheritsEnclosingAreaFromNestedSpace(t *testin
 }
 
 // TestRegisterDevicePositioningExplicitSuggestedAreaWinsOverEnclosingArea confirms a device's own
-// explicit suggested_area declaration still wins over an enclosing "as area" space -- the same
-// "device always wins" precedence registerHostNodeEntity's own doc comment states.
+// explicit suggested_area declaration still wins over an enclosing "as area" space.
 func TestRegisterDevicePositioningExplicitSuggestedAreaWinsOverEnclosingArea(t *testing.T) {
 	administration := newAdministrationState()
 	administration.OpenSpace(SpaceKindRegular, "social:terrace", true) // "as area"
@@ -349,9 +322,9 @@ func TestRegisterDevicePositioningExplicitSuggestedAreaWinsOverEnclosingArea(t *
 			},
 		},
 	}
-	decl := TDevicePositioningDeclaration{Spec: "infrastructural:netatmo", DeviceID: "hass.living_room_terrace"}
+	decl := TDevicePositioningDeclaration{Spec: "netatmo", DeviceID: "hass.living_room_terrace"}
 
-	warnings, _ := registerDevicePositioning(administration, decl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, "test.def", 1)
+	warnings := registerDevicePositioning(administration, decl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, "test.def", 1)
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
@@ -362,21 +335,138 @@ func TestRegisterDevicePositioningExplicitSuggestedAreaWinsOverEnclosingArea(t *
 	}
 }
 
-func TestRegisterDevicePositioningNoWarningWhenNodeCapabilityDeclared(t *testing.T) {
-	administration := newAdministrationState()
+// TestRegisterDevicePositioningWarnsOnEntityCollisionBetweenTwoDeviceIDs is the regression test for
+// a real bug found live 2026-09-24 (Junglinster): "node.laserjet" and "utility.laserjet" -- two
+// entirely different device ids -- were both positioned "as laserjet", silently producing two
+// colliding "node" entities with no warning at all. Originally fixed with a position-level check
+// (DeviceIdentityOwner) that hard-rejected any two devices sharing a position outright; that turned
+// out to be a real false positive (2026-09-25, Vienna: two Aqara sensors legitimately "weaving" onto
+// the same conceptual position with no actual entity overlap) and was replaced with this precise,
+// entity-level check in RegisterDiscoveryImpliedEntity -- sharing a position is fine, only an actual
+// colliding final entity_id is warned about, and the warning names that entity plus both devices.
+func TestRegisterDevicePositioningWarnsOnEntityCollisionBetweenTwoDeviceIDs(t *testing.T) {
+	const dsl = `device node.laserjet as laserjet with entity binary_sensor.infrastructural:node;
+device utility.laserjet as laserjet with entity binary_sensor.infrastructural:node;`
+
+	hostDevicesByID := map[string]THostDevice{
+		"node.laserjet": {DeviceID: "node.laserjet", HostName: "laserjet", IntegrationType: "ping"},
+	}
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.davids_bedroom": {
-			DeviceID:  "hass.davids_bedroom",
-			Instances: []string{"protocols-server-2"},
-			Capabilities: map[string]THassBridgeCapability{
-				"node": {Domain: "binary_sensor", Sources: map[string]string{"protocols-server-2": "sensor.davids_bedroom_temperature is available"}},
+		"utility.laserjet": {DeviceID: "utility.laserjet", Instances: []string{"main"}, Capabilities: map[string]THassBridgeCapability{
+			"node": {Domain: "binary_sensor", Sources: map[string]string{"main": "sensor.laserjet_connectivity"}},
+		}},
+	}
+
+	var report strings.Builder
+	var result TExpansionParseResult
+	var err error
+	stderr := captureStderr(t, func() {
+		result, err = ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
+	})
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if !strings.Contains(stderr, `entity`) || !strings.Contains(stderr, `"node.laserjet"`) || !strings.Contains(stderr, `"utility.laserjet"`) || !strings.Contains(stderr, "laserjet/node") {
+		t.Errorf("expected a warning naming the actual colliding entity and both devices, got stderr: %s", stderr)
+	}
+	// Weaving two devices onto the same position is legal on its own -- BOTH still get their own
+	// identity; only the specific colliding entity is flagged, not the whole positioning.
+	if _, ok := result.Administration.DeviceConceptualLinks["node.laserjet"]; !ok {
+		t.Errorf("expected the FIRST device (node.laserjet) to register DeviceConceptualLinks")
+	}
+	if _, ok := result.Administration.DeviceConceptualLinks["utility.laserjet"]; !ok {
+		t.Errorf("expected the SECOND device (utility.laserjet) to also register DeviceConceptualLinks -- sharing a position is legal")
+	}
+}
+
+// TestRegisterDevicePositioningUnknownDeviceWarns confirms a device-id matching no known kind
+// (Physical.def or Logical.def) is reported, not silently ignored.
+func TestRegisterDevicePositioningUnknownDeviceWarns(t *testing.T) {
+	administration := newAdministrationState()
+	decl := TDevicePositioningDeclaration{Spec: "ghost", DeviceID: "hass.ghost"}
+
+	warnings := registerDevicePositioning(administration, decl, nil, nil, nil, nil, nil, nil, nil, "test.def", 1)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "hass.ghost") {
+		t.Fatalf("warnings = %v, want exactly one naming the unknown device", warnings)
+	}
+}
+
+// TestRegisterDevicePositioningRejectsLoneInfrastructuralSpherePrefix is the regression test for
+// the 2026-09-24 grammar restriction: a SINGLE "as infrastructural:<leaf>" clause is redundant (a
+// device has no sphere of its own in the single-sphere case) and must be rejected, forcing the bare
+// "as <leaf>" form instead -- distinct from the multi-sphere form (tested below), which IS accepted.
+func TestRegisterDevicePositioningRejectsLoneInfrastructuralSpherePrefix(t *testing.T) {
+	administration := newAdministrationState()
+	hostDevicesByID := map[string]THostDevice{"host.x": {DeviceID: "host.x", HostName: "x", IntegrationType: "cpu"}}
+	decl := TDevicePositioningDeclaration{Spec: "infrastructural:x", DeviceID: "host.x"}
+
+	warnings := registerDevicePositioning(administration, decl, nil, hostDevicesByID, nil, nil, nil, nil, nil, "test.def", 1)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "no longer accepts a sphere prefix on its own") {
+		t.Fatalf("warnings = %v, want exactly one rejecting the lone infrastructural prefix", warnings)
+	}
+}
+
+// TestRegisterDevicePositioningMultiSphereLeafPerEntitySphere covers the 2026-09-24 multi-sphere
+// "as" clause (isMultiSphereDeviceNamePath/resolveDeviceNamePathForSphere,
+// Conceptual_DeviceEntities.go): a device's own leaf can differ PER ENTITY SPHERE, motivated by the
+// real "frient" precedent -- a brand-qualifying suffix useful for "infrastructural" grouping but
+// irrelevant (and undesirable) in a "physical"/"social" reading's own name. A discovery-kind device
+// (the real-world case) with "as physical:front infrastructural:front/frient": the physical-sphere
+// "motion"/"illuminance" capabilities must resolve under the plain "front" leaf, while the
+// infrastructural-sphere "battery_level" capability keeps the full "front/frient" leaf.
+func TestRegisterDevicePositioningMultiSphereLeafPerEntitySphere(t *testing.T) {
+	const miniDSL = `space social:terrace with:
+  device sensors.terrace_frient as physical:front infrastructural:front/frient with:
+    entity binary_sensor.physical:motion from core;
+    entity sensor.physical:illuminance from illuminance;
+    entity sensor.infrastructural:battery_level from battery_level;
+  end;
+end;`
+
+	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
+		"sensors.terrace_frient": {
+			DeviceID:    "sensors.terrace_frient",
+			Identifiers: []string{"zigbee2mqtt_0xdeadbeef"},
+			Capabilities: map[string]TDiscoveryCapability{
+				"core":          {Domain: "binary_sensor", Leaf: "0xdeadbeef_occupancy_zigbee2mqtt"},
+				"illuminance":   {Domain: "sensor", Leaf: "0xdeadbeef_illuminance_zigbee2mqtt"},
+				"battery_level": {Domain: "sensor", Leaf: "0xdeadbeef_battery_zigbee2mqtt"},
 			},
 		},
 	}
-	decl := TDevicePositioningDeclaration{Spec: "infrastructural:netatmo", DeviceID: "hass.davids_bedroom"}
 
-	warnings, _ := registerDevicePositioning(administration, decl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, "test.def", 1)
-	if len(warnings) != 0 {
-		t.Errorf("expected no warnings when a \"node\" capability is declared, got %v", warnings)
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
 	}
+	admin := result.Administration
+
+	for label, wantEntityID := range map[string]string{
+		"motion":        "binary_sensor.physical_terrace_front_motion",
+		"illuminance":   "sensor.physical_terrace_front_illuminance",
+		"battery_level": "sensor.infrastructural_terrace_front_frient_battery_level",
+	} {
+		if _, ok := admin.DiscoveryEntityLinks[wantEntityID]; !ok {
+			t.Errorf("%s: expected DiscoveryEntityLinks[%q] to exist, got keys %v", label, wantEntityID, discoveryEntityLinkKeys(admin))
+		}
+	}
+
+	// The device's own identity (DisplayName/collision key) must come from the "infrastructural"
+	// entry, not the "physical" one.
+	link, ok := admin.DeviceConceptualLinks["sensors.terrace_frient"]
+	if !ok {
+		t.Fatalf("expected DeviceConceptualLinks[sensors.terrace_frient] to be populated")
+	}
+	if link.DisplayName != "terrace/front/frient" {
+		t.Errorf("DisplayName = %q, want %q", link.DisplayName, "terrace/front/frient")
+	}
+}
+
+func discoveryEntityLinkKeys(admin *TAdministrationState) []string {
+	keys := make([]string, 0, len(admin.DiscoveryEntityLinks))
+	for k := range admin.DiscoveryEntityLinks {
+		keys = append(keys, k)
+	}
+	return keys
 }

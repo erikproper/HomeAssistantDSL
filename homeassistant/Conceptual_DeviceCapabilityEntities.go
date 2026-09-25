@@ -179,6 +179,74 @@ func bareCapabilityName(ref string) string {
 	return ref
 }
 
+// resolveLongestSuffixCapability tries name as-is first (the ordinary, single-segment case, a no-op
+// for every existing declaration), then progressively shorter "/"-delimited suffixes, returning the
+// LONGEST one exists reports true for -- confirmed with the user 2026-09-25: "kk/ll/mm" must match a
+// capability "mm" over one named "l/mm" (not a real suffix, "l" isn't a whole path segment of
+// "kk/ll/mm"), and must prefer a capability "ll/mm" over a shorter "mm" when a device happens to
+// declare both (see deviceHasCapability's own sibling validation note on why that dual-declaration
+// itself should be rejected outright). Returns name unchanged if nothing at all matches, so the
+// caller's existing "no such capability" warning still names the ORIGINAL text the author wrote.
+func resolveLongestSuffixCapability(name string, exists func(string) bool) string {
+	if exists(name) {
+		return name
+	}
+	segments := strings.Split(name, "/")
+	for i := 1; i < len(segments); i++ {
+		candidate := strings.Join(segments[i:], "/")
+		if exists(candidate) {
+			return candidate
+		}
+	}
+	return name
+}
+
+// deviceHasCapability reports whether deviceID -- whichever integration kind it actually turns out
+// to be -- declares a capability named exactly capName. Used only by
+// resolveLongestSuffixCapability's own exists callback (2026-09-25), which doesn't know or care
+// which kind deviceID is; checking all of them is harmless since a device-id only ever belongs to
+// one.
+func deviceHasCapability(capName, deviceID string, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, hostDevicesByID map[string]THostDevice, commandlineDevicesByID map[string]TCommandlineDevice, localDevicesByID map[string]TLocalDevice, logicalDevicesByID map[string]TLogicalDevice) bool {
+	if gateway, ok := discoveryGatewaysByID[deviceID]; ok {
+		if _, ok := gateway.Capabilities[capName]; ok {
+			return true
+		}
+	}
+	if device, ok := hassBridgeDevicesByID[deviceID]; ok {
+		if _, ok := device.Capabilities[capName]; ok {
+			return true
+		}
+	}
+	if device, ok := importedDevicesByID[deviceID]; ok {
+		if _, ok := device.Capabilities[capName]; ok {
+			return true
+		}
+	}
+	if device, ok := hostDevicesByID[deviceID]; ok {
+		if mat, known := MaterializationForIntegrationType(device.IntegrationType); known {
+			if slices.Contains(mat.AttributeNames(device), capName) {
+				return true
+			}
+		}
+	}
+	if device, ok := commandlineDevicesByID[deviceID]; ok {
+		if _, ok := device.Capabilities[capName]; ok {
+			return true
+		}
+	}
+	if device, ok := localDevicesByID[deviceID]; ok {
+		if _, ok := device.Capabilities[capName]; ok {
+			return true
+		}
+	}
+	if device, ok := logicalDevicesByID[deviceID]; ok {
+		if _, ok := device.Capabilities[capName]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // registerDeviceCapabilityEntityLink dispatches decl.DeviceID to whichever integration kind it
 // resolves against -- a "discovery" gateway device (delegates to registerDiscoveryEntityLink,
 // Conceptual_DiscoveryEntities.go, entirely unchanged), a "home_assistant" bridge device (looks up
@@ -204,8 +272,8 @@ func bareCapabilityName(ref string) string {
 // decl.LocalSpec's own text (a discovery gateway's naming comes from the dot-joined gateway
 // reference itself, and a "hosts" device's from its own positioning-time deviceIdentity, already
 // fully resolved when it was positioned).
-func registerDeviceCapabilityEntityLink(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, hostDevicesByID map[string]THostDevice, commandlineDevicesByID map[string]TCommandlineDevice, logicalDevicesByID map[string]TLogicalDevice, entitiesPath string, lineNum int, finalAttempt bool, deviceNamePath string) (warnings []string, deferred bool) {
-	return registerDeviceCapabilityEntityLinkAllowingHidden(administration, decl, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, deviceNamePath, false)
+func registerDeviceCapabilityEntityLink(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, hostDevicesByID map[string]THostDevice, commandlineDevicesByID map[string]TCommandlineDevice, localDevicesByID map[string]TLocalDevice, logicalDevicesByID map[string]TLogicalDevice, entitiesPath string, lineNum int, finalAttempt bool, deviceNamePath string, capabilityIsInferred bool) (warnings []string, deferred bool) {
+	return registerDeviceCapabilityEntityLinkAllowingHidden(administration, decl, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, deviceNamePath, false, capabilityIsInferred)
 }
 
 // registerDeviceCapabilityEntityLinkAllowingHidden is registerDeviceCapabilityEntityLink's real
@@ -217,9 +285,50 @@ func registerDeviceCapabilityEntityLink(administration *TAdministrationState, de
 // underlying entity (Conceptual_DevicePositioning.go) -- that registration is what MAKES the
 // capability's value readable at all (a "derived" sibling's own reverse lookup needs a real
 // DiscoveryEntityLinks entry to find), so it calls this allowing-hidden entry point directly.
-func registerDeviceCapabilityEntityLinkAllowingHidden(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, hostDevicesByID map[string]THostDevice, commandlineDevicesByID map[string]TCommandlineDevice, logicalDevicesByID map[string]TLogicalDevice, entitiesPath string, lineNum int, finalAttempt bool, deviceNamePath string, allowHidden bool) (warnings []string, deferred bool) {
+func registerDeviceCapabilityEntityLinkAllowingHidden(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, hostDevicesByID map[string]THostDevice, commandlineDevicesByID map[string]TCommandlineDevice, localDevicesByID map[string]TLocalDevice, logicalDevicesByID map[string]TLogicalDevice, entitiesPath string, lineNum int, finalAttempt bool, deviceNamePath string, allowHidden bool, capabilityIsInferred bool) (warnings []string, deferred bool) {
 	provenance := fmt.Sprintf("%s:%d → %s from %s %s", filepath.Base(entitiesPath), lineNum, decl.LocalSpec, decl.DeviceID, decl.Capability)
 	bareName := bareCapabilityName(decl.Capability)
+
+	// The no-rename shorthand's own inferred capability name is the entity's WHOLE compound leaf
+	// path (e.g. "aqara/node" from "entity binary_sensor.infrastructural:aqara/node;", no "from" at
+	// all) -- confirmed with the user 2026-09-25: this should match the LONGEST available
+	// "/"-delimited SUFFIX of that path against the device's own real capabilities ("node" here),
+	// not require the device to declare a capability under the exact compound text. Scoped to
+	// capabilityIsInferred ONLY (never for an explicit "entity X from Y;", even when Y itself
+	// contains a "/", e.g. a hosts device's own "cpu/load") -- a real, deliberately-written
+	// capability name that's simply wrong must still fail outright, never silently fall back to a
+	// shorter guess.
+	if capabilityIsInferred {
+		bareName = resolveLongestSuffixCapability(bareName, func(candidate string) bool {
+			return deviceHasCapability(candidate, decl.DeviceID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID)
+		})
+	}
+
+	// "node" capability lending/override (2026-09-24, PROJECT.md item 11): a Logical.def device
+	// sharing this SAME device id can claim "node" for itself even when the device also has real
+	// physical presence -- e.g. appliance.front_door_ring's own combined-availability override,
+	// replacing its raw "local"-kind "node" (Physical.def's own "binary_sensor.node camera.core is
+	// available;") with a "derived binary_sensor.node with: condition ...; end;" one that also ANDs
+	// in a ping check. Checked here, before any kind-specific branch below, because "node" is no
+	// longer auto-registered at positioning time (every kind's own node is now an ordinary explicit
+	// "entity binary_sensor.X:node;" reference like any other capability) -- this is now the ONLY
+	// place the override-vs-physical choice needs to be made, so it has to run on every dispatch of
+	// "node" specifically, including retries (this same check re-runs then too, since the ordinary
+	// deferred-retry path re-invokes this whole function -- no separate "via override" retry flag
+	// needed any more, unlike the pre-2026-09-24 positioning-triggered version of this check).
+	//
+	// Dispatches DIRECTLY via dispatchLogicalCapability rather than falling through to a kind-specific
+	// branch below: those branches resolve via each kind's own PHYSICAL Capabilities map first, which
+	// -- for the entire override use case, where the physical capability genuinely still exists --
+	// would always win on capFound alone and the override would never be reached (the exact bug this
+	// check's own predecessor, registerLogicalNodeOverride, was built to fix on 2026-09-24).
+	if bareName == "node" {
+		if logicalDevice, hasLogical := logicalDevicesByID[decl.DeviceID]; hasLogical {
+			if _, hasOverride := logicalDevice.Capabilities["node"]; hasOverride {
+				return dispatchLogicalCapability(administration, decl, logicalDevice, "node", deviceNamePath, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, provenance)
+			}
+		}
+	}
 
 	// Checked first, but only actually claims the declaration when this SPECIFIC capability name is
 	// one of this device's own commandline capabilities -- a commandline device commonly shares its
@@ -250,7 +359,7 @@ func registerDeviceCapabilityEntityLinkAllowingHidden(administration *TAdministr
 		if _, capFound := gateway.Capabilities[bareName]; !capFound {
 			if logicalDevice, logicalFound := logicalDevicesByID[decl.DeviceID]; logicalFound {
 				if _, logicalCapFound := logicalDevice.Capabilities[bareName]; logicalCapFound {
-					return dispatchLogicalCapability(administration, decl, logicalDevice, bareName, deviceNamePath, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, provenance)
+					return dispatchLogicalCapability(administration, decl, logicalDevice, bareName, deviceNamePath, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, provenance)
 				}
 			}
 		}
@@ -298,7 +407,7 @@ func registerDeviceCapabilityEntityLinkAllowingHidden(administration *TAdministr
 			// own pre-existing fall-through above for its own dual-kind case.
 			if logicalDevice, logicalFound := logicalDevicesByID[decl.DeviceID]; logicalFound {
 				if _, logicalCapFound := logicalDevice.Capabilities[bareName]; logicalCapFound {
-					return dispatchLogicalCapability(administration, decl, logicalDevice, bareName, deviceNamePath, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, provenance)
+					return dispatchLogicalCapability(administration, decl, logicalDevice, bareName, deviceNamePath, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, provenance)
 				}
 			}
 			return []string{fmt.Sprintf("%s: device %q declares no %q capability; add a \"<type>.%s: <source>;\" line to its Physical.def declaration", provenance, decl.DeviceID, bareName, bareName)}, false
@@ -322,7 +431,7 @@ func registerDeviceCapabilityEntityLinkAllowingHidden(administration *TAdministr
 			// battery_level/wind_direction/wind_speed capabilities).
 			if logicalDevice, logicalFound := logicalDevicesByID[decl.DeviceID]; logicalFound {
 				if _, logicalCapFound := logicalDevice.Capabilities[bareName]; logicalCapFound {
-					return dispatchLogicalCapability(administration, decl, logicalDevice, bareName, deviceNamePath, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, provenance)
+					return dispatchLogicalCapability(administration, decl, logicalDevice, bareName, deviceNamePath, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, provenance)
 				}
 			}
 			return []string{fmt.Sprintf("%s: imported device %q declares no %q capability; add a \"%s: <remote-local-entity>;\" line to its Physical.def import declaration", provenance, decl.DeviceID, bareName, bareName)}, false
@@ -334,11 +443,28 @@ func registerDeviceCapabilityEntityLinkAllowingHidden(administration *TAdministr
 	}
 
 	if device, found := hostDevicesByID[decl.DeviceID]; found {
-		return registerHostCapabilityEntityLink(administration, device, decl.DeviceID, bareName, provenance, finalAttempt)
+		return registerHostCapabilityEntityLink(administration, device, decl.DeviceID, bareName, decl.LocalSpec, deviceNamePath, provenance, finalAttempt)
+	}
+
+	if device, found := localDevicesByID[decl.DeviceID]; found {
+		if capability, capFound := device.Capabilities[bareName]; capFound {
+			return registerLocalCapabilityEntityLink(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum, finalAttempt)
+		}
+		// Fall through to this SAME device id's Logical.def overlay before erroring -- mirrors the
+		// hassbridge/discovery/imported branches' own identical fallback (a "local" device's own id
+		// can ALSO carry a real Logical.def capability with no physical counterpart at all -- the
+		// Ring doorbell's own "battery_alert", a pure Logical.def derivation, alongside its plain
+		// "local" camera/ding/motion/volume/battery_level/node capabilities).
+		if logicalDevice, logicalFound := logicalDevicesByID[decl.DeviceID]; logicalFound {
+			if _, logicalCapFound := logicalDevice.Capabilities[bareName]; logicalCapFound {
+				return dispatchLogicalCapability(administration, decl, logicalDevice, bareName, deviceNamePath, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, provenance)
+			}
+		}
+		return []string{fmt.Sprintf("%s: local device %q declares no %q capability; add a \"<type>.%s;\" line to its Physical.def declaration", provenance, decl.DeviceID, bareName, bareName)}, false
 	}
 
 	if device, found := logicalDevicesByID[decl.DeviceID]; found {
-		return dispatchLogicalCapability(administration, decl, device, bareName, deviceNamePath, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, provenance)
+		return dispatchLogicalCapability(administration, decl, device, bareName, deviceNamePath, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, provenance)
 	}
 
 	return []string{fmt.Sprintf("%s: device %q not found in Physical.def's \"discovery\" or \"home_assistant\" integrations, Logical.def, or as a \"hassbridge\"-form import", provenance, decl.DeviceID)}, false
@@ -350,22 +476,23 @@ func registerDeviceCapabilityEntityLinkAllowingHidden(administration *TAdministr
 // (a hassbridge device id that ALSO carries a Logical.def entry -- the "absorb" operation,
 // 2026-09-18). Factored out rather than duplicated so both entry points stay byte-identical in
 // behaviour as new capability shapes get added here.
-func dispatchLogicalCapability(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, device TLogicalDevice, bareName, deviceNamePath string, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, hostDevicesByID map[string]THostDevice, commandlineDevicesByID map[string]TCommandlineDevice, logicalDevicesByID map[string]TLogicalDevice, entitiesPath string, lineNum int, finalAttempt bool, provenance string) (warnings []string, deferred bool) {
+func dispatchLogicalCapability(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, device TLogicalDevice, bareName, deviceNamePath string, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, hostDevicesByID map[string]THostDevice, commandlineDevicesByID map[string]TCommandlineDevice, localDevicesByID map[string]TLocalDevice, logicalDevicesByID map[string]TLogicalDevice, entitiesPath string, lineNum int, finalAttempt bool, provenance string) (warnings []string, deferred bool) {
 	capability, capFound := device.Capabilities[bareName]
 	if !capFound {
 		return []string{fmt.Sprintf("%s: logical device %q declares no %q capability; add a \"<type>.%s: <value>;\" line to its Logical.def declaration", provenance, decl.DeviceID, bareName, bareName)}, false
 	}
 	switch {
 	case capability.AbsorbedFromDeviceID != "":
-		return registerLogicalAbsorbedCapability(administration, decl, capability, bareName, deviceNamePath, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt)
+		return registerLogicalAbsorbedCapability(administration, decl, capability, bareName, deviceNamePath, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt)
 	case capability.IsDefinedInputNumber:
 		return registerLogicalDefinedInputNumberCapability(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum), false
-	case capability.IsDerivedCondition:
-		return registerLogicalDerivedConditionCapability(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum, finalAttempt, discoveryGatewaysByID)
+	case capability.IsDerivedCondition, capability.IsDerivedValue:
+		return registerLogicalDerivedConditionCapability(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum, finalAttempt, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, localDevicesByID, logicalDevicesByID)
 	case capability.IsAvailable:
 		return registerLogicalIsAvailableCapability(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum, hostDevicesByID), false
 	case capability.Domain == "switch":
-		return registerLogicalMediaSwitchCapability(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum), false
+		_, hasNodeCapability := device.Capabilities["node"]
+		return registerLogicalMediaSwitchCapability(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum, hasNodeCapability, finalAttempt)
 	default:
 		return []string{fmt.Sprintf("%s: logical device %q's %q capability isn't a supported shape yet (only \"is available\" conditions, switch<-media_player coercions, absorbed capabilities, defined input_numbers, and derived conditions are built)", provenance, decl.DeviceID, bareName)}, false
 	}
@@ -384,25 +511,42 @@ func dispatchLogicalCapability(administration *TAdministrationState, decl TDevic
 // MaterializationForIntegrationType hardwires domain/naming from the device's own position plus
 // its integration type, never a free-form reference), so this reuses registerHostAttributeEntity
 // (Conceptual_DeviceEntities.go) -- the same function "with: all entities;"/its own single-flag
-// form already call -- rather than registerDeviceSourceEntityLink. "node" is deliberately rejected
-// here: a hosts device's node is unconditional, already registered the moment it's positioned
-// (registerHostNodeEntity, called from registerHostDevicePositioning), so there's nothing for an
-// explicit reference to add -- accepting it would just be a confusing,
-// redundant second path to the exact same entity.
+// form already call -- rather than registerDeviceSourceEntityLink. "node" (2026-09-24: no longer
+// auto-registered at positioning time, deliberately, even though a hosts device's own liveness is
+// unconditional -- confirmed with the user as a tradeoff, so the mechanism doesn't have to know
+// which specific integration a device happens to be) is handled by its own branch below, resolving
+// via localSpec/deviceNamePath through the ordinary naming machinery exactly like every other
+// kind's own explicit "node" reference already does -- see registerHostNodeAttribute's own doc
+// comment (Conceptual_DeviceEntities.go).
 //
 // finalAttempt/deferred follow registerDeviceSourceEntityLink's own established convention: the
 // parser reads the file once, so a capability-link line can arrive before its device's positioning
 // does; deferred=true with no warning lets the single retry (after the whole file is read) resolve
 // it once positioning has actually landed, wherever in the file it appears.
-func registerHostCapabilityEntityLink(administration *TAdministrationState, device THostDevice, deviceID, bareName, provenance string, finalAttempt bool) (warnings []string, deferred bool) {
-	if bareName == "node" {
-		return []string{fmt.Sprintf("%s: %q's node entity is registered automatically when the device is positioned (\"device.<spec> from %s;\") -- no explicit reference needed or supported", provenance, deviceID, deviceID)}, false
-	}
-
+func registerHostCapabilityEntityLink(administration *TAdministrationState, device THostDevice, deviceID, bareName, localSpec, deviceNamePath, provenance string, finalAttempt bool) (warnings []string, deferred bool) {
 	mat, known := MaterializationForIntegrationType(device.IntegrationType)
 	if !known {
 		return []string{fmt.Sprintf("%s: integration type %q has no known entity materialization; skipping", provenance, device.IntegrationType)}, false
 	}
+
+	if bareName == "node" {
+		link, hasLink := administration.DeviceConceptualLinks[deviceID]
+		if !hasLink {
+			if !finalAttempt {
+				return nil, true
+			}
+			return []string{fmt.Sprintf("%s: device %q has no \"device %s [as ...] with: ...;\" positioning yet -- add one (any space) before referencing one of its entities directly", provenance, deviceID, deviceID)}, true
+		}
+		fullName := resolveDeviceEntityFullName(localSpec, administration.SpacePath, deviceNamePath)
+		if identity := extractEntityIdentity(fullName); identity.Domain == "" {
+			return []string{fmt.Sprintf("%s: could not resolve a domain from %q; skipping", provenance, localSpec)}, false
+		}
+		spaceName := administration.CurrentSpaceName()
+		link.NodeEntityID, link.NodeDeviceClass, link.NodeIcon = registerHostNodeAttribute(administration, mat, device, fullName, spaceName, provenance)
+		administration.DeviceConceptualLinks[deviceID] = link
+		return nil, false
+	}
+
 	if !slices.Contains(mat.AttributeNames(device), bareName) {
 		return []string{fmt.Sprintf("%s: device %q (integration type %q) has no %q attribute", provenance, deviceID, device.IntegrationType, bareName)}, false
 	}
@@ -412,7 +556,7 @@ func registerHostCapabilityEntityLink(administration *TAdministrationState, devi
 		if !finalAttempt {
 			return nil, true
 		}
-		return []string{fmt.Sprintf("%s: device %q has no \"device.<spec> from %s;\" positioning yet -- add one (any space) before referencing one of its entities directly", provenance, deviceID, deviceID)}, true
+		return []string{fmt.Sprintf("%s: device %q has no \"device %s [as ...] with: ...;\" positioning yet -- add one (any space) before referencing one of its entities directly", provenance, deviceID, deviceID)}, true
 	}
 
 	spaceName := administration.CurrentSpaceName()

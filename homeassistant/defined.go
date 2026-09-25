@@ -57,6 +57,7 @@ var mqttProfileFieldPattern = regexp.MustCompile(`^(server|login|password|port|t
 // unrecognised lines.
 func resolveMQTTBrokerProfiles(definitionDir string) (map[string]TMQTTBrokerSecrets, []string) {
 	physicalContent, _, warnings := collectLayerContent(definitionDir, []string{"Physical.def"}, LayerPhysical)
+	physicalContent = resolveDerivedConditionOneLiners(physicalContent)
 	settingsContent := readCombinedSettingsContent(definitionDir)
 	vars := parseDefinitionAssignments(settingsContent)
 

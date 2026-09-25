@@ -455,7 +455,7 @@ func TestSpaceOnInVirtualSpacePopulatesSwitchOnByName(t *testing.T) {
 end;`
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -534,7 +534,8 @@ func TestNormalizeEntityFullNameLeadingSlashIsSphereAbsolute(t *testing.T) {
 
 func TestDeviceEntityImpliesDiscoveryEntitiesWithoutSpacePrefix(t *testing.T) {
 	const miniDSL = `space social:garage with:
-  device infrastructural:/smarty from host.smarty with:
+  device host.smarty as /smarty with:
+    entity binary_sensor.infrastructural:/smarty/node      from node;
     entity sensor.infrastructural:/smarty/cpu/load        from cpu/load;
     entity sensor.infrastructural:/smarty/cpu/temperature from cpu/temperature;
   end;
@@ -545,7 +546,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -615,7 +616,8 @@ end;`
 // permanently-unavailable entity for the rest.
 func TestDeviceEntitySingleAttributeFlagRegistersOnlyThatAttribute(t *testing.T) {
 	const miniDSL = `space social:garage with:
-  device infrastructural:/mqtt from host.mqtt with:
+  device host.mqtt as /mqtt with:
+    entity binary_sensor.infrastructural:/mqtt/node from node;
     entity sensor.infrastructural:/mqtt/cpu/load from cpu/load;
   end;
 end;`
@@ -625,7 +627,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -642,7 +644,7 @@ end;`
 		t.Errorf("link.AttributeEntityIDs = %v, want \"temperature\" absent (not requested)", link.AttributeEntityIDs)
 	}
 	if link.NodeEntityID == "" {
-		t.Errorf("link.NodeEntityID = %q, want the node entity still registered (unconditional, regardless of flags)", link.NodeEntityID)
+		t.Errorf("link.NodeEntityID = %q, want the node entity registered via the explicit \"node\" reference", link.NodeEntityID)
 	}
 }
 
@@ -651,7 +653,7 @@ end;`
 // nothing for it, rather than being silently matched.
 func TestDeviceEntityUnrecognisedFlagRegistersNothingExtra(t *testing.T) {
 	const miniDSL = `space social:garage with:
-  device infrastructural:/mqtt from host.mqtt with:
+  device host.mqtt as /mqtt with:
     entity sensor.infrastructural:/mqtt/bogus_attribute from bogus_attribute;
   end;
 end;`
@@ -661,7 +663,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -679,7 +681,7 @@ func TestDeviceEntityBareSpecDefaultsToInfrastructuralSphereAndSpaceRelativePath
 	// (taxonomy.go's SphereOf), but the path still follows the normal space-relative
 	// convention -- same as any other entity declared without a leading "/".
 	const miniDSL = `space social:garage with:
-  device smarty from host.smarty;
+  device host.smarty as smarty with entity binary_sensor.infrastructural:node;
 end;`
 
 	hostDevicesByID := map[string]THostDevice{
@@ -687,7 +689,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -807,7 +809,7 @@ func TestGenerateReportingAutomationsSplitsNumericAndDeviceInfoCapabilities(t *t
 
 func TestGenerateCustomizationFilesSkipsDiscoveryImpliedEntities(t *testing.T) {
 	const miniDSL = `space social:garage with:
-  device infrastructural:/smarty from host.smarty;
+  device host.smarty as /smarty with entity binary_sensor.infrastructural:/smarty/node from node;
   entity switch.social:test_switch;
 end;`
 
@@ -816,7 +818,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -843,7 +845,8 @@ func TestSpaceAsAreaAssignsSuggestedAreaToDevices(t *testing.T) {
 	const miniDSL = `space social:house with:
   space social:laundry_kitchen with:
     space infrastructural:rack as area with:
-      device infrastructural:junglinster from host.junglinster;
+      device host.junglinster as junglinster with:
+      end;
     end;
   end;
 end;`
@@ -853,7 +856,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -874,10 +877,13 @@ func TestSpaceAsAreaShadowingAndExplicitOverride(t *testing.T) {
 	// the outer garage area. protocols-server-1 has its own explicit suggested_area override,
 	// which must survive even though it's positioned inside the "rack" area space.
 	const miniDSL = `space infrastructural:garage as area with:
-  device infrastructural:smarty from host.smarty;
+  device host.smarty as smarty with:
+  end;
   space infrastructural:rack as area with:
-    device infrastructural:junglinster from host.junglinster;
-    device infrastructural:protocols-server-1 from host.protocols-server-1;
+    device host.junglinster as junglinster with:
+    end;
+    device host.protocols-server-1 as protocols-server-1 with:
+    end;
   end;
 end;`
 
@@ -893,7 +899,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1306,7 +1312,7 @@ func TestParseDiscoveryIntegrationBodySourceDomainQualifiedLeaf(t *testing.T) {
 
 func TestDiscoveryDerivedFromHiddenCapability(t *testing.T) {
 	const miniDSL = `space social:hallway with:
-  device infrastructural:door/aqara_multi from discovery.door_aqara_multi with:
+  device discovery.door_aqara_multi as door/aqara_multi with:
     entity sensor.physical:pressure from pressure;
   end;
 end;`
@@ -1323,7 +1329,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1348,7 +1354,7 @@ end;`
 
 func TestDiscoveryDeviceBlockRejectsHiddenCapabilityPositionedDirectly(t *testing.T) {
 	const miniDSL = `space social:hallway with:
-  device infrastructural:door/aqara_multi from discovery.door_aqara_multi with:
+  device discovery.door_aqara_multi as door/aqara_multi with:
     entity sensor.physical:pressure_raw from pressure_raw;
   end;
 end;`
@@ -1364,7 +1370,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1419,7 +1425,7 @@ func TestRegisterDiscoveryEntityLinkViaParse(t *testing.T) {
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1449,20 +1455,20 @@ func TestRegisterDiscoveryEntityLinkViaParse(t *testing.T) {
 }
 
 // TestDiscoveryDeviceBlockWithNodeCapability is the end-to-end coverage for PROJECT.md item 7's
-// 2026-09-15 work: a "device <spec> from discovery.<gateway> with: ... end;" block (the same shape
-// already proven live for hassbridge's own "device infrastructural:vacuum from appliance.vacuum
-// with: ...;"), with a "node" capability declared as "... is available;" over a sibling capability
-// -- deliberately declared BEFORE its sibling in the DSL text, proving the deferred/retry-at-EOF
+// 2026-09-15 work: a "device <device-id> [as ...] with: ... end;" block (the same shape already
+// proven live for hassbridge's own "device appliance.vacuum as vacuum with:
+// ...;"), with a "node" capability declared as "... is available;" over a sibling capability --
+// deliberately declared BEFORE its sibling in the DSL text, proving the deferred/retry-at-EOF
 // resolution actually works order-independently (parser.go's existing pendingCapabilityLinks
-// mechanism, reused here rather than inventing a new one).
-// TestDiscoveryDeviceBlockAutoImpliesNodeCapability proves the "node" entity no longer needs an
-// explicit "entity binary_sensor.infrastructural:node from node;" line inside the device block --
-// it's auto-registered from the device positioning header alone, exactly like a "hosts"/
-// "home_assistant" device's own node, the moment the gateway has a "node" capability declared in
-// Physical.def. Same fixture as TestDiscoveryDeviceBlockWithNodeCapability, minus that one line.
-func TestDiscoveryDeviceBlockAutoImpliesNodeCapability(t *testing.T) {
+// mechanism, reused here rather than inventing a new one). Since the 2026-09-24 redesign, "node"
+// is no longer auto-registered from the device positioning header alone for ANY kind (including
+// discovery) -- it needs the same explicit "entity binary_sensor.infrastructural:node from node;"
+// line as every other capability, the moment the gateway has a "node" capability declared in
+// Physical.def.
+func TestDiscoveryDeviceBlockWithNodeCapability(t *testing.T) {
 	const miniDSL = `space social:vidja with:
-  device infrastructural:left/1 from discovery.vidja_left_1 with:
+  device discovery.vidja_left_1 as left/1 with:
+    entity binary_sensor.infrastructural:node from node;
     entity light.physical: from core;
   end;
 end;`
@@ -1479,7 +1485,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1500,6 +1506,21 @@ end;`
 	if node.ConditionExpr != "$1 not in ['unavailable', 'unknown']" {
 		t.Errorf("node.ConditionExpr = %q, want the standard \"is available\" liveness check", node.ConditionExpr)
 	}
+	// Real bug found live 2026-09-24 (node 67's own "node" capability, the first time this exact
+	// path was hit fresh -- node 64's identical shape had already been confirmed live earlier and
+	// so never surfaced it): registerDiscoveryAvailabilityEntityLink never set
+	// HasDefinitionOrImport, so this generator-authored condition entity was wrongly swept into
+	// collectMainEntityIDs' "assumed to already exist on main" list (main_entities.go) -- the exact
+	// same class of bug already fixed 2026-09-21 for the Logical-layer sibling
+	// (registerLogicalIsAvailableCapability), just never applied here.
+	if !node.HasDefinitionOrImport {
+		t.Errorf("node.HasDefinitionOrImport = false, want true -- this entity is generator-authored, not assumed to already exist on main")
+	}
+	for _, id := range collectMainEntityIDs(admin) {
+		if id == "binary_sensor.infrastructural_vidja_left_1_node" {
+			t.Fatalf("collectMainEntityIDs = %v, must not include the generator-authored discovery availability entity", collectMainEntityIDs(admin))
+		}
+	}
 }
 
 // TestDiscoveryDeviceBlockNoNodeCapabilitySkipsSilently proves a discovery device with no "node"
@@ -1508,7 +1529,7 @@ end;`
 // declaring no liveness capability is a legitimate, unremarkable choice here).
 func TestDiscoveryDeviceBlockNoNodeCapabilitySkipsSilently(t *testing.T) {
 	const miniDSL = `space social:vidja with:
-  device infrastructural:left/1 from discovery.vidja_left_1 with:
+  device discovery.vidja_left_1 as left/1 with:
     entity light.physical: from core;
   end;
 end;`
@@ -1524,7 +1545,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1543,7 +1564,8 @@ end;`
 // whichever capability happens to share that label.
 func TestDiscoveryDeviceBlockAvailabilityDomainMismatchIsRejected(t *testing.T) {
 	const miniDSL = `space social:vidja with:
-  device infrastructural:left/1 from discovery.vidja_left_1 with:
+  device discovery.vidja_left_1 as left/1 with:
+    entity binary_sensor.infrastructural:node from node;
     entity light.physical: from core;
   end;
 end;`
@@ -1561,7 +1583,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1574,7 +1596,7 @@ end;`
 
 func TestDiscoveryDeviceBlockWithDerivedCapability(t *testing.T) {
 	const miniDSL = `space social:hallway with:
-  device infrastructural:door from discovery.aqara_windoor with:
+  device discovery.aqara_windoor as door with:
     entity binary_sensor.social: from door;
     entity sensor.infrastructural:battery_level from battery_level;
     entity sensor.infrastructural:battery_alert from battery_alert;
@@ -1594,7 +1616,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1631,7 +1653,7 @@ func TestRegisterDiscoveryEntityLinkWarnsOnUnknownGateway(t *testing.T) {
 end;`
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, map[string]TDiscoveryGatewayDevice{}, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, map[string]TDiscoveryGatewayDevice{}, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}

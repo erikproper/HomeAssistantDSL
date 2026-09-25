@@ -94,6 +94,7 @@ type TPassthroughDeviceTracker struct {
 	// disk (same reasoning as topicIdentity's own doc comment).
 	topicDevice   map[string]string
 	debounceTimer *time.Timer // see ScheduleStatusPublish's own doc comment
+	persistTimer  *time.Timer // see SchedulePersist's own doc comment
 }
 
 type passthroughDevicesPersistedFile struct {
@@ -240,6 +241,15 @@ func (t *TPassthroughDeviceTracker) ClaimName(defaultEntityID, deviceIdentifier,
 // or leaf is a no-op: nothing stable to key on. name, when non-empty, updates the device's own
 // last-known human-readable name. Returns true the first time this exact fact is recorded, so
 // callers can skip a redundant publish on every retained-message replay at startup.
+//
+// Deliberately does NOT persist synchronously -- real incident, 2026-09-22 (Junglinster): this
+// used to call t.persist() directly here, exactly the same disease ClaimName's own doc comment
+// (above) already diagnosed and fixed for ITS persist calls on 2026-09-20 (a synchronous disk
+// write, marshalling the WHOLE growing devices+claims+collisions state, on nearly every one of
+// Junglinster's ~983 passthrough devices during a single retained-backlog replay at startup) --
+// Record's own call site just wasn't covered by that fix. Callers debounce the actual write via
+// SchedulePersist instead (discoverybridge.go already does, right alongside its existing
+// ScheduleStatusPublish call for the same Record result).
 func (t *TPassthroughDeviceTracker) Record(deviceIdentifier, name, domain, leaf string) bool {
 	if deviceIdentifier == "" || leaf == "" {
 		return false
@@ -259,9 +269,6 @@ func (t *TPassthroughDeviceTracker) Record(deviceIdentifier, name, domain, leaf 
 	if existing, seen := entry.Leaves[leaf]; !seen || existing.Domain != domain {
 		entry.Leaves[leaf] = TPassthroughLeaf{Domain: domain, Leaf: leaf}
 		changed = true
-	}
-	if changed {
-		t.persist()
 	}
 	return changed
 }
@@ -438,6 +445,26 @@ const PassthroughStatusDebounceDelay = 30 * time.Second
 // matching this whole mechanism's own established "a generate-time suggestion feed, nothing live
 // depends on it" tolerance for staleness. Also an explicit call argument, same reasoning as above.
 const PassthroughStatusPeriodicInterval = 10 * time.Minute
+
+// SchedulePersist debounces a persist() call by delay -- same coalescing shape as
+// ScheduleStatusPublish (its own doc comment covers the general reasoning), a genuinely separate
+// timer since persisting to disk and publishing the MQTT status are independent concerns Record's
+// own call site schedules side by side, not sequentially. Safe to call directly from the MQTT
+// message-dispatch callback: the actual write always happens later, on this timer's own goroutine.
+func (t *TPassthroughDeviceTracker) SchedulePersist(delay time.Duration) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.persistTimer != nil {
+		t.persistTimer.Reset(delay)
+		return
+	}
+	t.persistTimer = time.AfterFunc(delay, func() {
+		t.mu.Lock()
+		t.persistTimer = nil
+		t.persist()
+		t.mu.Unlock()
+	})
+}
 
 // ScheduleStatusPublish debounces a full PublishStatus call by delay -- see
 // PassthroughStatusDebounceDelay's own doc comment for why a plain per-call publish isn't safe

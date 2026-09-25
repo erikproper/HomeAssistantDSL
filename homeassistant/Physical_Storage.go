@@ -87,4 +87,12 @@ var integrationBodyParsers = map[string]func(bodyLines []string, ctx TPhysicalGe
 	// of "hosts"/"home_assistant" block order. Registered here only so the loop doesn't warn "no
 	// parser registered" for it.
 	"import": func(bodyLines []string, ctx TPhysicalGenerationContext) error { return nil },
+	// "local" (2026-09-24) needs no coordinator manifest or host-side output file of its own --
+	// unlike every kind above, it declares no MQTT-relayable device at all: its capabilities are
+	// either bare acknowledgements (confirmed only by Conceptual.def's own positioning, tracked via
+	// kind-5 exactly like a plain "entity <spec>;" declaration) or generator-authored condition
+	// entities (the "is available" shape), both already fully handled by the ordinary Conceptual-
+	// layer entity-registration/YAML pipeline (Conceptual_LocalEntities.go) -- registered here only
+	// so the loop doesn't warn "no parser registered" for it, same as "import" above.
+	"local": func(bodyLines []string, ctx TPhysicalGenerationContext) error { return nil },
 }

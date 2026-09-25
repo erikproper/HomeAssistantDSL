@@ -177,7 +177,7 @@ func TestExpandForDeviceBareEntityLineRejectsFromLine(t *testing.T) {
 // PROJECT.md unification plan 2026-09-01) registers identically to writing the device id out on
 // every line.
 func TestForDeviceBlockRegistersSameAsExplicitDeviceIDLines(t *testing.T) {
-	const miniDSL = `device infrastructural:laserjet from hass.laserjet with:
+	const miniDSL = `device hass.laserjet as laserjet with:
   entity sensor.status   from sensor.status;
   entity sensor.cardrige from sensor.cardrige;
 end;`
@@ -190,7 +190,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -212,7 +212,7 @@ end;`
 // to writing out "entity <spec> from <capability>;" explicitly, through the real dispatch
 // pipeline (not just the textual expansion unit tests above).
 func TestForDeviceBlockBareEntityShorthandRegistersSameAsExplicitFromLines(t *testing.T) {
-	const miniDSL = `device infrastructural:laserjet from hass.laserjet with:
+	const miniDSL = `device hass.laserjet as laserjet with:
   entity sensor.status;
   entity sensor.cardrige from sensor.cardrige;
 end;`
@@ -225,7 +225,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -245,12 +245,14 @@ end;`
 // TestForDeviceBlockRegistersHostsCapabilities is the "hosts"-kind counterpart to
 // TestForDeviceBlockRegistersSameAsExplicitDeviceIDLines (PROJECT.md, unification plan
 // 2026-09-01): "hosts" devices used to be explicitly rejected by this construct
-// ("this construct doesn't support that kind yet") -- confirms the merged "device <spec> from
-// <device-id> with: ... end;" block registers a cpu-type host's node (unconditional) and
-// explicitly-named attributes identically to what "with: all entities;" used to bulk-imply,
-// without needing that flag at all.
+// ("this construct doesn't support that kind yet") -- confirms the merged "device <device-id> [as
+// ...] with: ... end;" block registers a cpu-type host's explicitly-referenced node (2026-09-24:
+// no longer auto-registered by positioning, an ordinary "entity ...;" body line like any other
+// capability) and explicitly-named attributes identically to what "with: all entities;" used to
+// bulk-imply, without needing that flag at all.
 func TestForDeviceBlockRegistersHostsCapabilities(t *testing.T) {
-	const miniDSL = `device infrastructural:xanadu from host.xanadu with:
+	const miniDSL = `device host.xanadu as xanadu with:
+  entity binary_sensor.infrastructural:xanadu/node     from node;
   entity sensor.infrastructural:xanadu/cpu/load        from cpu/load;
   entity sensor.infrastructural:xanadu/cpu/temperature from cpu/temperature;
 end;`
@@ -260,7 +262,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -269,7 +271,7 @@ end;`
 		t.Fatalf("expected DeviceConceptualLinks[host.xanadu] to be populated")
 	}
 	if link.NodeEntityID == "" {
-		t.Errorf("link.NodeEntityID = %q, want the node entity registered by positioning (unconditional)", link.NodeEntityID)
+		t.Errorf("link.NodeEntityID = %q, want the node entity registered via the explicit \"node\" reference", link.NodeEntityID)
 	}
 	for _, attr := range []string{"load", "temperature"} {
 		if _, found := link.AttributeEntityIDs[attr]; !found {
@@ -282,7 +284,7 @@ end;`
 // of the device's integration type's materialization is rejected with a clear message, not
 // silently accepted or matched against the wrong thing.
 func TestHostCapabilityEntityLinkRejectsUnknownAttribute(t *testing.T) {
-	const miniDSL = `device infrastructural:xanadu from host.xanadu with:
+	const miniDSL = `device host.xanadu as xanadu with:
   entity sensor.infrastructural:xanadu/bogus from bogus;
 end;`
 
@@ -291,7 +293,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -301,11 +303,13 @@ end;`
 	}
 }
 
-// TestHostCapabilityEntityLinkRejectsNode confirms "node" can't be referenced explicitly for a
-// hosts device -- it's unconditional, already registered the moment the device is positioned, so
-// an explicit reference would just be a confusing, redundant second path to the same entity.
-func TestHostCapabilityEntityLinkRejectsNode(t *testing.T) {
-	const miniDSL = `device infrastructural:xanadu from host.xanadu with:
+// TestHostCapabilityEntityLinkResolvesNode confirms "node" resolves like any other explicit
+// capability reference for a hosts device (2026-09-24: no longer auto-registered at positioning
+// time for any kind, including hosts -- registerHostCapabilityEntityLink gained a "node" branch
+// instead of rejecting it, populating link.NodeEntityID/NodeDeviceClass/NodeIcon exactly like
+// autoMaterializePhysicalCapability's own synthetic path already did).
+func TestHostCapabilityEntityLinkResolvesNode(t *testing.T) {
+	const miniDSL = `device host.xanadu as xanadu with:
   entity binary_sensor.infrastructural:xanadu/node from node;
 end;`
 
@@ -314,7 +318,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -323,10 +327,10 @@ end;`
 		t.Fatalf("expected DeviceConceptualLinks[host.xanadu] to be populated")
 	}
 	if link.NodeEntityID == "" {
-		t.Errorf("link.NodeEntityID = %q, want it still set from positioning, unaffected by the rejected explicit reference", link.NodeEntityID)
+		t.Errorf("link.NodeEntityID = %q, want it set from the explicit \"node\" reference", link.NodeEntityID)
 	}
 	if _, found := link.AttributeEntityIDs["node"]; found {
-		t.Errorf("link.AttributeEntityIDs = %v, want no \"node\" entry -- it's rejected, not registered as a regular attribute", link.AttributeEntityIDs)
+		t.Errorf("link.AttributeEntityIDs = %v, want no \"node\" entry -- it resolves into NodeEntityID, not the ordinary attribute map", link.AttributeEntityIDs)
 	}
 }
 
@@ -336,14 +340,15 @@ end;`
 // the same order-independence the hassbridge/import branches already have.
 func TestHostCapabilityEntityLinkDefersWithoutPriorPositioning(t *testing.T) {
 	const miniDSL = `entity sensor.infrastructural:xanadu/cpu/load from host.xanadu cpu/load;
-device infrastructural:xanadu from host.xanadu;`
+device host.xanadu as xanadu with:
+end;`
 
 	hostDevicesByID := map[string]THostDevice{
 		"host.xanadu": {DeviceID: "host.xanadu", HostName: "xanadu", IntegrationType: "cpu"},
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -369,7 +374,8 @@ device infrastructural:xanadu from host.xanadu;`
 // underlying discovery gateway.
 func TestAbsorbedHassBridgeDeviceKeepsOwnPhysicalPositioning(t *testing.T) {
 	const miniDSL = `space social:shower_room with:
-  device infrastructural:washing_machine from appliance.washing_machine with:
+  device appliance.washing_machine as washing_machine with:
+    entity binary_sensor.infrastructural:washing_machine/node from node;
     entity sensor.status from status;
     entity switch.social: from core;
     entity sensor.social:power from power;
@@ -409,7 +415,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, hassBridgeDevicesByID, nil, nil, logicalDevicesByID, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, hassBridgeDevicesByID, nil, nil, nil, logicalDevicesByID, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -455,7 +461,7 @@ end;`
 // on a miss.
 func TestDiscoveryDeviceKeepsOwnPhysicalPositioningWhenGainingLogicalCapabilities(t *testing.T) {
 	const miniDSL = `space social:terrace with:
-  device infrastructural:signify_motion from sensors.terrace_motion with:
+  device sensors.terrace_motion as signify_motion with:
     entity binary_sensor.physical:motion from core;
     entity sensor.physical:illuminance from illuminance;
     entity input_number.social:sunny_threshold from sunny_threshold;
@@ -481,15 +487,14 @@ end;`
 				"sunny_threshold": {Domain: "input_number", IsDefinedInputNumber: true, DefinedMinimum: "0", DefinedMaximum: "1000"},
 				"sunny": {
 					Domain: "binary_sensor", IsDerivedCondition: true,
-					DerivedConditionExpr: "($1 | int) > ($2 | int)",
-					DerivedConditionOver: []string{"illuminance", "sunny_threshold"},
+					DerivedCondition: testJinjaCondition("($1 | int) > ($2 | int)", "illuminance", "sunny_threshold"),
 				},
 			},
 		},
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, logicalDevicesByID, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, logicalDevicesByID, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -515,13 +520,126 @@ end;`
 	if !found {
 		t.Fatalf("no entity record registered for binary_sensor.social/terrace/signify_motion/sunny")
 	}
-	if len(rec.ConditionSources) != 2 {
-		t.Fatalf("ConditionSources = %v, want 2 sources (illuminance, sunny_threshold)", rec.ConditionSources)
+	if rec.ConditionExpr == "" {
+		t.Fatalf("ConditionExpr is empty, want a rendered expression referencing both illuminance and sunny_threshold")
+	}
+}
+
+// TestDeviceCapabilityStripsEntityOwnTrailingDomainSegment is the regression test for the real
+// Vienna "hallway_light_main" case (2026-09-24): a device's "as social:main infrastructural:main/light"
+// pairs with "entity light.social:light;" (the no-rename shorthand, implicitly matching the
+// device's own "light" capability) -- the entity's own declared path "light" combines with the
+// device's own "social:main" leaf to give "main/light" first, and must THEN be stripped of its own
+// trailing "light" (matching the entity's domain) at the very end, giving plain "main" -- confirmed
+// with the user: "it must be possible to use entity light.social:light with the clear intuition
+// that... at the end the light at the end is stripped again." Distinct from
+// TestGenerateHassBridgeEntityReportingAutomationsWritesAttributesFile's own
+// "vacuum.physical:vacuum" case, which must NOT be stripped (no device leaf of its own at all).
+func TestDeviceCapabilityStripsEntityOwnTrailingDomainSegment(t *testing.T) {
+	const miniDSL = `space social:apartment with:
+  space social:hallway as area with:
+    device light.hallway_light_main as social:main infrastructural:main/light with:
+      entity binary_sensor.infrastructural:node;
+      entity light.social:light;
+    end;
+  end;
+end;`
+
+	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
+		"light.hallway_light_main": {
+			DeviceID:    "light.hallway_light_main",
+			Identifiers: []string{"zigbee2mqtt_0x04cd15fffe4a6043"},
+			Capabilities: map[string]TDiscoveryCapability{
+				"light": {Domain: "light", Leaf: "0x04cd15fffe4a6043_light_zigbee2mqtt"},
+			},
+		},
+	}
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	admin := result.Administration
+
+	if _, ok := admin.DiscoveryEntityLinks["light.social_apartment_hallway_main"]; !ok {
+		keys := make([]string, 0, len(admin.DiscoveryEntityLinks))
+		for k := range admin.DiscoveryEntityLinks {
+			keys = append(keys, k)
+		}
+		t.Errorf("expected DiscoveryEntityLinks[%q] to exist, got keys %v", "light.social_apartment_hallway_main", keys)
+	}
+	if _, ok := admin.DiscoveryEntityLinks["light.social_apartment_hallway_main_light"]; ok {
+		t.Errorf("light.social_apartment_hallway_main_light should NOT exist -- the trailing domain-matching segment must be stripped")
+	}
+}
+
+// TestNoRenameShorthandMatchesLongestCapabilitySuffix is the regression test for the real Vienna
+// bug (2026-09-25): "entity binary_sensor.infrastructural:aqara/node;" (no "from" clause -- the
+// no-rename shorthand) used to infer the capability name as the WHOLE compound leaf text
+// ("aqara/node"), which no device ever declares literally -- it must instead try progressively
+// shorter "/"-delimited suffixes and match the device's real "node" capability. Confirmed with the
+// user: "kk/ll/mm" must match a capability "mm" (not "l/mm", which isn't a real suffix), and prefer
+// a capability "ll/mm" over a bare "mm" when the SAME device happens to declare both (see
+// TestValidateNoOverlappingCapabilitySuffixes for why that dual-declaration itself is rejected).
+func TestNoRenameShorthandMatchesLongestCapabilitySuffix(t *testing.T) {
+	const miniDSL = `device sensors.hallway_aqara_windoor as door with:
+  entity binary_sensor.social: from core;
+  entity sensor.infrastructural:aqara/battery_level;
+  entity sensor.physical:aqara/humidity;
+end;`
+
+	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
+		"sensors.hallway_aqara_windoor": {
+			DeviceID: "sensors.hallway_aqara_windoor",
+			Capabilities: map[string]TDiscoveryCapability{
+				"core":          {Domain: "binary_sensor", Leaf: "0x00158d0003d4e964_contact_zigbee2mqtt"},
+				"battery_level": {Domain: "sensor", Leaf: "0x00158d0003d4e964_battery_zigbee2mqtt"},
+				"humidity":      {Domain: "sensor", Leaf: "0x00158d0003d4e964_humidity_zigbee2mqtt"},
+			},
+		},
+	}
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	admin := result.Administration
+
+	for label, entityID := range map[string]string{
+		"battery_level": "sensor.infrastructural_door_aqara_battery_level",
+		"humidity":      "sensor.physical_door_aqara_humidity",
+	} {
+		if _, ok := admin.DiscoveryEntityLinks[entityID]; !ok {
+			keys := make([]string, 0, len(admin.DiscoveryEntityLinks))
+			for k := range admin.DiscoveryEntityLinks {
+				keys = append(keys, k)
+			}
+			t.Errorf("%s: expected DiscoveryEntityLinks[%q] to exist (longest-suffix match), got keys %v", label, entityID, keys)
+		}
+	}
+}
+
+// TestNoRenameShorthandDoesNotMatchPartialSegment covers the negative case the user explicitly
+// called out: a leaf "kk/ll/mm" must NOT match a capability "l/mm" -- "l" is not a whole "/"-
+// delimited segment of the leaf path ("ll" is), so this must still warn, never silently match a
+// substring.
+func TestNoRenameShorthandDoesNotMatchPartialSegment(t *testing.T) {
+	if got := resolveLongestSuffixCapability("kk/ll/mm", func(candidate string) bool {
+		return candidate == "l/mm"
+	}); got != "kk/ll/mm" {
+		t.Errorf("resolveLongestSuffixCapability(%q) = %q, want the unchanged original (no real suffix matches)", "kk/ll/mm", got)
+	}
+	if got := resolveLongestSuffixCapability("kk/ll/mm", func(candidate string) bool {
+		return candidate == "ll/mm" || candidate == "mm"
+	}); got != "ll/mm" {
+		t.Errorf("resolveLongestSuffixCapability(%q) = %q, want the LONGEST match %q when both %q and %q exist", "kk/ll/mm", got, "ll/mm", "ll/mm", "mm")
 	}
 }
 
 func TestForDeviceBlockWarnsOnUnrecognisedLineAndKeepsParsing(t *testing.T) {
-	const miniDSL = `device infrastructural:laserjet from hass.laserjet with:
+	const miniDSL = `device hass.laserjet as laserjet with:
   this is not a valid line;
   entity sensor.status from sensor.status;
 end;`
@@ -533,7 +651,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}

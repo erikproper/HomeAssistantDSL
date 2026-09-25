@@ -85,7 +85,7 @@ func registerExportedHassBridgeDevices(administration *TAdministrationState, has
 			warnings = append(warnings, fmt.Sprintf("export: device %q: could not resolve a sphere/path from %q; skipping auto-registration", deviceID, deviceSpec))
 			continue
 		}
-		displayName := deviceDisplayName("root", deviceIdentity.Sphere, deviceSpecLeafPath(deviceSpec))
+		displayName := deviceDisplayName("root", deviceSpecLeafPath(deviceSpec))
 		provenance := fmt.Sprintf("export: device %q declares \"export\" but is never positioned in Spaces.def; auto-registering all its entities", deviceID)
 
 		if len(device.Capabilities) == 0 {

@@ -1324,3 +1324,136 @@ func TestSubscribeHassBridgeExportCrossPostsAttributesTopicToCloud(t *testing.T)
 		t.Fatalf("expected a discovery config published to cloud at %q, got %v", wantCloudDiscoveryTopic, cloudClient.published)
 	}
 }
+
+// TestBuildHassBridgeEntityDiscoveryBodySkipsLiveIconFallbackForNode covers the real bug found live
+// 2026-09-22 (Vienna's appliance.washing_machine): "node" and another capability (e.g. "status")
+// commonly share the exact same raw source entity, so the source's own live-reported icon
+// (liveIcon) resolved identically for both -- giving "node" a device-specific icon ("status"'s own
+// meaning) instead of letting HA's own device_class "connectivity" default icon apply. "node" is a
+// synthetic connectivity indicator, not a literal mirror of the source's own meaning, so its own
+// liveIcon fallback must stay suppressed regardless of what the source entity's live icon is.
+func TestBuildHassBridgeEntityDiscoveryBodySkipsLiveIconFallbackForNode(t *testing.T) {
+	nodeFound := hassBridgeMatch{Capability: "node", DeviceID: "appliance.washing_machine", THassBridgeCapability: THassBridgeCapability{DeviceClass: "connectivity"}}
+	nodeBody := buildHassBridgeEntityDiscoveryBody("stable-node", "binary_sensor.node", nodeFound, "state-topic", "", TDiscoveryDevice{}, nil, "", "", "mdi:washing-machine", "", false, "install")
+	if _, hasIcon := nodeBody["icon"]; hasIcon {
+		t.Errorf("node's discovery body = %v, want no \"icon\" field -- device_class's own default must apply, not the source entity's live icon", nodeBody)
+	}
+
+	statusFound := hassBridgeMatch{Capability: "status", DeviceID: "appliance.washing_machine"}
+	statusBody := buildHassBridgeEntityDiscoveryBody("stable-status", "sensor.status", statusFound, "state-topic", "", TDiscoveryDevice{}, nil, "", "", "mdi:washing-machine", "", false, "install")
+	if statusBody["icon"] != "mdi:washing-machine" {
+		t.Errorf("status's icon = %v, want the live-reported \"mdi:washing-machine\" fallback preserved for every OTHER capability", statusBody["icon"])
+	}
+}
+
+// TestBuildHassBridgeEntityDiscoveryBodyValueTriggerCommandOmitsPayloadKeys is the regression test
+// for "number"'s own set_value command (2026-09-25, the Overkiz/Somfy migration): homeassistant/
+// hassbridge_commands.go's ValueTrigger commands carry an empty Payload/DiscoveryKey by design (see
+// that file's own commandSpec doc comment) -- command_topic must still be set, to this command's
+// own DEDICATED topic (never the shared base other commands would use), but there must be no key
+// written from an empty DiscoveryKey (which would otherwise silently set body[""] = "").
+func TestBuildHassBridgeEntityDiscoveryBodyValueTriggerCommandOmitsPayloadKeys(t *testing.T) {
+	found := hassBridgeMatch{
+		Capability: "my_position",
+		DeviceID:   "utility.somfy",
+		THassBridgeCapability: THassBridgeCapability{
+			Commands: map[string]TCapabilityCommand{"set_value": {ValueTrigger: true}},
+		},
+	}
+	body := buildHassBridgeEntityDiscoveryBody("stable-my-position", "number.front_my_position", found, "state-topic", "", TDiscoveryDevice{}, nil, "", "", "", "ha2mqtt", true, "install")
+
+	wantTopic := "homeassistant_instances/ha2mqtt/bridge/number.front_my_position/command/set_value"
+	if body["command_topic"] != wantTopic {
+		t.Errorf("command_topic = %v, want its own dedicated topic %q (ValueTrigger commands never share the base topic)", body["command_topic"], wantTopic)
+	}
+	if _, present := body[""]; present {
+		t.Errorf("body has a %q key, want the empty DiscoveryKey never written as a real field at all", "")
+	}
+}
+
+// TestBuildHassBridgeEntityDiscoveryBodyCoverMixesSharedAndDedicatedTopics is the regression test
+// for cover's own set_position command (2026-09-25, matching the discovery-kind Z-Wave awnings
+// cover's existing full position-control feature set): a cover capability's THREE fixed-payload
+// commands (open/close/stop) must all share the ONE base command_topic (unchanged, existing
+// behaviour), while set_position -- a ValueTrigger command with its own TopicKey
+// "set_position_topic" -- gets its OWN dedicated topic under a COMPLETELY DIFFERENT discovery key,
+// never command_topic at all. Mixing a fixed-payload command onto the same base topic as
+// set_position would make an "OPEN" payload also match set_position's own "any payload" trigger.
+func TestBuildHassBridgeEntityDiscoveryBodyCoverMixesSharedAndDedicatedTopics(t *testing.T) {
+	found := hassBridgeMatch{
+		Capability: "core",
+		DeviceID:   "utility.somfy_living_room_front",
+		THassBridgeCapability: THassBridgeCapability{
+			Commands: map[string]TCapabilityCommand{
+				"open":         {Payload: "OPEN", DiscoveryKey: "payload_open"},
+				"close":        {Payload: "CLOSE", DiscoveryKey: "payload_close"},
+				"stop":         {Payload: "STOP", DiscoveryKey: "payload_stop"},
+				"set_position": {ValueTrigger: true, TopicKey: "set_position_topic"},
+			},
+		},
+	}
+	body := buildHassBridgeEntityDiscoveryBody("stable-cover", "cover.social_house_living_room_front", found, "state-topic", "", TDiscoveryDevice{}, nil, "", "", "", "ha2mqtt", true, "install")
+
+	wantBaseTopic := "homeassistant_instances/ha2mqtt/bridge/cover.social_house_living_room_front/command"
+	if body["command_topic"] != wantBaseTopic {
+		t.Errorf("command_topic = %v, want the shared base topic %q (open/close/stop all use it)", body["command_topic"], wantBaseTopic)
+	}
+	if body["payload_open"] != "OPEN" || body["payload_close"] != "CLOSE" || body["payload_stop"] != "STOP" {
+		t.Errorf("payload_open/close/stop = %v/%v/%v, want OPEN/CLOSE/STOP preserved", body["payload_open"], body["payload_close"], body["payload_stop"])
+	}
+	wantPositionTopic := wantBaseTopic + "/set_position"
+	if body["set_position_topic"] != wantPositionTopic {
+		t.Errorf("set_position_topic = %v, want its own dedicated topic %q, distinct from command_topic", body["set_position_topic"], wantPositionTopic)
+	}
+	if _, present := body["payload_set_position"]; present {
+		t.Errorf("body has a payload_set_position key, want none -- set_position is a ValueTrigger command with no fixed payload")
+	}
+}
+
+// TestBuildHassBridgeEntityDiscoveryBodyPositionReadsOffStateTopic is the regression test for
+// cover's own current-position READ side (2026-09-25, the counterpart to set_position's own WRITE
+// side): HasPosition must point position_topic at the SAME state_topic every other read already
+// uses (the generator already folds "position" into that one JSON payload -- buildHassBridgeStatePayload)
+// and position_template must extract it via value_json.position -- never a separate topic. Also
+// covers a REAL bug found live the same deploy: once state_topic's own payload becomes a JSON
+// blob, MQTT's cover schema does NOT auto-parse a "state" key out of it the way vacuum's schema
+// does -- without value_template extracting value_json.state, the entity's own state stuck
+// permanently on "unknown" despite position reporting correctly.
+func TestBuildHassBridgeEntityDiscoveryBodyPositionReadsOffStateTopic(t *testing.T) {
+	found := hassBridgeMatch{
+		Capability: "core",
+		DeviceID:   "utility.somfy_living_room_front",
+		THassBridgeCapability: THassBridgeCapability{
+			HasPosition: true,
+		},
+	}
+	body := buildHassBridgeEntityDiscoveryBody("stable-cover", "cover.social_house_living_room_front", found, "state-topic", "", TDiscoveryDevice{}, nil, "", "", "", "ha2mqtt", false, "install")
+
+	if body["position_topic"] != "state-topic" {
+		t.Errorf("position_topic = %v, want the SAME state_topic (\"state-topic\"), not a separate one", body["position_topic"])
+	}
+	if body["position_template"] != "{{ value_json.position }}" {
+		t.Errorf("position_template = %v, want it to extract value_json.position", body["position_template"])
+	}
+	if body["value_template"] != "{{ value_json.state }}" {
+		t.Errorf("value_template = %v, want it to extract value_json.state -- without it, cover's own state stays stuck on \"unknown\" once the payload becomes JSON-shaped", body["value_template"])
+	}
+}
+
+// TestBuildHassBridgeEntityDiscoveryBodyNoPositionOmitsFields confirms a capability with
+// HasPosition false (the overwhelming majority) gets neither field at all -- unchanged behaviour
+// for every capability declared before this feature existed.
+func TestBuildHassBridgeEntityDiscoveryBodyNoPositionOmitsFields(t *testing.T) {
+	found := hassBridgeMatch{Capability: "status", DeviceID: "appliance.washing_machine"}
+	body := buildHassBridgeEntityDiscoveryBody("stable-status", "sensor.status", found, "state-topic", "", TDiscoveryDevice{}, nil, "", "", "", "", false, "install")
+
+	if _, present := body["position_topic"]; present {
+		t.Errorf("body has a position_topic key, want none -- HasPosition is false")
+	}
+	if _, present := body["position_template"]; present {
+		t.Errorf("body has a position_template key, want none -- HasPosition is false")
+	}
+	if _, present := body["value_template"]; present {
+		t.Errorf("body has a value_template key, want none -- HasPosition is false, state_topic's own payload is still a plain atomic value")
+	}
+}

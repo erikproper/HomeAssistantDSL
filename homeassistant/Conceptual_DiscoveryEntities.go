@@ -125,7 +125,7 @@ func registerDiscoveryEntityLink(administration *TAdministrationState, decl TDis
 		return []string{fmt.Sprintf("%s: %q is a \"hidden\" capability -- it may only feed another capability's own \"derived ... from ...;\" declaration in Physical.def, not be positioned directly", provenance, decl.Leaf)}
 	}
 
-	fullName := normalizeEntityFullName(decl.EntitySpec, namingSpacePath(decl.EntitySpec, administration.SpacePath, deviceNamePath))
+	fullName := resolveDeviceEntityFullName(decl.EntitySpec, administration.SpacePath, deviceNamePath)
 	identity := extractEntityIdentity(fullName)
 	if identity.Domain == "" {
 		return []string{fmt.Sprintf("%s: could not resolve a domain from %q; skipping", provenance, decl.EntitySpec)}
@@ -170,7 +170,7 @@ func registerDiscoveryEntityLink(administration *TAdministrationState, decl TDis
 func registerDiscoveryDerivedFromRawLeafEntityLink(administration *TAdministrationState, decl TDiscoveryEntityDeclaration, capability, siblingCapability TDiscoveryCapability, deviceNamePath, entitiesPath string, lineNum int) []string {
 	provenance := fmt.Sprintf("%s:%d → %s from %s with %s", filepath.Base(entitiesPath), lineNum, decl.EntitySpec, decl.GatewayDeviceID, decl.Leaf)
 
-	fullName := normalizeEntityFullName(decl.EntitySpec, namingSpacePath(decl.EntitySpec, administration.SpacePath, deviceNamePath))
+	fullName := resolveDeviceEntityFullName(decl.EntitySpec, administration.SpacePath, deviceNamePath)
 	identity := extractEntityIdentity(fullName)
 	if identity.Domain == "" {
 		return []string{fmt.Sprintf("%s: could not resolve a domain from %q; skipping", provenance, decl.EntitySpec)}
@@ -246,7 +246,7 @@ func registerDiscoveryAvailabilityEntityLink(administration *TAdministrationStat
 		return []string{fmt.Sprintf("%s: sibling capability %q has no \"entity ... from %s with %s;\" positioning yet -- add one (any space) before referencing its availability", provenance, capability.AvailabilityOf, decl.GatewayDeviceID, capability.AvailabilityOf)}, true
 	}
 
-	fullName := normalizeEntityFullName(decl.EntitySpec, namingSpacePath(decl.EntitySpec, administration.SpacePath, deviceNamePath))
+	fullName := resolveDeviceEntityFullName(decl.EntitySpec, administration.SpacePath, deviceNamePath)
 	identity := extractEntityIdentity(fullName)
 	if identity.Domain == "" {
 		return []string{fmt.Sprintf("%s: could not resolve a domain from %q; skipping", provenance, decl.EntitySpec)}, false
@@ -271,6 +271,13 @@ func registerDiscoveryAvailabilityEntityLink(administration *TAdministrationStat
 		ConditionExpr:     expr,
 		ConditionDevClass: deviceClass,
 		EntityIcon:        icon,
+		// This is a generator-authored condition entity, never something assumed to already exist
+		// on "main" -- without this, collectMainEntityIDs (main_entities.go) wrongly sweeps it into
+		// kind-5's "assumed to exist" list, and the coordinator's existence check fails it the
+		// moment it's positioned for the first time (real bug found live 2026-09-24, node 67's own
+		// "node" capability -- the exact same class of bug already fixed 2026-09-21 for the
+		// Logical-layer sibling, registerLogicalIsAvailableCapability, just never applied here).
+		HasDefinitionOrImport: true,
 	})
 	return nil, false
 }
@@ -315,7 +322,7 @@ func registerDiscoveryDerivedEntityLink(administration *TAdministrationState, de
 		return []string{fmt.Sprintf("%s: sibling capability %q has no \"entity ... from %s with %s;\" positioning yet -- add one (any space) before deriving from it", provenance, capability.DerivedFromCapability, decl.GatewayDeviceID, capability.DerivedFromCapability)}, true
 	}
 
-	fullName := normalizeEntityFullName(decl.EntitySpec, namingSpacePath(decl.EntitySpec, administration.SpacePath, deviceNamePath))
+	fullName := resolveDeviceEntityFullName(decl.EntitySpec, administration.SpacePath, deviceNamePath)
 	identity := extractEntityIdentity(fullName)
 	if identity.Domain == "" {
 		return []string{fmt.Sprintf("%s: could not resolve a domain from %q; skipping", provenance, decl.EntitySpec)}, false
@@ -337,6 +344,9 @@ func registerDiscoveryDerivedEntityLink(administration *TAdministrationState, de
 		ConditionExpr:     expr,
 		ConditionDevClass: deviceClass,
 		EntityIcon:        icon,
+		// Same fix as registerDiscoveryAvailabilityEntityLink's own identical gap, just above --
+		// this is ALSO a generator-authored condition entity, never assumed to exist on "main".
+		HasDefinitionOrImport: true,
 	})
 	return nil, false
 }

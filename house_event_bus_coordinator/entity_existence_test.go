@@ -267,6 +267,77 @@ func TestEntityExistenceTrackerSeedCorrectsStaleRealDeviceIDAfterRename(t *testi
 	}
 }
 
+// TestEntityExistenceTrackerSeedCorrectsSiblingDeviceIDAfterRename is the regression test for the
+// real incident found live 2026-09-22 (Junglinster/Vienna Netatmo rename): the correction above
+// (TestEntityExistenceTrackerSeedCorrectsStaleRealDeviceIDAfterRename) only ever fixes entries
+// matching a DECLARED capability's own source entity -- a DiscoverSiblings-discovered, UNDECLARED
+// sibling of the SAME real device (e.g. a base station's own "extra" connectivity sensor no
+// Physical.def capability ever wraps) is invisible to that loop entirely, so it stayed stuck under
+// the device's OLD id forever after a rename. ResolveViaDevice's own second lookup then picked
+// EITHER the freshly-corrected declared entry or this stale sibling non-deterministically (a plain
+// map range over every entry sharing the same RemoteDeviceID) -- confirmed live as one capability
+// ("node") of the very same device showing the CORRECT via_device while another ("temperature")
+// showed the STALE one, purely by which entry Go's map iteration happened to hit first that call.
+func TestEntityExistenceTrackerSeedCorrectsSiblingDeviceIDAfterRename(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+
+	tracker.Seed(THassBridgeFile{Devices: map[string]THassBridgeDevice{
+		"node.vienna_bedroom": {
+			Instances: []string{"ha2mqtt"},
+			Capabilities: map[string]THassBridgeCapability{
+				"battery_level": {SourceEntities: map[string]string{"ha2mqtt": "sensor.vienna_bedroom_battery"}},
+			},
+		},
+		"node.vienna_livingroom": {
+			Instances: []string{"ha2mqtt"},
+			Capabilities: map[string]THassBridgeCapability{
+				"pressure": {SourceEntities: map[string]string{"ha2mqtt": "sensor.vienna_atmospheric_pressure"}},
+			},
+		},
+	}})
+	tracker.Record("ha2mqtt", "sensor.vienna_bedroom_battery", true, "80", "", "", "", "remote-module", "remote-base")
+	tracker.Record("ha2mqtt", "sensor.vienna_atmospheric_pressure", true, "1013", "", "", "", "remote-base", "")
+
+	// A genuinely undeclared sibling of the base station (Physical.def never wraps it as any
+	// capability -- exactly the real "binary_sensor.vienna_connectivity" case, deemed too flaky to
+	// use as node.vienna_livingroom's own node source) gets discovered and attributed to the SAME
+	// device, sharing its RemoteDeviceID.
+	tracker.DiscoverSiblings("ha2mqtt", "sensor.vienna_atmospheric_pressure", "remote-base", "vienna_livingroom", []string{"binary_sensor.vienna_connectivity"})
+
+	// The rename lands, mirroring the real one exactly.
+	tracker.Seed(THassBridgeFile{Devices: map[string]THassBridgeDevice{
+		"sensors.vienna_bedroom": {
+			Instances: []string{"ha2mqtt"},
+			Capabilities: map[string]THassBridgeCapability{
+				"battery_level": {SourceEntities: map[string]string{"ha2mqtt": "sensor.vienna_bedroom_battery"}},
+			},
+		},
+		"sensors.vienna_livingroom": {
+			Instances: []string{"ha2mqtt"},
+			Capabilities: map[string]THassBridgeCapability{
+				"pressure": {SourceEntities: map[string]string{"ha2mqtt": "sensor.vienna_atmospheric_pressure"}},
+			},
+		},
+	}})
+
+	byDevice := tracker.snapshotByDevice("ha2mqtt")
+	if _, stillStale := byDevice["node.vienna_livingroom"]; stillStale {
+		t.Errorf("undeclared sibling kept the device stuck under its stale pre-rename id: %+v", byDevice)
+	}
+	if _, found := byDevice["sensors.vienna_livingroom"]["binary_sensor.vienna_connectivity"]; !found {
+		t.Errorf("expected the sibling to follow its device to the new id, got %+v", byDevice)
+	}
+
+	// The real end-to-end proof, run several times: ResolveViaDevice must return the SAME, correct
+	// target on every call, not flip depending on map iteration order.
+	for i := 0; i < 20; i++ {
+		target, ok := tracker.ResolveViaDevice("ha2mqtt", "sensors.vienna_bedroom", []string{"sensor.vienna_bedroom_battery"})
+		if !ok || target != "sensors.vienna_livingroom" {
+			t.Fatalf("ResolveViaDevice(sensors.vienna_bedroom) call #%d = (%q, %v), want (\"sensors.vienna_livingroom\", true)", i, target, ok)
+		}
+	}
+}
+
 func TestIsWellFormedEntityID(t *testing.T) {
 	cases := []struct {
 		id   string

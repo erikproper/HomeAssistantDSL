@@ -142,6 +142,7 @@ func inferredDiscoveryIdentifier(deviceID string) string {
 // matching collectHostsDevicesByID's policy.
 func collectDiscoveryGatewaysByID(definitionDir string) (map[string]TDiscoveryGatewayDevice, []string) {
 	physicalContent, mergedLineNos, warnings := collectLayerContent(definitionDir, []string{"Physical.def"}, LayerPhysical)
+	physicalContent = resolveDerivedConditionOneLiners(physicalContent)
 	var jinjaWarnings []string
 	physicalContent, jinjaWarnings = resolveJinjaTemplateCallsInDerivedLines(physicalContent, loadJinjaTemplateDefinitions(definitionDir))
 	warnings = append(warnings, jinjaWarnings...)

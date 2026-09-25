@@ -145,7 +145,7 @@ func fetchDiscoveryExistenceAggregate(definitionDir string, ctx TPhysicalGenerat
 		}
 		return nil, err
 	}
-	fmt.Printf("[physical] discovery existence: live fetch failed (%v), using cached copy from %s\n", fetchErr, cachePath)
+	printOfflineCacheNoticeOnce()
 	if ctx.DiscoveryExistenceAggregate != nil {
 		*ctx.DiscoveryExistenceAggregate = tDiscoveryExistenceFetchResult{fetched: true, status: cachedStatus}
 	}
@@ -156,11 +156,10 @@ func fetchDiscoveryExistenceAggregate(definitionDir string, ctx TPhysicalGenerat
 // (when declared), falling back to the local broker -- matches every other fetchXPreferringCloud
 // function's own policy exactly.
 func fetchDiscoveryExistenceAggregatePreferringCloud(ctx TPhysicalGenerationContext) (TDiscoveryExistenceAggregatePayload, error) {
+	// Cloud failure here is silent -- see printOfflineCacheNoticeOnce's own doc comment.
 	if cloudSecrets, ok := coordinatorOnlyBrokerSecrets(ctx); ok {
 		if status, err := fetchDiscoveryExistenceAggregateFromBroker(cloudSecrets, ctx.Installation); err == nil {
 			return status, nil
-		} else {
-			fmt.Printf("[physical] discovery existence: cloud broker attempt failed (%v), trying local\n", err)
 		}
 	}
 	return fetchDiscoveryExistenceAggregateFromBroker(ctx.MQTTSecrets, "")

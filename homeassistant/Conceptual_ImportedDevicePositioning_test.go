@@ -19,7 +19,8 @@ import (
 // form produced.
 func TestImportedDevicePositioningEndToEnd(t *testing.T) {
 	const miniDSL = `space social:shower_room with:
-  device infrastructural:netatmo from hass.vienna_shower_room with:
+  device hass.vienna_shower_room as netatmo with:
+    entity binary_sensor.infrastructural:node from node;
     entity sensor.physical:temperature from temperature;
     entity sensor.physical:co2         from co2;
   end;
@@ -37,7 +38,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, importedDevicesByID, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, importedDevicesByID, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -74,7 +75,8 @@ end;`
 // falls through to its real physical-kind branch, exactly as if it had no Logical.def entry.
 func TestImportedDevicePositioningStillAutoRegistersNodeWhenLogicalDependencyOnlyShares(t *testing.T) {
 	const miniDSL = `space social:shower_room with:
-  device infrastructural:netatmo from hass.vienna_shower_room with:
+  device hass.vienna_shower_room as netatmo with:
+    entity binary_sensor.infrastructural:node from node;
     entity sensor.physical:temperature from temperature;
   end;
 end;`
@@ -93,7 +95,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, importedDevicesByID, nil, logicalDevicesByID, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, importedDevicesByID, nil, nil, logicalDevicesByID, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -118,7 +120,7 @@ end;`
 func TestImportedDevicePositioningInheritsEnclosingAreaFromNestedSpace(t *testing.T) {
 	const miniDSL = `space social:terrace as area with:
   space social:front with:
-    device infrastructural:netatmo from hass.vienna_shower_room with:
+    device hass.vienna_shower_room as netatmo with:
       entity sensor.physical:temperature from temperature;
     end;
   end;
@@ -135,7 +137,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, importedDevicesByID, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, importedDevicesByID, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -185,7 +187,7 @@ func TestRegisterDeviceCapabilityEntityLinkWarnsOnUndeclaredImportedCapability(t
 	}
 	decl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.physical:netatmo/pressure", DeviceID: "hass.vienna_shower_room", Capability: "pressure"}
 
-	warnings, deferred := registerDeviceCapabilityEntityLink(administration, decl, nil, nil, importedDevicesByID, nil, nil, nil, "test.def", 1, true, "")
+	warnings, deferred := registerDeviceCapabilityEntityLink(administration, decl, nil, nil, importedDevicesByID, nil, nil, nil, nil, "test.def", 1, true, "", false)
 	if deferred {
 		t.Fatalf("expected deferred=false")
 	}
@@ -194,9 +196,14 @@ func TestRegisterDeviceCapabilityEntityLinkWarnsOnUndeclaredImportedCapability(t
 	}
 }
 
-// TestRegisterImportedDevicePositioningWarnsWhenNoNodeCapabilityDeclared mirrors the native
-// hassbridge test of the same shape (Conceptual_DevicePositioning_test.go) for the import path.
-func TestRegisterImportedDevicePositioningWarnsWhenNoNodeCapabilityDeclared(t *testing.T) {
+// TestRegisterImportedDevicePositioningSucceedsWithoutNodeCapability is the 2026-09-24 replacement
+// for the old TestRegisterImportedDevicePositioningWarnsWhenNoNodeCapabilityDeclared: positioning
+// itself no longer touches "node" at all for any kind (Conceptual_DevicePositioning.go's own header
+// comment), so a device that never declares one positions cleanly with zero warnings -- the
+// "declares no \"node\" capability" check now only fires from an explicit "entity ...
+// binary_sensor....node;" reference, via registerDeviceCapabilityEntityLink's ordinary
+// "declares no %q capability" path (Conceptual_DeviceCapabilityEntities.go), exercised below.
+func TestRegisterImportedDevicePositioningSucceedsWithoutNodeCapability(t *testing.T) {
 	administration := newAdministrationState()
 	importedDevicesByID := map[string]TImportedDevice{
 		"hass.no_node": {
@@ -206,17 +213,25 @@ func TestRegisterImportedDevicePositioningWarnsWhenNoNodeCapabilityDeclared(t *t
 			},
 		},
 	}
-	decl := TDevicePositioningDeclaration{Spec: "infrastructural:no_node", DeviceID: "hass.no_node"}
+	decl := TDevicePositioningDeclaration{Spec: "no_node", DeviceID: "hass.no_node"}
 
-	warnings, _ := registerDevicePositioning(administration, decl, nil, nil, nil, importedDevicesByID, nil, nil, "test.def", 1)
-	if len(warnings) != 1 {
-		t.Fatalf("got %d warnings, want 1: %v", len(warnings), warnings)
-	}
-	if !strings.Contains(warnings[0], "hass.no_node") || !strings.Contains(warnings[0], "declares no \"node\" capability") {
-		t.Errorf("warning = %q, want it to name the device and explain the missing \"node\" capability", warnings[0])
+	warnings := registerDevicePositioning(administration, decl, nil, nil, nil, importedDevicesByID, nil, nil, nil, "test.def", 1)
+	if len(warnings) != 0 {
+		t.Fatalf("got %d warnings, want 0 (positioning no longer requires or checks for \"node\"): %v", len(warnings), warnings)
 	}
 	if _, ok := administration.DeviceConceptualLinks["hass.no_node"]; !ok {
-		t.Errorf("expected DeviceConceptualLinks[hass.no_node] to still be populated despite the missing node capability")
+		t.Errorf("expected DeviceConceptualLinks[hass.no_node] to be populated")
+	}
+
+	// Explicitly referencing "node" on this same device (which never declared one) still warns --
+	// just from the ordinary capability-dispatch path now, not positioning.
+	capDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:no_node/node", DeviceID: "hass.no_node", Capability: "node"}
+	capWarnings, deferred := registerDeviceCapabilityEntityLink(administration, capDecl, nil, nil, importedDevicesByID, nil, nil, nil, nil, "test.def", 2, true, "", false)
+	if deferred {
+		t.Fatalf("expected deferred=false")
+	}
+	if len(capWarnings) != 1 || !strings.Contains(capWarnings[0], "declares no \"node\" capability") {
+		t.Errorf("capWarnings = %v, want exactly one warning naming the missing \"node\" capability", capWarnings)
 	}
 }
 

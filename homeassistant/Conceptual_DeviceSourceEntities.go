@@ -138,7 +138,7 @@ func registerDeviceSourceEntityLink(administration *TAdministrationState, decl T
 		return []string{fmt.Sprintf("%s: device %q has no \"device.<spec> from %s with: ...;\" positioning yet -- add one (any space) before referencing one of its entities directly", provenance, decl.DeviceID, decl.DeviceID)}, true
 	}
 
-	fullName := normalizeEntityFullName(decl.LocalSpec, namingSpacePath(decl.LocalSpec, administration.SpacePath, deviceNamePath))
+	fullName := resolveDeviceEntityFullName(decl.LocalSpec, administration.SpacePath, deviceNamePath)
 	identity := extractEntityIdentity(fullName)
 	if identity.Domain == "" {
 		return []string{fmt.Sprintf("%s: could not resolve a domain from %q; skipping", provenance, decl.LocalSpec)}, false
@@ -276,7 +276,7 @@ func registerImportedDeviceSourceEntityLink(administration *TAdministrationState
 		return []string{fmt.Sprintf("%s: device %q has no \"device.<spec> from %s with: ...;\" positioning yet -- add one (any space) before referencing one of its entities directly", provenance, decl.DeviceID, decl.DeviceID)}, true
 	}
 
-	fullName := normalizeEntityFullName(decl.LocalSpec, namingSpacePath(decl.LocalSpec, administration.SpacePath, deviceNamePath))
+	fullName := resolveDeviceEntityFullName(decl.LocalSpec, administration.SpacePath, deviceNamePath)
 	identity := extractEntityIdentity(fullName)
 	if identity.Domain == "" {
 		return []string{fmt.Sprintf("%s: could not resolve a domain from %q; skipping", provenance, decl.LocalSpec)}, false

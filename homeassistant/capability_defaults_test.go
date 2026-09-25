@@ -37,6 +37,47 @@ end;
 	}
 }
 
+// TestCollectCapabilityDefaultsResolvesSettingsDefReference is a regression test for a real gap
+// found live 2026-09-24 (Junglinster's "for binary_sensor.*/reservoir/warning: icon:
+// "${water_icon}";"): a "defaults: ... end;" rule's quoted unit/icon/device_class/state_class
+// value never resolved a "${var}" Settings.def reference at all -- every other quoted field
+// elsewhere in this DSL that can hold one (mqtt profile fields, discovery passthrough prefixes,
+// ...) does, via resolveDefinitionReference; this parser just never threaded a vars map through to
+// do the same, not a deliberate design choice. ${water_icon} silently stayed the literal string
+// "${water_icon}" instead of resolving to its real value. Also confirms an ordinary literal value
+// (no "${...}" at all -- every pre-existing Defaults.def rule) still passes through unchanged.
+func TestCollectCapabilityDefaultsResolvesSettingsDefReference(t *testing.T) {
+	definitionDir := writePhysicalDef(t, `physical layer with:
+  defaults:
+    for binary_sensor.reservoir/warning:
+      icon: "${water_icon}";
+    end;
+
+    for binary_sensor.door:
+      icon: "mdi:door-open";
+    end;
+  end;
+end;
+`)
+	if err := os.WriteFile(filepath.Join(definitionDir, "Settings.def"), []byte(`${water_icon} = "mdi:water-off";`), 0o644); err != nil {
+		t.Fatalf("failed to write Settings.def: %v", err)
+	}
+
+	rules, warnings := collectCapabilityDefaults(definitionDir, t.TempDir())
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(rules) != 2 {
+		t.Fatalf("got %d rules, want 2: %v", len(rules), rules)
+	}
+	if rules[0].Icon != "mdi:water-off" {
+		t.Errorf("rule[0].Icon = %q, want the Settings.def-resolved \"mdi:water-off\" (was staying the literal \"${water_icon}\" before the fix)", rules[0].Icon)
+	}
+	if rules[1].Icon != "mdi:door-open" {
+		t.Errorf("rule[1].Icon = %q, want the literal \"mdi:door-open\" unchanged (no \"${...}\" reference to resolve)", rules[1].Icon)
+	}
+}
+
 // TestCollectCapabilityDefaultsForLineWithMultipleTargets is a regression test for a real bug:
 // a "for" line naming several space-separated "<domain>.<pattern>" targets (to share one body
 // instead of repeating it) previously didn't match capabilityDefaultsForPattern at all -- the
@@ -186,13 +227,19 @@ func TestRegisterHassBridgeAttributeEntityUsesCapabilityDefaultsRules(t *testing
 		}},
 	}
 
-	positioningDecl := TDevicePositioningDeclaration{Spec: "infrastructural:junglinster", DeviceID: "host.junglinster"}
-	if warnings, _ := registerDevicePositioning(admin, positioningDecl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, "Spaces.def", 1); len(warnings) != 0 {
+	positioningDecl := TDevicePositioningDeclaration{Spec: "junglinster", DeviceID: "host.junglinster"}
+	if warnings := registerDevicePositioning(admin, positioningDecl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, "Spaces.def", 1); len(warnings) != 0 {
 		t.Fatalf("unexpected warnings positioning the fixture device: %v", warnings)
 	}
 	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:junglinster/cpu/load", DeviceID: "host.junglinster", Capability: "cpu/load"}
-	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, "Spaces.def", 1, true, ""); len(warnings) != 0 || deferred {
+	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil, "Spaces.def", 1, true, "", false); len(warnings) != 0 || deferred {
 		t.Fatalf("unexpected warnings/deferred: warnings=%v deferred=%v", warnings, deferred)
+	}
+	// 2026-09-24: "node" is no longer auto-registered at positioning time for any kind -- an
+	// ordinary explicit capability reference, exactly like "cpu/load" above.
+	nodeDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:junglinster/node", DeviceID: "host.junglinster", Capability: "node"}
+	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, nodeDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil, "Spaces.def", 1, true, "", false); len(warnings) != 0 || deferred {
+		t.Fatalf("unexpected warnings/deferred registering node: warnings=%v deferred=%v", warnings, deferred)
 	}
 
 	link := admin.DeviceConceptualLinks["host.junglinster"]

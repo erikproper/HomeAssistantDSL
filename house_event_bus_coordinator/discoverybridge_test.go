@@ -143,7 +143,7 @@ func TestBuildRelayedDiscoveryConfig(t *testing.T) {
 	}
 	raw := rawPayloadFixture(t, realEMSESPBoilerOutdoortempPayload)
 
-	topic, body, ok := buildRelayedDiscoveryConfig("sensor.social_garage_door_temperature", "discovery.ems_esp", raw, payload, TDiscoveryEntityLink{}, testPrefix, "test")
+	topic, body, ok := buildRelayedDiscoveryConfig("sensor.social_garage_door_temperature", "discovery.ems_esp", raw, payload, TDiscoveryEntityLink{}, testPrefix, "test", "sensor")
 	if !ok {
 		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
 	}
@@ -231,7 +231,7 @@ func TestBuildRelayedDiscoveryConfigAppliesValueTemplateWrap(t *testing.T) {
 	}
 	link := TDiscoveryEntityLink{ValueTemplateWrap: "($ | float(0)) + 20"}
 
-	_, body, ok := buildRelayedDiscoveryConfig("sensor.physical_apartment_hallway_door_aqara_multi_pressure", "discovery.hallway_door_aqara_multi", raw, payload, link, testPrefix, "test")
+	_, body, ok := buildRelayedDiscoveryConfig("sensor.physical_apartment_hallway_door_aqara_multi_pressure", "discovery.hallway_door_aqara_multi", raw, payload, link, testPrefix, "test", "sensor")
 	if !ok {
 		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
 	}
@@ -241,6 +241,14 @@ func TestBuildRelayedDiscoveryConfigAppliesValueTemplateWrap(t *testing.T) {
 	}
 	if body["state_value_template"] != want {
 		t.Errorf("state_value_template = %v, want %q", body["state_value_template"], want)
+	}
+	// payload_on/payload_off are a binary_sensor-only MQTT schema concept -- a wrapped sensor
+	// relay (this test) must never carry them.
+	if _, present := body["payload_on"]; present {
+		t.Errorf("payload_on = %v, want absent -- this is a sensor-domain relay, not binary_sensor", body["payload_on"])
+	}
+	if _, present := body["payload_off"]; present {
+		t.Errorf("payload_off = %v, want absent -- this is a sensor-domain relay, not binary_sensor", body["payload_off"])
 	}
 }
 
@@ -274,7 +282,7 @@ func TestBuildRelayedDiscoveryConfigDefaultsGapFillOnly(t *testing.T) {
 		Icon:        "mdi:thermometer",
 	}
 
-	_, body, ok := buildRelayedDiscoveryConfig("sensor.social_garage_door_temperature", "discovery.ems_esp", raw, payload, link, testPrefix, "test")
+	_, body, ok := buildRelayedDiscoveryConfig("sensor.social_garage_door_temperature", "discovery.ems_esp", raw, payload, link, testPrefix, "test", "sensor")
 	if !ok {
 		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
 	}
@@ -292,6 +300,64 @@ func TestBuildRelayedDiscoveryConfigDefaultsGapFillOnly(t *testing.T) {
 	}
 }
 
+// TestBuildRelayedDiscoveryConfigStripsSensorOnlyFieldsOnDomainMismatch is the regression test for
+// TWO real bugs found live 2026-09-25 (Junglinster's furnace "consumes" binary_sensor -- the first
+// real use of a "hidden" raw sensor leaf relayed, via a value_template wrap, into a binary_sensor-
+// domain "derived" capability):
+//  1. Zigbee2MQTT's own native discovery for the raw power leaf gives it device_class "power"/unit
+//     "W"/state_class "measurement" -- wholesale-copied across the domain change (sensor -> binary_
+//     sensor) in TWO independent places (the rawPayload->body map copy, and payload's own decoded
+//     DeviceClass/Unit/StateClass fields, both parsed from the same raw JSON) -- unit_of_measurement/
+//     state_class aren't even valid MQTT binary_sensor schema fields, and left the entity's own
+//     registry entry permanently unavailable.
+//  2. Once available, the entity still showed "unknown" forever: every on/off jinja macro/formula
+//     this codebase writes (${int_more_then}/${int_less_then}, or a hand-written "'on' if ... else
+//     'off'") renders lowercase "on"/"off" -- correct for HA's lenient TEMPLATE platform, but MQTT's
+//     binary_sensor schema does an exact, case-sensitive match against payload_on/payload_off, which
+//     default to "ON"/"OFF" (uppercase) when unset (as they always were for a wrapped relay before
+//     this fix) -- messages arrived and rendered fine, HA just had nothing to recognise as a state.
+//
+// Same-domain, unwrapped relays (every other test in this file) must keep working unchanged.
+func TestBuildRelayedDiscoveryConfigStripsSensorOnlyFieldsOnDomainMismatch(t *testing.T) {
+	raw := map[string]interface{}{
+		"unique_id":           "0xa4c1386da42c223a_power_b_zigbee2mqtt",
+		"state_topic":         "zigbee2mqtt/house/laundry_kitchen/heating/power_meter",
+		"value_template":      `{{ value_json["power_b"] }}`,
+		"device_class":        "power",
+		"unit_of_measurement": "W",
+		"state_class":         "measurement",
+	}
+	payload := tDecodedDiscoveryPayload{
+		UniqueID:      "0xa4c1386da42c223a_power_b_zigbee2mqtt",
+		StateTopic:    "zigbee2mqtt/house/laundry_kitchen/heating/power_meter",
+		ValueTemplate: `{{ value_json["power_b"] }}`,
+		DeviceClass:   "power",
+		Unit:          "W",
+		StateClass:    "measurement",
+	}
+	link := TDiscoveryEntityLink{ValueTemplateWrap: "'on' if (($ | int(0)) > 50) else 'off'"}
+
+	_, body, ok := buildRelayedDiscoveryConfig("binary_sensor.social_house_kitchen_workplace_furnace_consumes", "sensors.house_heating_power_meter", raw, payload, link, testPrefix, "test", "sensor")
+	if !ok {
+		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
+	}
+	if _, present := body["device_class"]; present {
+		t.Errorf("device_class = %v, want it stripped -- \"power\" is a sensor-domain reading, not this binary_sensor's own device class", body["device_class"])
+	}
+	if _, present := body["unit_of_measurement"]; present {
+		t.Errorf("unit_of_measurement = %v, want it stripped -- not a valid MQTT binary_sensor schema field at all", body["unit_of_measurement"])
+	}
+	if _, present := body["state_class"]; present {
+		t.Errorf("state_class = %v, want it stripped -- not a valid MQTT binary_sensor schema field at all", body["state_class"])
+	}
+	if body["payload_on"] != "on" {
+		t.Errorf("payload_on = %v, want \"on\" -- must match what the wrap's own jinja formula actually renders, not MQTT's uppercase \"ON\" default", body["payload_on"])
+	}
+	if body["payload_off"] != "off" {
+		t.Errorf("payload_off = %v, want \"off\" -- must match what the wrap's own jinja formula actually renders, not MQTT's uppercase \"OFF\" default", body["payload_off"])
+	}
+}
+
 // realZigbee2MQTTVidjaLeft1Payload is a real Zigbee2MQTT light discovery payload (captured live,
 // this session, Vienna's "vidja/left/1" IKEA bulb) -- used to prove buildRelayedDiscoveryConfig
 // preserves everything a real controllable light needs (command_topic, brightness,
@@ -306,7 +372,7 @@ func TestBuildRelayedDiscoveryConfigPreservesLightCapabilities(t *testing.T) {
 	}
 	raw := rawPayloadFixture(t, realZigbee2MQTTVidjaLeft1Payload)
 
-	_, body, ok := buildRelayedDiscoveryConfig("light.physical_apartment_living_room_vidja_left_1", "discovery.vidja_left_1", raw, payload, TDiscoveryEntityLink{}, testPrefix, "test")
+	_, body, ok := buildRelayedDiscoveryConfig("light.physical_apartment_living_room_vidja_left_1", "discovery.vidja_left_1", raw, payload, TDiscoveryEntityLink{}, testPrefix, "test", "light")
 	if !ok {
 		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
 	}
@@ -350,7 +416,7 @@ func TestBuildRelayedDiscoveryConfigPreservesLightCapabilities(t *testing.T) {
 }
 
 func TestBuildRelayedDiscoveryConfigFailsWithoutUniqueID(t *testing.T) {
-	_, _, ok := buildRelayedDiscoveryConfig("sensor.social_garage_door_temperature", "discovery.ems_esp", nil, tDecodedDiscoveryPayload{}, TDiscoveryEntityLink{}, testPrefix, "test")
+	_, _, ok := buildRelayedDiscoveryConfig("sensor.social_garage_door_temperature", "discovery.ems_esp", nil, tDecodedDiscoveryPayload{}, TDiscoveryEntityLink{}, testPrefix, "test", "sensor")
 	if ok {
 		t.Errorf("expected failure when the decoded payload has no unique_id")
 	}
@@ -376,7 +442,7 @@ func TestBuildRelayedDiscoveryConfigSucceedsWithoutStateTopic(t *testing.T) {
 	}
 	raw := rawPayloadFixture(t, climatePayload)
 
-	topic, body, ok := buildRelayedDiscoveryConfig("climate.physical_apartment_living_room_bitron_thermostat", "discovery.living_room_bitron_thermostat", raw, payload, TDiscoveryEntityLink{}, testPrefix, "test")
+	topic, body, ok := buildRelayedDiscoveryConfig("climate.physical_apartment_living_room_bitron_thermostat", "discovery.living_room_bitron_thermostat", raw, payload, TDiscoveryEntityLink{}, testPrefix, "test", "climate")
 	if !ok {
 		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed for a payload with no state_topic")
 	}
@@ -634,10 +700,11 @@ func TestSubscribeDiscoveryBridgePassthroughSurvivesRetireMissing(t *testing.T) 
 
 	// Simulate the next coordinator restart: an empty expected set, exactly as it would be for a
 	// house with no declared gateways at all yet.
-	retired := publisher.RetireMissing(client, "main", map[string]bool{})
+	retired := publisher.RetireMissing(client, "main", map[string]bool{}, jobs)
 	if len(retired) != 0 {
 		t.Errorf("RetireMissing retired %v, want nothing -- passthrough-relayed topics must survive", retired)
 	}
+	drainDiscoveryRelayQueue(jobs, publisher)
 }
 
 // TestSubscribeDiscoveryBridgeDoesNotPassThroughNonMatchingPrefix confirms a device that matches

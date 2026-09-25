@@ -296,6 +296,13 @@ type TDiscoveryPublisher struct {
 	manifestPath string
 	known        map[string]string
 	passthrough  map[string]bool // manifestKey-keyed subset of known; see RetireMissing
+	// persistMu/persistTimer debounce the actual disk write -- see schedulePersist's own doc
+	// comment. Deliberately a SEPARATE mutex from mu: every call site that decides a persist is
+	// needed already holds mu at that point (Publish/RetireOne), and schedulePersist's own timer
+	// callback needs to acquire mu itself later, so schedulePersist must never require mu to
+	// already be free.
+	persistMu    sync.Mutex
+	persistTimer *time.Timer
 }
 
 // newDiscoveryPublisher loads manifestPath (loadManifest -- never fails, missing/incompatible
@@ -334,9 +341,7 @@ func (p *TDiscoveryPublisher) Publish(client mqtt.Client, broker, topic string, 
 		return err
 	}
 	p.known[key] = content
-	if err := p.persist(); err != nil {
-		fmt.Printf("[discovery-cleanup] persisting manifest: %v\n", err)
-	}
+	p.schedulePersist()
 	return nil
 }
 
@@ -355,7 +360,19 @@ func (p *TDiscoveryPublisher) Publish(client mqtt.Client, broker, topic string, 
 // topic lifecycle is already fully handled elsewhere (discoverybridge.go retires its own copy the
 // instant a device migrates or is retracted upstream) -- this blanket startup sweep has no business
 // touching it at all.
-func (p *TDiscoveryPublisher) RetireMissing(client mqtt.Client, broker string, expected map[string]bool) []string {
+//
+// jobs: each actual retirement (network publish + manifest delete + persist, all three -- see
+// RetireOne) is enqueued onto the same throttled discoveryRelayJobs queue as everywhere else, never
+// performed synchronously in this loop -- real incident, 2026-09-22 (Junglinster): a large enough
+// rename backlog (Physical.def/Conceptual.def renames accumulated over this session) left over a
+// thousand topics genuinely stale at once, and this loop's own synchronous per-topic publish+ack,
+// still held under p.mu the whole time, took long enough on its own to starve a LATER, unrelated
+// client.Subscribe call of its own SUBACK -- the same disease as watchForOrphanedDiscoveryTopics'
+// own doc comment describes, just via this blanket startup sweep instead of the broker-driven
+// watcher. Returns the same retired list as before (still computed synchronously, just from
+// p.known/expected -- cheap, in-memory), so callers/tests logging or counting it see no difference;
+// only the network + disk side effects move later.
+func (p *TDiscoveryPublisher) RetireMissing(client mqtt.Client, broker string, expected map[string]bool, jobs chan<- TDiscoveryRelayJob) []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -373,15 +390,9 @@ func (p *TDiscoveryPublisher) RetireMissing(client mqtt.Client, broker string, e
 			continue
 		}
 		retired = append(retired, topic)
-		retireDiscoveryTopic(client, topic)
-		delete(p.known, key)
+		enqueueDiscoveryRelayJob(jobs, TDiscoveryRelayJob{Action: discoveryRelayRetire, Client: client, Broker: broker, Topic: topic})
 	}
 	sort.Strings(retired)
-	if len(retired) > 0 {
-		if err := p.persist(); err != nil {
-			fmt.Printf("[discovery-cleanup] persisting manifest: %v\n", err)
-		}
-	}
 	return retired
 }
 
@@ -396,9 +407,7 @@ func (p *TDiscoveryPublisher) PublishPassthrough(client mqtt.Client, broker, top
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.passthrough[manifestKey(broker, topic)] = true
-	if err := p.persist(); err != nil {
-		fmt.Printf("[discovery-cleanup] persisting manifest: %v\n", err)
-	}
+	p.schedulePersist()
 	return nil
 }
 
@@ -432,9 +441,46 @@ func (p *TDiscoveryPublisher) RetireOne(client mqtt.Client, broker, topic string
 	key := manifestKey(broker, topic)
 	delete(p.known, key)
 	delete(p.passthrough, key)
-	if err := p.persist(); err != nil {
-		fmt.Printf("[discovery-cleanup] persisting manifest: %v\n", err)
+	p.schedulePersist()
+}
+
+// discoveryManifestPersistDebounceDelay is how long schedulePersist waits after the LAST call
+// before actually writing the manifest to disk. Short (unlike the 30s MQTT-status debounces
+// elsewhere in this codebase) since this has no external visibility deadline of its own -- just
+// long enough to coalesce a startup burst of many individual RetireOne/Publish calls (e.g.
+// RetireMissing's own sweep, now routed one topic at a time through discoveryRelayJobs) into a
+// handful of writes instead of one full remarshal-and-write per topic.
+const discoveryManifestPersistDebounceDelay = 500 * time.Millisecond
+
+// schedulePersist debounces persist() by discoveryManifestPersistDebounceDelay -- real incident,
+// 2026-09-22 (Junglinster): a CPU profile taken during the coordinator's own startup crash loop
+// showed json.MarshalIndent (persist's own call, marshalling the WHOLE known+passthrough manifest
+// every time) as the dominant cost, because RetireOne's persist() used to run synchronously on
+// EVERY one of a startup sweep's ~1000+ individual retirements -- the exact same "one full
+// remarshal per single small change" disease TPassthroughDeviceTracker.SchedulePersist (this same
+// session, discovery_passthrough_devices.go) already diagnosed and fixed for its own state, just
+// not yet applied here. Moving those retirements off the paho dispatch goroutine (discoveryRelayJobs)
+// stopped them from directly starving a later Subscribe's own SUBACK, but the sheer CPU cost of
+// ~1000 full-manifest remarshals in a tight loop was enough on its own to starve the whole
+// process's other goroutines under Go's scheduler -- this is what actually fixes it. Uses its own
+// persistMu (see the struct's own doc comment for why), safe to call while already holding mu.
+func (p *TDiscoveryPublisher) schedulePersist() {
+	p.persistMu.Lock()
+	defer p.persistMu.Unlock()
+	if p.persistTimer != nil {
+		p.persistTimer.Reset(discoveryManifestPersistDebounceDelay)
+		return
 	}
+	p.persistTimer = time.AfterFunc(discoveryManifestPersistDebounceDelay, func() {
+		p.persistMu.Lock()
+		p.persistTimer = nil
+		p.persistMu.Unlock()
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if err := p.persist(); err != nil {
+			fmt.Printf("[discovery-cleanup] persisting manifest: %v\n", err)
+		}
+	})
 }
 
 func (p *TDiscoveryPublisher) persist() error {
@@ -483,7 +529,18 @@ func (p *TDiscoveryPublisher) persist() error {
 // restriction -- since by definition there's no legitimate content that could ever belong there;
 // re-swept for the life of the process (harmless against an already-empty topic) rather than
 // tracked as "already done", so it self-heals if a lingering old publisher ever republishes.
-func watchForOrphanedDiscoveryTopics(client mqtt.Client, publisher *TDiscoveryPublisher, broker string, expectedTopics map[string]bool, expectedPayloads map[string]string, declaredCleanNodeIDs map[string]bool, prefix string) error {
+//
+// jobs: retirements are enqueued onto the same throttled discoveryRelayJobs queue discoverybridge.go's
+// own relay handler uses (discovery_relay_queue.go), never called synchronously here -- real
+// incident, 2026-09-22 (Junglinster): a large rename backlog (many topics at once genuinely
+// stale after Physical.def/Conceptual.def renames) meant this handler's own retired-topic burst,
+// each a synchronous publish/persist round trip, ran on the paho client's single message-dispatch
+// goroutine right as the startup retained-message replay arrived -- starving a LATER, unrelated
+// client.Subscribe call (subscribeHassBridgeDeviceInfo/subscribeExistenceReply) of its own SUBACK
+// within its own 10s timeout and crash-looping the coordinator, the exact same disease
+// discoveryRelayJobs' own doc comment (discovery_relay_queue.go) already diagnosed and fixed for
+// discoverybridge.go's handler on 2026-09-14 -- this handler just wasn't covered by that fix.
+func watchForOrphanedDiscoveryTopics(client mqtt.Client, publisher *TDiscoveryPublisher, broker string, expectedTopics map[string]bool, expectedPayloads map[string]string, declaredCleanNodeIDs map[string]bool, prefix string, jobs chan<- TDiscoveryRelayJob) error {
 	var mu sync.Mutex
 	seen := map[string]bool{}
 	checkingContent := true
@@ -526,7 +583,7 @@ func watchForOrphanedDiscoveryTopics(client mqtt.Client, publisher *TDiscoveryPu
 		mu.Lock()
 		seen[topic] = true
 		mu.Unlock()
-		publisher.RetireOne(client, broker, topic)
+		enqueueDiscoveryRelayJob(jobs, TDiscoveryRelayJob{Action: discoveryRelayRetire, Client: client, Broker: broker, Topic: topic})
 	}
 
 	filter := prefix + "/+/+/+/config"

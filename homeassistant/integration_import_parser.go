@@ -189,6 +189,7 @@ func collectImportedDevices(blocks []TIntegrationBlock) ([]TImportedDevice, []st
 // coordinator/imported.yaml generation) fully independent.
 func collectImportedDevicesByID(definitionDir string) (map[string]TImportedDevice, []string) {
 	physicalContent, mergedLineNos, warnings := collectLayerContent(definitionDir, []string{"Physical.def"}, LayerPhysical)
+	physicalContent = resolveDerivedConditionOneLiners(physicalContent)
 	blocks, blockWarnings := parseIntegrationBlocks(physicalContent, mergedLineNos)
 	warnings = append(warnings, blockWarnings...)
 

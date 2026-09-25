@@ -64,11 +64,20 @@ func collectCapabilityDefaults(definitionDir, sharedDefinitionDir string) ([]TCa
 	var rules []TCapabilityDefaultRule
 	var warnings []string
 
+	// vars enables "${name}" string substitution (Settings.def) inside a "defaults: ... end;"
+	// rule's own quoted unit/icon/device_class/state_class values -- real gap found live
+	// 2026-09-24 (Junglinster's "for binary_sensor.*/reservoir/warning: icon: "${water_icon}";")):
+	// every other quoted field in this DSL that can hold a "${var}" reference (mqtt profile
+	// fields, discovery passthrough prefixes, ...) resolves it via resolveDefinitionReference;
+	// this parser simply never threaded a vars map through to do the same, not a deliberate
+	// design choice -- ${water_icon} was silently kept as a literal, un-substituted string.
+	vars := parseDefinitionAssignments(readCombinedSettingsContent(definitionDir))
+
 	collect := func(content, sourceFile string) {
 		blocks, blockWarnings := scanGroupClauseBlocks(splitLines(content), sourceFile, capabilityDefaultsHeaderPattern)
 		warnings = append(warnings, blockWarnings...)
 		for _, block := range blocks {
-			blockRules, bodyWarnings := parseCapabilityDefaultsBody(block.BodyLines)
+			blockRules, bodyWarnings := parseCapabilityDefaultsBody(block.BodyLines, vars)
 			rules = append(rules, blockRules...)
 			warnings = append(warnings, bodyWarnings...)
 		}
@@ -79,6 +88,7 @@ func collectCapabilityDefaults(definitionDir, sharedDefinitionDir string) ([]TCa
 	}
 
 	physicalContent, _, physicalWarnings := collectLayerContent(definitionDir, []string{"Physical.def"}, LayerPhysical)
+	physicalContent = resolveDerivedConditionOneLiners(physicalContent)
 	warnings = append(warnings, physicalWarnings...)
 	collect(physicalContent, "Physical.def")
 
@@ -87,7 +97,7 @@ func collectCapabilityDefaults(definitionDir, sharedDefinitionDir string) ([]TCa
 
 // parseCapabilityDefaultsBody parses one "defaults: ... end;" block's body lines into rules.
 // Lines that don't parse cleanly are reported as warnings rather than aborting the parse.
-func parseCapabilityDefaultsBody(bodyLines []string) ([]TCapabilityDefaultRule, []string) {
+func parseCapabilityDefaultsBody(bodyLines []string, vars map[string]string) ([]TCapabilityDefaultRule, []string) {
 	var rules []TCapabilityDefaultRule
 	var warnings []string
 
@@ -120,15 +130,16 @@ func parseCapabilityDefaultsBody(bodyLines []string) ([]TCapabilityDefaultRule, 
 				continue
 			}
 			if matches := capabilityDefaultsMetadataPattern.FindStringSubmatch(line); matches != nil {
+				value := resolveDefinitionReference(matches[2], vars)
 				switch matches[1] {
 				case "unit":
-					currentMetadata.Unit = matches[2]
+					currentMetadata.Unit = value
 				case "icon":
-					currentMetadata.Icon = matches[2]
+					currentMetadata.Icon = value
 				case "device_class":
-					currentMetadata.DeviceClass = matches[2]
+					currentMetadata.DeviceClass = value
 				case "state_class":
-					currentMetadata.StateClass = matches[2]
+					currentMetadata.StateClass = value
 				}
 				continue
 			}

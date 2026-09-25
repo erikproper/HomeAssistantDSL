@@ -55,7 +55,7 @@ func registerCommandlineCapabilityEntityLink(administration *TAdministrationStat
 		return []string{fmt.Sprintf("%s: device %q has no \"device.<spec> from %s;\" positioning yet -- add one (any space) before referencing one of its entities directly", provenance, deviceID, deviceID)}, true
 	}
 
-	fullName := normalizeEntityFullName(localSpec, namingSpacePath(localSpec, administration.SpacePath, deviceNamePath))
+	fullName := resolveDeviceEntityFullName(localSpec, administration.SpacePath, deviceNamePath)
 	identity := extractEntityIdentity(fullName)
 	if identity.Domain == "" {
 		return []string{fmt.Sprintf("%s: could not resolve a domain from %q; skipping", provenance, localSpec)}, false

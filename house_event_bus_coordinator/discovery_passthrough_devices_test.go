@@ -124,6 +124,11 @@ func TestPassthroughDeviceTrackerPersistsAcrossRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "discovery_passthrough_devices.json")
 	tracker := newPassthroughDeviceTracker(path)
 	tracker.Record("zigbee2mqtt_0xaabbcc", "aqara_multi", "sensor", "0xaabbcc_temperature")
+	// Record itself no longer persists synchronously (2026-09-22 crash-loop fix -- see its own doc
+	// comment); production callers debounce via SchedulePersist instead. Calling persist() directly
+	// here simulates that debounced write actually firing, without the test needing to sleep past a
+	// real timer.
+	tracker.persist()
 
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("expected a persisted file, got: %v", err)

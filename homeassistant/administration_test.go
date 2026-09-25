@@ -73,7 +73,8 @@ func captureStdout(t *testing.T, fn func()) string {
 // pipeline would otherwise notice, since each space's own EntityRecordSeenBySpace tracking is scoped
 // per-space and would see two entirely distinct entity names.
 func TestDeviceSourceEntityWarnsOnCrossSpaceConceptualReuse(t *testing.T) {
-	const miniDSL = `device infrastructural:laserjet from hass.laserjet;
+	const miniDSL = `device hass.laserjet as laserjet with:
+end;
 space social:living_room with:
   entity sensor.social:living_room/battery as sensor.laserjet_battery from hass.laserjet;
 end;
@@ -89,7 +90,7 @@ end;`
 	var result TExpansionParseResult
 	var err error
 	output := captureStderr(t, func() {
-		result, err = ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil)
+		result, err = ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
@@ -105,7 +106,8 @@ end;`
 // capabilities of the same device, positioned under two different entities in two different spaces,
 // is exactly the legitimate case item 0b's rule must never flag.
 func TestDeviceSourceEntityNoWarningForDistinctSources(t *testing.T) {
-	const miniDSL = `device infrastructural:laserjet from hass.laserjet;
+	const miniDSL = `device hass.laserjet as laserjet with:
+end;
 space social:living_room with:
   entity sensor.social:living_room/battery as sensor.laserjet_battery from hass.laserjet;
 end;
@@ -120,7 +122,7 @@ end;`
 	var report strings.Builder
 	var err error
 	output := captureStderr(t, func() {
-		_, err = ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil)
+		_, err = ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("parse error: %v", err)

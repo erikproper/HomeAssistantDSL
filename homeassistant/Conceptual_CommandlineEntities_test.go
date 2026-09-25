@@ -32,12 +32,12 @@ func frameCommandlineDevicesByID() map[string]TCommandlineDevice {
 // TestCommandlineCapabilityEntityLinkResolvesOnDualKindDevice is the regression test for a real
 // case found live 2026-09-06: host.frame is declared BOTH as a "hosts" cpu device (ping/cpu) AND a
 // "commandline" device (the picture-frame switch), sharing one DeviceID. Positioning it once via
-// the hosts branch ("device infrastructural:frame from host.frame;") must still let a SEPARATE
-// "entity switch.social:picture_frame from host.frame slideshow;" line resolve the
-// commandline capability, reusing the SAME DeviceConceptualLink rather than needing its own
-// positioning statement.
+// the hosts branch ("device host.frame as frame with entity binary_sensor...node;")
+// must still let a SEPARATE "entity switch.social:picture_frame from host.frame slideshow;" line
+// resolve the commandline capability, reusing the SAME DeviceConceptualLink rather than needing its
+// own positioning statement.
 func TestCommandlineCapabilityEntityLinkResolvesOnDualKindDevice(t *testing.T) {
-	const miniDSL = `device infrastructural:apartment/living_room/rack/frame from host.frame;
+	const miniDSL = `device host.frame as apartment/living_room/rack/frame with entity binary_sensor.infrastructural:apartment/living_room/rack/frame/node from node;
 entity switch.social:apartment/living_room/picture_frame from host.frame slideshow;`
 
 	hostDevicesByID := map[string]THostDevice{
@@ -45,7 +45,7 @@ entity switch.social:apartment/living_room/picture_frame from host.frame slidesh
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, frameCommandlineDevicesByID(), nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, frameCommandlineDevicesByID(), nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -77,7 +77,8 @@ entity switch.social:apartment/living_room/picture_frame from host.frame slidesh
 // coordinator will actually publish it (discoverycommandline.go); a mismatch would produce a
 // reference to an entity that will never actually exist under that domain.
 func TestCommandlineCapabilityEntityLinkRejectsDomainMismatch(t *testing.T) {
-	const miniDSL = `device infrastructural:apartment/living_room/rack/frame from host.frame;
+	const miniDSL = `device host.frame as apartment/living_room/rack/frame with:
+end;
 entity binary_sensor.social:apartment/living_room/picture_frame from host.frame slideshow;`
 
 	hostDevicesByID := map[string]THostDevice{
@@ -86,7 +87,7 @@ entity binary_sensor.social:apartment/living_room/picture_frame from host.frame 
 
 	var report strings.Builder
 	output := captureStderr(t, func() {
-		_, _ = ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, frameCommandlineDevicesByID(), nil, nil)
+		_, _ = ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, frameCommandlineDevicesByID(), nil, nil, nil)
 	})
 	if !strings.Contains(output, "must match") {
 		t.Fatalf("expected a domain-mismatch warning, got: %q", output)

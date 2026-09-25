@@ -135,7 +135,7 @@ func fetchEntityExistence(definitionDir string, ctx TPhysicalGenerationContext, 
 	if err := json.Unmarshal(cached, &cachedStatus); err != nil {
 		return nil, fmt.Errorf("%w (local cache at %s is also unreadable: %v)", fetchErr, cachePath, err)
 	}
-	fmt.Printf("[physical] entity existence for %q: live fetch failed (%v), using cached copy from %s\n", instanceName, fetchErr, cachePath)
+	printOfflineCacheNoticeOnce()
 	return cachedStatus, nil
 }
 
@@ -147,14 +147,12 @@ func fetchEntityExistence(definitionDir string, ctx TPhysicalGenerationContext, 
 // publishStatus), so the generator should read via whichever is reachable, cloud first.
 func fetchEntityExistencePreferringCloud(ctx TPhysicalGenerationContext, instanceName string) (TEntityExistenceStatusPayload, error) {
 	if cloudSecrets, ok := coordinatorOnlyBrokerSecrets(ctx); ok {
+		// A cloud failure here is silent (2026-09-25: printing it per-resource produced a wall of
+		// near-identical noise on a genuinely offline run -- see printOfflineCacheNoticeOnce's own
+		// doc comment). The caller (fetchEntityExistence) still reports offline-with-cache once,
+		// run-wide; a hard failure with no cache at all still surfaces fetchErr's own detail.
 		if status, err := fetchEntityExistenceFromBroker(cloudSecrets, instanceName, ctx.Installation); err == nil {
 			return status, nil
-		} else {
-			// Printed, not swallowed: a silent cloud failure here previously made a subsequent
-			// local-broker failure look like the *only* attempt made, which is misleading -- the
-			// cloud broker can fail for a perfectly ordinary reason too (e.g. the coordinator
-			// simply hasn't published anything for this instance yet).
-			fmt.Printf("[physical] entity existence for %q: cloud broker attempt failed (%v), trying local\n", instanceName, err)
 		}
 	}
 	return fetchEntityExistenceFromBroker(ctx.MQTTSecrets, instanceName, "")
@@ -384,6 +382,9 @@ func checkMainEntityKnownNotToExistErrors(definitionDir string, mainEntityIDs []
 
 	if len(problems) > 0 {
 		fmt.Printf("[physical] main-instance entity existence check: the coordinator has confirmed %d declared entit(y/ies) do not exist -- see suggestions/missing.txt\n", len(problems))
+		for _, problem := range problems {
+			fmt.Printf("  - %s\n", problem)
+		}
 	}
 	return problems
 }
@@ -395,6 +396,15 @@ const (
 	existenceStatusKnownToExist    = "known-to-exist"
 	existenceStatusKnownNotToExist = "known-not-to-exist"
 )
+
+// unknownReportedState is HA's own state string for "this entity exists and is registered, but
+// has never reported a meaningful value" -- e.g. a vehicle integration announcing an attribute
+// the specific car doesn't actually have (2026-09-25, the Volvo XC40's own Overkiz-style
+// generic-capability-set problem: dozens of binary_sensor/sensor entities the integration always
+// declares, most of which this particular car never populates). Suggesting these wastes the DSL
+// author's time confirming each one is bogus by hand -- buildSuggestionReportFromExistence skips
+// any entity whose last-known State is exactly this, on both branches (per-device and orphan).
+const unknownReportedState = "unknown"
 
 // recognizedCapabilityKeywords maps a substring commonly found in an entity_id's own descriptive
 // name to the capability domain/suffix it implies for a suggested Physical.def line -- e.g.
@@ -639,7 +649,7 @@ func buildSuggestionReportFromExistence(status TEntityExistenceStatusPayload, us
 
 		entityIDs := make([]string, 0, len(status[deviceID].Entities))
 		for entityID, entry := range status[deviceID].Entities {
-			if entry.Status != existenceStatusKnownToExist || used[entityID] {
+			if entry.Status != existenceStatusKnownToExist || used[entityID] || entry.State == unknownReportedState {
 				continue
 			}
 			entityIDs = append(entityIDs, entityID)
@@ -688,7 +698,7 @@ func buildSuggestionReportFromExistence(status TEntityExistenceStatusPayload, us
 	if orphans, ok := status[""]; ok {
 		var standalone []string
 		for entityID, entry := range orphans.Entities {
-			if entry.Status == existenceStatusKnownToExist && !used[entityID] {
+			if entry.Status == existenceStatusKnownToExist && !used[entityID] && entry.State != unknownReportedState {
 				standalone = append(standalone, entityID)
 			}
 		}

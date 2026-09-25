@@ -75,6 +75,7 @@ func parseHassBridgeDeviceHeaderKeywords(line string) (rest string, export, roam
 // inside the lower-level parser.
 func collectHassBridgeDevicesByID(definitionDir string) (map[string]THassBridgeDevice, []string) {
 	physicalContent, mergedLineNos, warnings := collectLayerContent(definitionDir, []string{"Physical.def"}, LayerPhysical)
+	physicalContent = resolveDerivedConditionOneLiners(physicalContent)
 	var jinjaWarnings []string
 	physicalContent, jinjaWarnings = resolveJinjaTemplateCallsInDerivedLines(physicalContent, loadJinjaTemplateDefinitions(definitionDir))
 	warnings = append(warnings, jinjaWarnings...)
@@ -155,6 +156,14 @@ func collectHassBridgeDevicesByID(definitionDir string) (map[string]THassBridgeD
 		}
 	}
 	warnings = append(warnings, warnAboutOrphanedHassBridgeDeviceBlocks(physicalContent, mergedLineNos, byID)...)
+	// Runs here, once, rather than at each of this function's own several call sites (real bug
+	// found live 2026-09-25: an earlier version only ran it at generator.go's own call site, right
+	// before validateHassBridgeAvailabilitySources -- Physical_Generator.go's own SEPARATE call
+	// into this same function, which is what actually builds homeassistant_bridge.yaml, re-parses
+	// Physical.def completely fresh and never saw that mutation, so the validator's own warning
+	// went away while the generated YAML still carried the unresolved bare label) -- see
+	// resolveHassBridgeAvailabilityLabelReferences's own doc comment for what this rewrites.
+	resolveHassBridgeAvailabilityLabelReferences(byID)
 	return byID, warnings
 }
 
@@ -227,6 +236,21 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 	// trailing token ("with:" vs ";") but both start the same way. Same colon-dropped grammar as
 	// capabilityPattern just above.
 	capabilityWithPattern := regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+(.+?)\s*with:\s*$`)
+	// Single-statement shorthand for capabilityWithPattern's own block form -- "<domain>.<path>
+	// <source> with <single-statement>;" instead of "<domain>.<path> <source> with:
+	// <single-statement>; end;" -- mirrors logicalDeviceOneLinerPattern's identical reasoning
+	// (2026-09-25, the user's own "if there is only one line in the with clause, fold it"
+	// instruction, generalised from Logical.def's device header to every "with:" block in this
+	// DSL -- cover.cover's own "derived value ...;" position declaration was the concrete
+	// trigger). Source is a bare token (\S+), matching every real "with"-modified capability's
+	// source in both houses' Physical.def today (unlike capabilityPattern's own free-text group,
+	// which also has to carry the multi-word "<entity> is available" suffix -- a capability with
+	// that suffix is never itself further "with"-modified in this codebase). Checked before
+	// capabilityPattern for the same reason capabilityWithPattern already is: a generic free-text
+	// match would otherwise swallow the whole "<source> with <statement>" as its own Source,
+	// corrupting it exactly like the earlier "position:" domain-qualified parsing bug this session
+	// already hit once (see capabilityWithPositionPattern's own doc comment).
+	capabilityWithOneLinerPattern := regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+(\S+)\s+with\s+(.+?)\s*;\s*$`)
 	// A bare typing-metadata line inside a capability's own "with: ... end;" block -- same four
 	// keywords as capabilityMetadataPattern, just without the leading path (implied by nesting).
 	capabilityWithMetadataPattern := regexp.MustCompile(`^(unit|icon|device_class|state_class):\s*"([^"]*)"\s*;\s*$`)
@@ -272,6 +296,80 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 	capabilityWithAttributeValueMapPattern := regexp.MustCompile(`^map\s+([A-Za-z_][A-Za-z0-9_]*):\s*"([^"]*)"\s+"([^"]*)"\s*;\s*$`)
 	// Standalone-trailing-line sibling of capabilityWithAttributeValueMapPattern.
 	capabilityAttributeValueMapPattern := regexp.MustCompile(`^(\S+)\s+map\s+([A-Za-z_][A-Za-z0-9_]*):\s*"([^"]*)"\s+"([^"]*)"\s*;\s*$`)
+	// "derived value <source>;" -- inside a capability's own "with: ... end;" block, same source
+	// convention as attribute/Sources -- see THassBridgeCapability.Position's own doc comment
+	// (2026-09-25, cover's own current-position feature; keyword changed from the original bare
+	// "position:" the same day, to echo Logical.def's own "derived <domain>.<label> with: value
+	// <expr>; end;" vocabulary -- the user's explicit request, "follow the syntax used on the
+	// logical level." NOT the same mechanism as Physical_DerivedCapability.go's entity-creating
+	// "derived DDD.NNN from EEE.MMM via TTT;" line, deliberately: that one spawns a brand new
+	// sibling capability/entity, which would break the cover's own draggable-slider requirement
+	// (HA's MQTT cover schema needs position_topic on the SAME entity as state_topic, not a
+	// separate one) -- so this stays a per-capability modifier, just reusing "derived"/"value" as
+	// vocabulary, not the capability-creating grammar itself. No colon after "value" -- caught by
+	// the user same day: Logical.def's own "value <expr>;" keyword inside a "derived ... with:"
+	// block has no colon either (2026-09-19's "capability colon dropped from grammar" convention),
+	// so this needed to match that, not capabilityWithMetadataPattern's own "<keyword>: <value>;"
+	// shape. No name token, unlike "attribute" (there's only ever one position per capability).
+	capabilityWithPositionPattern := regexp.MustCompile(`^derived\s+value\s+(\S+)\s*;\s*$`)
+	// Standalone-trailing-line sibling of capabilityWithPositionPattern -- "<path> derived value <source>;".
+	capabilityPositionPattern := regexp.MustCompile(`^(\S+)\s+derived\s+value\s+(\S+)\s*;\s*$`)
+
+	// applyCapabilityWithBodyLine applies ONE body line from a capability's own "with: ... end;"
+	// block to cap, returning ok=false for anything it doesn't recognise. Shared by both the
+	// multi-line block form (pendingCapabilityPath loop below) and capabilityWithOneLinerPattern's
+	// folded one-line equivalent, so the two stay in lock-step by construction -- a new modifier
+	// keyword added to one automatically works in the other.
+	applyCapabilityWithBodyLine := func(cap THassBridgeCapability, line string) (THassBridgeCapability, bool) {
+		if matches := capabilityWithMetadataPattern.FindStringSubmatch(line); matches != nil {
+			switch matches[1] {
+			case "unit":
+				cap.Unit = matches[2]
+			case "icon":
+				cap.Icon = matches[2]
+			case "device_class":
+				cap.DeviceClass = matches[2]
+			case "state_class":
+				cap.StateClass = matches[2]
+			}
+			return cap, true
+		}
+		if matches := capabilityWithValueMapPattern.FindStringSubmatch(line); matches != nil {
+			if cap.ValueMap == nil {
+				cap.ValueMap = map[string]string{}
+			}
+			cap.ValueMap[matches[1]] = matches[2]
+			return cap, true
+		}
+		if matches := capabilityWithAttributePattern.FindStringSubmatch(line); matches != nil {
+			if cap.Attributes == nil {
+				cap.Attributes = map[string]map[string]string{}
+			}
+			if cap.Attributes[matches[1]] == nil {
+				cap.Attributes[matches[1]] = map[string]string{}
+			}
+			cap.Attributes[matches[1]][instance] = matches[2]
+			return cap, true
+		}
+		if matches := capabilityWithAttributeValueMapPattern.FindStringSubmatch(line); matches != nil {
+			if cap.AttributeValueMaps == nil {
+				cap.AttributeValueMaps = map[string]map[string]string{}
+			}
+			if cap.AttributeValueMaps[matches[1]] == nil {
+				cap.AttributeValueMaps[matches[1]] = map[string]string{}
+			}
+			cap.AttributeValueMaps[matches[1]][matches[2]] = matches[3]
+			return cap, true
+		}
+		if matches := capabilityWithPositionPattern.FindStringSubmatch(line); matches != nil {
+			if cap.Position == nil {
+				cap.Position = map[string]string{}
+			}
+			cap.Position[instance] = matches[1]
+			return cap, true
+		}
+		return cap, false
+	}
 
 	inDeviceCapabilities := false
 	var current THassBridgeDevice
@@ -291,51 +389,7 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 				pendingCapabilityPath = ""
 				continue
 			}
-			if matches := capabilityWithMetadataPattern.FindStringSubmatch(line); matches != nil {
-				cap := current.Capabilities[pendingCapabilityPath]
-				switch matches[1] {
-				case "unit":
-					cap.Unit = matches[2]
-				case "icon":
-					cap.Icon = matches[2]
-				case "device_class":
-					cap.DeviceClass = matches[2]
-				case "state_class":
-					cap.StateClass = matches[2]
-				}
-				current.Capabilities[pendingCapabilityPath] = cap
-				continue
-			}
-			if matches := capabilityWithValueMapPattern.FindStringSubmatch(line); matches != nil {
-				cap := current.Capabilities[pendingCapabilityPath]
-				if cap.ValueMap == nil {
-					cap.ValueMap = map[string]string{}
-				}
-				cap.ValueMap[matches[1]] = matches[2]
-				current.Capabilities[pendingCapabilityPath] = cap
-				continue
-			}
-			if matches := capabilityWithAttributePattern.FindStringSubmatch(line); matches != nil {
-				cap := current.Capabilities[pendingCapabilityPath]
-				if cap.Attributes == nil {
-					cap.Attributes = map[string]map[string]string{}
-				}
-				if cap.Attributes[matches[1]] == nil {
-					cap.Attributes[matches[1]] = map[string]string{}
-				}
-				cap.Attributes[matches[1]][instance] = matches[2]
-				current.Capabilities[pendingCapabilityPath] = cap
-				continue
-			}
-			if matches := capabilityWithAttributeValueMapPattern.FindStringSubmatch(line); matches != nil {
-				cap := current.Capabilities[pendingCapabilityPath]
-				if cap.AttributeValueMaps == nil {
-					cap.AttributeValueMaps = map[string]map[string]string{}
-				}
-				if cap.AttributeValueMaps[matches[1]] == nil {
-					cap.AttributeValueMaps[matches[1]] = map[string]string{}
-				}
-				cap.AttributeValueMaps[matches[1]][matches[2]] = matches[3]
+			if cap, ok := applyCapabilityWithBodyLine(current.Capabilities[pendingCapabilityPath], line); ok {
 				current.Capabilities[pendingCapabilityPath] = cap
 				continue
 			}
@@ -367,6 +421,16 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 			if matches := capabilityWithPattern.FindStringSubmatch(line); matches != nil {
 				current.Capabilities[matches[2]] = THassBridgeCapability{Domain: matches[1], Sources: map[string]string{instance: matches[3]}}
 				pendingCapabilityPath = matches[2]
+				continue
+			}
+			if matches := capabilityWithOneLinerPattern.FindStringSubmatch(line); matches != nil {
+				cap := THassBridgeCapability{Domain: matches[1], Sources: map[string]string{instance: matches[3]}}
+				body := strings.TrimSpace(matches[4]) + ";"
+				if applied, ok := applyCapabilityWithBodyLine(cap, body); ok {
+					current.Capabilities[matches[2]] = applied
+					continue
+				}
+				warnings = append(warnings, fmt.Sprintf("Physical.def: capability %q's one-line \"with %s\" body isn't a recognised single-statement form (body line %d)", matches[2], body, lineIdx+1))
 				continue
 			}
 			if matches := capabilityPattern.FindStringSubmatch(line); matches != nil {
@@ -446,6 +510,20 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 					cap.AttributeValueMaps[name] = map[string]string{}
 				}
 				cap.AttributeValueMaps[name][from] = to
+				current.Capabilities[path] = cap
+				continue
+			}
+			if matches := capabilityPositionPattern.FindStringSubmatch(line); matches != nil {
+				path, source := matches[1], matches[2]
+				cap, known := current.Capabilities[path]
+				if !known {
+					warnings = append(warnings, fmt.Sprintf("Physical.def: device %q: \"position\" declared for unknown capability %q; ignored", current.DeviceID, path))
+					continue
+				}
+				if cap.Position == nil {
+					cap.Position = map[string]string{}
+				}
+				cap.Position[instance] = source
 				current.Capabilities[path] = cap
 				continue
 			}

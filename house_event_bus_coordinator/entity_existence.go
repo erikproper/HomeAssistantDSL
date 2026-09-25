@@ -289,6 +289,26 @@ func (t *TEntityExistenceTracker) Seed(bridgeFile THassBridgeFile) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	declared := map[string]map[string]bool{} // instance -> entity -> still declared this round
+	// remoteDeviceIDToDevice: instance -> a declared entity's own RemoteDeviceID -> its current,
+	// just-corrected DeviceID -- populated alongside the main correction loop below, used by the
+	// SECOND pass (after that loop) to also correct DiscoverSiblings-discovered, UNDECLARED sibling
+	// entries sharing the same real remote device. Real incident, 2026-09-22 (Junglinster/Vienna
+	// Netatmo rename): Seed's own doc comment already explains why it deliberately never touches a
+	// sibling entry (bridgeFile has no visibility into it at all) -- but that leaves such a sibling's
+	// DeviceID stuck at whatever it was attributed to before a rename, FOREVER (same persistence
+	// argument as the "real-but-STALE DeviceID" correction below). ResolveViaDevice's own second
+	// loop (a plain, unsorted map range over every tracked entry sharing a via-target's
+	// RemoteDeviceID) then non-deterministically picks EITHER a freshly-corrected declared entry OR
+	// this stale sibling on any given call -- found live via a coordinator restart producing a
+	// CORRECT via_device for one capability ("node") and a STALE one for another ("temperature") of
+	// the exact same device, purely by which map iteration order Go happened to pick that call.
+	// Filled in only from entries that were ALREADY tracked (so already carry a real RemoteDeviceID
+	// from a past inquiry reply) -- populated in the same sorted-deviceIDs order as the correction
+	// loop itself, so a RemoteDeviceID shared by two current devices (should never happen in
+	// practice, but the existing shared-entity case above shows Physical.def has no way to forbid
+	// it) resolves deterministically the same "last sorted device wins" way already established
+	// there, not randomly.
+	remoteDeviceIDToDevice := map[string]map[string]string{}
 	// Sorted, not range-order: two devices can legitimately declare the SAME source entity as
 	// their own capability (found live 2026-09-14 -- node.vienna_bedroom and node.vienna_livingroom
 	// both declare "binary_sensor.vienna_bedroom_connectivity" as their own "node" capability, a
@@ -363,6 +383,12 @@ func (t *TEntityExistenceTracker) Seed(bridgeFile THassBridgeFile) {
 						fmt.Printf("[existence] %s: %s was grouped under %q, correcting to its currently-declared device %q\n", instance, entity, existing.DeviceID, deviceID)
 						existing.DeviceID = deviceID
 					}
+					if existing.RemoteDeviceID != "" {
+						if remoteDeviceIDToDevice[instance] == nil {
+							remoteDeviceIDToDevice[instance] = map[string]string{}
+						}
+						remoteDeviceIDToDevice[instance][existing.RemoteDeviceID] = deviceID
+					}
 					continue
 				}
 				t.entries[instance][entity] = &TEntityExistenceEntry{
@@ -370,6 +396,29 @@ func (t *TEntityExistenceTracker) Seed(bridgeFile THassBridgeFile) {
 					Status:   StatusNotKnownToExist,
 				}
 				t.order[instance] = append(t.order[instance], entity)
+			}
+		}
+	}
+
+	// Second pass: correct DiscoverSiblings-discovered, UNDECLARED sibling entries too -- see
+	// remoteDeviceIDToDevice's own doc comment above for the real incident this closes. Every
+	// tracked entry (declared or not) whose RemoteDeviceID matches a device we just confirmed
+	// current above gets its DeviceID corrected to match -- a plain map range here is safe (unlike
+	// ResolveViaDevice's own, which this fixes the symptom of): each (instance, RemoteDeviceID) pair
+	// maps to exactly one deterministically-chosen DeviceID already, so iteration order over entries
+	// can't produce a different outcome for the same entry.
+	for instance, entities := range t.entries {
+		byRemote := remoteDeviceIDToDevice[instance]
+		if len(byRemote) == 0 {
+			continue
+		}
+		for entity, entry := range entities {
+			if entry.RemoteDeviceID == "" {
+				continue
+			}
+			if target, ok := byRemote[entry.RemoteDeviceID]; ok && entry.DeviceID != target {
+				fmt.Printf("[existence] %s: sibling %s was grouped under %q, correcting to its currently-declared device %q\n", instance, entity, entry.DeviceID, target)
+				entry.DeviceID = target
 			}
 		}
 	}

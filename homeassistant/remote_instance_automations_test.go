@@ -14,10 +14,10 @@ func TestGenerateInstanceAutomationTreesWritesMainAndRemoteTrees(t *testing.T) {
 			"status": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w"}},
 		}},
 	}
-	positioningDecl := TDevicePositioningDeclaration{Spec: "infrastructural:laserjet", DeviceID: "hass.laserjet"}
-	registerDevicePositioning(admin, positioningDecl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, "Spaces.def", 370)
+	positioningDecl := TDevicePositioningDeclaration{Spec: "laserjet", DeviceID: "hass.laserjet"}
+	registerDevicePositioning(admin, positioningDecl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, "Spaces.def", 370)
 	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:laserjet/status", DeviceID: "hass.laserjet", Capability: "status"}
-	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, "Spaces.def", 370, true, ""); len(warnings) != 0 || deferred {
+	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil, "Spaces.def", 370, true, "", false); len(warnings) != 0 || deferred {
 		t.Fatalf("unexpected warnings/deferred positioning the fixture device: warnings=%v deferred=%v", warnings, deferred)
 	}
 
@@ -52,8 +52,15 @@ func TestGenerateInstanceAutomationTreesWritesMainAndRemoteTrees(t *testing.T) {
 	if strings.Contains(string(remoteConfig), "customize") {
 		t.Errorf("configuration.yaml = %q, want no \"customize:\" line -- no customization/ directory is generated for a remote instance", remoteConfig)
 	}
-	if !strings.Contains(string(remoteConfig), "packages: !include_dir_named integrations") {
-		t.Errorf("configuration.yaml = %q, want the packages include directive", remoteConfig)
+	// Plain top-level key, never a "homeassistant: packages:" wrapper -- packages are never
+	// reprocessed by any HA reload service (github.com/home-assistant/core#12069, wontfix),
+	// which would defeat this project's whole meta-reload mechanism. See integrationDefs' own
+	// doc comment (generator.go).
+	if !strings.Contains(string(remoteConfig), "automation: !include integrations/automation.yaml") {
+		t.Errorf("configuration.yaml = %q, want a plain top-level automation include, not a packages wrapper", remoteConfig)
+	}
+	if strings.Contains(string(remoteConfig), "packages:") {
+		t.Errorf("configuration.yaml = %q, want no \"packages:\" wrapper at all", remoteConfig)
 	}
 	remoteAutomationInclude, err := os.ReadFile(filepath.Join(remoteInstanceDir, "integrations", "automation.yaml"))
 	if err != nil {
@@ -111,10 +118,10 @@ func TestGenerateInstanceAutomationTreesUsesIncarnationValueForOutputDirNotQuali
 			"status": {Domain: "sensor", Sources: map[string]string{"ha2mqtt": "sensor.laserjet_status"}},
 		}},
 	}
-	positioningDecl := TDevicePositioningDeclaration{Spec: "infrastructural:laserjet", DeviceID: "hass.laserjet"}
-	registerDevicePositioning(admin, positioningDecl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, "Spaces.def", 1)
+	positioningDecl := TDevicePositioningDeclaration{Spec: "laserjet", DeviceID: "hass.laserjet"}
+	registerDevicePositioning(admin, positioningDecl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, "Spaces.def", 1)
 	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:laserjet/status", DeviceID: "hass.laserjet", Capability: "status"}
-	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, "Spaces.def", 1, true, ""); len(warnings) != 0 || deferred {
+	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil, "Spaces.def", 1, true, "", false); len(warnings) != 0 || deferred {
 		t.Fatalf("unexpected warnings/deferred positioning the fixture device: warnings=%v deferred=%v", warnings, deferred)
 	}
 

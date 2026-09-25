@@ -4,48 +4,65 @@
  * Package:   Main
  * Component: ConceptualDevicePositioning
  *
- * Parses and registers the conceptual layer's "device <spec> from <device-id>;" construct --
- * historically a lighter-weight alternative to the "entity device.<spec> from <device-id> with:
- * all entities;" bulk form (retired 2026-09-01, see this file's own note below), now the only way
- * to position a device. Intentionally doesn't bulk-register every capability -- it only:
- * (a) establishes the device's shared conceptual identity (DisplayName/ConstantAttributes, used
- * for the HA discovery "device:" block every one of its entities shares), and (b) auto-registers
- * its "node" (liveness)
- * entity -- for a "home_assistant" bridge device, only if it has declared one (a hassbridge
- * device's node is an optional capability, same as any other); for a "hosts" device, always (its
- * node is unconditional, registerHostNodeEntity, Conceptual_DeviceEntities.go) -- the same way an
- * explicit "entity binary_sensor.<spec>/node from <device-id> binary_sensor.node;"
- * (Conceptual_DeviceCapabilityEntities.go) would. Every other entity is expected to be
- * individually positioned via that same per-capability construct.
+ * Parses and registers the conceptual layer's "device <device-id> [as <leaf-path>] with: ...;
+ * end;" construct (2026-09-24 redesign -- see PROJECT.md item 11's own note for the full
+ * rationale) -- the only way to position a device. Replaces three earlier, separately-keyworded
+ * shapes ("device <spec> from <device-id>;", "device <spec> from <device-id> with: ...; end;",
+ * "device from <device-id> with: ...; end;") with one: the device-id comes first (no more "from"),
+ * "as <leaf-path>" is a direct stand-in for the old <spec> argument's own path half, and is itself
+ * optional. Also new: a "with <entity-statement>;" one-liner sugar for the common single-capability
+ * case, skipping the "end;" wrapper.
+ *
+ * A device has no sphere of its own (confirmed with the user 2026-09-24: spheres are an ENTITY
+ * concept -- a device's "as" clause used to accept an optional "<sphere>:" prefix, defaulting to
+ * infrastructural when omitted, but that was never more than an artifact of feeding decl.Spec
+ * through the same normalizeEntityFullName("device."+spec, ...) machinery an entity reference
+ * uses; nothing downstream ever needed a REAL, non-default sphere there). "as <sphere>:<leaf-path>"
+ * is now rejected outright (registerDevicePositioning's own strings.Contains(decl.Spec, ":")
+ * check) -- no dual-syntax transition, same discipline as every other grammar retirement in this
+ * codebase. deviceIdentity.Sphere still exists internally (normalizeEntityFullName's own "device"
+ * taxonomy default, SphereOf["device"] == "infrastructural") purely because DeviceIdentityOwner's
+ * collision key and registerHostDeviceIdentity's own signature still carry a TEntityIdentity, but
+ * it's now a constant, never author-controlled, and never shown in a device's own display text
+ * (deviceDisplayName takes no sphere argument at all any more, Conceptual_DeviceEntities.go).
+ *
+ * The SAME device-id may appear in as many of these blocks as needed, in as many spaces as needed,
+ * with no first/subsequent distinction in the grammar -- this is now the norm (a Z-Wave module
+ * contributing entities to two different rooms plus its own infrastructural identity is a real,
+ * common case, not a rare one). Registration is register-once-merge-repeatedly: the FIRST occurrence
+ * of a device-id establishes its shared conceptual identity (DisplayName/ConstantAttributes/
+ * suggested_area, using THAT occurrence's own "as" leaf, if any); every later occurrence just merges
+ * its own entities into the same DeviceConceptualLinks[id].AttributeEntityIDs map, exactly like the
+ * old "device from <id> with:" reuse form already did. There is no more "already positioned,
+ * ignoring duplicate" guard for this construct -- a real double-declaration mistake is already
+ * caught at the entity level (administration.ConceptualUseBySource's "already used as a different
+ * conceptual entity" warning, validateNoDuplicateFinalEntityIDs), which is what actually matters;
+ * the device-id-level guard was only ever a proxy for that.
+ *
+ * "node" is no longer auto-registered by ANY kind (including "hosts", historically unconditional --
+ * a deliberate tradeoff, confirmed with the user: more verbose for the simple ping/cpu case, but the
+ * mechanism doesn't have to know which specific integration a device happens to be). Every kind's
+ * own node is now an ordinary explicit "entity binary_sensor.<sphere>:node;"-shaped capability
+ * reference, dispatched through registerDeviceCapabilityEntityLink exactly like any other capability
+ * -- including the Logical.def "node override" precedence check, which now lives at the top of
+ * registerDeviceCapabilityEntityLinkAllowingHidden itself (Conceptual_DeviceCapabilityEntities.go),
+ * not here.
  *
  * Registered the moment ParseEntitiesAndFillAdministration's single main loop (parser.go) reaches
- * this line -- no separate pre-pass or second scan of the file. A "device <spec> from <device-id>;"
- * line appearing *after* something that references it (an "entity ... from <device-id> entity
- * ...;" / "entity ... as ... from <device-id>;" line, Conceptual_DeviceCapabilityEntities.go /
- * Conceptual_DeviceSourceEntities.go) still works: registerDeviceSourceEntityLink's own
- * "not positioned yet" check reports deferred=true rather than a warning when reached too early,
- * and the parser retries that small in-memory list once, after the whole file has been read --
- * order-independent without ever re-scanning raw text (see registerDeviceSourceEntityLink's doc
- * comment, and PROJECT.md/feedback memory: a second scan of the same file caused a real bug here,
- * 2026-08-27 -- EnsureSpaceRegistered's idempotency check got fooled when a scratch state machine
- * wrote into the real administration state ahead of the real OpenSpace call for the same space).
+ * this line -- no separate pre-pass or second scan of the file. A positioning line appearing *after*
+ * something that references it still works: the ordinary deferred-retry mechanism
+ * (registerDeviceCapabilityEntityLink's own "not positioned yet" -> deferred=true) already covers
+ * every entity reference, this file needs no retry machinery of its own any more (no more auto-node
+ * dispatch to defer).
  *
- * The bulk "all entities" form (and the standalone "for <device-id>: ... end;" shorthand it
- * coexisted with) was retired 2026-09-01, once every caller (Junglinster and Vienna's real
- * Spaces.def included) had migrated to this file's own bare positioning plus the merged
- * "device <spec> from <device-id> with: <entity-spec>; ...; end;" block
- * (deviceWithBlockHeaderPattern below + Conceptual_DeviceCapabilityEntities.go's
- * expandForDeviceShorthandLine) -- see PROJECT.md's unification plan. Conceptual_DeviceEntities.go
- * now holds only the shared registration engine (registerHostAttributeEntity/
- * registerHostNodeEntity/registerHassBridgeAttributeEntity), no parsing/dispatch of its own.
- *
- * Scope: "home_assistant" bridge devices (native + hassbridge-import) and, since 2026-09-01,
- * "hosts" devices too (registerHostDevicePositioning, reusing registerHostNodeEntity --
- * Conceptual_DeviceEntities.go's own materialization machinery, not a separate implementation).
+ * Scope: "home_assistant" bridge devices (native + hassbridge-import), "hosts" devices
+ * (registerHostDevicePositioning, reusing registerHostDeviceIdentity -- Conceptual_DeviceEntities.go's
+ * own materialization machinery), "discovery"/"local"/"commandline"/"import"-kind devices, and a
+ * pure Logical.def device with no physical presence of its own.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 27.08.2026
+ * Version of: 24.09.2026
  *
  */
 
@@ -55,352 +72,197 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
-// TDevicePositioningDeclaration is one parsed "device <spec> from <device-id>;" line.
+// TDevicePositioningDeclaration is one parsed "device <device-id> [as <leaf-path>] with:" header
+// (block or one-liner form).
 type TDevicePositioningDeclaration struct {
-	Spec     string // "infrastructural:netatmo" -- an ordinary <sphere>:<path> spec, same shape device.<spec> has minus the "device." domain prefix
-	DeviceID string // "hass.davids_bedroom" from "from hass.davids_bedroom"
+	DeviceID string
+	// Spec is the "as" clause's own text, verbatim -- "" if "as" was omitted entirely. A bare leaf
+	// path only, no "<sphere>:" prefix (registerDevicePositioning rejects one outright, a device
+	// has no sphere of its own). Fed directly into the same normalizeEntityFullName("device."+Spec,
+	// ...) machinery the old <spec> argument always used; an empty Spec resolves to an empty
+	// leaf/path, same as a device with no compound name ever had.
+	Spec string
 }
 
-var devicePositioningPattern = regexp.MustCompile(`^device\s+(\S+)\s+from\s+(\S+);$`)
+// deviceWithBlockHeaderPattern is "device <device-id> [as <leaf-path>] with:" -- a block header,
+// parser.go's main loop tracks "currently inside this block, for which device-id/deviceNamePath".
+// Group 2 is non-greedy and captures EVERYTHING between "as" and the trailing "with:" as one
+// string, not just one token -- the multi-sphere "as <sphere1>:<path1> <sphere2>:<path2> ..." form
+// (2026-09-24, see deviceSpecLeafPath's own doc comment) is several space-separated tokens.
+var deviceWithBlockHeaderPattern = regexp.MustCompile(`^device\s+(\S+)(?:\s+as\s+(.+?))?\s+with:$`)
 
-// extractDevicePositioningDeclaration recognises the "device <spec> from <device-id>;" shape --
-// distinguished from every "entity ..."-prefixed construct by having no "entity" keyword at all.
-func extractDevicePositioningDeclaration(line string) (*TDevicePositioningDeclaration, bool) {
-	matches := devicePositioningPattern.FindStringSubmatch(line)
-	if matches == nil {
-		return nil, false
-	}
-	return &TDevicePositioningDeclaration{Spec: matches[1], DeviceID: matches[2]}, true
-}
-
-// deviceWithBlockHeaderPattern is "device <spec> from <device-id> with:" -- PROJECT.md's
-// 2026-09-01 unification: merges this file's own light positioning with
-// Conceptual_DeviceCapabilityEntities.go's "for <device-id>: ... end;" shorthand into one block,
-// so a device's positioning and its explicit capability list live in a single statement instead of
-// two separate ones repeating the device-id. Distinguished from devicePositioningPattern by ending
-// in "with:" (a block header, parser.go's main loop tracks "currently inside this block, for which
-// device-id") rather than ";" (a complete statement).
-var deviceWithBlockHeaderPattern = regexp.MustCompile(`^device\s+(\S+)\s+from\s+(\S+)\s+with:$`)
-
-// extractDeviceWithBlockHeader recognises a "device <spec> from <device-id> with:" block header.
-// Returns a TDevicePositioningDeclaration -- the header is registered exactly like a bare
-// positioning statement (registerDevicePositioning), since it's semantically identical; only the
-// body (each line expanded via expandForDeviceShorthandLine, Conceptual_DeviceCapabilityEntities.go,
-// then dispatched through the ordinary extractDeviceCapabilityEntityDeclaration path) is new.
+// extractDeviceWithBlockHeader recognises a "device <device-id> [as <leaf-path>] with:" block
+// header.
 func extractDeviceWithBlockHeader(line string) (*TDevicePositioningDeclaration, bool) {
 	matches := deviceWithBlockHeaderPattern.FindStringSubmatch(line)
 	if matches == nil {
 		return nil, false
 	}
-	return &TDevicePositioningDeclaration{Spec: matches[1], DeviceID: matches[2]}, true
+	return &TDevicePositioningDeclaration{DeviceID: matches[1], Spec: matches[2]}, true
 }
 
-// registerDevicePositioning resolves decl.Spec through the normal entity-naming machinery
-// (prepending "device." so it gets the same default-sphere/space-relative-path handling
-// device.<spec>'s own bulk form already has -- deviceSpecLeafPath/deviceDisplayName,
-// Conceptual_DeviceEntities.go), builds the device's shared conceptual link (DisplayName from
-// the current space + resolved sphere/path, ConstantAttributes from Physical.def's device-level
-// fields), and auto-registers its "node" capability, if declared, via
-// registerDeviceSourceEntityLink -- exactly as if an explicit
-// "entity binary_sensor.<spec>/node from <device-id> binary_sensor.node;" line had been
-// written. Called from the single main parse loop at the exact point the positioning line is
-// reached, with administration.SpacePath already reflecting the real, current nesting -- so the
-// node sub-call always finds DeviceConceptualLinks[decl.DeviceID] just-set two lines up and can
-// never itself need to defer; its finalAttempt argument is fixed true for exactly that reason.
-// Returns warnings; never aborts parsing.
-//
-// discoveryGatewaysByID (PROJECT.md item 7, 2026-09-15) is checked first, ahead of every other
-// kind. Unlike hosts (always) or hassbridge (only if declared, but never DEFERRED -- its "node"
-// source is already a fully-resolved remote reference straight from Physical.def), a discovery
-// gateway's "node" capability, when declared, tracks a SIBLING capability's own resolved LOCAL
-// entity_id (registerDiscoveryAvailabilityEntityLink/registerDiscoveryDerivedEntityLink) -- that
-// sibling is virtually always positioned later in the same "with:" block's own body, so the
-// auto-registration attempted here almost always defers; tDeferredAutoCapabilityLink carries
-// enough (decl + deviceNamePath) for the caller (parser.go) to retry it exactly like any other
-// deferred capability line, once the whole file has been read. A gateway device with NO "node"
-// capability declared is silently skipped, no warning -- unlike hosts/hassbridge, MQTT discovery
-// gateways are NOT uniformly controlled (Zigbee2MQTT's own availability conventions can't be
-// assumed to generalise to every future discovery source), so declaring no liveness capability at
-// all is a legitimate, unremarkable choice here, not an oversight worth flagging.
-func registerDevicePositioning(administration *TAdministrationState, decl TDevicePositioningDeclaration, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hostDevicesByID map[string]THostDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, commandlineDevicesByID map[string]TCommandlineDevice, logicalDevicesByID map[string]TLogicalDevice, entitiesPath string, lineNum int) ([]string, []tDeferredAutoCapabilityLink) {
-	provenance := fmt.Sprintf("%s:%d → device %s from %s", filepath.Base(entitiesPath), lineNum, decl.Spec, decl.DeviceID)
+// deviceWithOneLinerPattern is "device <device-id> [as <leaf-path>] with <entity-statement>;" --
+// sugar for a single-capability block, skipping the "end;" wrapper. <entity-statement> is captured
+// whole (group 3) and handed to the same bare "entity <spec> [with no_collect];"
+// (forDeviceBareEntityPattern) / "entity <spec> from <capability> [with no_collect];"
+// (forDeviceShorthandPattern) expansion a block's own body line already goes through --
+// Conceptual_DeviceCapabilityEntities.go, unchanged.
+var deviceWithOneLinerPattern = regexp.MustCompile(`^device\s+(\S+)(?:\s+as\s+(.+?))?\s+with\s+(entity\s+.+;)$`)
 
-	// No legitimate DSL construct positions the same device id twice -- a "dependency on"-only
-	// Logical.def entry sharing a physical device's id is wired through DependsOnAvailabilityTopics
-	// entirely separately (generator.go), never through a second call to this function. Real bug
-	// found live 2026-09-16: Vienna's Conceptual.def declared "device infrastructural:sonos/left
-	// from appliance.sonos-left;" twice, verbatim, with no warning at all (see
-	// TAdministrationState.DevicePositioningProvenance's own doc comment for why the usual
-	// entity-level dedup checks can't catch this).
-	if firstProvenance, seen := administration.DevicePositioningProvenance[decl.DeviceID]; seen {
-		return []string{fmt.Sprintf("%s: device %q is already positioned in Conceptual.def -- ignoring this duplicate positioning\n  first:  %s\n  second: %s", provenance, decl.DeviceID, provenanceLabel(firstProvenance), provenanceLabel(provenance))}, nil
+// extractDeviceWithOneLiner recognises the one-liner form, returning the positioning declaration
+// plus the single embedded entity statement text (still ending in ";").
+func extractDeviceWithOneLiner(line string) (*TDevicePositioningDeclaration, string, bool) {
+	matches := deviceWithOneLinerPattern.FindStringSubmatch(line)
+	if matches == nil {
+		return nil, "", false
 	}
-	administration.DevicePositioningProvenance[decl.DeviceID] = provenance
+	return &TDevicePositioningDeclaration{DeviceID: matches[1], Spec: matches[2]}, matches[3], true
+}
 
-	// Checked first, ahead of every physical kind: a logical device's own id is always brand new
-	// (never shared with a physical kind's own id -- the "dependency on" overlay case shares an id
-	// but never has its OWN Capabilities, so it's never positioned through this branch at all; see
-	// integration_logical_storage.go's own header comment for the distinction). Same auto-"node"
-	// treatment as discovery below, just dispatched through registerLogicalIsAvailableCapability
-	// instead once the label resolves.
-	//
-	// Real bug found live 2026-09-16: this branch used to fire for ANY id present in
-	// logicalDevicesByID, including a "dependency on"-only entry (empty Capabilities) sharing an id
-	// with an existing physical device -- e.g. node.vienna_livingroom (import-kind, Logical.def only
-	// declares "dependency on host.netatmo;"). Since the branch always returned unconditionally, the
-	// device's OWN physical-kind registration below (the "importedDevicesByID"/"hostDevicesByID"/...
-	// dispatch, which is what auto-implies an import/hosts device's own "node" capability) was never
-	// reached at all -- silently dropping node.vienna_livingroom's own connectivity entity entirely
-	// (confirmed live: no "node:" key in coordinator/imported.yaml, missing from the aggregate node
-	// list), even though Physical.def still declares "binary_sensor.node;" for it. The doc comment
-	// above already asserted this "never happens" -- the code just never actually enforced it. Fixed
-	// by requiring logical.Capabilities to be non-empty before intercepting here; a dependency-only
-	// logical device now falls through to its real physical-kind branch below, same as if it had no
-	// Logical.def entry at all (DependsOnAvailabilityTopics is resolved entirely separately, in
-	// generator.go's parseAdministrationFromPaths, so this guard doesn't affect that at all).
-	//
-	// hasPhysicalPresence (2026-09-18, the "absorb" operation) extends this same guard one step
-	// further: a device id can now have BOTH a real physical presence (e.g. hassbridge) AND non-
-	// empty Logical.def capabilities of its own (an "absorb" block, plus a wrapping enabler-aware
-	// capability referencing that SAME device's own raw node -- see Conceptual_DeviceCapabilityEntities.go's
-	// dispatchLogicalCapability and Logical.def's own appliance.washing_machine entry). Such a device
-	// must still go through its OWN physical-kind branch below for POSITIONING (shared "device:"
-	// block, constant attributes, suggested_area, raw node auto-registration) -- only its individual
-	// CAPABILITY lines (dispatched via registerDeviceCapabilityEntityLinkAllowingHidden, not this
-	// function) reach the logical overlay. Without this, appliance.washing_machine's real hassbridge
-	// positioning (constantAttrs/suggested_area/its own genuine "node" capability) would be silently
-	// skipped the moment its Logical.def entry gained any real capability -- the same class of bug
-	// as the 2026-09-16 one this comment already describes, just on the non-empty-Capabilities side.
-	_, hasHassBridgePresence := hassBridgeDevicesByID[decl.DeviceID]
-	_, hasDiscoveryPresence := discoveryGatewaysByID[decl.DeviceID]
-	_, hasHostPresence := hostDevicesByID[decl.DeviceID]
-	_, hasImportedPresence := importedDevicesByID[decl.DeviceID]
-	_, hasCommandlinePresence := commandlineDevicesByID[decl.DeviceID]
-	hasPhysicalPresence := hasHassBridgePresence || hasDiscoveryPresence || hasHostPresence || hasImportedPresence || hasCommandlinePresence
-	if logical, found := logicalDevicesByID[decl.DeviceID]; found && len(logical.Capabilities) > 0 && !hasPhysicalPresence {
-		deviceIdentity := extractEntityIdentity(normalizeEntityFullName("device."+decl.Spec, administration.SpacePath))
-		if deviceIdentity.Sphere == "" || deviceIdentity.Path == "" {
-			return []string{fmt.Sprintf("%s: could not resolve a sphere/path from %q; skipping", provenance, decl.Spec)}, nil
-		}
-		deviceNamePath := deviceSpecLeafPath(decl.Spec)
-		displayName := deviceDisplayName(administration.CurrentSpaceName(), deviceIdentity.Sphere, deviceNamePath)
-		administration.DeviceConceptualLinks[decl.DeviceID] = TDeviceConceptualLink{
-			DisplayName:        displayName,
-			AttributeEntityIDs: map[string]TDeviceAttributeLink{},
-		}
-
-		var warnings []string
-		if nodeCapability, hasNode := logical.Capabilities["node"]; hasNode {
-			autoDecl := TDeviceCapabilityEntityDeclaration{
-				LocalSpec:  nodeCapability.Domain + "." + deviceIdentity.Sphere + ":" + "node",
-				DeviceID:   decl.DeviceID,
-				Capability: "node",
-			}
-			// No deferral possible here (registerLogicalIsAvailableCapability never defers -- its
-			// Entity/EnablerEntity are always literal, already-existing entity_ids, nothing to wait
-			// on), unlike discovery's own auto-node above.
-			warnings, _ = registerDeviceCapabilityEntityLinkAllowingHidden(administration, autoDecl, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, logicalDevicesByID, entitiesPath, lineNum, false, deviceNamePath, true)
-		}
-		return warnings, nil
+// registerDevicePositioning resolves decl into administration.DeviceConceptualLinks[decl.DeviceID]:
+// on the FIRST occurrence of decl.DeviceID, establishes its shared conceptual identity
+// (DisplayName/ConstantAttributes/suggested_area, from decl.Spec if given); on every later
+// occurrence, this is a no-op (the entities this block's own body lines contribute are registered
+// separately, by parser.go's ordinary per-line dispatch -- this function's only job is identity).
+// See this file's own header comment for the full register-once-merge-repeatedly rationale.
+// deviceNamePath is decl.Spec's own leaf path (computed once here, returned so the caller can
+// thread it through this block's own body-line dispatch -- deviceSpecLeafPath("") is "", the "no
+// compound name" case).
+func registerDevicePositioning(administration *TAdministrationState, decl TDevicePositioningDeclaration, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hostDevicesByID map[string]THostDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, commandlineDevicesByID map[string]TCommandlineDevice, localDevicesByID map[string]TLocalDevice, logicalDevicesByID map[string]TLogicalDevice, entitiesPath string, lineNum int) []string {
+	// Already established (by an earlier occurrence, anywhere in the file) -- pure re-entry, this
+	// block's own entities are registered by the ordinary per-line dispatch, nothing more to do here.
+	if _, already := administration.DeviceConceptualLinks[decl.DeviceID]; already {
+		return nil
 	}
 
-	if gateway, found := discoveryGatewaysByID[decl.DeviceID]; found {
-		deviceIdentity := extractEntityIdentity(normalizeEntityFullName("device."+decl.Spec, administration.SpacePath))
-		if deviceIdentity.Sphere == "" || deviceIdentity.Path == "" {
-			return []string{fmt.Sprintf("%s: could not resolve a sphere/path from %q; skipping", provenance, decl.Spec)}, nil
-		}
-		deviceNamePath := deviceSpecLeafPath(decl.Spec)
-		displayName := deviceDisplayName(administration.CurrentSpaceName(), deviceIdentity.Sphere, deviceNamePath)
-		administration.DeviceConceptualLinks[decl.DeviceID] = TDeviceConceptualLink{
-			DisplayName:        displayName,
-			AttributeEntityIDs: map[string]TDeviceAttributeLink{},
-		}
+	provenance := fmt.Sprintf("%s:%d → device %s as %q", filepath.Base(entitiesPath), lineNum, decl.DeviceID, decl.Spec)
 
-		// Auto-registered here, from the positioning header alone, never from an explicit
-		// Spaces.def body line: "node" -- exactly like hosts/hassbridge's own auto-node,
-		// generalised to discovery 2026-09-15. A "hidden" capability (2026-09-15) does NOT need
-		// this treatment: its only sanctioned use is as a "derived ... from ...;" sibling's own
-		// source, and registerDiscoveryDerivedEntityLink resolves that directly off Physical.def's
-		// own gateway.Capabilities map (the raw gateway+leaf), never through a materialized
-		// DiscoveryEntityLinks entry of its own -- so a hidden raw leaf never needs (and never
-		// gets) its own positioned entity at all.
-		var warnings []string
-		var deferred []tDeferredAutoCapabilityLink
-		var autoLabels []string
-		if _, hasNode := gateway.Capabilities["node"]; hasNode {
-			autoLabels = append(autoLabels, "node")
+	// A device has no sphere of its own (confirmed with the user 2026-09-24: entities have spheres,
+	// devices don't) -- a SINGLE lone "as infrastructural:<leaf-path>" is still rejected outright
+	// (redundant: the bare "as <leaf-path>" form already means exactly that), same no-dual-syntax
+	// discipline as every other grammar retirement in this codebase. But a device's LEAF can
+	// legitimately differ PER SPHERE (2026-09-24, a later, different reason than the one above --
+	// see isMultiSphereDeviceNamePath's own doc comment): "as <sphere1>:<path1> <sphere2>:<path2>
+	// ..." (2+ tokens, or a single token naming a sphere other than "infrastructural") IS accepted.
+	for _, tok := range strings.Fields(decl.Spec) {
+		colonIdx := strings.Index(tok, ":")
+		if colonIdx < 0 {
+			continue
 		}
-		for _, label := range autoLabels {
-			autoDecl := TDeviceCapabilityEntityDeclaration{
-				LocalSpec:  gateway.Capabilities[label].Domain + "." + deviceIdentity.Sphere + ":" + label,
-				DeviceID:   decl.DeviceID,
-				Capability: label,
-			}
-			w, isDeferred := registerDeviceCapabilityEntityLinkAllowingHidden(administration, autoDecl, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, logicalDevicesByID, entitiesPath, lineNum, false, deviceNamePath, true)
-			warnings = append(warnings, w...)
-			if isDeferred {
-				deferred = append(deferred, tDeferredAutoCapabilityLink{decl: autoDecl, deviceNamePath: deviceNamePath})
-			}
+		sphere := tok[:colonIdx]
+		if !isKnownSphere(sphere) {
+			return []string{fmt.Sprintf("%s: malformed \"as\" clause -- %q names an unknown sphere (must be infrastructural/social/physical)", provenance, tok)}
 		}
-		return warnings, deferred
+	}
+	if !isMultiSphereDeviceNamePath(decl.Spec) && strings.Contains(decl.Spec, ":") {
+		return []string{fmt.Sprintf("%s: \"as\" no longer accepts a sphere prefix on its own (a device has no sphere of its own) -- use a bare leaf path, e.g. \"as %s\", or pair it with another sphere's own entry if the leaf genuinely differs per sphere", provenance, strings.SplitN(decl.Spec, ":", 2)[1])}
 	}
 
-	deviceIdentity := extractEntityIdentity(normalizeEntityFullName("device."+decl.Spec, administration.SpacePath))
-	if deviceIdentity.Sphere == "" || deviceIdentity.Path == "" {
-		return []string{fmt.Sprintf("%s: could not resolve a sphere/path from %q; skipping", provenance, decl.Spec)}, nil
+	// "infrastructural:" is re-inserted here, internally, purely to route through
+	// normalizeEntityFullName's own well-tested EXPLICIT-sphere branch -- a colon-less
+	// "device.<leaf-with-slashes>" (e.g. "device.radiator/aqara_thermostat", every compound leaf)
+	// is textually indistinguishable from isExtensionalEntityReference's "already-resolved
+	// domain.sphere/path" shape, and was being misdetected as one, returned verbatim with no
+	// sphere-defaulting AND no space-context folding at all -- a real bug found live 2026-09-24
+	// migrating both houses off the sphere-prefixed "as" grammar (silently flagged dozens of
+	// same-leaf-different-room devices, e.g. every "radiator/aqara_thermostat", as colliding
+	// identities, and would have collapsed their own "node" entities onto the same name too).
+	// For a multi-sphere spec, the device's own IDENTITY (DisplayName/suggested_area/collision key)
+	// is always the "infrastructural" entry (falling back to whichever entry was written first) --
+	// resolveDeviceNamePathForSphere does exactly this resolution, and is a no-op for the ordinary
+	// single-leaf case. Resolved from decl.Spec directly (not deviceSpecLeafPath's OWN output) --
+	// normalizeEntityFullName's own absolute-path detection needs a leading '/' preserved when
+	// present (e.g. "as /smarty"), which deviceSpecLeafPath deliberately trims for DISPLAY purposes
+	// only (a second real bug found live 2026-09-24 fixing the one above: feeding the ALREADY-
+	// trimmed leaf in here lost that marker, silently folding the enclosing space's own context
+	// into an "absolute" device's identity when it shouldn't be).
+	identityLeaf := resolveDeviceNamePathForSphere(decl.Spec, "infrastructural")
+	deviceSpecForIdentity := identityLeaf
+	if deviceSpecForIdentity != "" {
+		deviceSpecForIdentity = "infrastructural:" + deviceSpecForIdentity
 	}
+	deviceIdentity := extractEntityIdentity(normalizeEntityFullName("device."+deviceSpecForIdentity, administration.SpacePath))
+	// displayLeaf trims that same identityLeaf for deviceDisplayName's own simple text
+	// concatenation, which always folds the enclosing space in regardless of an absolute marker
+	// (a device's user-facing display name still wants its own location, even when its underlying
+	// raw entity_id, for legacy-naming reasons, doesn't) -- deviceSpecLeafPath does exactly that
+	// trim, and is a no-op (returns it unchanged) for a leaf that never had a leading '/' anyway.
+	displayLeaf := deviceSpecLeafPath(identityLeaf)
 	spaceName := administration.CurrentSpaceName()
-	displayName := deviceDisplayName(spaceName, deviceIdentity.Sphere, deviceSpecLeafPath(decl.Spec))
+	displayName := deviceDisplayName(spaceName, displayLeaf)
+
+	// Two different device ids sharing the same conceptual identity ("weaving" two devices onto one
+	// position, e.g. two Aqara sensors both "as infrastructural:apartment/hallway/door") is legal on
+	// its own -- it's only a real mistake when it actually collides two entities onto the same final
+	// HA entity_id, which RegisterDiscoveryImpliedEntity now catches and reports precisely, naming
+	// the actual colliding entity (2026-09-25: this identity-level check used to hard-fail on the
+	// shared position alone, which was a false positive whenever the two devices' own entity sets
+	// didn't actually overlap -- see the user's own correction, Vienna's
+	// "sensors.hallway_door_aqara_multi"/"sensors.hallway_aqara_windoor" both "as
+	// infrastructural:apartment/hallway/door", which never collided at the entity level at all).
 
 	if hostDevice, found := hostDevicesByID[decl.DeviceID]; found {
-		return registerHostDevicePositioning(administration, decl, hostDevice, deviceIdentity, spaceName, displayName, provenance), nil
+		mat, known := MaterializationForIntegrationType(hostDevice.IntegrationType)
+		if !known {
+			return []string{fmt.Sprintf("%s: integration type %q has no known entity materialization; skipping", provenance, hostDevice.IntegrationType)}
+		}
+		link, warnings := registerHostDeviceIdentity(administration, mat, hostDevice, deviceIdentity, displayName)
+		administration.DeviceConceptualLinks[decl.DeviceID] = link
+		return warnings
 	}
 
-	if importedDevice, found := importedDevicesByID[decl.DeviceID]; found {
-		return registerImportedDevicePositioning(administration, decl, importedDevice, deviceIdentity, displayName, entitiesPath, lineNum, provenance), nil
+	if _, found := importedDevicesByID[decl.DeviceID]; found {
+		link := TDeviceConceptualLink{DisplayName: displayName, AttributeEntityIDs: map[string]TDeviceAttributeLink{}}
+		if area := administration.CurrentArea(); area != "" {
+			link.ConstantAttributes = map[string]TDeviceAttributeConstant{"suggested_area": {Value: area}}
+		}
+		administration.DeviceConceptualLinks[decl.DeviceID] = link
+		return nil
 	}
 
 	if _, found := commandlineDevicesByID[decl.DeviceID]; found {
-		return registerCommandlineDevicePositioning(administration, decl, displayName), nil
+		administration.DeviceConceptualLinks[decl.DeviceID] = TDeviceConceptualLink{DisplayName: displayName, AttributeEntityIDs: map[string]TDeviceAttributeLink{}}
+		return nil
 	}
 
-	device, found := hassBridgeDevicesByID[decl.DeviceID]
-	if !found {
-		return []string{fmt.Sprintf("%s: device %q not found in Physical.def's \"hosts\"/\"home_assistant\"/\"commandline\" integrations or as a \"hassbridge\"-form import", provenance, decl.DeviceID)}, nil
+	if _, found := discoveryGatewaysByID[decl.DeviceID]; found {
+		administration.DeviceConceptualLinks[decl.DeviceID] = TDeviceConceptualLink{DisplayName: displayName, AttributeEntityIDs: map[string]TDeviceAttributeLink{}}
+		return nil
 	}
 
-	constantAttrs := make(map[string]TDeviceAttributeConstant, len(device.ConstantAttributes))
-	for name, attr := range device.ConstantAttributes {
-		constantAttrs[name] = TDeviceAttributeConstant{Value: attr.Value, Forced: attr.Forced}
+	if _, found := localDevicesByID[decl.DeviceID]; found {
+		administration.DeviceConceptualLinks[decl.DeviceID] = TDeviceConceptualLink{DisplayName: displayName, AttributeEntityIDs: map[string]TDeviceAttributeLink{}}
+		return nil
 	}
-	// A device positioned inside an "as area" space gets that area as its suggested_area default --
-	// unless the device already has its own explicit override (device always wins). Mirrors
-	// registerHostNodeEntity's identical precedence (Conceptual_DeviceEntities.go) -- real gap found
-	// live 2026-09-08: this hassbridge path never called CurrentArea() at all, so a hassbridge
-	// device nested under a "space ... as area with:" (e.g. Junglinster's "social:front" nested
-	// under "social:terrace as area") never picked up the enclosing area, unlike a "hosts" device in
-	// the exact same position.
-	if _, hasExplicit := constantAttrs["suggested_area"]; !hasExplicit {
-		if area := administration.CurrentArea(); area != "" {
-			constantAttrs["suggested_area"] = TDeviceAttributeConstant{Value: area}
+
+	if device, found := hassBridgeDevicesByID[decl.DeviceID]; found {
+		constantAttrs := make(map[string]TDeviceAttributeConstant, len(device.ConstantAttributes))
+		for name, attr := range device.ConstantAttributes {
+			constantAttrs[name] = TDeviceAttributeConstant{Value: attr.Value, Forced: attr.Forced}
 		}
-	}
-	administration.DeviceConceptualLinks[decl.DeviceID] = TDeviceConceptualLink{
-		DisplayName:        displayName,
-		ConstantAttributes: constantAttrs,
-		AttributeEntityIDs: map[string]TDeviceAttributeLink{},
+		if _, hasExplicit := constantAttrs["suggested_area"]; !hasExplicit {
+			if area := administration.CurrentArea(); area != "" {
+				constantAttrs["suggested_area"] = TDeviceAttributeConstant{Value: area}
+			}
+		}
+		administration.DeviceConceptualLinks[decl.DeviceID] = TDeviceConceptualLink{
+			DisplayName:        displayName,
+			ConstantAttributes: constantAttrs,
+			AttributeEntityIDs: map[string]TDeviceAttributeLink{},
+		}
+		return nil
 	}
 
-	nodeCapability, hasNode := device.Capabilities["node"]
-	if !hasNode {
-		// This positioning form's whole second half (beyond the shared "device:" block) is
-		// auto-registering the device's own "node" (liveness) entity -- silently skipping that
-		// when none is declared used to give no feedback at all, easy to miss (confirmed live
-		// 2026-08-29: several home_assistant bridge devices had no "node" capability declared and
-		// nothing ever flagged it). Warn, don't error: a device genuinely not wanting a liveness
-		// entity is a legitimate, if rare, choice -- this positioning form must still work for it.
-		return []string{fmt.Sprintf("%s: device %q has no \"node\" capability declared -- its own liveness/connectivity entity won't be registered; add one (e.g. \"binary_sensor.node: <some already-reported entity> is available;\") if that's not intentional", provenance, decl.DeviceID)}, nil
+	// A pure Logical.def device (no physical presence at all -- an "absorb"/dual-presence device
+	// always matches one of the physical-kind branches above instead, whichever kind it physically
+	// is) still gets a conceptual identity of its own, exactly like every physical kind above.
+	if logical, found := logicalDevicesByID[decl.DeviceID]; found && len(logical.Capabilities) > 0 {
+		administration.DeviceConceptualLinks[decl.DeviceID] = TDeviceConceptualLink{DisplayName: displayName, AttributeEntityIDs: map[string]TDeviceAttributeLink{}}
+		return nil
 	}
-	nodeSpec := "binary_sensor." + deviceIdentity.Sphere + ":" + deviceSpecLeafPath(decl.Spec) + "/node"
-	warnings, _ := registerDeviceSourceEntityLink(administration, TDeviceSourceEntityDeclaration{
-		LocalSpec: nodeSpec,
-		// capabilityKey "node" below is non-empty, so registerDeviceSourceEntityLink preserves
-		// nodeCapability's own already-per-instance Sources map unchanged -- this Source value is
-		// display-only (the provenance string on a rare error path).
-		Source:   representativeSource(nodeCapability.Sources),
-		DeviceID: decl.DeviceID,
-	}, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, lineNum, true, "node", "")
-	return warnings, nil
-}
 
-// tDeferredAutoCapabilityLink carries a discovery gateway's auto-implied "node" capability
-// registration (registerDevicePositioning) that couldn't resolve yet -- almost always the case,
-// since the sibling capability it tracks is virtually always positioned later in the same "with:"
-// block's own body. The caller (parser.go) queues this exactly like any other deferred capability
-// line and retries once, after the whole file has been read.
-type tDeferredAutoCapabilityLink struct {
-	decl           TDeviceCapabilityEntityDeclaration
-	deviceNamePath string
-}
-
-// registerHostDevicePositioning is registerDevicePositioning's counterpart for a "hosts"
-// integration device (PROJECT.md, unification plan 2026-09-01) -- unlike the "home_assistant"
-// bridge path, a hosts device's node entity is unconditional (every hosts device gets one,
-// regardless of what attributes get requested later), so there's no "has no node capability
-// declared" warning case here -- registerHostNodeEntity (Conceptual_DeviceEntities.go) already
-// registers it as part of building the base link. Every other attribute (e.g. "load"/"temperature"
-// for a cpu-type host) is expected to be individually requested afterward via
-// registerDeviceCapabilityEntityLink's own now-hosts-aware branch (the "entity ... from
-// <device-id> entity <capability>;" construct, or its "for <device-id>: ... end;" shorthand) --
-// this positioning form only ever seeds the shared "device:" block plus the node, same division of
-// responsibility the "home_assistant" path already has.
-func registerHostDevicePositioning(administration *TAdministrationState, decl TDevicePositioningDeclaration, device THostDevice, deviceIdentity TEntityIdentity, spaceName, displayName, provenance string) []string {
-	mat, known := MaterializationForIntegrationType(device.IntegrationType)
-	if !known {
-		return []string{fmt.Sprintf("%s: integration type %q has no known entity materialization; skipping", provenance, device.IntegrationType)}
-	}
-	link, warnings := registerHostNodeEntity(administration, mat, device, deviceIdentity, spaceName, displayName, provenance)
-	administration.DeviceConceptualLinks[decl.DeviceID] = link
-	return warnings
-}
-
-// registerCommandlineDevicePositioning is registerDevicePositioning's counterpart for a
-// "commandline" integration device (real gap found live 2026-09-10: a commandline device was
-// only ever reachable via registerCommandlineCapabilityEntityLink, which requires
-// DeviceConceptualLinks[deviceID] to already exist -- by design, for a device sharing its
-// identity with an already-positioned "hosts"/"home_assistant" device of the SAME id (e.g.
-// host.frame, discoverycommandline.go's own doc comment explains why). A commandline device with
-// no such sibling -- its own standalone DeviceID, e.g. appliance.picture_frame -- had no way to
-// ever get positioned at all).
-//
-// Deliberately minimal, unlike the hosts/hassbridge/import paths: TCommandlineDevice carries no
-// ConstantAttributes (no device-info fields exist anywhere in this integration kind's own
-// Physical.def grammar) and no "node" capability concept -- a commandline device's liveness
-// entity is always the coordinator's own unconditional, auto-named
-// binary_sensor.<host>_commandline_node (discoverycommandline.go's buildCommandlineDiscoveryConfigs),
-// never influenced by Spaces.def positioning, so there is nothing else to auto-register here
-// beyond the shared "device:" block itself.
-func registerCommandlineDevicePositioning(administration *TAdministrationState, decl TDevicePositioningDeclaration, displayName string) []string {
-	administration.DeviceConceptualLinks[decl.DeviceID] = TDeviceConceptualLink{
-		DisplayName:        displayName,
-		AttributeEntityIDs: map[string]TDeviceAttributeLink{},
-	}
-	return nil
-}
-
-// registerImportedDevicePositioning is registerDevicePositioning's counterpart for a
-// "hassbridge"-form import (PROJECT.md 1.2d) -- same shape as the native path (shared "device:"
-// block + auto-registered "node" liveness entity, if declared), except device-info fields
-// (manufacturer/model/...) are always left empty (an import carries no Physical.def-declared
-// device-info fields of its own; the coordinator learns them live from the exporting
-// installation's own report, same principle as registerImportedDeviceSourceEntityLink's typing-
-// metadata deferral) and node resolution goes through that function (capabilityKey "node") instead
-// of the native path's inline registerDeviceSourceEntityLink call.
-//
-// suggested_area is the one exception to "device-info fields stay empty" -- it's a purely local
-// Spaces.def positioning concept (which area a device sits in on THIS house's own conceptual
-// layer), unrelated to the remote device's own hardware info the exporter reports live. Mirrors
-// registerHostNodeEntity/the native hassbridge path's identical "as area" precedence -- real gap
-// found live 2026-09-08 alongside the native path's own identical bug.
-func registerImportedDevicePositioning(administration *TAdministrationState, decl TDevicePositioningDeclaration, importedDevice TImportedDevice, deviceIdentity TEntityIdentity, displayName, entitiesPath string, lineNum int, provenance string) []string {
-	link := TDeviceConceptualLink{
-		DisplayName:        displayName,
-		AttributeEntityIDs: map[string]TDeviceAttributeLink{},
-	}
-	if area := administration.CurrentArea(); area != "" {
-		link.ConstantAttributes = map[string]TDeviceAttributeConstant{"suggested_area": {Value: area}}
-	}
-	administration.DeviceConceptualLinks[decl.DeviceID] = link
-
-	if _, hasNode := importedDevice.Capabilities["node"]; !hasNode {
-		return []string{fmt.Sprintf("%s: imported device %q declares no \"node\" capability -- its own liveness/connectivity entity won't be registered; add one (e.g. \"node: binary_sensor.<some-already-exported-entity>;\") to its Physical.def import declaration if that's not intentional", provenance, decl.DeviceID)}
-	}
-	nodeSpec := "binary_sensor." + deviceIdentity.Sphere + ":" + deviceSpecLeafPath(decl.Spec) + "/node"
-	warnings, _ := registerDeviceSourceEntityLink(administration, TDeviceSourceEntityDeclaration{
-		LocalSpec: nodeSpec,
-		DeviceID:  decl.DeviceID,
-	}, nil, map[string]TImportedDevice{decl.DeviceID: importedDevice}, entitiesPath, lineNum, true, "node", "")
-	return warnings
+	return []string{fmt.Sprintf("%s: device %q not found in Physical.def's \"hosts\"/\"home_assistant\"/\"discovery\"/\"local\"/\"commandline\" integrations, Logical.def, or as a \"hassbridge\"-form import", provenance, decl.DeviceID)}
 }

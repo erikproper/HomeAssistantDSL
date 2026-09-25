@@ -85,7 +85,7 @@ func fetchImportExistence(definitionDir string, ctx TPhysicalGenerationContext, 
 	if err := json.Unmarshal(cached, &cachedStatus); err != nil {
 		return nil, fmt.Errorf("%w (local cache at %s is also unreadable: %v)", fetchErr, cachePath, err)
 	}
-	fmt.Printf("[physical] import existence for %q: live fetch failed (%v), using cached copy from %s\n", remoteInstallation, fetchErr, cachePath)
+	printOfflineCacheNoticeOnce()
 	return cachedStatus, nil
 }
 
@@ -96,11 +96,10 @@ func fetchImportExistence(definitionDir string, ctx TPhysicalGenerationContext, 
 // (whose local-broker copy is authoritative for this same house), the cloud broker is often the
 // ONLY place this specific status is reachable from at all.
 func fetchImportExistencePreferringCloud(ctx TPhysicalGenerationContext, remoteInstallation string) (TImportExistenceStatusPayload, error) {
+	// Cloud failure here is silent -- see printOfflineCacheNoticeOnce's own doc comment.
 	if cloudSecrets, ok := coordinatorOnlyBrokerSecrets(ctx); ok {
 		if status, err := fetchImportExistenceFromBroker(cloudSecrets, remoteInstallation, ctx.Installation); err == nil {
 			return status, nil
-		} else {
-			fmt.Printf("[physical] import existence for %q: cloud broker attempt failed (%v), trying local\n", remoteInstallation, err)
 		}
 	}
 	return fetchImportExistenceFromBroker(ctx.MQTTSecrets, remoteInstallation, "")

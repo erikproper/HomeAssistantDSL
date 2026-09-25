@@ -7,12 +7,18 @@ import (
 
 func TestDescribeWouldDefineForDiscoveryImpliedEntity(t *testing.T) {
 	admin := newAdministrationState()
-	decl := TDevicePositioningDeclaration{Spec: "infrastructural:appletv-office", DeviceID: "host.appletv-office"}
+	decl := TDevicePositioningDeclaration{Spec: "appletv-office", DeviceID: "host.appletv-office"}
 	hostDevicesByID := map[string]THostDevice{
 		"host.appletv-office": {DeviceID: "host.appletv-office", HostName: "appletv-office", IntegrationType: "ping"},
 	}
-	if warnings, _ := registerDevicePositioning(admin, decl, nil, hostDevicesByID, nil, nil, nil, nil, "Spaces.def", 1); len(warnings) != 0 {
+	if warnings := registerDevicePositioning(admin, decl, nil, hostDevicesByID, nil, nil, nil, nil, nil, "Spaces.def", 1); len(warnings) != 0 {
 		t.Fatalf("unexpected warnings setting up the fixture: %v", warnings)
+	}
+	// 2026-09-24: "node" is no longer auto-registered at positioning time for any kind -- an
+	// ordinary explicit capability reference.
+	nodeDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:appletv-office/node", DeviceID: "host.appletv-office", Capability: "node"}
+	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, nodeDecl, nil, nil, nil, hostDevicesByID, nil, nil, nil, "Spaces.def", 1, true, "", false); len(warnings) != 0 || deferred {
+		t.Fatalf("unexpected warnings/deferred registering node: warnings=%v deferred=%v", warnings, deferred)
 	}
 
 	message, found := describeWouldDefine(admin, "binary_sensor.infrastructural_appletv_office_node")

@@ -4,11 +4,18 @@
  * Package:   Main
  * Component: Layers
  *
- * Generic parsing of the three explicit modelling-layer wrappers (Architecture.md §2/§9.1):
+ * Generic parsing of the four explicit modelling-layer wrappers (Architecture.md §2/§9.1):
  *
  *   physical layer with: ... end;
  *   logical layer with: ... end;
  *   conceptual layer with: ... end;
+ *   external layer with: ... end;
+ *
+ * "external" (External.def, added 2026-09-23, following the ANSI-SPARC three-schema
+ * terminology this project's own ISO database-design reference uses) holds "list"
+ * declarations -- named, filterable aggregate VIEWS over already-positioned conceptual
+ * entities, analogous to an external/application schema layered on top of a conceptual one,
+ * not themselves part of the conceptual model.
  *
  * A layer may be specified in multiple chunks, spread across multiple .def files -- this
  * file only extracts and concatenates those chunks by layer name and source file set; it
@@ -18,7 +25,8 @@
  *
  * Placement rules (enforced here as warnings, not hard errors, matching this generator's
  * existing "warn and continue" style for source imperfections):
- *   - "space"/"list" declarations belong in the conceptual layer.
+ *   - "space" declarations belong in the conceptual layer.
+ *   - "list" declarations belong in the external layer, not the conceptual one.
  *   - "mqtt"/"home_assistant"/"integration" declarations belong in the physical layer.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
@@ -40,13 +48,14 @@ const (
 	LayerPhysical   = "physical"
 	LayerLogical    = "logical"
 	LayerConceptual = "conceptual"
+	LayerExternal   = "external"
 )
 
 // disallowedTopLevelPrefixes lists, per layer, the statement keywords that belong in a
 // different layer and should not appear at a layer chunk's top level.
 var disallowedTopLevelPrefixes = map[string][]string{
 	LayerPhysical:   {"space ", "space:", "list "},
-	LayerConceptual: {"mqtt ", "home_assistant ", "integration "},
+	LayerConceptual: {"mqtt ", "home_assistant ", "integration ", "list "},
 }
 
 var layerHeaderPattern = regexp.MustCompile(`^(\S+)\s+layer\s+with:\s*$`)
@@ -72,8 +81,8 @@ func parseLayerBlocks(content, sourceFile string) ([]TLayerBlock, []string) {
 	var blocks []TLayerBlock
 	for _, m := range matches {
 		layerName := m.HeaderMatch[1]
-		if layerName != LayerPhysical && layerName != LayerLogical && layerName != LayerConceptual {
-			warnings = append(warnings, fmt.Sprintf("%s:%d: unrecognised layer name %q (expected physical, logical, or conceptual)", sourceFile, m.StartLine, layerName))
+		if layerName != LayerPhysical && layerName != LayerLogical && layerName != LayerConceptual && layerName != LayerExternal {
+			warnings = append(warnings, fmt.Sprintf("%s:%d: unrecognised layer name %q (expected physical, logical, conceptual, or external)", sourceFile, m.StartLine, layerName))
 		}
 		blocks = append(blocks, TLayerBlock{
 			Layer:       layerName,
