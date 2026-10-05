@@ -72,7 +72,6 @@ type TAdministrationState struct {
 
 	// "definition as <type> ...;" relations for entity bodies that generate their own content
 	// (as opposed to switched_device/timer-limits above, which describe cross-entity behaviour).
-	// "flipped" retired 2026-10-05 -- see generateFlippedSwitches' own doc comment.
 	HasStateRelations []THasStateRelation
 	TimerDefRelations []TTimerDefRelation
 
@@ -506,8 +505,6 @@ type TEntityRecord struct {
 
 	// Fields populated during macro expansion for template binary sensor generation.
 	NodeRepresentativeEntityID string // HA entity ID that the node monitors (e.g. sensor.infrastructural_..._battery_level)
-	NodeEnablerEntityID        string // optional enabler HA entity ID (condition becomes: node OR enabler is off)
-	NodeDelayOff               string // optional delay_off value (e.g. "00:01:00")
 	BatteryAlertLevel          int    // alert threshold for battery_alert entities (0 = not set)
 
 	// Fields populated during macro expansion for input_number generation.
@@ -516,11 +513,6 @@ type TEntityRecord struct {
 	InputNumberStep string
 	InputNumberUnit string
 	InputNumberIcon string
-
-	// Fields for template sensor generation.
-	AdjustmentOffset string // numeric offset for adjustment sensors (e.g. "20")
-	AdjustmentScale  string // numeric scale multiplier (e.g. "1")
-	ValueExpr        string // normalised entity reference for value-directive sensors (e.g. "climate.physical/.../bitron_thermostat!current_temperature")
 
 	// Fields for media switch generation.
 	MediaSwitchPlayerName  string // HA entity name of the controlled media_player (e.g. "media_player.social/apartment/living_room/sonos")
@@ -532,12 +524,6 @@ type TEntityRecord struct {
 	// the hand-written "media_switch" directive's own records (unchanged behaviour from before
 	// this field existed) and for a logical device with no "node" capability declared.
 	MediaSwitchAvailabilityEntityID string
-
-	// FlippedSourceEntityID (2026-10-05, Logical.def's "<domain>.<label> flipped <capability>;"
-	// absorb qualifier, TLogicalCapability.Flipped's own doc comment) is the already-known,
-	// literal HA entity_id of the absorbed source whose state this entity mirrors inverted
-	// (generateFlippedSwitches). Empty for every other kind of entity record.
-	FlippedSourceEntityID string
 
 	// Fields for generic condition-based template entity generation.
 	ConditionSources  []string // normalised HA entity IDs for $/$1/$2/... in the condition expression

@@ -192,110 +192,6 @@ back up its `~/bin` folder the same way
 
 10. remove the " .. as .." clause for devices? reduce/remove!! "as sss:eee"? Use positioning, and add device (aqara) name to the infra entities.
 
-11. "Code cleaning (dead code, superseded generator logic, parser)
-==> Start by checking the dead DSL constructs, and clean the assocuated code." such that we do not forget ...
-Actually. Start by cleaning out unneeded macros first ...
-
-==> Do we still need the macros?
-
-**DONE 2026-09-30: all of the below is moot now -- every macro-call site in both houses was
-migrated off (the last remaining family, `media_player_device`, closed out 2026-09-29/30), then
-the entire macro-definition/expansion engine was removed from the generator itself and
-`Macros.def` deleted from disk. See item 3 above for the full writeup.** Keeping the historical
-inventory below for the record.
-
-Inventory done 2026-09-22 (Vienna vs Junglinster contrast, memory: project_macro_cleanup_after_junglinster.md):
-- DONE 2026-09-22: Macros.def's `zwave_node`/`windy`/`sunny` removed, plus the dead
-  `hasSecondColonSeparator` check (expander.go/par  ser.go, both call sites + the function). NOT
-  `device` -- caught before removing it: `thermostat` (Junglinster still has 9 live uses) calls
-  `device` internally (Macros.def's own `call device climate.physical/...;`), so it's still a real
-  transitive dependency despite zero DIRECT callers in either house's Conceptual.def. Verified
-  byte-identical regenerate on both houses (`diff -rq` against the pre-change `hass/` tree) before
-  and after.
-- Vienna 0, Junglinster still heavy use (blocked on Junglinster's own migration, one device at a
-  time, same playbook as Vienna's): Macros.def's `providing`(39)/`battery_level_device`(45)/
-  `media_player_device`(12, **DONE 2026-09-29 -- 0 remaining, both houses**)/`light_device`(11)/
-  `battery_level`(9)/`switch_device`(9, 8 remaining -- office's own "cycling" migrated as part of
-  the media_player_device sweep, since it's the real shared enabler for apple_tv/tv)/
-  `thermostat`(9)/`battery_alert`(4)/`power_switch`(4).
-  Real generator gaps found+fixed while finishing `media_player_device` (office's apple_tv/tv,
-  both genuinely sharing "cycling"'s own switch as their enabler -- confirmed with the user, not a
-  copy/paste artifact): (1) an absorbed capability (e.g. `enabled by`'s own synthesized "enabler")
-  with no Conceptual.def positioning of its own now reuses an already-conceptually-claimed source
-  entity instead of warning/erroring (`resolveTargeted`, Conceptual_LogicalEntities.go); (2) a
-  local-kind capability's own "with no_collect" suffix was silently ignored (parsed clean, never
-  threaded into the TEntityRecord) -- fixed in Conceptual_LocalEntities.go's two registration
-  paths. Both regression-tested, both houses regenerated (Junglinster: intended diff only; Vienna:
-  byte-identical, confirming zero side effects there).
-- Vienna 0, Junglinster 7: `definition as switched_device ...;` -- this is the light.social:main
-  (Zigbee+Z-Wave) case from today's chat; its replacement is the still-unbuilt "aggregate"
-  Logical-layer operation, not just a migration-count question.
-- Vienna 0, Junglinster 3 (frozen, deliberate): the flat `entity ... from ... ...;` form (3
-  bedroom "health" lines) -- needs an explicit decision, not just migration, before a parser ban.
-- Explicitly NOT part of this cleanup: discovery_passthrough stays regardless (reusable
-  architecture, not dead code).
-- PENDING (found 2026-09-24, during PROJECT.md item 11's node-override work): Logical.def's old
-  "<domain>.<label> <entity> is available with: enabler <ref>; delay_off <time>; dependency on
-  <device-id>; end;" grammar -- `TLogicalCapability.IsAvailable`/`.EnablerEntity`/capability-level
-  `.DependsOn`, and their sole consumers `registerLogicalIsAvailableCapability`/
-  `resolveLogicalDependencyNodeEntities` (Conceptual_LogicalEntities.go/
-  integration_logical_storage.go) -- is now fully superseded by the unified "derived <domain>.<label>
-  with: condition <bool-expr>; end;" mechanism. Confirmed zero remaining usages in either house's
-  live Logical.def after migrating Vienna's apple_tv_complement/tv_complement/sonos_complement/
-  sonos_roam_complement/washing_machine off it 2026-09-24 (Junglinster never used this shape at
-  all). Device-level "dependency on <id>;" (TLogicalDevice.DependsOn) is UNRELATED and stays -- it
-  feeds hassbridge/import's own raw MQTT availability, a physical-layer concern Note 4 explicitly
-  keeps. When removing: integration_logical_parser.go's `logicalCapabilityPattern`/
-  `logicalCapabilityWithBlockPattern` themselves stay too (still shared with the live switch.media
-  coercion/absorb shapes) -- only their "is available" suffix and the enabler/delay_off/
-  capability-scoped-dependency-on body-line handling nested inside a capability's own "with:" block
-  is dead. As with every other entry here: verify byte-identical regenerate on both houses before
-  and after.
-
-Re-verified 2026-10-05, ahead of actually starting this item -- re-ran every usage check above
-against both houses' CURRENT `.def` content (not the 2026-09-22/24 snapshots this item's own text
-still describes), since a great deal of migration happened in between. Everything above is now
-confirmed fully resolved, nothing left "blocked"/"heavy use":
-- `call providing`/`battery_level_device`/`light_device`/`media_player_device`/`battery_level`/
-  `switch_device`/`thermostat`/`battery_alert`/`power_switch`: zero hits in either house's live
-  `.def` files (only historical mentions survive, in Vienna's own `MigrationNotes.def` comments).
-  Moot anyway since item 3's full macro-engine removal means this syntax can no longer even parse.
-- `definition as switched_device`: zero remaining usages in either house -- the last 7 (Junglinster's
-  Fibaro double-switch sweep: nodes 15/48/57/58/71/52) are long since migrated to the "is switched
-  by" Logical.def mechanism.
-- The flat `entity <spec> from <device-id> <capability>;` form (outside any device block): zero
-  remaining usages in either house -- the 3 frozen Junglinster bedroom-health lines (memory:
-  project_flat_entity_form_ban.md) got resolved as a side effect of the 2026-09-27 domain-
-  qualification cleanup pass (collapsed to the bare nested no-rename shorthand). That memory's own
-  "how to apply" blocking condition ("only once ALL flat-form usages in BOTH houses are resolved")
-  is now satisfied -- **the hard parser-level ban on this construct can actually be implemented now**,
-  not just planned.
-- The old Logical.def "<domain>.<label> <entity> is available [with: enabler ...; delay_off ...;
-  dependency on ...;] end;" grammar this item already flagged dead back on 2026-09-24: re-confirmed
-  zero usages (`grep -n "is available" */Definitions/Logical.def`, both houses). The CODE was never
-  actually removed though -- `TLogicalCapability.IsAvailable`/`.EnablerEntity`/capability-level
-  `.DependsOn`, `registerLogicalIsAvailableCapability`/`resolveLogicalDependencyNodeEntities`
-  (Conceptual_LogicalEntities.go/integration_logical_storage.go), and `administration.go`'s
-  `NodeEnablerEntityID` plumbing (generator.go:741-749's `buildTemplateNodeWithRawYAML` branch) are
-  all still live code today, genuinely dead, ready to delete in this pass.
-- **New dead-on-arrival finding, same day (2026-10-05)**: the "flipped" Logical.def absorb
-  qualifier (`<domain>.<label> flipped <capability>;`) -- built THIS session, the same day, to fix
-  the heating-relay migration -- was itself fully superseded a few hours later by the "inverted"
-  Physical.def qualifier once the relays' real nature (raw Zigbee2MQTT, not hassbridge) was
-  understood; the furnace switch (its only real user) was re-migrated off it immediately. Confirmed
-  zero live `.def` usages in either house right now. Ready to delete: `TLogicalCapability.Flipped`
-  (integration_logical_storage.go), `registerLogicalFlippedAbsorbedCapability`
-  (Conceptual_LogicalEntities.go), `generateFlippedSwitches`/`FlippedSourceEntityID`
-  (generator.go/administration.go), and the "flipped " prefix parsing
-  (integration_logical_parser.go). Worth remembering as a concrete lesson for whenever this pass
-  actually runs: a same-day, never-deployed mechanism can go dead before anyone thinks to flag it --
-  don't assume "built recently" means "still needed," re-check live `.def` usage for everything,
-  not just the historically-known legacy constructs.
-- Item 31's "condition"/"with adjustment" bare-entity mechanism (gated there on the Zigbee2MQTT
-  migration) is ALSO now at zero live usages in both houses (`grep -n " with adjustment \| with
-  condition " */Definitions/Conceptual.def`) -- cross-referenced here since it's the same class of
-  finding; see item 31 for the actual code pointers.
-
 12. harmonise implied rules like:
     lights_motion_guarded with delay 10
   in line with the "rules"
@@ -657,29 +553,31 @@ In doing so also look at the use of "core". We might actually replace this with 
 - General principle: once a platform has fully moved through its incremental integration steps
   (items 4/5/6/7/8 above), retire the now-superseded generator logic for it outright rather than
   carrying both paths indefinitely -- the dead-code entries above are concrete instances of this.
-- `condition`/`with adjustment` on bare Spaces.def entities (and their generator-authored
-  `template:` YAML output, `generateConditionEntities`/`generateTemplateSensors`/
-  `buildAdjustmentStateExpr`, generator.go) -- confirmed by the user (2026-09-09) to be retired
-  outright, code included, once real usage no longer needs them. Not yet: the physical-layer
-  "derived" mechanism (see /Users/erikproper/.claude/plans/derived-capability-mechanism.md) can
-  only attach to a Physical.def-declared device, so today's bare-entity usages (3 `condition` + 1
-  `adjustment`, both houses) stay on the old path until they have a device to attach to -- gated on
-  the Zigbee2MQTT migration (item 8) turning raw Zigbee2MQTT-discovered entities like
-  `aqara_multi`'s pressure sensor into proper Physical.def-declared "discovery"-kind capabilities,
-  and likely further migration beyond that. Also flagged for whenever this is revisited: a possible
-  third, conceptual-to-conceptual `derived` tier (one already-positioned Spaces.def entity derived
-  from another, distinct from both physical-layer `derived` and today's bare-entity mechanism) --
-  not designed, genuinely speculative, only worth resurfacing once the migration above reveals
-  whether it's actually still needed.
-  **Re-verified 2026-10-05: the gating condition above is now met.** `grep -n " with adjustment \|
-  with condition " */Definitions/Conceptual.def` comes back empty on BOTH houses -- the 3
-  `condition` + 1 `adjustment` bare-entity usages this bullet describes are gone (migrated to
-  proper device-attached `derived` capabilities somewhere along this session's own Junglinster
-  sweep, confirmed by the aqara_multi devices all now appearing as real `device ... as ...
-  aqara_multi with: ...;` blocks). This code (`generateConditionEntities`/
-  `generateTemplateSensors`'s adjustment branch/`buildAdjustmentStateExpr`, plus parser.go's own
-  " with adjustment "/" with condition " inline extraction) is confirmed dead and ready to remove
-  in this pass, not just a future candidate.
+
+Note (2026-10-05): a dead-code pass ran against this item plus item 11's own historical inventory
+(both confirmed zero live `.def` usage first, then removed, then verified byte-identical regenerate
+on both houses before and after each removal -- see git history for the exact commit):
+- The `condition`/`with adjustment` bare-entity mechanism this item used to describe (parser.go's
+  own " with adjustment "/" with condition " inline extraction, `generateTemplateSensors`'s
+  adjustment branch, `buildAdjustmentStateExpr`) -- DONE, removed. Also removed the SAME-shaped
+  bare "value <entity>!<attribute>;" directive (`TEntityRecord.ValueExpr`, `buildValueStateExpr`),
+  found zero-usage during the same audit, not previously tracked anywhere.
+- Item 11's own old Logical.def "is available"/enabler/switch-coercion capability shapes
+  (`TLogicalCapability.IsAvailable`/`.EnablerEntity`/capability-level `.DependsOn`/`.NoPlayInput`/
+  `.Entity`, `registerLogicalIsAvailableCapability`/`registerLogicalMediaSwitchCapability`/
+  `resolveLogicalDependencyNodeEntities`) -- DONE, removed.
+- The short-lived "flipped" Logical.def absorb qualifier (built, then superseded by "inverted,"
+  all same-day, 2026-09-05 -- never deployed) -- DONE, removed (`TLogicalCapability.Flipped`,
+  `registerLogicalFlippedAbsorbedCapability`, `generateFlippedSwitches`/`FlippedSourceEntityID`).
+- A pre-existing, independently-dead `TEntityRecord.NodeEnablerEntityID`/`.NodeDelayOff` pair
+  (`buildTemplateNodeWithRawYAML`/`buildTemplateNodeRawYAML`, generator.go) -- found during the
+  same audit (never actually set anywhere, a macro-era leftover missed when item 3's macro removal
+  landed) -- DONE, removed.
+- The flat-entity-form parser ban (memory: project_flat_entity_form_ban.md) is now unblocked too
+  (zero remaining usages confirmed the same day) but NOT yet implemented -- a real hard-error
+  addition, not a removal, left for a deliberate follow-up rather than folded into this pass.
+- Still open, unrelated to the above: the `homeassistant_instances/...` topic rename and the
+  `isCoordinatorOwnedTopic` legacy branch, both listed above.
 
 32. Architectural review, code review and documenting
    - Note (2026-09-05): GO_CONVENTIONS.md §7/§8 specifies a three-layer parser architecture

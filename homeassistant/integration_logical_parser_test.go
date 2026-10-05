@@ -145,25 +145,6 @@ func TestParseLogicalLayerBodyOneLinerDependencyOn(t *testing.T) {
 
 // TestParseLogicalLayerBodyOneLinerBareCapability covers the other single-line-complete body
 // shape -- a bare capability line -- shortened the same way.
-func TestParseLogicalLayerBodyOneLinerBareCapability(t *testing.T) {
-	devices, warnings := parseLogicalLayerBody([]string{
-		`device utility.thing with binary_sensor.node media_player.core is available;`,
-	}, nil)
-	if len(warnings) != 0 {
-		t.Fatalf("unexpected warnings: %v", warnings)
-	}
-	if len(devices) != 1 {
-		t.Fatalf("got %d devices, want 1", len(devices))
-	}
-	cap, ok := devices[0].Capabilities["node"]
-	if !ok {
-		t.Fatalf("Capabilities = %v, want a \"node\" entry", devices[0].Capabilities)
-	}
-	if cap.Domain != "binary_sensor" || cap.Entity != "media_player.core" || !cap.IsAvailable {
-		t.Errorf("capability = %+v, want {Domain: binary_sensor, Entity: media_player.core, IsAvailable: true}", cap)
-	}
-}
-
 // TestParseLogicalLayerBodyOneLinerRejectsBlockOpeningStatement confirms a block-opening body
 // shape (e.g. "defined ... with: ...; end;") is NOT accepted as a one-liner's single statement --
 // there is no one-line form for those, so this must warn rather than silently mis-parse.
@@ -230,152 +211,6 @@ func TestParseLogicalLayerBodyRejectsEntityDependencyForNow(t *testing.T) {
 	}, nil)
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "unrecognised line") {
 		t.Errorf("warnings = %v, want exactly one \"unrecognised line\" warning", warnings)
-	}
-}
-
-// TestParseLogicalLayerBodyPlainIsAvailableCapability covers the media_player_device migration's
-// simplest case (utility.apple_tv): a plain, self-contained "<domain>.<label>: <entity> is
-// available;" line, no "with:" block at all.
-func TestParseLogicalLayerBodyPlainIsAvailableCapability(t *testing.T) {
-	devices, warnings := parseLogicalLayerBody([]string{
-		"device utility.apple_tv with:",
-		"  binary_sensor.node media_player.social_apartment_living_room_apple_tv is available;",
-		"  switch.media media_player.social_apartment_living_room_apple_tv;",
-		"end;",
-	}, nil)
-	if len(warnings) != 0 {
-		t.Fatalf("unexpected warnings: %v", warnings)
-	}
-	if len(devices) != 1 {
-		t.Fatalf("got %d devices, want 1", len(devices))
-	}
-	node, ok := devices[0].Capabilities["node"]
-	if !ok {
-		t.Fatalf("Capabilities = %+v, want a \"node\" entry", devices[0].Capabilities)
-	}
-	if node.Domain != "binary_sensor" || node.Entity != "media_player.social_apartment_living_room_apple_tv" || !node.IsAvailable {
-		t.Errorf("node capability = %+v, want Domain=binary_sensor Entity=media_player.social_apartment_living_room_apple_tv IsAvailable=true", node)
-	}
-	media, ok := devices[0].Capabilities["media"]
-	if !ok {
-		t.Fatalf("Capabilities = %+v, want a \"media\" entry", devices[0].Capabilities)
-	}
-	if media.Domain != "switch" || media.Entity != "media_player.social_apartment_living_room_apple_tv" || media.IsAvailable {
-		t.Errorf("media capability = %+v, want Domain=switch Entity=media_player.social_apartment_living_room_apple_tv IsAvailable=false", media)
-	}
-}
-
-// TestParseLogicalLayerBodyIsAvailableWithEnablerAndDelayOff covers utility.tv's own shape:
-// enabler and delay_off nested inside the "node" capability's own "with:" block.
-func TestParseLogicalLayerBodyIsAvailableWithEnablerAndDelayOff(t *testing.T) {
-	devices, warnings := parseLogicalLayerBody([]string{
-		"device utility.tv with:",
-		"  binary_sensor.node media_player.social_apartment_living_room_tv is available with:",
-		"    enabler switch.social_apartment_living_room_tv;",
-		"    delay_off 00:01:00;",
-		"  end;",
-		"  switch.media media_player.social_apartment_living_room_tv;",
-		"end;",
-	}, nil)
-	if len(warnings) != 0 {
-		t.Fatalf("unexpected warnings: %v", warnings)
-	}
-	if len(devices) != 1 {
-		t.Fatalf("got %d devices, want 1", len(devices))
-	}
-	node, ok := devices[0].Capabilities["node"]
-	if !ok {
-		t.Fatalf("Capabilities = %+v, want a \"node\" entry", devices[0].Capabilities)
-	}
-	if !node.IsAvailable || node.Entity != "media_player.social_apartment_living_room_tv" {
-		t.Errorf("node capability = %+v, want IsAvailable=true Entity=media_player.social_apartment_living_room_tv", node)
-	}
-	if node.EnablerEntity != "switch.social_apartment_living_room_tv" {
-		t.Errorf("node.EnablerEntity = %q, want switch.social_apartment_living_room_tv", node.EnablerEntity)
-	}
-	if node.DelayOff != "00:01:00" {
-		t.Errorf("node.DelayOff = %q, want 00:01:00", node.DelayOff)
-	}
-}
-
-// TestParseLogicalLayerBodyIsAvailableWithDependencyOn is a regression test for the user's own
-// explicit design (2026-09-16, retrofitting appliance.apple_tv/appliance.tv): "dependency on
-// <device-id>;" is ALSO valid nested inside an "is available with:" capability body, scoped to
-// that capability alone (TLogicalCapability.DependsOn) -- distinct from the device-level
-// "dependency on" (TLogicalDevice.DependsOn, tested by TestParseLogicalLayerBody/
-// TestParseLogicalLayerBodyMultipleDependencies above), which feeds a completely different
-// consumer (resolveDependencyAvailabilityTopics's own MQTT depends_on_availability). Repeatable,
-// and freely mixed with enabler/delay_off in any order.
-func TestParseLogicalLayerBodyIsAvailableWithDependencyOn(t *testing.T) {
-	devices, warnings := parseLogicalLayerBody([]string{
-		"device appliance.tv with:",
-		"  binary_sensor.node media_player.social_apartment_living_room_tv is available with:",
-		"    dependency on node.appletv;",
-		"    dependency on node.tv;",
-		"    enabler switch.social_apartment_living_room_tv;",
-		"    delay_off 00:01:00;",
-		"  end;",
-		"  switch.media media_player.social_apartment_living_room_tv;",
-		"end;",
-	}, nil)
-	if len(warnings) != 0 {
-		t.Fatalf("unexpected warnings: %v", warnings)
-	}
-	if len(devices) != 1 {
-		t.Fatalf("got %d devices, want 1", len(devices))
-	}
-	// The device-level DependsOn must stay empty -- this "dependency on" is capability-scoped only.
-	if len(devices[0].DependsOn) != 0 {
-		t.Errorf("device-level DependsOn = %v, want empty (capability-scoped only)", devices[0].DependsOn)
-	}
-	node, ok := devices[0].Capabilities["node"]
-	if !ok {
-		t.Fatalf("Capabilities = %+v, want a \"node\" entry", devices[0].Capabilities)
-	}
-	wantDeps := []string{"node.appletv", "node.tv"}
-	if len(node.DependsOn) != len(wantDeps) || node.DependsOn[0] != wantDeps[0] || node.DependsOn[1] != wantDeps[1] {
-		t.Errorf("node.DependsOn = %v, want %v", node.DependsOn, wantDeps)
-	}
-	if node.EnablerEntity != "switch.social_apartment_living_room_tv" || node.DelayOff != "00:01:00" {
-		t.Errorf("enabler/delay_off should still parse alongside dependency on: %+v", node)
-	}
-}
-
-// TestParseLogicalLayerBodyMediaSwitchWithNoPlayInput covers Junglinster's own sonos shape (the
-// grammar this session built with that case in mind, even though only Vienna is migrated today).
-func TestParseLogicalLayerBodyMediaSwitchWithNoPlayInput(t *testing.T) {
-	devices, warnings := parseLogicalLayerBody([]string{
-		"device utility.sonos with:",
-		"  binary_sensor.node media_player.social_apartment_living_room_sonos is available;",
-		"  switch.media media_player.social_apartment_living_room_sonos with:",
-		"    no_play_input \"TV\";",
-		"  end;",
-		"end;",
-	}, nil)
-	if len(warnings) != 0 {
-		t.Fatalf("unexpected warnings: %v", warnings)
-	}
-	media, ok := devices[0].Capabilities["media"]
-	if !ok {
-		t.Fatalf("Capabilities = %+v, want a \"media\" entry", devices[0].Capabilities)
-	}
-	if media.NoPlayInput != "TV" {
-		t.Errorf("media.NoPlayInput = %q, want TV", media.NoPlayInput)
-	}
-}
-
-// TestParseLogicalLayerBodyWarnsOnUnrecognisedCapabilityBodyLine covers a malformed line inside a
-// capability's own "with:" block (not "enabler"/"delay_off"/"no_play_input").
-func TestParseLogicalLayerBodyWarnsOnUnrecognisedCapabilityBodyLine(t *testing.T) {
-	_, warnings := parseLogicalLayerBody([]string{
-		"device utility.tv with:",
-		"  binary_sensor.node media_player.social_apartment_living_room_tv is available with:",
-		"    bogus_field 42;",
-		"  end;",
-		"end;",
-	}, nil)
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "node") {
-		t.Errorf("warnings = %v, want exactly one warning naming the \"node\" capability", warnings)
 	}
 }
 
@@ -470,11 +305,11 @@ func TestParseLogicalLayerBodyAbsorbBlockBareShorthand(t *testing.T) {
 }
 
 // TestParseLogicalLayerBodyRejectsOldColonForm is the regression test for the 2026-09-19 grammar
-// restriction: logicalCapabilityPattern/logicalCapabilityWithBlockPattern briefly accepted an
-// OPTIONAL ":" between <label> and <value> as a trial (both houses' Physical.def/Logical.def were
-// then rewritten to the colon-less form and verified byte-identical on regenerate) -- now that
-// the migration is complete, the old "switch.media: media_player.social:sonos;" colon form must
-// be REJECTED outright, not silently tolerated.
+// restriction: logicalCapabilityPattern briefly accepted an OPTIONAL ":" between <label> and
+// <value> as a trial (both houses' Physical.def/Logical.def were then rewritten to the colon-less
+// form and verified byte-identical on regenerate) -- now that the migration is complete, the old
+// "switch.media: media_player.social:sonos;" colon form must be REJECTED outright, not silently
+// tolerated.
 func TestParseLogicalLayerBodyRejectsOldColonForm(t *testing.T) {
 	devices, warnings := parseLogicalLayerBody([]string{
 		"device appliance.sonos_complement with:",
@@ -489,39 +324,6 @@ func TestParseLogicalLayerBodyRejectsOldColonForm(t *testing.T) {
 	}
 	if _, ok := devices[0].Capabilities["media"]; ok {
 		t.Errorf("Capabilities = %+v, want the old colon-form line rejected, not silently parsed", devices[0].Capabilities)
-	}
-}
-
-// TestParseLogicalLayerBodyAbsorbBlockCoexistsWithOrdinaryCapability covers a device with BOTH an
-// absorb block AND an ordinary "is available" capability of its own (appliance.washing_machine's
-// real shape: the absorb block for the plug's capabilities, plus a wrapping "available" capability
-// referencing the device's own already-positioned raw node) -- the two block kinds must not
-// interfere with each other's state tracking.
-func TestParseLogicalLayerBodyAbsorbBlockCoexistsWithOrdinaryCapability(t *testing.T) {
-	devices, warnings := parseLogicalLayerBody([]string{
-		"device appliance.washing_machine with:",
-		"  binary_sensor.available binary_sensor.infrastructural_apartment_shower_room_washing_machine_node is available with:",
-		"    enabler switch.social_apartment_shower_room_washing_machine;",
-		"  end;",
-		"  capabilities from discovery.washing_machine_switch:",
-		"    switch.core switch.core;",
-		"  end;",
-		"end;",
-	}, nil)
-	if len(warnings) != 0 {
-		t.Fatalf("unexpected warnings: %v", warnings)
-	}
-	if len(devices) != 1 {
-		t.Fatalf("got %d devices, want 1", len(devices))
-	}
-	d := devices[0]
-	available, ok := d.Capabilities["available"]
-	if !ok || !available.IsAvailable || available.EnablerEntity != "switch.social_apartment_shower_room_washing_machine" {
-		t.Errorf("available capability = %+v, want IsAvailable=true with the given enabler", available)
-	}
-	core, ok := d.Capabilities["core"]
-	if !ok || core.AbsorbedFromDeviceID != "discovery.washing_machine_switch" || core.AbsorbedFromCapability != "core" {
-		t.Errorf("core capability = %+v, want an absorbed capability from discovery.washing_machine_switch", core)
 	}
 }
 
@@ -891,77 +693,6 @@ func TestParseLogicalLayerBodyOneLinerSwitchedBy(t *testing.T) {
 	}
 	if fact != want {
 		t.Errorf("SwitchedBy[core] = %+v, want %+v", fact, want)
-	}
-}
-
-// TestParseLogicalLayerBodyCapabilityOneLinerNoPlayInput is the regression test for a real bug
-// found live: the user's own hand-written one-liner "switch.media media_player.X with
-// no_play_input \"TV\";" (collapsing the block form's "with: no_play_input ...; end;") used to
-// silently fall through to logicalCapabilityPattern's own permissive catch-all, swallowing
-// "with no_play_input \"TV\"" as literal (garbage) entity text instead of being recognised --
-// "with clauses are with clauses," the SAME single-statement collapsing rule the device-level
-// one-liner already gets must also apply to a capability's own "with:" block.
-func TestParseLogicalLayerBodyCapabilityOneLinerNoPlayInput(t *testing.T) {
-	devices, warnings := parseLogicalLayerBody([]string{
-		`device appliance.sonos_playbar_livingroom with:`,
-		`  switch.media media_player.social_house_living_room_sonos with no_play_input "TV";`,
-		`end;`,
-	}, nil)
-	if len(warnings) != 0 {
-		t.Fatalf("unexpected warnings: %v", warnings)
-	}
-	if len(devices) != 1 {
-		t.Fatalf("got %d devices, want 1", len(devices))
-	}
-	cap, ok := devices[0].Capabilities["media"]
-	if !ok {
-		t.Fatalf("Capabilities[media] missing, got %v", devices[0].Capabilities)
-	}
-	if cap.Entity != "media_player.social_house_living_room_sonos" {
-		t.Errorf("Entity = %q, want the plain media_player entity id (no \"with no_play_input\" text leaking in)", cap.Entity)
-	}
-	if cap.NoPlayInput != "TV" {
-		t.Errorf("NoPlayInput = %q, want %q", cap.NoPlayInput, "TV")
-	}
-}
-
-// TestParseLogicalLayerBodyCapabilityOneLinerEnabler covers the same one-liner shorthand for the
-// "enabler <entity-ref>;" refinement.
-func TestParseLogicalLayerBodyCapabilityOneLinerEnabler(t *testing.T) {
-	devices, warnings := parseLogicalLayerBody([]string{
-		`device appliance.x with:`,
-		`  binary_sensor.node utility.x is available with enabler switch.y;`,
-		`end;`,
-	}, nil)
-	if len(warnings) != 0 {
-		t.Fatalf("unexpected warnings: %v", warnings)
-	}
-	cap, ok := devices[0].Capabilities["node"]
-	if !ok {
-		t.Fatalf("Capabilities[node] missing, got %v", devices[0].Capabilities)
-	}
-	if !cap.IsAvailable || cap.Entity != "utility.x" {
-		t.Errorf("Entity/IsAvailable = %q/%v, want \"utility.x\"/true", cap.Entity, cap.IsAvailable)
-	}
-	if cap.EnablerEntity != "switch.y" {
-		t.Errorf("EnablerEntity = %q, want %q", cap.EnablerEntity, "switch.y")
-	}
-}
-
-// TestParseLogicalLayerBodyCapabilityOneLinerRejectsMultiStatement covers the guard: a "with"
-// body that ISN'T one of the recognised single-statement shapes warns clearly rather than being
-// silently misparsed (matching logicalDeviceOneLinerPattern's own equivalent guard).
-func TestParseLogicalLayerBodyCapabilityOneLinerRejectsMultiStatement(t *testing.T) {
-	devices, warnings := parseLogicalLayerBody([]string{
-		`device appliance.x with:`,
-		`  switch.media media_player.y with something_unrecognised "z";`,
-		`end;`,
-	}, nil)
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "isn't a recognised single-statement form") {
-		t.Fatalf("warnings = %v, want exactly one \"isn't a recognised single-statement form\" warning", warnings)
-	}
-	if _, ok := devices[0].Capabilities["media"]; ok {
-		t.Errorf("expected no Capabilities[media] entry for the rejected one-liner")
 	}
 }
 

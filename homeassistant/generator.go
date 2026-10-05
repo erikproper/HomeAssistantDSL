@@ -238,7 +238,6 @@ func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutput
 		{"binary sensor subdomain groups", generateBinarySensorSubdomainGroups},
 		{"sensor subdomain groups", generateSensorSubdomainGroups},
 		{"light groups", generateLightGroups},
-		{"flipped switches", generateFlippedSwitches},
 		{"switched device entities", generateSwitchedDeviceEntities},
 		{"has_state entities", generateHasStateEntities},
 		{"timer definitions", generateTimerDefinitions},
@@ -738,27 +737,12 @@ func generateTemplateBinarySensors(outputDir string, admin *TAdministrationState
 			generatedNodeEntityIDs[nodeEntityID] = true
 			dir := filepath.Join(outputDir, "entities", "template", "binary_sensor", "infrastructural")
 			customDir := filepath.Join(outputDir, "customization", "binary_sensor", "infrastructural")
-			if ir.rec.NodeEnablerEntityID != "" {
-				// Enabler case: generate _node_raw (plain availability) and _node (enabler logic).
-				rawEntityID := strings.TrimSuffix(nodeEntityID, "_node") + "_node_raw"
-				rawPath := strings.TrimSuffix(nodePath, "/node") + "/node/raw"
-				rawContent := buildTemplateNodeRawYAML(rawEntityID, sphere+"/"+rawPath, repID)
-				if err := writeYAMLFile(filepath.Join(dir, rawEntityID+".yaml"), rawContent); err != nil {
-					return err
-				}
-				nodeContent := buildTemplateNodeWithRawYAML(nodeEntityID, sphere+"/"+nodePath, rawEntityID, ir.rec.NodeEnablerEntityID, ir.rec.NodeDelayOff)
-				if err := writeYAMLFile(filepath.Join(dir, nodeEntityID+".yaml"), nodeContent); err != nil {
-					return err
-				}
-			} else {
-				nodeContent := buildTemplateNodeYAML(nodeEntityID, sphere+"/"+nodePath, repID)
-				if err := writeYAMLFile(filepath.Join(dir, nodeEntityID+".yaml"), nodeContent); err != nil {
-					return err
-				}
+			nodeContent := buildTemplateNodeYAML(nodeEntityID, sphere+"/"+nodePath, repID)
+			if err := writeYAMLFile(filepath.Join(dir, nodeEntityID+".yaml"), nodeContent); err != nil {
+				return err
 			}
 			// Customization for the node entity itself. No icon: device_class connectivity
-			// (buildTemplateNodeYAML/buildTemplateNodeWithRawYAML) already gives HA a sensible
-			// default.
+			// (buildTemplateNodeYAML) already gives HA a sensible default.
 			nodeCustom := buildCustomizationYAML(nodeEntityID, sphere+"/"+nodePath, "")
 			if err := writeYAMLFile(filepath.Join(customDir, nodeEntityID+".yaml"), nodeCustom); err != nil {
 				return err
@@ -865,33 +849,6 @@ func buildTemplateNodeYAML(entityID, displayPath, representativeID string) strin
 	sb.WriteString("  unique_id: " + entityID + "\n")
 	sb.WriteString("  device_class: connectivity\n")
 	sb.WriteString("  state: \"{{ states('" + representativeID + "') not in ['unavailable', 'unknown'] }}\"\n")
-	return sb.String()
-}
-
-// buildTemplateNodeRawYAML generates the intermediate _node_raw entity for the media-player-with-enabler case.
-// It checks plain availability of the representative without device_class or delay.
-func buildTemplateNodeRawYAML(entityID, displayPath, representativeID string) string {
-	var sb strings.Builder
-	sb.WriteString(generatorHeader)
-	sb.WriteString("binary_sensor:\n")
-	sb.WriteString("- name: " + displayPath + "\n")
-	sb.WriteString("  unique_id: " + entityID + "\n")
-	sb.WriteString("  state: \"{{ states('" + representativeID + "') not in ['unavailable', 'unknown'] }}\"\n")
-	return sb.String()
-}
-
-// buildTemplateNodeWithRawYAML generates the _node entity that combines an enabler switch and a _node_raw entity.
-func buildTemplateNodeWithRawYAML(entityID, displayPath, rawEntityID, enablerID, delayOff string) string {
-	var sb strings.Builder
-	sb.WriteString(generatorHeader)
-	sb.WriteString("binary_sensor:\n")
-	sb.WriteString("- name: " + displayPath + "\n")
-	sb.WriteString("  unique_id: " + entityID + "\n")
-	sb.WriteString("  device_class: connectivity\n")
-	sb.WriteString("  state: \"{{ is_state('" + enablerID + "', 'off') or is_state('" + rawEntityID + "', 'on') }}\"\n")
-	if delayOff != "" {
-		sb.WriteString("  delay_off: " + delayOff + "\n")
-	}
 	return sb.String()
 }
 
@@ -1072,37 +1029,13 @@ func generateInputDatetimes(outputDir string, admin *TAdministrationState) error
 	return nil
 }
 
+// generateTemplateSensors emits, for each space containing a climate entity,
+// temperature_desired/temperature_target template sensors mirroring their respective
+// input_numbers. (Two earlier shapes this function also rendered -- an "adjustment"-offset sensor
+// and a bare "value <entity>!<attribute>;" sensor -- were retired 2026-10-05 once both were
+// confirmed at zero remaining usage in either house; see parser.go's own history for the retired
+// "with adjustment"/"value" directives.)
 func generateTemplateSensors(outputDir string, admin *TAdministrationState) error {
-	for _, spaceName := range admin.SpaceOrder {
-		for _, rec := range admin.EntityRecordsBySpace[spaceName] {
-			if rec.Identity.Domain != "sensor" {
-				continue
-			}
-			if rec.AdjustmentOffset == "" && rec.ValueExpr == "" {
-				continue
-			}
-			id := toHomeAssistantEntityID(rec.Name)
-			if id == "" {
-				continue
-			}
-			identity := rec.Identity
-			displayName := identity.Sphere + "/" + identity.Path
-			deviceClass, unit, stateClass, icon := resolveCapabilityDefaults(admin.CapabilityDefaults, "sensor", identity.Path)
-			var content string
-			if rec.AdjustmentOffset != "" {
-				rawID := id + "_raw"
-				stateExpr := buildAdjustmentStateExpr(rawID, rec.AdjustmentOffset, rec.AdjustmentScale)
-				content = buildTemplateSensorYAML(id, displayName, unit, deviceClass, stateClass, icon, stateExpr)
-			} else {
-				stateExpr := buildValueStateExpr(rec.ValueExpr, admin.SpaceOrder, admin)
-				content = buildTemplateSensorYAML(id, displayName, unit, deviceClass, stateClass, icon, stateExpr)
-			}
-			dir := filepath.Join(outputDir, "entities", "template", "sensor", identity.Sphere)
-			if err := writeYAMLFile(filepath.Join(dir, id+".yaml"), content); err != nil {
-				return err
-			}
-		}
-	}
 	// For each space containing a climate entity, generate temperature_desired and
 	// temperature_target template sensors that mirror their respective input_numbers.
 	seen := map[string]bool{}
@@ -1261,25 +1194,6 @@ func buildConditionBinarySensorYAML(id, displayName, stateExpr, deviceClass, del
 	}
 	sb.WriteString("  state: \"{{ " + stateExpr + " }}\"\n")
 	return sb.String()
-}
-
-func buildAdjustmentStateExpr(rawID, offset, scale string) string {
-	if scale == "1" || scale == "" {
-		return fmt.Sprintf("states('%s') | float(0) + %s", rawID, offset)
-	}
-	return fmt.Sprintf("states('%s') | float(0) * %s + %s", rawID, scale, offset)
-}
-
-func buildValueStateExpr(valueExpr string, spaceOrder []string, admin *TAdministrationState) string {
-	exclamIdx := strings.Index(valueExpr, "!")
-	if exclamIdx < 0 {
-		entityID := toHomeAssistantEntityID(valueExpr)
-		return fmt.Sprintf("states('%s')", entityID)
-	}
-	entitySpec := valueExpr[:exclamIdx]
-	attribute := valueExpr[exclamIdx+1:]
-	entityID := toHomeAssistantEntityID(entitySpec)
-	return fmt.Sprintf("state_attr('%s', '%s')", entityID, attribute)
 }
 
 func buildTemplateSensorYAML(id, displayName, unit, deviceClass, stateClass, icon, stateExpr string) string {
@@ -4023,57 +3937,6 @@ func generateWhenRuleAutomations(outputDir string, admin *TAdministrationState) 
 	return nil
 }
 
-// --- flipped switch entities ---
-
-// generateFlippedSwitches writes the template switch entity for every entity record carrying a
-// FlippedSourceEntityID (2026-10-05, Logical.def's "<domain>.<label> flipped <capability>;" absorb
-// qualifier, Conceptual_LogicalEntities.go's registerLogicalFlippedAbsorbedCapability) -- its own
-// state mirrors the source inverted, and turning it on/off turns the source off/on respectively.
-// Retired the old Conceptual.def "entity <raw>; entity <spec> with definition as flipped <raw>;"
-// two-free-entity construct (admin.FlippedRelations/TFlippedRelation) this replaces -- same
-// rendering (buildFlippedSwitchYAML unchanged), just driven from the normal per-space entity-record
-// scan every other capability kind already uses, rather than a standalone list parser.go alone
-// populated by its own bespoke text extraction.
-func generateFlippedSwitches(outputDir string, admin *TAdministrationState) error {
-	for _, spaceName := range admin.SpaceOrder {
-		for _, rec := range admin.EntityRecordsBySpace[spaceName] {
-			if rec.FlippedSourceEntityID == "" {
-				continue
-			}
-			selfID := toHomeAssistantEntityID(rec.Name)
-			if selfID == "" {
-				continue
-			}
-			displayName := rec.Identity.Sphere + "/" + rec.Identity.Path
-			content := buildFlippedSwitchYAML(selfID, displayName, rec.FlippedSourceEntityID)
-			dir := filepath.Join(outputDir, "entities", "template", "switch", rec.Identity.Sphere)
-			if err := writeYAMLFile(filepath.Join(dir, selfID+".yaml"), content); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func buildFlippedSwitchYAML(entityID, displayName, sourceID string) string {
-	var sb strings.Builder
-	sb.WriteString(generatorHeader)
-	sb.WriteString("switch:\n")
-	sb.WriteString("- name: " + displayName + "\n")
-	sb.WriteString("  unique_id: " + entityID + "\n")
-	sb.WriteString("  default_entity_id: " + entityID + "\n")
-	sb.WriteString("  state: \"{{ is_state('" + sourceID + "', 'off') }}\"\n")
-	sb.WriteString("  turn_on:\n")
-	sb.WriteString("  - entity_id:\n")
-	sb.WriteString("    - " + sourceID + "\n")
-	sb.WriteString("    action: switch.turn_off\n")
-	sb.WriteString("  turn_off:\n")
-	sb.WriteString("  - entity_id:\n")
-	sb.WriteString("    - " + sourceID + "\n")
-	sb.WriteString("    action: switch.turn_on\n")
-	return sb.String()
-}
-
 // --- switched_device entities ---
 
 // generateSwitchedDeviceEntities writes the group entity/entities for every "definition as
@@ -4832,15 +4695,6 @@ func resolveListEntries(decl TListDeclaration, admin *TAdministrationState) []TL
 					continue
 				}
 			} else if strings.HasPrefix(rec.Provenance, "derived") {
-				continue
-			} else if strings.HasPrefix(rec.Provenance, "auto-registered dependency node: ") {
-				// A "dependency on <device-id>;" target that was never itself explicitly
-				// positioned gets an ugly synthetic node ("physical/<device-id>/node") purely so
-				// the dependency's own availability AND-condition has something real to read --
-				// see resolveLogicalDependencyNodeEntities' own doc comment. Not a genuine,
-				// deliberately positioned device worth an External.def entry (real case found live:
-				// appliance.washing_machine's "dependency on node.candy;" kept surfacing in
-				// list.nodes as if node.candy were a real, standalone device).
 				continue
 			} else if !matchesAnyListPattern(rec, decl.patterns) {
 				continue

@@ -17,11 +17,10 @@
  * end;" wrapper itself, handing this file only the body. See integration_logical_storage.go's own
  * header comment for what a logical device actually means and how "dependency on" resolves.
  *
- * "dependency on <device-id>;" and "<domain>.<label>: <value> [is available] [with: enabler
- * <entity-ref>; delay_off <time>; no_play_input "<value>"; end;];" are the two capability shapes
- * built so far (2026-09-16). Two more dependency forms are planned next, once a real Vienna case
- * needs them: "dependency on entity <entity-id>;" and "dependency on availability of entity
- * <entity-id>;", both naming a raw, already-existing HA entity on "main" directly rather than
+ * "dependency on <device-id>;" (device-level, repeatable) plus the absorb/defined/derived block
+ * shapes below are what's built so far. Two more dependency forms are planned next, once a real
+ * Vienna case needs them: "dependency on entity <entity-id>;" and "dependency on availability of
+ * entity <entity-id>;", both naming a raw, already-existing HA entity on "main" directly rather than
  * another Physical.def device id (requiring a new generator-authored automation on main to publish
  * that entity's own state/availability to MQTT in the first place, plus adding it to kind-5's
  * existence-check list) -- deliberately not built ahead of a concrete need, same "on demand"
@@ -50,12 +49,8 @@ var logicalDevicePattern = regexp.MustCompile(`^device\s+(\S+)\s+with:\s*$`)
 // picture_frame's single "dependency on ...;" was the concrete trigger). Distinguishable from
 // logicalDevicePattern's own block form by construction: the block form's line ends in a bare
 // ":" (nothing else on the line), this one requires content plus a trailing ";" -- no line can
-// match both. Scoped to the two body-line shapes that are themselves already single-line-complete
-// (a "dependency on <id>;" or a bare "<domain>.<label> <value> [is available];" capability) --
-// tried against logicalDependencyOnPattern then logicalCapabilityPattern by
-// parseLogicalLayerBody itself, not here (this is only the header/body-text split). A
-// block-opening body line (absorb/defined/derived/capability-with-block) inherently needs more
-// than one line anyway, so there is no one-liner shape for those to collapse into.
+// match both. A block-opening body line (absorb/defined/derived) inherently needs more than one
+// line anyway, so there is no one-liner shape for those to collapse into.
 var logicalDeviceOneLinerPattern = regexp.MustCompile(`^device\s+(\S+)\s+with\s+(.+?)\s*;\s*$`)
 
 // logicalDependencyOnPattern intentionally requires the whole remainder before ";" to be ONE
@@ -67,10 +62,7 @@ var logicalDependencyOnPattern = regexp.MustCompile(`^dependency\s+on\s+(\S+)\s*
 
 // logicalSwitchedByPattern matches a device-level "<domain>.<label> is switched by
 // <domain>.<label> from <device-id>;" line (2026-09-27, the "switched_device" migration -- see
-// TLogicalSwitchedByFact's own doc comment and logical_switched_by.go's header comment). Checked
-// BEFORE logicalCapabilityPattern in both the block-body and one-liner dispatch below, since
-// logicalCapabilityPattern's own permissive "<domain>.<label> <value>;" shape would otherwise
-// swallow this whole line as a literal (nonsensical) capability value.
+// TLogicalSwitchedByFact's own doc comment and logical_switched_by.go's header comment).
 var logicalSwitchedByPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+is\s+switched\s+by\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+from\s+(\S+)\s*;\s*$`)
 
 // logicalEnabledByPattern matches a device-level "<domain>.<label> enabled by <domain>.<label>
@@ -78,10 +70,8 @@ var logicalSwitchedByPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([
 // the old plain "enabler <device-id>;" shorthand outright (confirmed with the user, not kept
 // alongside it -- appliance.tv_living_room's own live site migrated to this form in the same
 // round). Reads "enabled by" (no "is") -- trimmed the same day, the user's own call: it reads
-// better directly after "with:" than "is enabled by" does. Same shape/precedence concerns as
-// logicalSwitchedByPattern immediately above (checked before the permissive logicalCapabilityPattern
-// catch-all, for the identical reason) -- see TLogicalEnabledByFact's own doc comment for the full
-// semantics.
+// better directly after "with:" than "is enabled by" does -- see TLogicalEnabledByFact's own doc
+// comment for the full semantics.
 var logicalEnabledByPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+enabled\s+by\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+from\s+(\S+)\s*;\s*$`)
 
 // logicalDeviceDelayOffPattern matches a device-level "delay_off <time>;" line (2026-09-28) --
@@ -95,13 +85,11 @@ var logicalDeviceDelayOffPattern = regexp.MustCompile(`^delay_off\s+(\S+)\s*;\s*
 // with_clause.go) list of every recognised single-statement form for a device's own "with: ...
 // end;" body -- used identically by BOTH the multi-line block form (inDevice's own loop below, one
 // call per body line) and logicalDeviceOneLinerPattern's folded one-liner (one call, on the folded
-// text), matching logicalCapabilityBodyStatements' own precedent one level up (device vs.
-// capability). Deliberately does NOT include "dependency on" (TLogicalDevice.DependsOn is
-// repeatable, same reasoning as logicalCapabilityBodyStatements' own doc comment) -- handled by its
-// own explicit check at each call site instead. Also does NOT include the block-opening shapes
-// (absorb/defined/derived/capability-with-block) or the bare capability line -- these change
-// parsing MODE rather than assigning a single property, a genuinely different shape (matching the
-// plan's own "may not need/benefit from a one-liner" call for absorb/derived).
+// text). Deliberately does NOT include "dependency on" (TLogicalDevice.DependsOn is repeatable, and
+// ApplyWithClauseBodyLine's own "first match wins, once" dispatch doesn't fit a repeatable
+// statement cleanly) -- handled by its own explicit check at each call site instead. Also does NOT
+// include the block-opening shapes (absorb/defined/derived) -- these change parsing MODE rather
+// than assigning a single property, a genuinely different shape.
 var logicalDeviceBodyStatements = []TWithClauseStatement[TLogicalDevice]{
 	{
 		Pattern: logicalEnabledByPattern,
@@ -140,8 +128,9 @@ var logicalDeviceBodyStatements = []TWithClauseStatement[TLogicalDevice]{
 	},
 }
 
-// logicalCapabilityPattern is a plain, self-contained "<domain>.<label> <value>;" line -- mirrors
-// discoveryCapabilityPattern's own shape exactly (integration_discovery_parser.go).
+// logicalCapabilityPattern is a plain, self-contained "<domain>.<label> <value>;" line, used today
+// only for an absorb block's own "<domain>.<label>: <bare-capability>;" body lines (just below) --
+// mirrors discoveryCapabilityPattern's own shape (integration_discovery_parser.go).
 //
 // Whitespace-separated, no colon between <label> and <value> (2026-09-19, per the user's own
 // request -- a colon-optional trial ran first, then both houses' Physical.def/Logical.def were
@@ -155,80 +144,15 @@ var logicalDeviceBodyStatements = []TWithClauseStatement[TLogicalDevice]{
 // "domain.label: value;" form is no longer accepted at all.
 var logicalCapabilityPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+(.+?)\s*;\s*$`)
 
-// logicalCapabilityWithBlockPattern is the same capability line, opening a nested "with: ...
-// end;" block of its own (enabler/delay_off/no_play_input -- logicalCapabilityBodyStatements
-// below, with_clause.go's shared dispatch). Same colon-dropped grammar as logicalCapabilityPattern
-// just above.
-var logicalCapabilityWithBlockPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+(.+?)\s+with:\s*$`)
-
-// logicalCapabilityOneLinerPattern is logicalCapabilityWithBlockPattern's own single-statement
-// shorthand -- "<domain>.<label> <value> with <single-statement>;" instead of "<domain>.<label>
-// <value> with: <single-statement>; end;" (2026-09-27) -- there is only ONE "with" clause shape in
-// this DSL, used for several different purposes (a device's own body, a capability's own
-// refinements, ...); the device-level one-liner (logicalDeviceOneLinerPattern) already collapses
-// this way, so a capability's own "with:" block must too, for the same reason -- leaving it
-// uncollapsed let a hand-written one-liner (e.g. "switch.media X with no_play_input \"TV\";")
-// silently fall through to logicalCapabilityPattern's own permissive catch-all instead, swallowing
-// "with no_play_input \"TV\"" as literal (garbage) entity text rather than failing loudly. Same
-// end-anchor distinction from the block form as the device-level pair: the block form's own line
-// ends in a bare "with:" (nothing else), this one requires content plus ";" -- no line matches
-// both.
-var logicalCapabilityOneLinerPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+(.+?)\s+with\s+(.+?)\s*;\s*$`)
-
-// logicalIsAvailableSuffix mirrors discoveryAvailabilitySuffix's own sugar (integration_discovery_
-// parser.go) -- here the reference is always a raw, already-existing HA entity ("main"), never a
-// same-device sibling capability label, so no domain-qualification is needed on this side (unlike
-// discovery's own "<domain>.<label> is available;").
-const logicalIsAvailableSuffix = " is available"
-
-// logicalNoPlayInputPattern matches a capability's own "no_play_input \"<value>\";" body line --
-// one of the entries in logicalCapabilityBodyStatements below (the shared with-clause dispatch,
-// with_clause.go), also referenced directly by its own Apply closure there.
-var logicalNoPlayInputPattern = regexp.MustCompile(`^no_play_input\s+"([^"]*)"\s*;\s*$`)
-
-// logicalCapabilityBodyStatements is the SHARED (2026-09-27, the generic with-clause dispatcher,
-// with_clause.go) list of every recognised single-statement form for a capability's own "with:
-// ... end;" block -- used identically by BOTH the multi-line block form (inCapability's own loop
-// below, one call per body line) and logicalCapabilityOneLinerPattern's folded one-liner (one
-// call, on the folded text), so a new statement kind added here automatically works in both forms.
-// Deliberately does NOT include "dependency on" (TLogicalCapability.DependsOn is repeatable, and
-// ApplyWithClauseBodyLine's own "first match wins, once" dispatch doesn't fit a repeatable
-// statement cleanly) -- handled by its own explicit check at each call site instead, exactly as
-// before.
-var logicalCapabilityBodyStatements = []TWithClauseStatement[TLogicalCapability]{
-	{
-		Pattern: regexp.MustCompile(`^enabler\s+(\S+)\s*;\s*$`),
-		Apply: func(cap TLogicalCapability, m []string) TLogicalCapability {
-			cap.EnablerEntity = m[1]
-			return cap
-		},
-	},
-	{
-		Pattern: regexp.MustCompile(`^delay_off\s+(\S+)\s*;\s*$`),
-		Apply: func(cap TLogicalCapability, m []string) TLogicalCapability {
-			cap.DelayOff = m[1]
-			return cap
-		},
-	},
-	{
-		Pattern: logicalNoPlayInputPattern,
-		Apply: func(cap TLogicalCapability, m []string) TLogicalCapability {
-			cap.NoPlayInput = m[1]
-			return cap
-		},
-	},
-}
-
 // logicalAbsorbBlockPattern opens a device's own "capabilities from <device-id>: ... end;" block
-// (2026-09-18, the "absorb" operation -- memory/project_logical_layer_device_combining.md) -- a
-// SECOND kind of nested block inside a "device <id> with: ... end;" declaration, alongside a
-// capability's own "with:" block (logicalCapabilityWithBlockPattern), never nested inside one
-// another. Body lines are "<domain>.<label>: <bare-capability>;" (logicalCapabilityPattern's own
-// shape reused verbatim -- same "<domain>.<label>: <value>;" text shape as an ordinary capability
-// line, just interpreted differently: the RHS is a bare capability reference on <device-id>, not a
+// (2026-09-18, the "absorb" operation -- memory/project_logical_layer_device_combining.md) -- the
+// one nested block inside a "device <id> with: ... end;" declaration today, alongside the defined/
+// derived block-openers below. Body lines are "<domain>.<label>: <bare-capability>;"
+// (logicalCapabilityPattern's own shape reused verbatim -- same "<domain>.<label>: <value>;" text
+// shape, just interpreted differently: the RHS is a bare capability reference on <device-id>, not a
 // literal entity_id). No "enabler" line here -- an absorbed device's own switch acting as an
-// enabler of the HOST device's overall availability is expressed as a separate, ordinary
-// IsAvailable capability instead (see TLogicalCapability.AbsorbedFromDeviceID's own doc comment
+// enabler of the HOST device's overall availability is expressed via the device-level "enabled
+// by"/"dependency on" sugar instead (see TLogicalCapability.AbsorbedFromDeviceID's own doc comment
 // for why).
 var logicalAbsorbBlockPattern = regexp.MustCompile(`^capabilities\s+from\s+(\S+):\s*$`)
 
@@ -326,14 +250,6 @@ func findTopLevelSemicolon(s string) int {
 	return -1
 }
 
-// parseLogicalCapabilityValue strips logicalIsAvailableSuffix from raw if present.
-func parseLogicalCapabilityValue(raw string) (entity string, isAvailable bool) {
-	if entity, ok := strings.CutSuffix(raw, logicalIsAvailableSuffix); ok {
-		return strings.TrimSpace(entity), true
-	}
-	return raw, false
-}
-
 // parseLogicalLayerBody parses Logical.def's own layer body into every declared logical device.
 // Lines that don't parse cleanly are reported as warnings rather than aborting the parse, matching
 // every other integration's own body parser policy (e.g. parseDiscoveryIntegrationBody).
@@ -342,14 +258,11 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 	var warnings []string
 
 	inDevice := false
-	inCapability := false
 	inAbsorb := false
 	inDefined := false
 	inDerived := false
 	inDerivedExpr := false
 	var current TLogicalDevice
-	var currentCapLabel string
-	var currentCap TLogicalCapability
 	var currentAbsorbDeviceID string
 	var currentDefinedLabel string
 	var currentDefinedCap TLogicalCapability
@@ -483,43 +396,14 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 				continue
 			}
 			if matches := logicalCapabilityPattern.FindStringSubmatch(line); matches != nil {
-				// "flipped " (2026-10-05) is a leading qualifier on the source-capability text,
-				// same stackable-prefix convention Physical.def's own discovery-kind capability
-				// lines already use for "hidden "/"inverted " -- see TLogicalCapability.Flipped's
-				// own doc comment.
-				sourceCapability, flipped := strings.CutPrefix(matches[3], "flipped ")
 				current.Capabilities[matches[2]] = TLogicalCapability{
 					Domain:                 matches[1],
 					AbsorbedFromDeviceID:   currentAbsorbDeviceID,
-					AbsorbedFromCapability: bareCapabilityName(sourceCapability),
-					Flipped:                flipped,
+					AbsorbedFromCapability: bareCapabilityName(matches[3]),
 				}
 				continue
 			}
 			warnings = append(warnings, fmt.Sprintf("Logical.def: unrecognised line inside device %q's \"capabilities from %q\" block (body line %d): %q", current.DeviceID, currentAbsorbDeviceID, lineIdx+1, line))
-			continue
-		}
-
-		if inCapability {
-			if line == "end;" {
-				current.Capabilities[currentCapLabel] = currentCap
-				inCapability = false
-				continue
-			}
-			if updated, ok := ApplyWithClauseBodyLine(currentCap, line, logicalCapabilityBodyStatements); ok {
-				currentCap = updated
-				continue
-			}
-			// 2026-09-16: a capability's own "dependency on <device-id>;" (repeatable), scoped to
-			// THIS capability alone -- see TLogicalCapability.DependsOn's own doc comment for why
-			// this is deliberately separate from the device-level "dependency on" handled below
-			// (inDevice branch), which feeds resolveDependencyAvailabilityTopics/MQTT
-			// depends_on_availability instead.
-			if matches := logicalDependencyOnPattern.FindStringSubmatch(line); matches != nil {
-				currentCap.DependsOn = append(currentCap.DependsOn, matches[1])
-				continue
-			}
-			warnings = append(warnings, fmt.Sprintf("Logical.def: unrecognised line inside device %q's %q capability (body line %d): %q", current.DeviceID, currentCapLabel, lineIdx+1, line))
 			continue
 		}
 
@@ -568,37 +452,6 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 				derivedExprBuffer, derivedExprKind = "", ""
 				continue
 			}
-			if matches := logicalCapabilityWithBlockPattern.FindStringSubmatch(line); matches != nil {
-				entity, isAvailable := parseLogicalCapabilityValue(matches[3])
-				currentCapLabel = matches[2]
-				currentCap = TLogicalCapability{Domain: matches[1], Entity: entity, IsAvailable: isAvailable}
-				inCapability = true
-				continue
-			}
-			if matches := logicalCapabilityOneLinerPattern.FindStringSubmatch(line); matches != nil {
-				entity, isAvailable := parseLogicalCapabilityValue(matches[3])
-				cap := TLogicalCapability{Domain: matches[1], Entity: entity, IsAvailable: isAvailable}
-				body := strings.TrimSpace(matches[4]) + ";"
-				if updated, ok := ApplyWithClauseBodyLine(cap, body, logicalCapabilityBodyStatements); ok {
-					current.Capabilities[matches[2]] = updated
-					continue
-				}
-				// "dependency on" is repeatable (TLogicalCapability.DependsOn), so it doesn't fit
-				// ApplyWithClauseBodyLine's own "single statement, once" dispatch cleanly -- checked
-				// separately here, exactly as the block form's own loop does.
-				if depMatches := logicalDependencyOnPattern.FindStringSubmatch(body); depMatches != nil {
-					cap.DependsOn = append(cap.DependsOn, depMatches[1])
-					current.Capabilities[matches[2]] = cap
-					continue
-				}
-				warnings = append(warnings, fmt.Sprintf("Logical.def: device %q's %q capability one-line \"with %s\" body isn't a recognised single-statement form -- only \"enabler <id>;\", \"delay_off <time>;\", \"no_play_input \\\"<value>\\\";\", or \"dependency on <id>;\" may be shortened this way (body line %d)", current.DeviceID, matches[2], body, lineIdx+1))
-				continue
-			}
-			if matches := logicalCapabilityPattern.FindStringSubmatch(line); matches != nil {
-				entity, isAvailable := parseLogicalCapabilityValue(matches[3])
-				current.Capabilities[matches[2]] = TLogicalCapability{Domain: matches[1], Entity: entity, IsAvailable: isAvailable}
-				continue
-			}
 			warnings = append(warnings, fmt.Sprintf("Logical.def: unrecognised line inside device %q (body line %d): %q", current.DeviceID, lineIdx+1, line))
 			continue
 		}
@@ -616,22 +469,11 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 			case logicalDependencyOnPattern.MatchString(body):
 				dev.DependsOn = append(dev.DependsOn, logicalDependencyOnPattern.FindStringSubmatch(body)[1])
 			default:
-				// The generic with-clause dispatch (enabler/switched-by) is tried BEFORE the bare
-				// capability fallback below, same precedence the block-body loop's own dispatch
-				// already has: logicalCapabilityPattern's own permissive "<domain>.<label> value;"
-				// shape would otherwise swallow a switched-by line as a literal (nonsensical)
-				// capability value.
 				if updated, ok := ApplyWithClauseBodyLine(dev, body, logicalDeviceBodyStatements); ok {
 					dev = updated
 					break
 				}
-				if logicalCapabilityPattern.MatchString(body) {
-					capMatches := logicalCapabilityPattern.FindStringSubmatch(body)
-					entity, isAvailable := parseLogicalCapabilityValue(capMatches[3])
-					dev.Capabilities[capMatches[2]] = TLogicalCapability{Domain: capMatches[1], Entity: entity, IsAvailable: isAvailable}
-					break
-				}
-				warnings = append(warnings, fmt.Sprintf("Logical.def: device %q's one-line \"with %s\" body isn't a recognised single-statement form -- only \"dependency on <id>;\", \"<domain>.<label> enabled by ...;\", \"<domain>.<label> is switched by ...;\", \"delay_off <time>;\", or a bare capability line may be shortened this way (body line %d)", deviceID, body, lineIdx+1))
+				warnings = append(warnings, fmt.Sprintf("Logical.def: device %q's one-line \"with %s\" body isn't a recognised single-statement form -- only \"dependency on <id>;\", \"<domain>.<label> enabled by ...;\", \"<domain>.<label> is switched by ...;\", or \"delay_off <time>;\" may be shortened this way (body line %d)", deviceID, body, lineIdx+1))
 				continue
 			}
 			devices = append(devices, dev)

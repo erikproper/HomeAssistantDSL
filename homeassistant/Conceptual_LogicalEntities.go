@@ -6,16 +6,11 @@
  *
  * Registers a logical device's own capabilities (integration_logical_storage.go's
  * TLogicalCapability) once Conceptual.def positions/references them -- the "logical" kind's own
- * counterpart to registerDiscoveryAvailabilityEntityLink/registerDeviceSourceEntityLink. Two
- * capability shapes exist today (see integration_logical_storage.go's own header comment for the
- * full grammar): an IsAvailable condition (registerLogicalIsAvailableCapability) and a media_player
- * -> switch coercion (registerLogicalMediaSwitchCapability). A logical capability's own
- * Entity/EnablerEntity are always literal, already-existing HA entity_ids -- nothing to wait on --
- * but switch.media's own reverse lookup of its sibling "node" capability's resolved entity_id CAN
- * need to defer (2026-09-24, real bug found live): registerDevicePositioning still auto-registers
- * "node" first, synchronously, but "node" itself may now resolve via a Logical.def override whose
- * own condition auto-materializes a same-device "local" sibling positioned by a LATER line in the
- * same block -- see registerLogicalMediaSwitchCapability's own doc comment for the full story.
+ * counterpart to registerDiscoveryAvailabilityEntityLink/registerDeviceSourceEntityLink. See
+ * integration_logical_storage.go's own header comment for the current capability shapes (absorbed,
+ * defined input_number helpers, derived conditions/values); two earlier shapes (an "is available"
+ * condition and a standalone media_player->switch coercion) were retired 2026-10-05 once both were
+ * fully superseded and confirmed at zero remaining usage in either house.
  *
  * Every capability shape here materializes its own generator-authored entity (a condition-based
  * template sensor, an input_number helper, a media_player->switch coercion) -- never something
@@ -49,80 +44,6 @@ import (
 	"strings"
 )
 
-// registerLogicalIsAvailableCapability resolves a "<domain>.<label>: <entity> is available [with:
-// enabler <entity-ref>; delay_off <time>; end;];" capability into a plain condition-based entity,
-// reusing the exact same TEntityRecord/buildConditionBinarySensorYAML pipeline
-// registerDiscoveryAvailabilityEntityLink already relies on -- no new YAML rendering needed at
-// all. Both Entity and EnablerEntity are literal, already-existing HA entity_ids (never a
-// space-relative DSL spec -- Logical.def has no space nesting of its own to resolve one against),
-// used verbatim as Jinja states()/is_state() arguments, exactly like the hassbridge/hosts "<entity>
-// is available;" sugar already does elsewhere in this codebase.
-//
-// EnablerEntity, and (2026-09-16) every "dependency on <id>;" target's own node entity_id
-// (resolveLogicalDependencyNodeEntities), are folded into ConditionExpr as literal Go-formatted
-// strings, NOT as further "$N" placeholders -- real bug found live 2026-09-16: buildConditionStateExpr
-// substitutes EVERY "$N" with sourceToJinja2(source), which always wraps in a states(...) call
-// (right for "$1 not in [...]", which wants a VALUE, but wrong for is_state('$2', 'off'), which
-// wants $2 to be the BARE entity_id string is_state()'s own first argument expects) -- produced the
-// doubly-wrapped, syntactically broken "is_state('states(\'switch...\')', 'off')" the one time this
-// ran against a real enabler. Both EnablerEntity and each dependency's own resolved entity_id are
-// already plain, fully-resolved literals by the time this function sees them, so embedding them
-// directly via fmt.Sprintf is correct and simpler than trying to make the shared $-substitution
-// mechanism support a second, differently-shaped placeholder convention.
-//
-// Ordering, per the user's own explicit design (2026-09-16, retrofitting appliance.apple_tv/
-// appliance.tv's own dependency on node.appletv/node.tv, generalizing to appliance.sonos's two
-// dependencies): every "dependency on" target is AND-ed into the base $1-not-unavailable check
-// FIRST, and the enabler's own OR only nuances that already-AND-ed result -- so an enabler being
-// off ALWAYS wins (the user has manually indicated the device isn't in use), even if a dependency
-// is itself unreachable.
-func registerLogicalIsAvailableCapability(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, capability TLogicalCapability, label, deviceNamePath, entitiesPath string, lineNum int, hostDevicesByID map[string]THostDevice) []string {
-	provenance := fmt.Sprintf("%s:%d → %s from %s %s", filepath.Base(entitiesPath), lineNum, decl.LocalSpec, decl.DeviceID, decl.Capability)
-
-	fullName := resolveDeviceEntityFullName(decl.LocalSpec, administration.SpacePath, deviceNamePath)
-	identity := extractEntityIdentity(fullName)
-	if identity.Domain == "" {
-		return []string{fmt.Sprintf("%s: could not resolve a domain from %q; skipping", provenance, decl.LocalSpec)}
-	}
-	entityID := toHomeAssistantEntityID(fullName)
-	if entityID == "" {
-		return []string{fmt.Sprintf("%s: could not resolve a Home Assistant entity id from %q; skipping", provenance, decl.LocalSpec)}
-	}
-
-	dependencyEntityIDs, warnings := resolveLogicalDependencyNodeEntities(capability.DependsOn, hostDevicesByID, administration, provenance)
-
-	baseParts := []string{"$1 not in ['unavailable', 'unknown']"}
-	for _, depEntityID := range dependencyEntityIDs {
-		baseParts = append(baseParts, fmt.Sprintf("is_state('%s', 'on')", depEntityID))
-	}
-	base := strings.Join(baseParts, " and ")
-	expr := base
-	if capability.EnablerEntity != "" {
-		expr = fmt.Sprintf("(%s) or is_state('%s', 'off')", base, capability.EnablerEntity)
-	}
-
-	sources := []string{capability.Entity}
-	spaceName := administration.CurrentSpaceName()
-	administration.RegisterExternalEntityReference(spaceName, capability.Entity, provenance)
-	if capability.EnablerEntity != "" {
-		administration.RegisterExternalEntityReference(spaceName, capability.EnablerEntity, provenance)
-	}
-	deviceClass, _, _, icon := resolveCapabilityDefaults(administration.CapabilityDefaults, identity.Domain, identity.Path)
-	administration.AppendEntityRecord(spaceName, TEntityRecord{
-		Name:                  fullName,
-		Identity:              identity,
-		Provenance:            provenance,
-		ConditionSources:      sources,
-		ConditionExpr:         expr,
-		ConditionDelayOff:     capability.DelayOff,
-		ConditionDevClass:     deviceClass,
-		EntityIcon:            icon,
-		HasDefinitionOrImport: true,
-	})
-	administration.LogicalEntityLinks[entityID] = TLogicalEntityLink{DeviceID: decl.DeviceID, Label: label}
-	return warnings
-}
-
 // registerLogicalAbsorbedCapability resolves a "<domain>.<label>: <bare-capability>;" line found
 // inside a device's own "capabilities from <device-id>: ... end;" block (2026-09-18, the "absorb"
 // operation -- integration_logical_storage.go's own header comment, and memory/project_logical_
@@ -137,9 +58,6 @@ func registerLogicalIsAvailableCapability(administration *TAdministrationState, 
 // any other branch the recursive call might land in (e.g. a discovery "derived" sibling not yet
 // positioned), so deferred is threaded straight back to the caller.
 func registerLogicalAbsorbedCapability(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, capability TLogicalCapability, label, deviceNamePath string, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, hostDevicesByID map[string]THostDevice, commandlineDevicesByID map[string]TCommandlineDevice, localDevicesByID map[string]TLocalDevice, logicalDevicesByID map[string]TLogicalDevice, entitiesPath string, lineNum int, finalAttempt bool) (warnings []string, deferred bool) {
-	if capability.Flipped {
-		return registerLogicalFlippedAbsorbedCapability(administration, decl, capability, label, deviceNamePath, hassBridgeDevicesByID, entitiesPath, lineNum)
-	}
 	// Capability is domain-qualified here (2026-09-27, mandatory domain-qualification) using
 	// capability.Domain -- the SAME domain this absorbed capability's own outer declaration
 	// already carries (the absorb grammar's own "<domain>.<label>: <bare-capability>;" line,
@@ -169,172 +87,6 @@ func registerLogicalAbsorbedCapability(administration *TAdministrationState, dec
 		administration.LogicalEntityLinks[entityID] = TLogicalEntityLink{DeviceID: decl.DeviceID, Label: label}
 	}
 	return warnings, deferred
-}
-
-// registerLogicalFlippedAbsorbedCapability resolves a "<domain>.<label> flipped <capability>;"
-// absorb line (2026-10-05, PROJECT.md: "the '_raw' and 'flipped' should be hidden on the logical
-// level") -- unlike the plain absorb path just above, this NEVER positions the absorbed source
-// itself at all: its own real HA entity_id is read as a literal, already-known Source field
-// directly off the absorbed-from device's own hassbridge declaration (the only real case today --
-// a hassbridge-kind capability's own value IS a literal entity reference by construction, unlike a
-// discovery-kind capability's raw MQTT leaf). This is what makes the source genuinely hidden: no
-// second Conceptual.def entity, no second conceptual identity, nothing for a DSL author to even
-// reference directly. No deferral is ever needed either, for the same reason -- the source's own
-// entity_id is fully known the instant Physical.def itself is parsed, with no dependency on
-// anything else's Conceptual.def positioning order.
-//
-// Renders via generateFlippedSwitches (generator.go), which now scans EntityRecordsBySpace for
-// FlippedSourceEntityID instead of the retired admin.FlippedRelations/"definition as flipped"
-// Conceptual.def construct this replaces.
-func registerLogicalFlippedAbsorbedCapability(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, capability TLogicalCapability, label, deviceNamePath string, hassBridgeDevicesByID map[string]THassBridgeDevice, entitiesPath string, lineNum int) (warnings []string, deferred bool) {
-	provenance := fmt.Sprintf("%s:%d → %s from %s %s", filepath.Base(entitiesPath), lineNum, decl.LocalSpec, decl.DeviceID, decl.Capability)
-
-	sourceDevice, found := hassBridgeDevicesByID[capability.AbsorbedFromDeviceID]
-	if !found {
-		return []string{fmt.Sprintf("%s: \"flipped\" absorb source %q is not a \"home_assistant\" bridge device -- only a hassbridge-kind source's own literal entity reference can be flipped today", provenance, capability.AbsorbedFromDeviceID)}, false
-	}
-	sourceCapability, hasCap := sourceDevice.Capabilities[capability.AbsorbedFromCapability]
-	source := representativeSource(sourceCapability.Sources)
-	if !hasCap || source == "" {
-		return []string{fmt.Sprintf("%s: device %q declares no %q capability with a literal source to flip", provenance, capability.AbsorbedFromDeviceID, capability.AbsorbedFromCapability)}, false
-	}
-	sourceEntityID := toHomeAssistantEntityID(source)
-	if sourceEntityID == "" {
-		return []string{fmt.Sprintf("%s: could not resolve a Home Assistant entity id from %q", provenance, source)}, false
-	}
-
-	fullName := resolveDeviceEntityFullName(decl.LocalSpec, administration.SpacePath, deviceNamePath)
-	identity := extractEntityIdentity(fullName)
-	if identity.Domain == "" {
-		return []string{fmt.Sprintf("%s: could not resolve a domain from %q; skipping", provenance, decl.LocalSpec)}, false
-	}
-	entityID := toHomeAssistantEntityID(fullName)
-	if entityID == "" {
-		return []string{fmt.Sprintf("%s: could not resolve a Home Assistant entity id from %q; skipping", provenance, decl.LocalSpec)}, false
-	}
-
-	spaceName := administration.CurrentSpaceName()
-	administration.AppendEntityRecord(spaceName, TEntityRecord{
-		Name:                  fullName,
-		Identity:              identity,
-		Provenance:            provenance,
-		FlippedSourceEntityID: sourceEntityID,
-		NoCollect:             decl.NoCollect,
-		HasDefinitionOrImport: true,
-	})
-	// The raw source's own literal entity_id (sourceEntityID) is never itself conceptually
-	// positioned -- that's the whole point of "hidden" -- but it DOES appear verbatim in the
-	// generated flipped-switch YAML (buildFlippedSwitchYAML's state/turn_on/turn_off fields), and
-	// checkEntityReferences (presence.go) only ever considers EntityRecordsBySpace (plus generated
-	// file names) "known." Registering a bookkeeping-only record under its own already-valid HA
-	// entity_id (toHomeAssistantEntityID is a safe no-op on one) satisfies that check without
-	// giving the source any conceptual identity of its own. NoCollect keeps it out of every
-	// aggregate; DiscoveryImplied (real bug found live 2026-10-05: without it, this bookkeeping
-	// record got its own stray customization/icon file, generateCustomizationFiles' own "this
-	// generator never materialises these itself" skip gate) keeps it fully invisible, matching
-	// "hidden" literally.
-	administration.AppendEntityRecord("root", TEntityRecord{
-		Name:                  sourceEntityID,
-		Identity:              extractEntityIdentity(sourceEntityID),
-		Provenance:            provenance,
-		NoCollect:             true,
-		DiscoveryImplied:      true,
-		HasDefinitionOrImport: true,
-	})
-	administration.LogicalEntityLinks[entityID] = TLogicalEntityLink{DeviceID: decl.DeviceID, Label: label}
-	return nil, false
-}
-
-// registerLogicalMediaSwitchCapability resolves a "switch.<label>: <media-player-entity> [with:
-// no_play_input "<value>"; end;];" capability -- the same media_player->switch coercion
-// Macros.def's own "media_switch" directive already performs, reusing that EXACT rendering
-// wholesale: generateMediaSwitches (generator.go) already dispatches on any TEntityRecord whose
-// own Identity.Domain is "switch", Identity.Path ends in "/media," and MediaSwitchPlayerName is
-// set -- regardless of which registration path produced that record -- so this function only ever
-// needs to build a plain TEntityRecord with those same fields (plus the new
-// MediaSwitchAvailabilityEntityID, this capability's own sibling "node" capability's own resolved
-// entity_id), never a bespoke YAML writer of its own. NOTE: this reuse only fires when the
-// capability's own label produces a path ending in "/media" (deviceNamePath + label) -- true for
-// every real case built so far ("media" is the label itself), and a natural constraint of reusing
-// this exact mechanism rather than something to relax.
-//
-// Detected by domain mismatch (declared domain "switch," source entity's own domain
-// "media_player") rather than a dedicated keyword, per the user's own framing of this as "the same
-// coercion the present media_switch command already does" -- any OTHER domain mismatch (a
-// coercion this codebase has no real case for yet) is rejected with a clear warning instead of
-// being silently guessed at.
-//
-// hasNodeCapability/finalAttempt (2026-09-24, real bug found live migrating Vienna's apple_tv/tv/
-// sonos/sonos_roam onto the "local" kind): the sibling "node" reverse lookup used to be
-// unconditionally synchronous (this file's own header comment claimed it "never needs to defer"),
-// true only while every "node" derivation resolved same-pass (a literal entity_id plus a bare
-// device-id atom, both always immediately resolvable). Once a device's own "node" override
-// resolves via "physical <device-id>" (auto-materializing a SAME-device "local" sibling positioned
-// by a LATER line in this very "device ... with:" block), the override itself now genuinely defers
-// to the end-of-file retry pass (registerLogicalNodeOverride's own ViaLogicalOverride mechanism) --
-// but this function, dispatched from the device's OWN "switch.media" body line, runs during the
-// FIRST pass, before that retry ever happens, so LogicalEntityLinks has no "node" entry yet and the
-// availability field was silently dropped (confirmed live: Vienna's four media-switch entities lost
-// their "availability:" line entirely on regenerate). Fixed the same way every other same-device
-// sibling reference in this codebase already handles this: defer (no warning) while the device
-// declares a "node" capability of its own, the reverse lookup hasn't resolved yet, and
-// !finalAttempt -- the single end-of-file retry then runs AFTER "node"'s own deferred entry (queued
-// earlier, at the device's positioning header line, so it retries first in the same ordered pass).
-func registerLogicalMediaSwitchCapability(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, capability TLogicalCapability, label, deviceNamePath, entitiesPath string, lineNum int, hasNodeCapability, finalAttempt bool) (warnings []string, deferred bool) {
-	provenance := fmt.Sprintf("%s:%d → %s from %s %s", filepath.Base(entitiesPath), lineNum, decl.LocalSpec, decl.DeviceID, decl.Capability)
-
-	sourceDomain, _, _ := strings.Cut(capability.Entity, ".")
-	if capability.Domain != "switch" || sourceDomain != "media_player" {
-		return []string{fmt.Sprintf("%s: logical capability %q coerces domain %q from %q, which isn't a supported coercion yet (only switch<-media_player, the \"media_switch\" shape, is built) -- skipping", provenance, label, capability.Domain, sourceDomain)}, false
-	}
-
-	fullName := resolveDeviceEntityFullName(decl.LocalSpec, administration.SpacePath, deviceNamePath)
-	identity := extractEntityIdentity(fullName)
-	if identity.Domain == "" {
-		return []string{fmt.Sprintf("%s: could not resolve a domain from %q; skipping", provenance, decl.LocalSpec)}, false
-	}
-	entityID := toHomeAssistantEntityID(fullName)
-	if entityID == "" {
-		return []string{fmt.Sprintf("%s: could not resolve a Home Assistant entity id from %q; skipping", provenance, decl.LocalSpec)}, false
-	}
-
-	// Reverse lookup: which entity_id did this SAME device's own "node" capability resolve to?
-	// Collects EVERY match rather than breaking on the first (map iteration order is randomised
-	// per Go process -- real bug found live 2026-09-27: two consecutive ./generate runs, no code
-	// or .def change in between, produced DIFFERENT output for
-	// appliance.sonos_playbar_livingroom's own media switch, since more than one LogicalEntityLinks
-	// entry matched this device's own "node" label and whichever one iteration hit first was pure
-	// chance). Picking the lexicographically-first match is an arbitrary but STABLE tie-break --
-	// correctness of which match is "right" when there's more than one is a separate, pre-existing
-	// question this function doesn't attempt to resolve. See this function's own doc comment for
-	// why nodeEntityID may not have resolved yet at all.
-	var nodeEntityIDCandidates []string
-	for id, link := range administration.LogicalEntityLinks {
-		if link.DeviceID == decl.DeviceID && link.Label == "node" {
-			nodeEntityIDCandidates = append(nodeEntityIDCandidates, id)
-		}
-	}
-	sort.Strings(nodeEntityIDCandidates)
-	var nodeEntityID string
-	if len(nodeEntityIDCandidates) > 0 {
-		nodeEntityID = nodeEntityIDCandidates[0]
-	}
-	if hasNodeCapability && nodeEntityID == "" && !finalAttempt {
-		return nil, true
-	}
-
-	spaceName := administration.CurrentSpaceName()
-	administration.AppendEntityRecord(spaceName, TEntityRecord{
-		Name:                            fullName,
-		Identity:                        identity,
-		Provenance:                      provenance,
-		MediaSwitchPlayerName:           capability.Entity,
-		MediaSwitchNoPlayInput:          capability.NoPlayInput,
-		MediaSwitchAvailabilityEntityID: nodeEntityID,
-		HasDefinitionOrImport:           true,
-	})
-	administration.LogicalEntityLinks[entityID] = TLogicalEntityLink{DeviceID: decl.DeviceID, Label: label}
-	return nil, false
 }
 
 // registerLogicalDefinedInputNumberCapability resolves a "defined <domain>.<label> with: minimum

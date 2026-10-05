@@ -612,44 +612,6 @@ end;`
 	}
 }
 
-// TestResolveListEntriesExcludesAutoRegisteredDependencyNodes is the regression test for a real
-// bug found live 2026-09-21 (Vienna): a "dependency on <device-id>;" target that was never itself
-// explicitly positioned in Conceptual.def gets an ugly synthetic node entity registered purely so
-// the dependency's own availability AND-condition has something real to read
-// (resolveLogicalDependencyNodeEntities, integration_logical_storage.go) -- real case:
-// appliance.washing_machine's "dependency on node.candy;" auto-registered
-// "binary_sensor.physical_node_candy_node", which kept surfacing in list.nodes as if node.candy
-// were a real, deliberately positioned device. Mirrors the existing "derived" exclusion exactly.
-func TestResolveListEntriesExcludesAutoRegisteredDependencyNodes(t *testing.T) {
-	state := newAdministrationState()
-	state.SpaceOrder = []string{"root"}
-	state.EntityRecordsBySpace["root"] = []TEntityRecord{
-		{
-			Name:       "binary_sensor.infrastructural/apartment/shower_room/washing_machine/node",
-			Identity:   extractEntityIdentity("binary_sensor.infrastructural/apartment/shower_room/washing_machine/node"),
-			Provenance: "Physical.def:1 → binary_sensor.node from appliance.washing_machine node",
-		},
-		{
-			Name:       "binary_sensor.physical/node.candy/node",
-			Identity:   extractEntityIdentity("binary_sensor.physical/node.candy/node"),
-			Provenance: "auto-registered dependency node: Logical.def:51 → binary_sensor.available from appliance.washing_machine available",
-		},
-	}
-
-	decl := TListDeclaration{
-		title:    "nodes",
-		patterns: []TListPattern{{domain: "binary_sensor", pathSuffix: "node", wildcardLeaf: false}},
-	}
-	entries := resolveListEntries(decl, state)
-
-	if len(entries) != 1 {
-		t.Fatalf("got %d entries, want 1 (the real node only): %+v", len(entries), entries)
-	}
-	if entries[0].entityID != "binary_sensor.infrastructural_apartment_shower_room_washing_machine_node" {
-		t.Errorf("entries[0].entityID = %q, want the real washing_machine node", entries[0].entityID)
-	}
-}
-
 func TestGenerateReportingAutomationsSplitsNumericAndDeviceInfoCapabilities(t *testing.T) {
 	haOutputDir := t.TempDir()
 	devices := []THostDevice{
@@ -1460,8 +1422,8 @@ end;`
 	// so never surfaced it): registerDiscoveryAvailabilityEntityLink never set
 	// HasDefinitionOrImport, so this generator-authored condition entity was wrongly swept into
 	// collectMainEntityIDs' "assumed to already exist on main" list (main_entities.go) -- the exact
-	// same class of bug already fixed 2026-09-21 for the Logical-layer sibling
-	// (registerLogicalIsAvailableCapability), just never applied here.
+	// same class of bug already fixed 2026-09-21 for the (since-retired) Logical-layer "is
+	// available" capability shape, just never applied here.
 	if !node.HasDefinitionOrImport {
 		t.Errorf("node.HasDefinitionOrImport = false, want true -- this entity is generator-authored, not assumed to already exist on main")
 	}

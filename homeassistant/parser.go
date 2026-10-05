@@ -278,20 +278,6 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 				Provenance:            fmt.Sprintf("%s:%d", filepath.Base(entitiesPath), sourceLine(i)),
 			}
 
-			// Extract inline "with adjustment <offset> <scale>;" properties.
-			if withIdx := strings.Index(trimmed, " with adjustment "); withIdx >= 0 {
-				adjPart := strings.TrimSuffix(strings.TrimSpace(trimmed[withIdx+len(" with adjustment "):]), ";")
-				adjFields := strings.Fields(adjPart)
-				if len(adjFields) >= 2 {
-					record.AdjustmentOffset = adjFields[0]
-					record.AdjustmentScale = adjFields[1]
-				}
-			}
-			// Extract inline "with condition <sources> <expr>;" properties.
-			if withIdx := strings.Index(trimmed, " with condition "); withIdx >= 0 {
-				condPart := strings.TrimSpace(trimmed[withIdx+len(" with condition "):])
-				record.ConditionSources, record.ConditionExpr = parseConditionDirective("condition "+condPart, administration.SpacePath)
-			}
 			// Extract inline "with icon <value>;" for any entity type.
 			if withIdx := strings.Index(trimmed, " with icon "); withIdx >= 0 {
 				iconPart := strings.TrimSuffix(strings.TrimSpace(trimmed[withIdx+len(" with icon "):]), ";")
@@ -353,24 +339,6 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 					StateScript:     fields[5],
 				})
 			}
-			continue
-		}
-
-		// Record "value <entity_spec>!<attribute>;" directives inside entity bodies.
-		if strings.HasPrefix(trimmed, "value ") && len(administration.PendingEntityCollections) > 0 {
-			raw := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "value "), ";"))
-			exclamIdx := strings.Index(raw, "!")
-			var normalised string
-			if exclamIdx > 0 {
-				entitySpec := raw[:exclamIdx]
-				attribute := raw[exclamIdx+1:]
-				normalised = normalizeEntityFullName(entitySpec, administration.SpacePath) + "!" + attribute
-			} else {
-				normalised = normalizeEntityFullName(raw, administration.SpacePath)
-			}
-			lastIdx := len(administration.PendingEntityCollections) - 1
-			pending := &administration.PendingEntityCollections[lastIdx]
-			pending.Record.ValueExpr = normalised
 			continue
 		}
 

@@ -96,7 +96,6 @@ func buildDeclaredEntityIDSet(outputDir string, admin *TAdministrationState) map
 	declared := map[string]bool{}
 
 	// DSL-declared entities (both defined and assumed).
-	// For adjustment sensors, also declare the integration-supplied _raw source entity.
 	for _, records := range admin.EntityRecordsBySpace {
 		for _, rec := range records {
 			id := toHomeAssistantEntityID(rec.Name)
@@ -104,9 +103,6 @@ func buildDeclaredEntityIDSet(outputDir string, admin *TAdministrationState) map
 				continue
 			}
 			declared[id] = true
-			if rec.Identity.Domain == "sensor" && rec.AdjustmentOffset != "" {
-				declared[id+"_raw"] = true
-			}
 		}
 	}
 

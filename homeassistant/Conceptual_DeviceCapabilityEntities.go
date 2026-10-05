@@ -620,13 +620,8 @@ func dispatchLogicalCapability(administration *TAdministrationState, decl TDevic
 		return registerLogicalDefinedInputNumberCapability(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum), false
 	case capability.IsDerivedCondition, capability.IsDerivedValue:
 		return registerLogicalDerivedConditionCapability(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum, finalAttempt, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, localDevicesByID, logicalDevicesByID)
-	case capability.IsAvailable:
-		return registerLogicalIsAvailableCapability(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum, hostDevicesByID), false
-	case capability.Domain == "switch":
-		_, hasNodeCapability := device.Capabilities["node"]
-		return registerLogicalMediaSwitchCapability(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum, hasNodeCapability, finalAttempt)
 	default:
-		return []string{fmt.Sprintf("%s: logical device %q's %q capability isn't a supported shape yet (only \"is available\" conditions, switch<-media_player coercions, absorbed capabilities, defined input_numbers, and derived conditions are built)", provenance, decl.DeviceID, bareName)}, false
+		return []string{fmt.Sprintf("%s: logical device %q's %q capability isn't a supported shape yet (only absorbed capabilities, defined input_numbers, and derived conditions are built)", provenance, decl.DeviceID, bareName)}, false
 	}
 }
 
