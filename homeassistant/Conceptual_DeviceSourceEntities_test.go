@@ -35,7 +35,7 @@ entity binary_sensor.infrastructural:laserjet/jammed as switch.laserjet_jam_sens
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -87,7 +87,7 @@ entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, capabilityDefaults)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, capabilityDefaults)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -124,8 +124,8 @@ entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
 func TestDeviceCapabilityEntityPreservesValueMapAndDerivedFields(t *testing.T) {
 	const miniDSL = `device hass.roomba as roomba with:
 end;
-entity sensor.physical:vacuum/status from hass.roomba status;
-entity binary_sensor.physical:vacuum/battery_alert from hass.roomba battery_alert;`
+entity sensor.physical:vacuum/status from hass.roomba sensor.status;
+entity binary_sensor.physical:vacuum/battery_alert from hass.roomba binary_sensor.battery_alert;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.roomba": {DeviceID: "hass.roomba", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{
@@ -136,7 +136,7 @@ entity binary_sensor.physical:vacuum/battery_alert from hass.roomba battery_aler
 	}
 
 	var report strings.Builder
-	_, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
+	_, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -171,7 +171,7 @@ entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, capabilityDefaults)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, capabilityDefaults)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestDeviceSourceEntityWarnsWithoutPriorDevicePositioning(t *testing.T) {
 	}
 
 	var report strings.Builder
-	_, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
+	_, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -263,7 +263,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}

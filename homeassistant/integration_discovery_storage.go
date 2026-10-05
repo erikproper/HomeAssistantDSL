@@ -91,6 +91,18 @@ type TDiscoveryCapability struct {
 	// conceptual/logical layers should never see it). The motivating case: a sensor's raw,
 	// unadjusted reading that only exists to feed a "derived" capability applying an offset/scale.
 	Hidden bool
+
+	// Inverted (2026-09-28), from an optional leading "inverted " qualifier on the capability line
+	// (stackable with "hidden ", either order), marks a switch/binary_sensor-domain capability whose
+	// raw MQTT on/off payload means the OPPOSITE of what this capability should report/command --
+	// e.g. a normally-closed relay where the raw switch being "off" means the controlled circuit is
+	// actually powered. Propagated to TDiscoveryEntityLink/discovery.yaml so the coordinator's own
+	// relay (buildRelayedDiscoveryConfig, discoverybridge.go) can swap payload_on/payload_off (and
+	// state_on/state_off, if the native payload sets them) when building this entity's own discovery
+	// config -- a full physical-level inversion (both the reported state AND the command sent on
+	// turn_on/turn_off), no separate template/wrapper entity needed. Replaces the older Conceptual.def
+	// "definition as flipped <source>;" two-entity pattern for a genuinely raw, undeclared source.
+	Inverted bool
 }
 
 // TDiscoveryGatewayDevice is one "device <id> with: ... end;" declaration inside "integration

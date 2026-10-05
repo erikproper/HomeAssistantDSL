@@ -231,13 +231,13 @@ func TestRegisterHassBridgeAttributeEntityUsesCapabilityDefaultsRules(t *testing
 	if warnings := registerDevicePositioning(admin, positioningDecl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, "Spaces.def", 1); len(warnings) != 0 {
 		t.Fatalf("unexpected warnings positioning the fixture device: %v", warnings)
 	}
-	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:junglinster/cpu/load", DeviceID: "host.junglinster", Capability: "cpu/load"}
+	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:junglinster/cpu/load", DeviceID: "host.junglinster", Capability: "sensor.cpu/load"}
 	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil, "Spaces.def", 1, true, "", false); len(warnings) != 0 || deferred {
 		t.Fatalf("unexpected warnings/deferred: warnings=%v deferred=%v", warnings, deferred)
 	}
 	// 2026-09-24: "node" is no longer auto-registered at positioning time for any kind -- an
 	// ordinary explicit capability reference, exactly like "cpu/load" above.
-	nodeDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:junglinster/node", DeviceID: "host.junglinster", Capability: "node"}
+	nodeDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:junglinster/node", DeviceID: "host.junglinster", Capability: "binary_sensor.node"}
 	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, nodeDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil, "Spaces.def", 1, true, "", false); len(warnings) != 0 || deferred {
 		t.Fatalf("unexpected warnings/deferred registering node: warnings=%v deferred=%v", warnings, deferred)
 	}

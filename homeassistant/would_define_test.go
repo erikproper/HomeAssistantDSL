@@ -16,7 +16,7 @@ func TestDescribeWouldDefineForDiscoveryImpliedEntity(t *testing.T) {
 	}
 	// 2026-09-24: "node" is no longer auto-registered at positioning time for any kind -- an
 	// ordinary explicit capability reference.
-	nodeDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:appletv-office/node", DeviceID: "host.appletv-office", Capability: "node"}
+	nodeDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:appletv-office/node", DeviceID: "host.appletv-office", Capability: "binary_sensor.node"}
 	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, nodeDecl, nil, nil, nil, hostDevicesByID, nil, nil, nil, "Spaces.def", 1, true, "", false); len(warnings) != 0 || deferred {
 		t.Fatalf("unexpected warnings/deferred registering node: warnings=%v deferred=%v", warnings, deferred)
 	}

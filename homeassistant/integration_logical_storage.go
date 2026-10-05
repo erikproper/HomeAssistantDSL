@@ -102,6 +102,17 @@ type TLogicalCapability struct {
 	// host's own already-registered raw node is the only way to compose them.
 	AbsorbedFromDeviceID   string
 	AbsorbedFromCapability string
+	// Flipped (2026-10-05, PROJECT.md: "the '_raw' and 'flipped' should be hidden on the logical
+	// level") marks an absorb line as "<domain>.<label> flipped <source-capability>;" -- the
+	// absorbed source's own raw state is read inverted, and turning this capability on/off calls
+	// the OPPOSITE service on the source. Retires the old Conceptual.def "entity <raw-spec>;
+	// entity <spec> with definition as flipped <raw-spec>;" two-free-entity pattern (generator.go's
+	// TFlippedRelation/generateFlippedSwitches, now driven from here instead): the raw source is
+	// never itself conceptually positioned at all (its own HA entity_id is read as a literal,
+	// already-known Source field directly off the absorbed-from device's own declaration --
+	// hassbridge-kind only today, the only real case), so nothing "free"/undeclared is left in
+	// Conceptual.def, and nothing about the inversion is visible there either.
+	Flipped bool
 	// IsDefinedInputNumber/DefinedMinimum/DefinedMaximum/DefinedStep/DefinedIcon/DefinedUnits
 	// (2026-09-18) are set together, from a "defined <domain>.<label> with: minimum <val>; maximum
 	// <val>; step <val>; icon <val>; units <val>; end;" block -- declares an HA input_number HELPER
@@ -151,12 +162,68 @@ type TLogicalCapability struct {
 	DelayOn            string
 }
 
+// TLogicalSwitchedByFact is one "<domain>.<label> is switched by <domain>.<label> from
+// <device-id>;" line inside a TLogicalDevice's own body (2026-09-27, the "switched_device"
+// migration -- see logical_switched_by.go's own header comment for the full design/rationale).
+// Unlike TLogicalCapability's own shapes, this is metadata ATTACHED to a capability the owning
+// device ALREADY declares at the physical layer (Physical.def/local-kind) -- it never replaces or
+// redefines that capability's own registration, only additionally drives
+// administration.SwitchedDeviceRelations once the annotated capability gets positioned anywhere
+// outside the "physical" sphere (see maybeRegisterSwitchedByRelation).
+type TLogicalSwitchedByFact struct {
+	OwnDomain      string // the annotated capability's own domain (e.g. "light") -- must match its real Physical.def-declared domain
+	SourceDomain   string // the referenced sibling device's own capability domain (e.g. "light", even when the underlying hardware is really a switch)
+	SourceLabel    string // the referenced sibling device's own capability label (e.g. "light_2")
+	SourceDeviceID string // the referenced sibling device's own DSL device-id (e.g. "switches.house_server_room_fuse_box_zwave_048")
+}
+
+// TLogicalEnabledByFact holds a device-level "<domain>.<label> enabled by <domain>.<label>
+// from <device-id>;" annotation (2026-09-28) -- the fuller, LHS-validated generalization that
+// REPLACES the plain "enabler <device-id>;" shorthand outright (confirmed with the user: not kept
+// alongside it). At most one per device (there is only ever one "node" capability to build), so a
+// pointer field on TLogicalDevice, not a map like TLogicalSwitchedByFact's own per-capability
+// shape (which genuinely combines several DIFFERENT capabilities across two devices; this
+// annotation only ever refines ONE thing -- the device's own liveness self-check).
+type TLogicalEnabledByFact struct {
+	OwnDomain      string // the LHS capability's own domain (e.g. "media_player") -- must match a capability ALREADY declared on this device at the physical layer (validated at resolution time via the normal same-device sibling-ref lookup, not a separate pre-check)
+	OwnLabel       string // the LHS capability's own bare label (e.g. "core")
+	SourceDomain   string // the enabler switch's own capability domain (e.g. "switch")
+	SourceLabel    string // the enabler switch's own capability label (e.g. "core")
+	SourceDeviceID string // the enabler switch's own DSL device-id (e.g. "switch.house_living_room_tv")
+}
+
 // TLogicalDevice is one "device <id> with: ... end;" declaration inside Logical.def's "logical
 // layer with: ... end;" block (integration_logical_parser.go).
 type TLogicalDevice struct {
 	DeviceID     string
 	DependsOn    []string // other device ids (any kind, including another logical-only id)
 	Capabilities map[string]TLogicalCapability
+	// EnabledBy (2026-09-28) is this device's own "<domain>.<label> enabled by <domain>.<label>
+	// from <device-id>;" fact, if declared -- sugar for the recurring "absorb the enabler switch's
+	// own capability as switch.enabler, then let the enabler being 'off' stand in for this device's
+	// own unavailability" pattern (a deliberately powered-down TV/appliance is not a fault), same
+	// spirit as the OLD plain "enabler <device-id>;" line this REPLACES, but with the base
+	// self-check built from the named LHS capability's own "is available" state instead of the
+	// whole device's "physical <id>" liveness -- more precise when a device has several capabilities
+	// and only ONE of them is what actually signals "the appliance is on". Desugared by
+	// applyLogicalEnablerDependencySugar (logical_enabler_dependency_sugar.go) into the SAME
+	// Capabilities["enabler"]/Capabilities["node"] entries the old hand-written longhand already
+	// produced -- see that function's own doc comment for the full desugaring. nil means none
+	// declared.
+	EnabledBy *TLogicalEnabledByFact
+	// SwitchedBy (2026-09-27) holds every "<domain>.<label> is switched by <domain>.<label> from
+	// <device-id>;" fact this device declares, keyed by the annotated capability's OWN bare label
+	// (e.g. "core") -- see TLogicalSwitchedByFact's own doc comment.
+	SwitchedBy map[string]TLogicalSwitchedByFact
+	// NodeDelayOff (2026-09-28) is this device's own top-level "delay_off <time>;" line, if declared
+	// -- carried into the "enabler"/"enabled by" sugar's own synthesized "node" derived-condition
+	// capability (applyLogicalEnablerDependencySugar), matching what a hand-written "derived
+	// binary_sensor.node with: ... delay_off <time>; end;" block could already express. Added for
+	// Vienna's own appliance.tv (a real, deployed 1-minute debounce before the TV's own liveness
+	// flips off) -- without this field, migrating a device using delay_off to the sugar would
+	// silently drop that debounce, a real behavioural regression, not a cosmetic one. "" means none
+	// declared (the sugar's own synthesized node capability then has no delay).
+	NodeDelayOff string
 }
 
 // resolveTransitiveDependencies walks deviceID's own DependsOn edges (and, transitively, every

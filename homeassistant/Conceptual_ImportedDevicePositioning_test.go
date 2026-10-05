@@ -20,9 +20,9 @@ import (
 func TestImportedDevicePositioningEndToEnd(t *testing.T) {
 	const miniDSL = `space social:shower_room with:
   device hass.vienna_shower_room as netatmo with:
-    entity binary_sensor.infrastructural:node from node;
-    entity sensor.physical:temperature from temperature;
-    entity sensor.physical:co2         from co2;
+    entity binary_sensor.infrastructural:node from binary_sensor.node;
+    entity sensor.physical:temperature from sensor.temperature;
+    entity sensor.physical:co2         from sensor.co2;
   end;
 end;`
 
@@ -38,7 +38,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, importedDevicesByID, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, nil, importedDevicesByID, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -76,8 +76,8 @@ end;`
 func TestImportedDevicePositioningStillAutoRegistersNodeWhenLogicalDependencyOnlyShares(t *testing.T) {
 	const miniDSL = `space social:shower_room with:
   device hass.vienna_shower_room as netatmo with:
-    entity binary_sensor.infrastructural:node from node;
-    entity sensor.physical:temperature from temperature;
+    entity binary_sensor.infrastructural:node from binary_sensor.node;
+    entity sensor.physical:temperature from sensor.temperature;
   end;
 end;`
 
@@ -95,7 +95,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, importedDevicesByID, nil, nil, logicalDevicesByID, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, nil, importedDevicesByID, nil, nil, logicalDevicesByID, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestImportedDevicePositioningInheritsEnclosingAreaFromNestedSpace(t *testin
 	const miniDSL = `space social:terrace as area with:
   space social:front with:
     device hass.vienna_shower_room as netatmo with:
-      entity sensor.physical:temperature from temperature;
+      entity sensor.physical:temperature from sensor.temperature;
     end;
   end;
 end;`
@@ -137,7 +137,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, importedDevicesByID, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, nil, importedDevicesByID, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestRegisterImportedDevicePositioningSucceedsWithoutNodeCapability(t *testi
 
 	// Explicitly referencing "node" on this same device (which never declared one) still warns --
 	// just from the ordinary capability-dispatch path now, not positioning.
-	capDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:no_node/node", DeviceID: "hass.no_node", Capability: "node"}
+	capDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:no_node/node", DeviceID: "hass.no_node", Capability: "binary_sensor.node"}
 	capWarnings, deferred := registerDeviceCapabilityEntityLink(administration, capDecl, nil, nil, importedDevicesByID, nil, nil, nil, nil, "test.def", 2, true, "", false)
 	if deferred {
 		t.Fatalf("expected deferred=false")

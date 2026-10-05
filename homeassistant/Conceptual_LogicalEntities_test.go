@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -9,8 +10,22 @@ import (
 // "condition "<expr>" over: <sources...>; end;" shape -- for tests exercising
 // registerLogicalDerivedConditionCapability's own resolution/deferral behaviour, which doesn't
 // depend on the new grammar's boolean composition (and/or/not/nested jinja clauses) at all.
+//
+// Takes the old "$1"/"$2"-positional expr + sources shape (2026-09-24 grammar) and translates it
+// into the current "$[domain.label]"-embedded shape (2026-10-05, PROJECT.md 1h) internally --
+// "$N" becomes "$[sources[N-1]]" -- so every existing call site (and its own assertions, which
+// only ever check the FINAL resolved entity reference, not the intermediate template text) keeps
+// working unchanged.
 func testJinjaCondition(expr string, sources ...string) *TConditionExpr {
-	return &TConditionExpr{Kind: CondJinja, JinjaExpr: expr, JinjaSources: sources}
+	// No bare-"$" fallback here (unlike the old render-side buildConditionStateExpr): every real
+	// call site below always writes "$1"/"$2" explicitly, and a blind "$" replacement would
+	// corrupt the "$[...]" placeholders this loop itself just inserted, since they also contain
+	// "$". Substituted from the HIGHEST index down so "$1" can never accidentally match inside an
+	// already-substituted "$[...]" from a later (lower) index's own source name.
+	for i := len(sources) - 1; i >= 0; i-- {
+		expr = strings.ReplaceAll(expr, fmt.Sprintf("$%d", i+1), "$["+sources[i]+"]")
+	}
+	return &TConditionExpr{Kind: CondJinja, JinjaExpr: expr}
 }
 
 // testRefCondition builds a lone CondRef leaf (a bare sibling label/entity reference, optionally
@@ -357,6 +372,90 @@ func TestRegisterLogicalAbsorbedCapability(t *testing.T) {
 	}
 }
 
+// TestRegisterLogicalFlippedAbsorbedCapability covers the "<domain>.<label> flipped <capability>;"
+// absorb qualifier (2026-10-05, PROJECT.md: "the '_raw' and 'flipped' should be hidden on the
+// logical level") -- the raw hassbridge source is NEVER itself conceptually positioned (no
+// DiscoveryEntityLinks/LogicalEntityLinks entry for it at all, unlike the plain-absorb case just
+// above); only the flipped entity itself gets registered, carrying the source's own literal
+// entity_id directly in FlippedSourceEntityID for generateFlippedSwitches to pick up.
+func TestRegisterLogicalFlippedAbsorbedCapability(t *testing.T) {
+	admin := newAdministrationState()
+	hassBridgeDevicesByID := map[string]THassBridgeDevice{
+		"hass.heating_corridor": {
+			DeviceID:     "hass.heating_corridor",
+			Capabilities: map[string]THassBridgeCapability{"core": {Domain: "switch", Sources: map[string]string{"main": "switch.house_corridor_heating"}}},
+		},
+	}
+
+	decl := TDeviceCapabilityEntityDeclaration{LocalSpec: "switch.physical:heating", DeviceID: "switch.heating_corridor", Capability: "switch.core"}
+	capability := TLogicalCapability{Domain: "switch", AbsorbedFromDeviceID: "hass.heating_corridor", AbsorbedFromCapability: "core", Flipped: true}
+
+	warnings, deferred := registerLogicalAbsorbedCapability(admin, decl, capability, "core", "", nil, hassBridgeDevicesByID, nil, nil, nil, nil, map[string]TLogicalDevice{}, "Logical.def", 1, true)
+	if deferred {
+		t.Fatalf("did not expect deferral")
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+
+	rec, found := findEntityRecordByName(admin, "switch.physical/heating")
+	if !found {
+		t.Fatalf("no entity record registered for switch.physical/heating")
+	}
+	if rec.FlippedSourceEntityID != "switch.house_corridor_heating" {
+		t.Errorf("FlippedSourceEntityID = %q, want switch.house_corridor_heating", rec.FlippedSourceEntityID)
+	}
+
+	if len(admin.DiscoveryEntityLinks) != 0 {
+		t.Errorf("expected the raw hassbridge source to never be independently positioned, got %+v", admin.DiscoveryEntityLinks)
+	}
+}
+
+// TestRegisterLogicalAbsorbedCapabilityFromHostsDeviceIgnoresSourcesOwnShadowIdentity is a
+// regression test for a real bug found live 2026-10-04, migrating Junglinster's
+// server.xanadu/server.backups (the first-ever absorb of a HOSTS-kind device's own attribute into
+// a DIFFERENT logical device): registerHostCapabilityEntityLink's attribute branch used to trust
+// link.HostIdentity unconditionally, but for an absorbed source device that was NEVER itself
+// directly positioned, that field can hold autoMaterializePhysicalCapability's own "physical/
+// <device-id>" shadow identity instead (stamped there as a side effect of the source device's bare
+// "node.X" liveness being referenced elsewhere, e.g. a hand-written Logical.def "node" condition) --
+// producing a wrong, shadow-named entity instead of one positioned under the ABSORBING device's own
+// identity. Reproduces the exact ordering that triggered it live: the "node" shadow is
+// auto-materialized FIRST (simulating the condition reference), then the absorb runs.
+func TestRegisterLogicalAbsorbedCapabilityFromHostsDeviceIgnoresSourcesOwnShadowIdentity(t *testing.T) {
+	admin := newAdministrationState()
+	hostDevicesByID := map[string]THostDevice{
+		"node.xanadu": {DeviceID: "node.xanadu", HostName: "xanadu", IntegrationType: "cpu"},
+	}
+
+	// Simulate the source device's own "node" bare-condition reference running first, exactly as
+	// Logical.def's own hand-written "condition node.xanadu or jinja ...;" does -- this is what
+	// stamps the "physical/node.xanadu" shadow identity onto DeviceConceptualLinks["node.xanadu"].
+	if _, ok := autoMaterializePhysicalCapability(admin, "node.xanadu", "node", nil, nil, hostDevicesByID, nil, "test"); !ok {
+		t.Fatalf("expected the \"node\" auto-materialization to succeed")
+	}
+	if sphere := admin.DeviceConceptualLinks["node.xanadu"].HostIdentity.Sphere; sphere != "physical" {
+		t.Fatalf("test setup: expected node.xanadu's own HostIdentity to be the \"physical\" shadow, got %q", sphere)
+	}
+
+	// Now the absorb itself: server.xanadu absorbs node.xanadu's own "cpu/load" attribute.
+	decl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:cpu/load", DeviceID: "server.xanadu", Capability: "sensor.cpu/load"}
+	capability := TLogicalCapability{Domain: "sensor", AbsorbedFromDeviceID: "node.xanadu", AbsorbedFromCapability: "cpu/load"}
+	warnings, deferred := registerLogicalAbsorbedCapability(admin, decl, capability, "cpu/load", "xanadu", nil, nil, nil, hostDevicesByID, nil, nil, map[string]TLogicalDevice{}, "Logical.def", 1, true)
+	if deferred {
+		t.Fatalf("did not expect deferral")
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+
+	got := admin.DeviceConceptualLinks["node.xanadu"].AttributeEntityIDs["load"].EntityID
+	want := "sensor.infrastructural_xanadu_cpu_load"
+	if got != want {
+		t.Errorf("entity_id = %q, want %q (positioned under the ABSORBING device's own identity, not the source's own \"physical\" shadow)", got, want)
+	}
+}
+
 // TestRegisterLogicalMediaSwitchCapability covers the media_player->switch coercion, including
 // the sibling "node" reverse lookup for its own availability field.
 func TestRegisterLogicalMediaSwitchCapability(t *testing.T) {
@@ -382,6 +481,72 @@ func TestRegisterLogicalMediaSwitchCapability(t *testing.T) {
 	}
 	if rec.MediaSwitchAvailabilityEntityID != "binary_sensor.infrastructural_apartment_living_room_apple_tv_node" {
 		t.Errorf("MediaSwitchAvailabilityEntityID = %q, want the sibling node's own entity_id", rec.MediaSwitchAvailabilityEntityID)
+	}
+}
+
+// TestResolveLogicalSiblingSourceEntityIDDeterministicWithMultipleDiscoveryMatches is the
+// regression test for a real bug found live 2026-09-27, a THIRD instance of the same
+// non-determinism class as registerLogicalMediaSwitchCapability/registerLocalMediaSwitchCapability's
+// own sibling-node loops below: resolveLogicalSiblingSourceEntityID's own discovery-tier lookup
+// used to break on the first DiscoveryEntityLinks match for a (GatewayDeviceID, Leaf) pair while
+// ranging over a Go map -- confirmed live regenerating Junglinster's server_room/corridor
+// "switched by" pilot (two conceptual positionings genuinely sharing the same raw leaf: an
+// explicit one kept for an unrelated "follows" reference, and the switched-by mechanism's own
+// auto-materialized entity) producing different `derived binary_sensor.node` output across two
+// consecutive, otherwise-unchanged ./generate runs.
+func TestResolveLogicalSiblingSourceEntityIDDeterministicWithMultipleDiscoveryMatches(t *testing.T) {
+	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
+		"switches.zwave_048": {
+			DeviceID:     "switches.zwave_048",
+			Capabilities: map[string]TDiscoveryCapability{"light_1": {Domain: "light", Leaf: "48-37-1-currentValue"}},
+		},
+	}
+	for i := 0; i < 20; i++ {
+		admin := newAdministrationState()
+		admin.DiscoveryEntityLinks["light.physical_house_corridor_main"] = TDiscoveryEntityLink{EntityID: "light.physical_house_corridor_main", GatewayDeviceID: "switches.zwave_048", Leaf: "48-37-1-currentValue"}
+		admin.DiscoveryEntityLinks["light.physical_switches_zwave_048_1"] = TDiscoveryEntityLink{EntityID: "light.physical_switches_zwave_048_1", GatewayDeviceID: "switches.zwave_048", Leaf: "48-37-1-currentValue"}
+
+		id, ok, isLiteral := resolveLogicalSiblingSourceEntityID(admin, "switches.zwave_048", "light_1", false, false, false, discoveryGatewaysByID, nil, nil, nil, "test")
+		if !ok || isLiteral {
+			t.Fatalf("run %d: ok=%v isLiteral=%v, want ok=true isLiteral=false", i, ok, isLiteral)
+		}
+		want := "light.physical_house_corridor_main" // lexicographically first of the two candidates
+		if id != want {
+			t.Errorf("run %d: id = %q, want the same deterministic choice %q every time", i, id, want)
+		}
+	}
+}
+
+// TestRegisterLogicalMediaSwitchCapabilityDeterministicWithMultipleNodeMatches is the regression
+// test for a real bug found live 2026-09-27: two consecutive ./generate runs, no code or .def
+// change in between, produced DIFFERENT output for appliance.sonos_playbar_livingroom's own media
+// switch, because the sibling "node" reverse lookup broke out of a map range on the FIRST match --
+// Go's own map iteration order is randomised per process, so "first" was pure chance whenever more
+// than one LogicalEntityLinks entry genuinely matched this device's own "node" label. The fix picks
+// the lexicographically-first candidate deterministically; this test seeds two matching entries
+// (deliberately inserted in an order that would, pre-fix, sometimes iterate the "wrong" one first)
+// and asserts the SAME one wins every time.
+func TestRegisterLogicalMediaSwitchCapabilityDeterministicWithMultipleNodeMatches(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		admin := newAdministrationState()
+		admin.LogicalEntityLinks["binary_sensor.infrastructural_house_living_room_sonos_playbar_node"] = TLogicalEntityLink{DeviceID: "appliance.sonos_playbar_livingroom", Label: "node"}
+		admin.LogicalEntityLinks["binary_sensor.infrastructural_house_living_room_sonos_node"] = TLogicalEntityLink{DeviceID: "appliance.sonos_playbar_livingroom", Label: "node"}
+
+		decl := TDeviceCapabilityEntityDeclaration{LocalSpec: "switch.social:media", DeviceID: "appliance.sonos_playbar_livingroom", Capability: "switch.media"}
+		capability := TLogicalCapability{Domain: "switch", Entity: "media_player.social_house_living_room_sonos"}
+
+		warnings, deferred := registerLogicalMediaSwitchCapability(admin, decl, capability, "media", "sonos_playbar_livingroom", "Logical.def", 1, true, true)
+		if len(warnings) != 0 || deferred {
+			t.Fatalf("run %d: unexpected warnings/deferred: %v / %v", i, warnings, deferred)
+		}
+		rec, found := findEntityRecordByName(admin, "switch.social/sonos_playbar_livingroom/media")
+		if !found {
+			t.Fatalf("run %d: no entity record registered", i)
+		}
+		want := "binary_sensor.infrastructural_house_living_room_sonos_node"
+		if rec.MediaSwitchAvailabilityEntityID != want {
+			t.Errorf("run %d: MediaSwitchAvailabilityEntityID = %q, want the same deterministic choice %q every time", i, rec.MediaSwitchAvailabilityEntityID, want)
+		}
 	}
 }
 
@@ -500,18 +665,29 @@ func TestRegisterLogicalDerivedConditionCapability(t *testing.T) {
 	// done by the time "windy" itself is reached, given the order in the draft.
 	admin.LogicalEntityLinks["sensor.social_apartment_terrace_netatmo_windmeter_wind_speed"] = TLogicalEntityLink{DeviceID: "sensors.vienna_terrace_wind", Label: "wind_speed"}
 	admin.LogicalEntityLinks["input_number.social_windy_threshold"] = TLogicalEntityLink{DeviceID: "sensors.vienna_terrace_wind", Label: "windy_threshold"}
+	// Their own DECLARATIONS (2026-09-28, mandatory jinja-source domain-qualification): a
+	// domain-qualified jinja source is only resolved as a sibling capability, never a literal
+	// entity_id, when lookupCapabilityDomain confirms the bare label is a REAL declared capability
+	// of this device -- these two maps are what a real Physical.def/Logical.def declaration would
+	// have produced by the time "windy" itself is registered.
+	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
+		"sensors.vienna_terrace_wind": {DeviceID: "sensors.vienna_terrace_wind", Capabilities: map[string]TDiscoveryCapability{"wind_speed": {Domain: "sensor"}}},
+	}
+	logicalDevicesByID := map[string]TLogicalDevice{
+		"sensors.vienna_terrace_wind": {DeviceID: "sensors.vienna_terrace_wind", Capabilities: map[string]TLogicalCapability{"windy_threshold": {Domain: "input_number"}}},
+	}
 
 	decl := TDeviceCapabilityEntityDeclaration{LocalSpec: "binary_sensor.social:windy", DeviceID: "sensors.vienna_terrace_wind", Capability: "binary_sensor.windy"}
 	capability := TLogicalCapability{
 		Domain:             "binary_sensor",
 		IsDerivedCondition: true,
-		DerivedCondition:   testJinjaCondition("($1 in ['unknown', 'unavailable']) or (($1 | int) > ($2 | int))", "wind_speed", "windy_threshold"),
+		DerivedCondition:   testJinjaCondition("($1 in ['unknown', 'unavailable']) or (($1 | int) > ($2 | int))", "sensor.wind_speed", "input_number.windy_threshold"),
 		DerivedDeviceClass: "wind",
 		DelayOn:            "00:01:00",
 		DelayOff:           "00:10:00",
 	}
 
-	warnings, deferred := registerLogicalDerivedConditionCapability(admin, decl, capability, "windy", "vienna_terrace_wind", "Logical.def", 1, true, nil, nil, nil, nil, nil, nil)
+	warnings, deferred := registerLogicalDerivedConditionCapability(admin, decl, capability, "windy", "vienna_terrace_wind", "Logical.def", 1, true, discoveryGatewaysByID, nil, nil, nil, nil, logicalDevicesByID)
 	if deferred {
 		t.Fatalf("did not expect deferral -- both siblings are already positioned")
 	}
@@ -540,6 +716,168 @@ func TestRegisterLogicalDerivedConditionCapability(t *testing.T) {
 	}
 	if !rec.HasDefinitionOrImport {
 		t.Errorf("HasDefinitionOrImport = false, want true -- this entity is generator-authored, not assumed to already exist on main (real bug found live 2026-09-21, see this file's header comment)")
+	}
+}
+
+// TestRegisterLogicalDerivedConditionCapabilityRejectsBareConditionRef is the regression test for
+// the user's own explicit correction, 2026-09-29 ("that 'core' without domain should be illegal"):
+// a plain condition/value sibling reference with no domain prefix ("brews") must now be a hard
+// error, generalizing the mandatory-domain rule already enforced for jinja "{ ... }" sources and
+// "entity X from Y Z;". Mirrors TestRegisterLogicalDerivedConditionCapability's own harness shape.
+func TestRegisterLogicalDerivedConditionCapabilityRejectsBareConditionRef(t *testing.T) {
+	admin := newAdministrationState()
+	admin.LogicalEntityLinks["binary_sensor.social_house_kitchen_nespresso_brews"] = TLogicalEntityLink{DeviceID: "switch.house_kitchen_nespresso", Label: "brews"}
+	logicalDevicesByID := map[string]TLogicalDevice{
+		"switch.house_kitchen_nespresso": {DeviceID: "switch.house_kitchen_nespresso", Capabilities: map[string]TLogicalCapability{
+			"brews": {Domain: "binary_sensor"},
+		}},
+	}
+
+	decl := TDeviceCapabilityEntityDeclaration{LocalSpec: "binary_sensor.social:in_use", DeviceID: "switch.house_kitchen_nespresso", Capability: "binary_sensor.in_use"}
+	bareCondition, warnings := parseConditionExpr("brews", nil, "test")
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings building the raw condition expression: %v", warnings)
+	}
+	capability := TLogicalCapability{Domain: "binary_sensor", IsDerivedCondition: true, DerivedCondition: bareCondition, DelayOff: "00:10:00"}
+
+	warnings, deferred := registerLogicalDerivedConditionCapability(admin, decl, capability, "in_use", "house_kitchen_nespresso", "Logical.def", 1, true, nil, nil, nil, nil, nil, logicalDevicesByID)
+	if deferred {
+		t.Fatalf("did not expect deferral -- this is a pure syntax rule, not something a later line could resolve")
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], `write "binary_sensor.brews"`) {
+		t.Fatalf("warnings = %v, want exactly one warning suggesting \"binary_sensor.brews\"", warnings)
+	}
+
+	// The domain-qualified form must succeed cleanly.
+	admin2 := newAdministrationState()
+	admin2.LogicalEntityLinks["binary_sensor.social_house_kitchen_nespresso_brews"] = TLogicalEntityLink{DeviceID: "switch.house_kitchen_nespresso", Label: "brews"}
+	qualifiedCondition, warnings := parseConditionExpr("binary_sensor.brews", nil, "test")
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings building the qualified condition expression: %v", warnings)
+	}
+	capability.DerivedCondition = qualifiedCondition
+	warnings, deferred = registerLogicalDerivedConditionCapability(admin2, decl, capability, "in_use", "house_kitchen_nespresso", "Logical.def", 1, true, nil, nil, nil, nil, nil, logicalDevicesByID)
+	if deferred {
+		t.Fatalf("did not expect deferral")
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings for the domain-qualified form: %v", warnings)
+	}
+}
+
+// TestResolveLeafDefersRatherThanLiteralFallbackForRealCapabilityNotYetPositioned is the
+// regression test for a real bug found live 2026-09-29, minutes after mandatory
+// domain-qualification first landed for a plain condition/value ref: a domain-qualified token that
+// genuinely names a REAL declared capability of the device (confirmed via lookupCapabilityDomain)
+// must defer (not literal-fallback) when that capability hasn't been positioned in
+// DeviceConceptualLinks YET (finalAttempt=false, simulating an earlier file-processing pass) --
+// exactly mirroring how a jinja "{ ... }" source already behaves. Before this fix,
+// resolveLogicalSiblingSourceEntityID's tier-4 (`!mustBeSibling && strings.Contains(token, ".")`)
+// had no notion of finalAttempt at all, so it happily accepted "media_player.core" as a LITERAL
+// entity_id on the very first attempt -- permanently locking in the wrong answer
+// (`states('media_player.core')`) instead of ever resolving to the real
+// `media_player.social_house_living_room_tv` once that positioning was parsed. Confirmed live:
+// Junglinster's own appliance.tv_living_room "enabled by" sugar.
+func TestResolveLeafDefersRatherThanLiteralFallbackForRealCapabilityNotYetPositioned(t *testing.T) {
+	logicalDevicesByID := map[string]TLogicalDevice{
+		"appliance.tv_living_room": {DeviceID: "appliance.tv_living_room", Capabilities: map[string]TLogicalCapability{}},
+	}
+	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
+		"appliance.tv_living_room": {DeviceID: "appliance.tv_living_room", Capabilities: map[string]TDiscoveryCapability{"core": {Domain: "media_player"}}},
+	}
+	tree, warnings := parseConditionExpr("media_player.core is available", nil, "test")
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings building the condition expression: %v", warnings)
+	}
+	decl := TDeviceCapabilityEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:node", DeviceID: "appliance.tv_living_room", Capability: "binary_sensor.node"}
+	capability := TLogicalCapability{Domain: "binary_sensor", IsDerivedCondition: true, DerivedCondition: tree}
+
+	// Pass 1: the device's own "core" capability has NOT been positioned in DeviceConceptualLinks
+	// yet (finalAttempt=false, simulating a Conceptual.def line appearing later in the file). Must
+	// defer, not silently "succeed" via a literal-entity-id misreading.
+	admin := newAdministrationState()
+	_, deferred := registerLogicalDerivedConditionCapability(admin, decl, capability, "node", "tv_living_room", "Logical.def", 1, false, discoveryGatewaysByID, nil, nil, nil, nil, logicalDevicesByID)
+	if !deferred {
+		t.Fatalf("expected a deferral on pass 1 (sibling not yet positioned), got resolved instead")
+	}
+	rec, found := findEntityRecordByName(admin, "binary_sensor.infrastructural/tv_living_room/node")
+	if found && strings.Contains(rec.ConditionExpr, "media_player.core") {
+		t.Fatalf("ConditionExpr = %q, must not have locked in the literal \"media_player.core\" on a deferred pass", rec.ConditionExpr)
+	}
+
+	// Pass 2: NOW the sibling is positioned (matching real file processing, where Conceptual.def's
+	// own "entity media_player.social: from media_player.core;" line has been parsed by this
+	// point) and finalAttempt=true. Must resolve to the REAL entity, not the literal token.
+	admin.DeviceConceptualLinks["appliance.tv_living_room"] = TDeviceConceptualLink{
+		AttributeEntityIDs: map[string]TDeviceAttributeLink{"core": {EntityID: "media_player.social_house_living_room_tv"}},
+	}
+	warnings, deferred = registerLogicalDerivedConditionCapability(admin, decl, capability, "node", "tv_living_room", "Logical.def", 1, true, discoveryGatewaysByID, nil, nil, nil, nil, logicalDevicesByID)
+	if deferred {
+		t.Fatalf("did not expect a deferral on pass 2 -- the sibling is now positioned")
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings on pass 2: %v", warnings)
+	}
+	rec, found = findEntityRecordByName(admin, "binary_sensor.infrastructural/tv_living_room/node")
+	if !found {
+		t.Fatalf("no entity record registered for binary_sensor.infrastructural/tv_living_room/node")
+	}
+	if !strings.Contains(rec.ConditionExpr, "media_player.social_house_living_room_tv") {
+		t.Errorf("ConditionExpr = %q, want it to reference the REAL resolved sibling entity, not a literal token", rec.ConditionExpr)
+	}
+	if strings.Contains(rec.ConditionExpr, "'media_player.core'") {
+		t.Errorf("ConditionExpr = %q, must not contain the literal unresolved token \"media_player.core\"", rec.ConditionExpr)
+	}
+}
+
+// TestResolveTargetedReusesAlreadyClaimedSourceForAbsorbedCapability is the regression test for a
+// real gap found live 2026-09-29 (Junglinster office's "cycling" smart plug, shared as the real
+// "enabler" for both apple_tv and tv, while ALSO having its own genuine direct Conceptual.def
+// positioning -- confirmed with the user, not a copy/paste mistake): before this fix, an absorbed
+// capability (e.g. the "enabled by" sugar's own synthesized "enabler") with no positioning of its
+// own OWN either warned "already used as a different conceptual entity" (if given a redundant
+// positioning) or "has no positioning yet" (if left unpositioned) -- both wrong when the SAME
+// underlying source is legitimately already claimed elsewhere. resolveTargeted now reuses that
+// existing entity_id directly, per the user's own explicit instruction ("then re-use the same
+// one").
+func TestResolveTargetedReusesAlreadyClaimedSourceForAbsorbedCapability(t *testing.T) {
+	admin := newAdministrationState()
+	// Simulate "device switch.house_office_cycling with entity switch.social:cycling from
+	// switch.core;" already having been positioned earlier in the file.
+	admin.ConceptualUseBySource["switch.house_office_cycling!core"] = TConceptualSourceUse{
+		EntityName: "switch.social/house/office/cycling",
+	}
+
+	logicalDevicesByID := map[string]TLogicalDevice{
+		"appliance.tv_office": {
+			DeviceID: "appliance.tv_office",
+			Capabilities: map[string]TLogicalCapability{
+				"enabler": {Domain: "switch", AbsorbedFromDeviceID: "switch.house_office_cycling", AbsorbedFromCapability: "core"},
+			},
+		},
+	}
+
+	decl := TDeviceCapabilityEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:node", DeviceID: "appliance.tv_office", Capability: "binary_sensor.node"}
+	capability := TLogicalCapability{
+		Domain:             "binary_sensor",
+		IsDerivedCondition: true,
+		DerivedCondition:   testJinjaCondition("$1 == 'off'", "switch.enabler"),
+	}
+
+	warnings, deferred := registerLogicalDerivedConditionCapability(admin, decl, capability, "node", "tv_office", "Logical.def", 1, true, nil, nil, nil, nil, nil, logicalDevicesByID)
+	if deferred {
+		t.Fatalf("did not expect a deferral -- the absorbed source is already conceptually claimed")
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings (no redundant positioning was ever added, so no collision should be reported): %v", warnings)
+	}
+
+	rec, found := findEntityRecordByName(admin, "binary_sensor.infrastructural/tv_office/node")
+	if !found {
+		t.Fatalf("no entity record registered for binary_sensor.infrastructural/tv_office/node")
+	}
+	if !strings.Contains(rec.ConditionExpr, "switch.social_house_office_cycling") {
+		t.Errorf("ConditionExpr = %q, want it to reuse the already-positioned cycling switch's own real entity_id", rec.ConditionExpr)
 	}
 }
 
@@ -685,15 +1023,24 @@ func TestRegisterLogicalIsAvailableCapabilitySkipsExternalReferenceAlreadyDeclar
 // sibling lookup.
 func TestRegisterLogicalDerivedConditionCapabilityDefersUntilSiblingPositioned(t *testing.T) {
 	admin := newAdministrationState()
-	// Neither sibling positioned yet.
+	// Both siblings DECLARED (2026-09-28: a jinja source is only ever a sibling reference once
+	// lookupCapabilityDomain confirms it names a real declared capability -- otherwise it'd be
+	// (wrongly) treated as an immediately-resolvable literal, never deferring at all) but NEITHER
+	// one's own entity_id is POSITIONED yet -- this is exactly the ordering gap this test covers.
+	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
+		"sensors.vienna_terrace_wind": {DeviceID: "sensors.vienna_terrace_wind", Capabilities: map[string]TDiscoveryCapability{"wind_speed": {Domain: "sensor"}}},
+	}
+	logicalDevicesByID := map[string]TLogicalDevice{
+		"sensors.vienna_terrace_wind": {DeviceID: "sensors.vienna_terrace_wind", Capabilities: map[string]TLogicalCapability{"windy_threshold": {Domain: "input_number"}}},
+	}
 	decl := TDeviceCapabilityEntityDeclaration{LocalSpec: "binary_sensor.social:windy", DeviceID: "sensors.vienna_terrace_wind", Capability: "binary_sensor.windy"}
 	capability := TLogicalCapability{
 		Domain:             "binary_sensor",
 		IsDerivedCondition: true,
-		DerivedCondition:   testJinjaCondition("($1|int) > ($2|int)", "wind_speed", "windy_threshold"),
+		DerivedCondition:   testJinjaCondition("($1|int) > ($2|int)", "sensor.wind_speed", "input_number.windy_threshold"),
 	}
 
-	warnings, deferred := registerLogicalDerivedConditionCapability(admin, decl, capability, "windy", "vienna_terrace_wind", "Logical.def", 1, false, nil, nil, nil, nil, nil, nil)
+	warnings, deferred := registerLogicalDerivedConditionCapability(admin, decl, capability, "windy", "vienna_terrace_wind", "Logical.def", 1, false, discoveryGatewaysByID, nil, nil, nil, nil, logicalDevicesByID)
 	if !deferred {
 		t.Fatalf("expected deferral with no sibling positioned yet")
 	}
@@ -703,12 +1050,12 @@ func TestRegisterLogicalDerivedConditionCapabilityDefersUntilSiblingPositioned(t
 
 	// finalAttempt=true with the sibling still missing must report a real warning, not silently
 	// stay deferred forever.
-	warnings, deferred = registerLogicalDerivedConditionCapability(admin, decl, capability, "windy", "vienna_terrace_wind", "Logical.def", 1, true, nil, nil, nil, nil, nil, nil)
+	warnings, deferred = registerLogicalDerivedConditionCapability(admin, decl, capability, "windy", "vienna_terrace_wind", "Logical.def", 1, true, discoveryGatewaysByID, nil, nil, nil, nil, logicalDevicesByID)
 	if deferred {
 		t.Fatalf("finalAttempt=true must not defer")
 	}
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "wind_speed") {
-		t.Errorf("warnings = %v, want exactly one warning naming the missing %q sibling", warnings, "wind_speed")
+		t.Errorf("warnings = %v, want exactly one warning naming the missing %q sibling", warnings, "sensor.wind_speed")
 	}
 }
 
@@ -736,13 +1083,18 @@ func TestRegisterLogicalDerivedConditionCapabilityResolvesAbsorbedSibling(t *tes
 	}
 
 	// Now a "derived" capability on the SAME host device references that absorbed "power" by label.
+	// Its own DECLARATION (2026-09-28, mandatory jinja-source domain-qualification) -- matching
+	// absorbCapability above, as a real absorb pass would leave in logicalDevicesByID.
+	logicalDevicesByID := map[string]TLogicalDevice{
+		"appliance.thing": {DeviceID: "appliance.thing", Capabilities: map[string]TLogicalCapability{"power": absorbCapability}},
+	}
 	derivedDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "binary_sensor.social:high_power", DeviceID: "appliance.thing", Capability: "binary_sensor.high_power"}
 	derivedCapability := TLogicalCapability{
 		Domain:             "binary_sensor",
 		IsDerivedCondition: true,
-		DerivedCondition:   testJinjaCondition("($1|int) > 100", "power"),
+		DerivedCondition:   testJinjaCondition("($1|int) > 100", "sensor.power"),
 	}
-	warnings, deferred := registerLogicalDerivedConditionCapability(admin, derivedDecl, derivedCapability, "high_power", "thing", "Logical.def", 2, true, nil, nil, nil, nil, nil, nil)
+	warnings, deferred := registerLogicalDerivedConditionCapability(admin, derivedDecl, derivedCapability, "high_power", "thing", "Logical.def", 2, true, nil, nil, nil, nil, nil, logicalDevicesByID)
 	if deferred {
 		t.Fatalf("did not expect deferral -- the absorbed sibling is already positioned")
 	}
@@ -781,15 +1133,19 @@ func TestRegisterLogicalDerivedConditionCapabilityResolvesDiscoverySibling(t *te
 	}
 	// And "sunny_threshold" positioned via the ordinary "defined" path.
 	admin.LogicalEntityLinks["input_number.social_terrace_sunny_threshold"] = TLogicalEntityLink{DeviceID: "sensors.terrace_motion", Label: "sunny_threshold"}
+	// Its own DECLARATION (2026-09-28, mandatory jinja-source domain-qualification).
+	logicalDevicesByID := map[string]TLogicalDevice{
+		"sensors.terrace_motion": {DeviceID: "sensors.terrace_motion", Capabilities: map[string]TLogicalCapability{"sunny_threshold": {Domain: "input_number"}}},
+	}
 
 	decl := TDeviceCapabilityEntityDeclaration{LocalSpec: "binary_sensor.social:sunny", DeviceID: "sensors.terrace_motion", Capability: "binary_sensor.sunny"}
 	capability := TLogicalCapability{
 		Domain:             "binary_sensor",
 		IsDerivedCondition: true,
-		DerivedCondition:   testJinjaCondition("($1 | int) > ($2 | int)", "illuminance", "sunny_threshold"),
+		DerivedCondition:   testJinjaCondition("($1 | int) > ($2 | int)", "sensor.illuminance", "input_number.sunny_threshold"),
 	}
 
-	warnings, deferred := registerLogicalDerivedConditionCapability(admin, decl, capability, "sunny", "terrace", "Logical.def", 1, true, discoveryGatewaysByID, nil, nil, nil, nil, nil)
+	warnings, deferred := registerLogicalDerivedConditionCapability(admin, decl, capability, "sunny", "terrace", "Logical.def", 1, true, discoveryGatewaysByID, nil, nil, nil, nil, logicalDevicesByID)
 	if deferred {
 		t.Fatalf("did not expect deferral -- both siblings are already positioned")
 	}

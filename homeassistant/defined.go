@@ -157,8 +157,9 @@ func resolveInstallationName(definitionDir string) string {
 
 // --- shared file and string utilities ---
 
-// readOptionalFile reads the file at path and returns its contents as a string.
-// If the file does not exist, it returns an empty string and no error.
+// readOptionalFile reads the file at path and returns its contents as a string, normalised via
+// normalizeDefinitionWhitespace (this file's own doc comment on that function explains why). If
+// the file does not exist, it returns an empty string and no error.
 func readOptionalFile(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -167,7 +168,144 @@ func readOptionalFile(path string) (string, error) {
 		}
 		return "", err
 	}
-	return string(data), nil
+	return normalizeDefinitionWhitespace(string(data)), nil
+}
+
+// normalizeDefinitionWhitespace is applied once, at the point every .def-family file is first
+// read (readOptionalFile; also called directly for Macros.def's own separate os.ReadFile, which
+// bypasses readOptionalFile since a missing Macros.def is a real error, not "silently empty") --
+// the single point through which ALL raw definition-file content flows before any layer/macro/
+// parser code ever sees it. Reported by the user (raised more than once): a literal TAB character,
+// or a lone "\r" line ending (old Mac-style, or a stray leftover after some editors' own line-
+// ending handling), was NOT being treated as "just another space" -- the many hand-rolled literal
+// `strings.Index(line, " with X ")`-style single-space substring searches scattered across this
+// codebase's parsers (parser.go/expander.go/every integration_*_parser.go) only ever matched a
+// genuine single ASCII space, so a tab (common when an editor auto-indents with tabs, or someone
+// pastes DSL text that mixes tabs and spaces) silently broke the match instead of erroring loudly
+// -- worse, a silent non-match, not even a warning. Fixing this at each of those dozens of call
+// sites individually (converting each to a whitespace-aware regex) would be a much larger,
+// riskier change than fixing it once here, at the source: converting every literal TAB to a single
+// ASCII space, and every line-ending variant (CRLF, lone CR) to a plain "\n", BEFORE any of that
+// downstream code ever runs -- so every existing single-space-literal search already just works,
+// with no per-call-site changes needed at all. Deliberately does NOT collapse repeated spaces into
+// one (unlike a tab, two real spaces in a row is already unambiguous and never broke anything) and
+// does NOT touch whitespace inside quoted strings differently -- a tab or stray CR inside a quoted
+// jinja template/icon string is exactly as unlikely to be semantically meaningful as one outside
+// it, and treating quotes specially here would need the same quote-tracking machinery
+// logical_condition_expr.go's own tokenizer already has, for no realistic benefit.
+//
+// joinWrappedStatementContinuations (2026-09-29) is the GENERAL fix for the user's own repeated
+// complaint ("we still don't treat tabs... and returns as 'just another space' -- all over the
+// grammar!!!!"). Two narrower versions of this function existed briefly earlier the same session
+// (one trigger shape each: a dangling "with" at end of line) -- both were real, live bugs found
+// from actual wrapped .def content, and both were the wrong FIX SHAPE, not just an incomplete one:
+// patching one wrapped-keyword shape at a time can never converge, because there's no reason a
+// newline is special versus a tab anywhere in this grammar. The correct model (the one
+// logical_condition_expr.go's own character-stream tokenizer already uses for condition/value
+// expressions) is: a newline is just another whitespace character UNLESS it's the one genuinely
+// ending an incomplete statement is checked against, not a hardcoded keyword. This function applies
+// that model at the one true entry point every .def-family file already flows through
+// (normalizeDefinitionWhitespace), so every consumer downstream -- old or new, "with"-based or not
+// -- benefits with no changes of its own needed.
+//
+// A physical line is "complete" when it ends, OUTSIDE any quoted string, with a genuine DSL
+// statement terminator: ";" for an ordinary statement, ":" for a block-opening header. Any other
+// line -- ends in a bare keyword ("with", "by", "and", ...), a bare identifier, mid-expression,
+// whatever -- is INCOMPLETE and gets joined, single-space, into the next line, repeated until a
+// complete line results. Quote-tracking (lineEndsStatement) mirrors findTopLevelSemicolon's own
+// (integration_logical_parser.go, toggled by every un-escaped '"') so a literal ';'/':' inside a
+// quoted jinja/icon string is never mistaken for the line's own terminator. Comment lines ("#...")
+// and blank lines are exempt in BOTH directions -- never trigger a join (a comment's own prose can
+// legitimately end in almost any word, "with" included -- the real bug that broke Physical.def's
+// aqara_magnet device block the first time this was attempted) and never get swallowed as a
+// continuation either (a real paragraph break, or a standalone remark sitting between two
+// statements, stays exactly where the author put it).
+func normalizeDefinitionWhitespace(content string) string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+	content = strings.ReplaceAll(content, "\t", " ")
+	content = joinWrappedStatementContinuations(content)
+	return content
+}
+
+func joinWrappedStatementContinuations(content string) string {
+	lines := strings.Split(content, "\n")
+	out := make([]string, 0, len(lines))
+	for i := 0; i < len(lines); i++ {
+		line := strings.TrimRight(lines[i], " ")
+		if isCommentOrBlankLine(line) || lineEndsStatement(line) {
+			out = append(out, lines[i])
+			continue
+		}
+		joined := line
+		for i+1 < len(lines) {
+			cont := strings.TrimSpace(lines[i+1])
+			if isCommentOrBlankLine(cont) {
+				break
+			}
+			i++
+			joined += " " + cont
+			if lineEndsStatement(joined) {
+				break
+			}
+		}
+		out = append(out, joined)
+	}
+	return strings.Join(out, "\n")
+}
+
+// isCommentOrBlankLine reports whether line, once leading whitespace is trimmed, is either a
+// "#"-prefixed remark or empty -- neither ever triggers a join (a blank line has no trailing ";"
+// or ":" of its own, so without this check it would be misread as "incomplete" and swallow
+// whatever paragraph follows it -- a real bug caught immediately after this function was first
+// generalized, 2026-09-29) and neither is ever swallowed as a continuation (a real paragraph break
+// or a standalone remark between two statements stays exactly where the author put it).
+func isCommentOrBlankLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return trimmed == "" || strings.HasPrefix(trimmed, "#")
+}
+
+// lineEndsStatement reports whether line, scanned outside any quoted string, ends with a genuine
+// DSL statement terminator (";" or ":") -- see joinWrappedStatementContinuations's own doc comment.
+// Quote-tracking is scoped to THIS line alone (not carried across lines): a stray unterminated
+// quote would be a real syntax error in the source either way, and pretending to gracefully
+// continue-join past one would only mask that, never legitimately help.
+func lineEndsStatement(line string) bool {
+	inQuote := false
+	var last byte
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		if inQuote {
+			if c == '"' && line[i-1] != '\\' {
+				inQuote = false
+			}
+			continue
+		}
+		// A "#" outside any quote starts a trailing comment (Physical_DerivedCapability.go's own
+		// per-line loop strips these the same way) -- real bug found live 2026-09-29, minutes after
+		// this function was first generalized: this codebase's comments are free-form English prose
+		// that routinely quotes phrases ("the old \"flipped\" wrapper," etc.), and one comment
+		// somewhere with a genuinely ODD count of '"' (a typo, an apostrophe-adjacent slip) left
+		// inQuote stuck true for the rest of the scan -- and, since this function is re-run on the
+		// WHOLE growing `joined` accumulation each time a new line is appended, that phantom open
+		// quote never cleared until pure chance produced another lone '"' far later, swallowing
+		// everything in between (in the worst case, the rest of the file, including the outermost
+		// "end;" -- confirmed live: Junglinster's Conceptual.def failed with "missing its closing
+		// end;" for the WHOLE "conceptual layer with:" block). Comments must never influence
+		// terminator detection at all, not just be exempted when they're a whole line on their own
+		// (isCommentOrBlankLine's own, narrower check).
+		if c == '#' {
+			break
+		}
+		if c == '"' {
+			inQuote = true
+			continue
+		}
+		if c != ' ' {
+			last = c
+		}
+	}
+	return !inQuote && (last == ';' || last == ':')
 }
 
 // unquoteShellValue strips surrounding double or single quotes from a value string.

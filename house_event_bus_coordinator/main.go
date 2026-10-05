@@ -194,6 +194,15 @@ type TDiscoveryEntityLink struct {
 	// -- one MQTT-discovered entity computed at the source, no separate materialized raw entity or
 	// locally-computed HA template sensor needed.
 	ValueTemplateWrap string `yaml:"value_template_wrap,omitempty"`
+
+	// Invert (2026-09-28), from Physical.def's own "inverted " capability qualifier
+	// (homeassistant/integration_discovery_storage.go's TDiscoveryCapability.Inverted doc comment
+	// has the full rationale -- a normally-closed relay is the motivating case). When true,
+	// buildRelayedDiscoveryConfig swaps payload_on/payload_off (and state_on/state_off, if the
+	// gateway's own native payload sets them) on the relayed config -- a full physical-level
+	// inversion of both the reported state and the command sent on turn_on/turn_off, achieved
+	// entirely within the discovery payload, no separate template/wrapper entity needed.
+	Invert bool `yaml:"invert,omitempty"`
 }
 
 // TDiscoveryFile is the top-level shape of a generated coordinator/discovery.yaml file --

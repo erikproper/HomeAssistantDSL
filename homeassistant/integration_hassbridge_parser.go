@@ -315,60 +315,78 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 	// Standalone-trailing-line sibling of capabilityWithPositionPattern -- "<path> derived value <source>;".
 	capabilityPositionPattern := regexp.MustCompile(`^(\S+)\s+derived\s+value\s+(\S+)\s*;\s*$`)
 
-	// applyCapabilityWithBodyLine applies ONE body line from a capability's own "with: ... end;"
-	// block to cap, returning ok=false for anything it doesn't recognise. Shared by both the
-	// multi-line block form (pendingCapabilityPath loop below) and capabilityWithOneLinerPattern's
-	// folded one-line equivalent, so the two stay in lock-step by construction -- a new modifier
-	// keyword added to one automatically works in the other.
-	applyCapabilityWithBodyLine := func(cap THassBridgeCapability, line string) (THassBridgeCapability, bool) {
-		if matches := capabilityWithMetadataPattern.FindStringSubmatch(line); matches != nil {
-			switch matches[1] {
-			case "unit":
-				cap.Unit = matches[2]
-			case "icon":
-				cap.Icon = matches[2]
-			case "device_class":
-				cap.DeviceClass = matches[2]
-			case "state_class":
-				cap.StateClass = matches[2]
-			}
-			return cap, true
-		}
-		if matches := capabilityWithValueMapPattern.FindStringSubmatch(line); matches != nil {
-			if cap.ValueMap == nil {
-				cap.ValueMap = map[string]string{}
-			}
-			cap.ValueMap[matches[1]] = matches[2]
-			return cap, true
-		}
-		if matches := capabilityWithAttributePattern.FindStringSubmatch(line); matches != nil {
-			if cap.Attributes == nil {
-				cap.Attributes = map[string]map[string]string{}
-			}
-			if cap.Attributes[matches[1]] == nil {
-				cap.Attributes[matches[1]] = map[string]string{}
-			}
-			cap.Attributes[matches[1]][instance] = matches[2]
-			return cap, true
-		}
-		if matches := capabilityWithAttributeValueMapPattern.FindStringSubmatch(line); matches != nil {
-			if cap.AttributeValueMaps == nil {
-				cap.AttributeValueMaps = map[string]map[string]string{}
-			}
-			if cap.AttributeValueMaps[matches[1]] == nil {
-				cap.AttributeValueMaps[matches[1]] = map[string]string{}
-			}
-			cap.AttributeValueMaps[matches[1]][matches[2]] = matches[3]
-			return cap, true
-		}
-		if matches := capabilityWithPositionPattern.FindStringSubmatch(line); matches != nil {
-			if cap.Position == nil {
-				cap.Position = map[string]string{}
-			}
-			cap.Position[instance] = matches[1]
-			return cap, true
-		}
-		return cap, false
+	// capabilityWithBodyStatements is the shared (2026-09-27, the generic with-clause dispatcher,
+	// with_clause.go) statement list for a capability's own "with: ... end;" block -- used
+	// identically by both the multi-line block form (pendingCapabilityPath loop below) and
+	// capabilityWithOneLinerPattern's folded one-line equivalent, so the two stay in lock-step by
+	// construction -- a new modifier keyword added here automatically works in both forms. Built
+	// locally (not a package-level var, unlike this DSL's other with-clause consumers) because
+	// two of its five entries close over `instance`, this function's own parameter. Retrofitted
+	// from this file's own original `applyCapabilityWithBodyLine` closure -- the precedent the
+	// whole `with_clause.go` mechanism generalizes from.
+	capabilityWithBodyStatements := []TWithClauseStatement[THassBridgeCapability]{
+		{
+			Pattern: capabilityWithMetadataPattern,
+			Apply: func(cap THassBridgeCapability, m []string) THassBridgeCapability {
+				switch m[1] {
+				case "unit":
+					cap.Unit = m[2]
+				case "icon":
+					cap.Icon = m[2]
+				case "device_class":
+					cap.DeviceClass = m[2]
+				case "state_class":
+					cap.StateClass = m[2]
+				}
+				return cap
+			},
+		},
+		{
+			Pattern: capabilityWithValueMapPattern,
+			Apply: func(cap THassBridgeCapability, m []string) THassBridgeCapability {
+				if cap.ValueMap == nil {
+					cap.ValueMap = map[string]string{}
+				}
+				cap.ValueMap[m[1]] = m[2]
+				return cap
+			},
+		},
+		{
+			Pattern: capabilityWithAttributePattern,
+			Apply: func(cap THassBridgeCapability, m []string) THassBridgeCapability {
+				if cap.Attributes == nil {
+					cap.Attributes = map[string]map[string]string{}
+				}
+				if cap.Attributes[m[1]] == nil {
+					cap.Attributes[m[1]] = map[string]string{}
+				}
+				cap.Attributes[m[1]][instance] = m[2]
+				return cap
+			},
+		},
+		{
+			Pattern: capabilityWithAttributeValueMapPattern,
+			Apply: func(cap THassBridgeCapability, m []string) THassBridgeCapability {
+				if cap.AttributeValueMaps == nil {
+					cap.AttributeValueMaps = map[string]map[string]string{}
+				}
+				if cap.AttributeValueMaps[m[1]] == nil {
+					cap.AttributeValueMaps[m[1]] = map[string]string{}
+				}
+				cap.AttributeValueMaps[m[1]][m[2]] = m[3]
+				return cap
+			},
+		},
+		{
+			Pattern: capabilityWithPositionPattern,
+			Apply: func(cap THassBridgeCapability, m []string) THassBridgeCapability {
+				if cap.Position == nil {
+					cap.Position = map[string]string{}
+				}
+				cap.Position[instance] = m[1]
+				return cap
+			},
+		},
 	}
 
 	inDeviceCapabilities := false
@@ -389,7 +407,7 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 				pendingCapabilityPath = ""
 				continue
 			}
-			if cap, ok := applyCapabilityWithBodyLine(current.Capabilities[pendingCapabilityPath], line); ok {
+			if cap, ok := ApplyWithClauseBodyLine(current.Capabilities[pendingCapabilityPath], line, capabilityWithBodyStatements); ok {
 				current.Capabilities[pendingCapabilityPath] = cap
 				continue
 			}
@@ -426,7 +444,7 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 			if matches := capabilityWithOneLinerPattern.FindStringSubmatch(line); matches != nil {
 				cap := THassBridgeCapability{Domain: matches[1], Sources: map[string]string{instance: matches[3]}}
 				body := strings.TrimSpace(matches[4]) + ";"
-				if applied, ok := applyCapabilityWithBodyLine(cap, body); ok {
+				if applied, ok := ApplyWithClauseBodyLine(cap, body, capabilityWithBodyStatements); ok {
 					current.Capabilities[matches[2]] = applied
 					continue
 				}

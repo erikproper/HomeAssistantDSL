@@ -62,14 +62,17 @@ type TAdministrationState struct {
 
 	HeatingLeaksByName map[string][]string // entities listed in "heating leak:" directives per space
 
-	// Follows/switched_device/timer-limits relations, populated by ParseEntitiesAndFillAdministration.
+	// Follows/switched_device/timer-limits/when relations, populated by
+	// ParseEntitiesAndFillAdministration.
 	FollowsRelations        []TFollowsRelation
 	SwitchedDeviceRelations []TSwitchedDeviceRelation
 	TimerLimitsRelations    []TTimerLimitsRelation
+	WhenRules               []TWhenRule
+	WhenRuleNamesSeen       map[string]bool // every resolved TWhenRule.Name seen so far, to warn on a repeat
 
 	// "definition as <type> ...;" relations for entity bodies that generate their own content
 	// (as opposed to switched_device/timer-limits above, which describe cross-entity behaviour).
-	FlippedRelations  []TFlippedRelation
+	// "flipped" retired 2026-10-05 -- see generateFlippedSwitches' own doc comment.
 	HasStateRelations []THasStateRelation
 	TimerDefRelations []TTimerDefRelation
 
@@ -89,9 +92,16 @@ type TAdministrationState struct {
 	// Defaults to 15 when absent.
 	SpaceNoMotionDelayByName map[string]int
 
-	// Per-virtual-space member space list, populated by "member <spaceName>;" directives.
+	// Per-virtual-space member space list, populated by "member space <spaceName>;" directives.
 	// Used to expand @light / @media / @all tokens in virtual-space contexts.
 	SpaceMembersByName map[string][]string
+
+	// Per-virtual-space member ENTITY list (2026-10-04), populated by "member entity <entity-ref>;"
+	// directives -- a single literal entity (any domain), rather than a whole member space's own
+	// aggregates, pulled directly into the virtual space's own "@all" expansion. Sibling to
+	// SpaceMembersByName ("member space ..."), the two keywords disambiguating what used to be one
+	// bare "member <ref>;" form (always a space) once a literal-entity form was also needed.
+	SpaceMemberEntitiesByName map[string][]string
 
 	// Per-space explicit switch turn-on items, set by "space on: <items>;" directives.
 	// When set, overrides the default lights-on list in the template switch turn_on block.
@@ -293,6 +303,14 @@ type TDiscoveryEntityLink struct {
 	// needs the condition/template mechanism (registerDiscoveryDerivedEntityLink), since it reads
 	// another entity's own HA state, not a raw MQTT payload field.
 	ValueTemplateWrap string
+
+	// Invert (2026-09-28), copied from the originating TDiscoveryCapability.Inverted -- tells the
+	// coordinator's own relay (buildRelayedDiscoveryConfig, discoverybridge.go) to swap
+	// payload_on/payload_off (and state_on/state_off, if the native payload sets them) when building
+	// this entity's own discovery config. A full physical-level on/off inversion, both the reported
+	// state and the command sent on turn_on/turn_off -- see that field's own doc comment for the
+	// motivating case (a normally-closed relay).
+	Invert bool
 }
 
 // TDeviceConceptualLink records, for one Physical.def device id, the conceptual-layer HA
@@ -388,19 +406,51 @@ type TFollowsRelation struct {
 	Leader    string // fully qualified DSL entity name, e.g. "light.social/house/corridor/main"
 }
 
+// TWhenRule records a "rule <spec> when <event-entity> turns on|off then turn <action-entity>
+// on|off;" space-level directive (2026-09-29) -- the first, deliberately minimal cut of a general
+// event-trigger/action automation-rule construct. Only a single bare EVENT_CONDITION atom (a
+// state-transition trigger) and a single ACTION (a domain turn_on/turn_off call) are supported so
+// far: no "if <gate-condition>" clause, no and/or/not composition of multiple EVENT_CONDITIONs, no
+// "<event> received" atoms, no multi-action "then: ...; end;" block -- none of the two real sites
+// this was built for (Junglinster's removing_smell fan timer, corb's simplified "follows") need
+// any of that yet, and the user's own framing explicitly deferred it ("Later, when we are finished
+// migrating conceptual.def"). Extend this struct (and the parser/generator alongside it) once a
+// real site needs more, rather than building the fuller grammar speculatively now.
+//
+// The leading "rule <spec>;" name (2026-09-29, added the same day the bare "when ...;" form
+// first shipped, once the user pointed out a derived-from-trigger/action name stops being
+// mechanically possible the moment a rule can have several triggers/conditions/actions -- the
+// explicit name is what a future multi-clause rule body will still be able to hang its own
+// automation identity off of). <spec> resolves exactly like a domain-less entity leaf
+// (normalizeEntityFullName's own "sphere:path" branch, e.g. "social:done_removing_smells" inside
+// "space social:wc" resolves to "social/house/wc/done_removing_smells") -- reused as-is, not a new
+// resolution mechanism. Two rules resolving to the same Name is a hard warning (WhenRuleNamesSeen),
+// since Name is what the generated automation's own alias/id is built from.
+//
+// "follows <follower> <leader>;" (TFollowsRelation) is conceptually just permanent sugar for
+// exactly two TWhenRule-shaped statements (leader turns on -> follower on; leader turns off ->
+// follower off) -- confirmed with the user, who used this equivalence to justify collapsing a
+// switched-by device's own two "follows" lines (one per underlying entity) down to one. Follows
+// keeps its OWN dedicated relation type and generator (unchanged output, unchanged automation
+// entity_ids on an already-live device) rather than being rerouted through WhenRules internally --
+// but generateFollowsAutomations and generateWhenRuleAutomations share their actual per-automation
+// YAML-building code (buildStateTriggerAutomationYAML) precisely to make that "sugar for" relation
+// real at the implementation level, not just a comment.
+type TWhenRule struct {
+	SpaceName    string
+	Name         string // resolved "sphere/path" rule name, e.g. "social/house/wc/done_removing_smells"
+	EventEntity  string // fully qualified DSL entity name whose state change is the trigger
+	EventState   string // "on" or "off" -- the state EventEntity must transition TO
+	ActionEntity string // fully qualified DSL entity name the action targets
+	ActionState  string // "on" or "off" -- turn_on or turn_off is called on ActionEntity
+}
+
 // TSwitchedDeviceRelation records a "definition as switched_device <device> <main>" entity directive.
 type TSwitchedDeviceRelation struct {
 	SpaceName  string
 	SelfEntity string // fully qualified DSL entity name of the declaring entity, e.g. "light.social/house/bathroom/main"
 	Device     string // fully qualified DSL entity name (first arg), e.g. "light.physical/house/bathroom/main_disc"
 	MainEntity string // fully qualified DSL entity name (second arg), e.g. "light.physical/house/bathroom/main"
-}
-
-// TFlippedRelation records a "definition as flipped <source>" entity directive — the declaring
-// entity's state and turn_on/turn_off mirror the source entity, inverted.
-type TFlippedRelation struct {
-	SelfEntity string // fully qualified DSL entity name of the declaring entity, e.g. "switch.physical/house/bathroom/heating"
-	Source     string // fully qualified DSL entity name being flipped, e.g. "switch.physical/house/bathroom/heating_raw"
 }
 
 // THasStateRelation records a "definition as has_state <source> <state> [delay_on] [delay_off]"
@@ -483,6 +533,12 @@ type TEntityRecord struct {
 	// this field existed) and for a logical device with no "node" capability declared.
 	MediaSwitchAvailabilityEntityID string
 
+	// FlippedSourceEntityID (2026-10-05, Logical.def's "<domain>.<label> flipped <capability>;"
+	// absorb qualifier, TLogicalCapability.Flipped's own doc comment) is the already-known,
+	// literal HA entity_id of the absorbed source whose state this entity mirrors inverted
+	// (generateFlippedSwitches). Empty for every other kind of entity record.
+	FlippedSourceEntityID string
+
 	// Fields for generic condition-based template entity generation.
 	ConditionSources  []string // normalised HA entity IDs for $/$1/$2/... in the condition expression
 	ConditionExpr     string   // Jinja2 template expression with $/$1/$2 as placeholders
@@ -537,6 +593,7 @@ func newAdministrationState() *TAdministrationState {
 		SpaceHasExplicitOff:          map[string]bool{},
 		SpaceNoMotionDelayByName:     map[string]int{},
 		SpaceMembersByName:           map[string][]string{},
+		SpaceMemberEntitiesByName:    map[string][]string{},
 		SpaceSwitchOnByName:          map[string][]string{},
 		NodeRepresentativeByEntityID: map[string]string{},
 		DeviceConceptualLinks:        map[string]TDeviceConceptualLink{},
@@ -545,6 +602,7 @@ func newAdministrationState() *TAdministrationState {
 		DependsOnAvailabilityTopics:  map[string][]string{},
 		LogicalEntityLinks:           map[string]TLogicalEntityLink{},
 		ConceptualUseBySource:        map[string]TConceptualSourceUse{},
+		WhenRuleNamesSeen:            map[string]bool{},
 	}
 
 	state.EnsureSpaceRegistered(nil, SpaceKindRegular)
@@ -650,7 +708,19 @@ func (state *TAdministrationState) OpenSpace(spaceKind, spaceName string, isArea
 		if colonIdx := strings.Index(spaceName, ":"); colonIdx > 0 {
 			enclosing := formatNestedSpaceName(state.SpacePath)
 			sphere := spaceName[:colonIdx]
-			areaName = spaceAreaDisplayName(enclosing, sphere, deviceSpecLeafPath(spaceName))
+			// The leaf half is taken directly (spaceName[colonIdx+1:]), NOT via
+			// deviceSpecLeafPath(spaceName) -- that helper's own "multi-sphere" verbatim-preserving
+			// branch (isMultiSphereDeviceNamePath) is designed for a DEVICE's own "as" clause, where
+			// a single non-"infrastructural" sphere token is deliberately a distinct shape (see
+			// Conceptual_DevicePositioning.go's own header comment). A SPACE's own "sphere:leaf" spec
+			// has no such special case -- it's always exactly one ordinary sphere:leaf pair -- so
+			// reusing that device-shaped heuristic here was a real bug: for any "as area" space whose
+			// sphere isn't "infrastructural" (i.e. nearly all of them, "social" being the overwhelming
+			// common case), deviceSpecLeafPath returned the WHOLE spec verbatim, colon and all (e.g.
+			// "social:kitchen"), which spaceAreaDisplayName then concatenated straight into the area
+			// name -- confirmed live, 2026-09-28: Junglinster's own kitchen netatmo device got
+			// suggested_area "social/house/social:kitchen" instead of "social/house/kitchen".
+			areaName = spaceAreaDisplayName(enclosing, sphere, spaceName[colonIdx+1:])
 		}
 	}
 	state.AreaStack = append(state.AreaStack, areaName)
@@ -1224,6 +1294,7 @@ func (state *TAdministrationState) expandAggregationTokens(spaceName string, ite
 				result = append(result, state.SpaceMediaByName[spaceName]...)
 				result = append(result, state.virtualMemberMedia(spaceName)...)
 				result = append(result, state.virtualMemberSpaceSwitches(spaceName)...)
+				result = append(result, state.SpaceMemberEntitiesByName[spaceName]...)
 			}
 		default:
 			result = append(result, item)

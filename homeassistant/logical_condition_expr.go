@@ -13,20 +13,38 @@
  *
  *   bool-expr  := bool-expr "and" bool-expr | bool-expr "or" bool-expr | "not" bool-expr
  *               | "(" bool-expr ")" | atom
- *   atom       := ref | ref "is" "available" | "jinja" jinja-head "{" ref ("," ref)* "}"
+ *   atom       := ref | ref "is" "available" | "jinja" jinja-head
  *   ref        := bare sibling capability label, or a literal "domain.path[!attribute]" entity
  *                 reference -- exactly logicalBareCapabilityRefPattern's own charset/meaning,
  *                 resolved later (registerLogicalDerivedConditionCapability) via the same
  *                 three-tier sibling lookup that already existed for the old "over:" list.
- *   jinja-head := STRING | "${" IDENT "}" "(" args ")"   -- the latter is Settings.def's named
- *                 jinja template call (int_less_then/int_more_then/...), folded in here instead
- *                 of the old separate resolveJinjaTemplateCallsInLogicalConditions text-rewrite
- *                 pass.
+ *   jinja-head := STRING | "(" ref ")" "${" IDENT "}" "(" args ")"
  *
- * "not" binds tighter than "and", which binds tighter than "or"; parens override. $1/$2/... inside
- * a jinja-head's own expression text are scoped to THAT clause's own "{ ... }" list only -- this
- * is what lets two independent jinja clauses coexist in one condition without index collisions
- * (e.g. "jinja "$1 < 10" { sensor.s }" next to a 2-source clause in the same expression).
+ * A literal-string head (2026-10-05, PROJECT.md 1h, the SECOND and final revision that same day --
+ * a brief "(ref, ref, ...) head" reordering was tried first, then replaced by this) embeds its own
+ * sources directly inside the quoted text, as "$[domain.label]" placeholders -- e.g.
+ * jinja "($[sensor.wind_speed] in ['unknown', 'unavailable']) or (($[sensor.wind_speed] | int) >
+ * ($[input_number.windy_threshold] | int))". Each placeholder is resolved independently at render
+ * time (resolveJinjaToken/the CondJinja render case, Conceptual_LogicalEntities.go), the same
+ * sibling-vs-literal disambiguation every other reference in this grammar already uses -- reading
+ * a template no longer requires holding un-explained $1/$2 positions in mind while scrolling to a
+ * separate sources list to find out what they mean, and reordering/adding/removing a reference
+ * never requires renumbering anything else in the template. No dual syntax kept at any point in
+ * this redesign -- every real .def usage (5 sites, both houses' Logical.def) and the one Go call
+ * site that synthesizes jinja-clause text (logical_enabler_dependency_sugar.go's own "enabler"
+ * OR-exception) were migrated together, twice, in the same day.
+ *
+ * A named-template-call head ("${name}(args)", Settings.def's int_less_then/int_more_then/...,
+ * folded in here instead of the old separate resolveJinjaTemplateCallsInLogicalConditions
+ * text-rewrite pass) still needs an explicit SINGLE source, kept parenthesized -- its own template
+ * text lives in Settings.def, author-blind to any particular device, so it always resolves against
+ * exactly one bare "$"/"$1" placeholder; there is nothing for it to embed a "$[...]" placeholder
+ * INTO. "(ref)" here reads as "this template, applied to this one source," not a general sources
+ * list -- e.g. jinja (sensor.battery_level) ${int_less_then}(20).
+ *
+ * "not" binds tighter than "and", which binds tighter than "or"; parens override. Two independent
+ * jinja clauses coexist in one condition with no index-collision risk at all now, by construction
+ * (each clause's own placeholders/source name themselves, there is no shared numbering to collide).
  *
  * This is genuine new recursive grammar (nested parens, quoted strings that must not be split on
  * their own embedded "and"/"or"/";") -- a line-based regexp state machine (this DSL's usual style,
@@ -80,7 +98,12 @@ type TConditionExpr struct {
 	FromDeviceID  string
 	ForcePhysical bool
 
-	// CondJinja only. JinjaExpr's own "$1"/"$2"/... are scoped to JinjaSources alone.
+	// CondJinja only. Two shapes (2026-10-05, PROJECT.md 1h): a literal-string head has
+	// JinjaSources == nil and embeds its own "$[domain.label]" placeholders directly inside
+	// JinjaExpr, each resolved independently at render time; a named-template-call head
+	// ("${name}(args)") has exactly one JinjaSources entry, substituted positionally into
+	// JinjaExpr's own bare "$"/"$1" (that template's text lives in Settings.def, so it can't embed
+	// a placeholder of its own).
 	JinjaExpr    string
 	JinjaSources []string
 
@@ -431,48 +454,55 @@ func (p *TConditionExprParser) ForcedThisIdentKeywordWas(kw string) bool {
 	return p.ThisIdentKeywordWas(kw) || p.reportError("expected %q, got %q", kw, p.current.Value)
 }
 
-// ParseJinjaClause := ParseJinjaHead "{" IDENT ("," IDENT)* "}"
+// ParseJinjaClause := STRING | "(" IDENT ")" "${" IDENT "}" "(" args ")"
+//
+// A literal-string head (2026-10-05, PROJECT.md 1h, replacing the brief 2026-10-04 "( sources )
+// head" reorder in the same day) embeds its own sources directly, as "$[domain.label]"
+// placeholders inside the quoted text itself -- each one resolved independently, the same
+// disambiguation render's own CondJinja case already applies to every other reference in this
+// grammar (sibling lookup vs literal entity_id). No separate sources list is parsed or accepted
+// for this head shape -- retired in the same change as the brief parenthesized-list form (no
+// dual syntax kept; the 5 real .def sites and the one Go call site synthesizing jinja-clause text,
+// logical_enabler_dependency_sugar.go, were migrated together).
+//
+// A named-template-call head ("${name}(args)") still needs an explicit SINGLE source, kept
+// parenthesized: its own template text lives in Settings.def, author-blind to any particular
+// device, so it always resolves against exactly one bare "$" placeholder
+// (TJinjaTemplateDefinition's own doc comment) -- there is nothing for it to embed a "$[...]"
+// placeholder INTO. "(ref)" here reads as "this template, applied to this one source," not a
+// general sources list.
 func (p *TConditionExprParser) ParseJinjaClause(out **TConditionExpr) bool {
-	expr, ok := p.ParseJinjaHead()
-	if !ok {
-		return false
-	}
-	if !p.ForcedThisTokenWas(TokLBrace, `"{"`) {
-		return false
-	}
-	var sources []string
-	for {
-		if p.current.Kind != TokIdent {
-			return p.reportError("expected a source reference inside \"{ ... }\", got %q", p.current.Value)
-		}
-		sources = append(sources, p.current.Value)
-		p.advance()
-		if p.current.Kind == TokComma {
-			p.advance()
-			continue
-		}
-		break
-	}
-	if !p.ForcedThisTokenWas(TokRBrace, `"}"`) {
-		return false
-	}
-	*out = &TConditionExpr{Kind: CondJinja, JinjaExpr: expr, JinjaSources: sources}
-	return true
-}
-
-// ParseJinjaHead := STRING | "${" IDENT "}" "(" <raw-args-until-")"> ")"
-// The named-template-call form resolves against p.jinjaTemplates immediately (Settings.def's own
-// "jinja ${name}(params) = "template";" declarations, same mechanism
-// resolveJinjaTemplateCallsInDerivedLines/the pre-2026-09-24 resolveJinjaTemplateCallsInLogicalConditions
-// already used) -- a named template's own "$" placeholder is single-variable by construction, so a
-// clause using this head form is restricted to exactly one "{ ... }" source (checked by the caller
-// once JinjaSources is known, not here).
-func (p *TConditionExprParser) ParseJinjaHead() (string, bool) {
 	if p.current.Kind == TokString {
 		expr := p.current.Value
 		p.advance()
-		return expr, true
+		*out = &TConditionExpr{Kind: CondJinja, JinjaExpr: expr}
+		return true
 	}
+	if !p.ForcedThisTokenWas(TokLParen, `"("`) {
+		return false
+	}
+	if p.current.Kind != TokIdent {
+		return p.reportError("expected a source reference inside \"( ... )\", got %q", p.current.Value)
+	}
+	source := p.current.Value
+	p.advance()
+	if !p.ForcedThisTokenWas(TokRParen, `")"`) {
+		return false
+	}
+	expr, ok := p.parseJinjaNamedTemplateCall()
+	if !ok {
+		return false
+	}
+	*out = &TConditionExpr{Kind: CondJinja, JinjaExpr: expr, JinjaSources: []string{source}}
+	return true
+}
+
+// parseJinjaNamedTemplateCall := "${" IDENT "}" "(" <raw-args-until-")"> ")" -- the caller
+// (ParseJinjaClause) has already consumed this head's own single "(ref)" source. Resolves against
+// p.jinjaTemplates immediately (Settings.def's own "jinja ${name}(params) = "template";"
+// declarations, same mechanism resolveJinjaTemplateCallsInDerivedLines/the pre-2026-09-24
+// resolveJinjaTemplateCallsInLogicalConditions already used).
+func (p *TConditionExprParser) parseJinjaNamedTemplateCall() (string, bool) {
 	if p.current.Kind != TokDollarBrace {
 		return "", p.reportError(`expected a quoted jinja expression or "${", got %q`, p.current.Value)
 	}

@@ -16,7 +16,7 @@ func TestGenerateInstanceAutomationTreesWritesMainAndRemoteTrees(t *testing.T) {
 	}
 	positioningDecl := TDevicePositioningDeclaration{Spec: "laserjet", DeviceID: "hass.laserjet"}
 	registerDevicePositioning(admin, positioningDecl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, "Spaces.def", 370)
-	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:laserjet/status", DeviceID: "hass.laserjet", Capability: "status"}
+	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:laserjet/status", DeviceID: "hass.laserjet", Capability: "sensor.status"}
 	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil, "Spaces.def", 370, true, "", false); len(warnings) != 0 || deferred {
 		t.Fatalf("unexpected warnings/deferred positioning the fixture device: warnings=%v deferred=%v", warnings, deferred)
 	}
@@ -120,7 +120,7 @@ func TestGenerateInstanceAutomationTreesUsesIncarnationValueForOutputDirNotQuali
 	}
 	positioningDecl := TDevicePositioningDeclaration{Spec: "laserjet", DeviceID: "hass.laserjet"}
 	registerDevicePositioning(admin, positioningDecl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, "Spaces.def", 1)
-	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:laserjet/status", DeviceID: "hass.laserjet", Capability: "status"}
+	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:laserjet/status", DeviceID: "hass.laserjet", Capability: "sensor.status"}
 	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil, "Spaces.def", 1, true, "", false); len(warnings) != 0 || deferred {
 		t.Fatalf("unexpected warnings/deferred positioning the fixture device: warnings=%v deferred=%v", warnings, deferred)
 	}

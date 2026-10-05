@@ -357,7 +357,7 @@ func TestGenerateHassBridgeFileWritesExportFlag(t *testing.T) {
 	if warnings := registerDevicePositioning(admin, positioningDecl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, "Spaces.def", 1); len(warnings) != 0 {
 		t.Fatalf("unexpected warnings positioning the fixture device: %v", warnings)
 	}
-	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:vienna_terrace/temperature", DeviceID: "hass.vienna_terrace", Capability: "temperature"}
+	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:vienna_terrace/temperature", DeviceID: "hass.vienna_terrace", Capability: "sensor.temperature"}
 	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil, "Spaces.def", 1, true, "", false); len(warnings) != 0 || deferred {
 		t.Fatalf("unexpected warnings/deferred: warnings=%v deferred=%v", warnings, deferred)
 	}
@@ -404,7 +404,7 @@ func TestGenerateHassBridgeFileWritesSuggestedAreaFromEnclosingSpace(t *testing.
 	if warnings := registerDevicePositioning(admin, positioningDecl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, "Spaces.def", 1); len(warnings) != 0 {
 		t.Fatalf("unexpected warnings positioning the fixture device: %v", warnings)
 	}
-	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.physical:netatmo/humidity", DeviceID: "hass.living_room_terrace", Capability: "humidity"}
+	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.physical:netatmo/humidity", DeviceID: "hass.living_room_terrace", Capability: "sensor.humidity"}
 	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil, "Spaces.def", 1, true, "", false); len(warnings) != 0 || deferred {
 		t.Fatalf("unexpected warnings/deferred: warnings=%v deferred=%v", warnings, deferred)
 	}
@@ -439,7 +439,7 @@ func TestGenerateHassBridgeFileWritesExportAsAndSelfImportFrom(t *testing.T) {
 	}
 	positioningDecl := TDevicePositioningDeclaration{Spec: "eriks_iphone", DeviceID: "hass.eriks_iphone"}
 	registerDevicePositioning(admin, positioningDecl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, "Spaces.def", 1)
-	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:eriks_iphone/battery_level", DeviceID: "hass.eriks_iphone", Capability: "battery_level"}
+	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:eriks_iphone/battery_level", DeviceID: "hass.eriks_iphone", Capability: "sensor.battery_level"}
 	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil, "Spaces.def", 1, true, "", false); len(warnings) != 0 || deferred {
 		t.Fatalf("unexpected warnings/deferred: warnings=%v deferred=%v", warnings, deferred)
 	}
@@ -480,7 +480,7 @@ func TestGenerateHassBridgeFileOmitsExportFlagWhenNotDeclared(t *testing.T) {
 	if warnings := registerDevicePositioning(admin, positioningDecl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, "Spaces.def", 1); len(warnings) != 0 {
 		t.Fatalf("unexpected warnings positioning the fixture device: %v", warnings)
 	}
-	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:laserjet/status", DeviceID: "hass.laserjet", Capability: "status"}
+	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:laserjet/status", DeviceID: "hass.laserjet", Capability: "sensor.status"}
 	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil, "Spaces.def", 1, true, "", false); len(warnings) != 0 || deferred {
 		t.Fatalf("unexpected warnings/deferred: warnings=%v deferred=%v", warnings, deferred)
 	}
@@ -643,7 +643,7 @@ func TestRegisterHassBridgeDeviceImpliedEntitiesHasNoNodeEntity(t *testing.T) {
 	// the capability link itself registers cleanly.
 	positioningDecl := TDevicePositioningDeclaration{Spec: "laserjet", DeviceID: "hass.laserjet"}
 	registerDevicePositioning(admin, positioningDecl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, "Spaces.def", 370)
-	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:laserjet/status", DeviceID: "hass.laserjet", Capability: "status"}
+	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:laserjet/status", DeviceID: "hass.laserjet", Capability: "sensor.status"}
 	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil, "Spaces.def", 370, true, "", false); len(warnings) != 0 || deferred {
 		t.Fatalf("unexpected warnings/deferred: warnings=%v deferred=%v", warnings, deferred)
 	}
@@ -730,13 +730,13 @@ func TestRegisterHassBridgeDeviceImpliedEntitiesFallsBackToRemainingGoIconTable(
 	if warnings := registerDevicePositioning(admin, positioningDecl, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, "Spaces.def", 42); len(warnings) != 0 {
 		t.Fatalf("unexpected warnings positioning the fixture device: %v", warnings)
 	}
-	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:junglinster/radio", DeviceID: "host.junglinster", Capability: "radio"}
+	capabilityDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "sensor.infrastructural:junglinster/radio", DeviceID: "host.junglinster", Capability: "sensor.radio"}
 	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, capabilityDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil, "Spaces.def", 42, true, "", false); len(warnings) != 0 || deferred {
 		t.Fatalf("unexpected warnings/deferred: warnings=%v deferred=%v", warnings, deferred)
 	}
 	// 2026-09-24: "node" is no longer auto-registered at positioning time for any kind -- an
 	// ordinary explicit capability reference, exactly like "radio" above.
-	nodeDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:junglinster/node", DeviceID: "host.junglinster", Capability: "node"}
+	nodeDecl := TDeviceCapabilityEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:junglinster/node", DeviceID: "host.junglinster", Capability: "binary_sensor.node"}
 	if warnings, deferred := registerDeviceCapabilityEntityLink(admin, nodeDecl, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil, "Spaces.def", 42, true, "", false); len(warnings) != 0 || deferred {
 		t.Fatalf("unexpected warnings/deferred registering node: warnings=%v deferred=%v", warnings, deferred)
 	}

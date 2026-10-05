@@ -143,7 +143,7 @@ func TestBuildRelayedDiscoveryConfig(t *testing.T) {
 	}
 	raw := rawPayloadFixture(t, realEMSESPBoilerOutdoortempPayload)
 
-	topic, body, ok := buildRelayedDiscoveryConfig("sensor.social_garage_door_temperature", "discovery.ems_esp", raw, payload, TDiscoveryEntityLink{}, testPrefix, "test", "sensor")
+	topic, body, ok := buildRelayedDiscoveryConfig("sensor.social_garage_door_temperature", "discovery.ems_esp", raw, payload, TDiscoveryEntityLink{}, testPrefix, "test", "sensor", false)
 	if !ok {
 		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
 	}
@@ -231,7 +231,7 @@ func TestBuildRelayedDiscoveryConfigAppliesValueTemplateWrap(t *testing.T) {
 	}
 	link := TDiscoveryEntityLink{ValueTemplateWrap: "($ | float(0)) + 20"}
 
-	_, body, ok := buildRelayedDiscoveryConfig("sensor.physical_apartment_hallway_door_aqara_multi_pressure", "discovery.hallway_door_aqara_multi", raw, payload, link, testPrefix, "test", "sensor")
+	_, body, ok := buildRelayedDiscoveryConfig("sensor.physical_apartment_hallway_door_aqara_multi_pressure", "discovery.hallway_door_aqara_multi", raw, payload, link, testPrefix, "test", "sensor", false)
 	if !ok {
 		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
 	}
@@ -282,7 +282,7 @@ func TestBuildRelayedDiscoveryConfigDefaultsGapFillOnly(t *testing.T) {
 		Icon:        "mdi:thermometer",
 	}
 
-	_, body, ok := buildRelayedDiscoveryConfig("sensor.social_garage_door_temperature", "discovery.ems_esp", raw, payload, link, testPrefix, "test", "sensor")
+	_, body, ok := buildRelayedDiscoveryConfig("sensor.social_garage_door_temperature", "discovery.ems_esp", raw, payload, link, testPrefix, "test", "sensor", false)
 	if !ok {
 		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
 	}
@@ -337,7 +337,7 @@ func TestBuildRelayedDiscoveryConfigStripsSensorOnlyFieldsOnDomainMismatch(t *te
 	}
 	link := TDiscoveryEntityLink{ValueTemplateWrap: "'on' if (($ | int(0)) > 50) else 'off'"}
 
-	_, body, ok := buildRelayedDiscoveryConfig("binary_sensor.social_house_kitchen_workplace_furnace_consumes", "sensors.house_heating_power_meter", raw, payload, link, testPrefix, "test", "sensor")
+	_, body, ok := buildRelayedDiscoveryConfig("binary_sensor.social_house_kitchen_workplace_furnace_consumes", "sensors.house_heating_power_meter", raw, payload, link, testPrefix, "test", "sensor", false)
 	if !ok {
 		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
 	}
@@ -358,6 +358,164 @@ func TestBuildRelayedDiscoveryConfigStripsSensorOnlyFieldsOnDomainMismatch(t *te
 	}
 }
 
+// TestBuildRelayedDiscoveryConfigInvertsExplicitPayloadOnOff is the regression test for
+// link.Invert (2026-09-28, Junglinster's own furnace switch -- a normally-closed relay where the
+// raw switch being "off" means the controlled circuit is actually powered): when the native
+// payload already sets payload_on/payload_off explicitly, both must come out SWAPPED -- so
+// HA's own turn_on command publishes the raw "off" payload (and vice versa), and state_topic's
+// "off" is read as HA state "on".
+func TestBuildRelayedDiscoveryConfigInvertsExplicitPayloadOnOff(t *testing.T) {
+	raw := map[string]interface{}{
+		"unique_id":     "0xf4b3b1fffed648f5_switch_zigbee2mqtt",
+		"state_topic":   "zigbee2mqtt/house/kitchen/workplace/furnace",
+		"command_topic": "zigbee2mqtt/house/kitchen/workplace/furnace/set",
+		"payload_on":    "ON",
+		"payload_off":   "OFF",
+	}
+	payload := tDecodedDiscoveryPayload{
+		UniqueID:     "0xf4b3b1fffed648f5_switch_zigbee2mqtt",
+		StateTopic:   "zigbee2mqtt/house/kitchen/workplace/furnace",
+		CommandTopic: "zigbee2mqtt/house/kitchen/workplace/furnace/set",
+	}
+	link := TDiscoveryEntityLink{Invert: true}
+
+	_, body, ok := buildRelayedDiscoveryConfig("switch.social_house_kitchen_workplace_furnace", "sensors.kitchen_workplace_furnace_switch", raw, payload, link, testPrefix, "test", "switch", false)
+	if !ok {
+		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
+	}
+	if body["payload_on"] != "OFF" {
+		t.Errorf("payload_on = %v, want the native payload_off (\"OFF\") swapped in", body["payload_on"])
+	}
+	if body["payload_off"] != "ON" {
+		t.Errorf("payload_off = %v, want the native payload_on (\"ON\") swapped in", body["payload_off"])
+	}
+}
+
+// TestBuildRelayedDiscoveryConfigInvertsImplicitDefaultsWhenNativePayloadOmitsThem confirms
+// link.Invert still takes effect when the native payload relies entirely on HA's own implicit MQTT
+// switch defaults (neither payload_on nor payload_off set at all) -- the common case for a plain
+// Zigbee2MQTT switch. Silently doing nothing here would leave the entity uninverted.
+func TestBuildRelayedDiscoveryConfigInvertsImplicitDefaultsWhenNativePayloadOmitsThem(t *testing.T) {
+	raw := map[string]interface{}{
+		"unique_id":     "0xf4b3b1fffed648f5_switch_zigbee2mqtt",
+		"state_topic":   "zigbee2mqtt/house/kitchen/workplace/furnace",
+		"command_topic": "zigbee2mqtt/house/kitchen/workplace/furnace/set",
+	}
+	payload := tDecodedDiscoveryPayload{
+		UniqueID:     "0xf4b3b1fffed648f5_switch_zigbee2mqtt",
+		StateTopic:   "zigbee2mqtt/house/kitchen/workplace/furnace",
+		CommandTopic: "zigbee2mqtt/house/kitchen/workplace/furnace/set",
+	}
+	link := TDiscoveryEntityLink{Invert: true}
+
+	_, body, ok := buildRelayedDiscoveryConfig("switch.social_house_kitchen_workplace_furnace", "sensors.kitchen_workplace_furnace_switch", raw, payload, link, testPrefix, "test", "switch", false)
+	if !ok {
+		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
+	}
+	if body["payload_on"] != "OFF" {
+		t.Errorf("payload_on = %v, want \"OFF\" (HA's own implicit \"ON\"/\"OFF\" defaults, inverted)", body["payload_on"])
+	}
+	if body["payload_off"] != "ON" {
+		t.Errorf("payload_off = %v, want \"ON\" (HA's own implicit \"ON\"/\"OFF\" defaults, inverted)", body["payload_off"])
+	}
+	if _, present := body["state_on"]; present {
+		t.Errorf("state_on = %v, want unset -- the native payload never used a state_on/state_off override, so none should be invented", body["state_on"])
+	}
+	if _, present := body["state_off"]; present {
+		t.Errorf("state_off = %v, want unset -- the native payload never used a state_on/state_off override, so none should be invented", body["state_off"])
+	}
+}
+
+// TestBuildRelayedDiscoveryConfigInvertsStateOnOffOnlyWhenNativePayloadSetsThem confirms
+// state_on/state_off ARE swapped when the native payload genuinely uses that override (state
+// interpretation differing from the command payload).
+func TestBuildRelayedDiscoveryConfigInvertsStateOnOffOnlyWhenNativePayloadSetsThem(t *testing.T) {
+	raw := map[string]interface{}{
+		"unique_id":     "0xf4b3b1fffed648f5_switch_zigbee2mqtt",
+		"state_topic":   "zigbee2mqtt/house/kitchen/workplace/furnace",
+		"command_topic": "zigbee2mqtt/house/kitchen/workplace/furnace/set",
+		"payload_on":    "ON",
+		"payload_off":   "OFF",
+		"state_on":      "1",
+		"state_off":     "0",
+	}
+	payload := tDecodedDiscoveryPayload{
+		UniqueID:     "0xf4b3b1fffed648f5_switch_zigbee2mqtt",
+		StateTopic:   "zigbee2mqtt/house/kitchen/workplace/furnace",
+		CommandTopic: "zigbee2mqtt/house/kitchen/workplace/furnace/set",
+	}
+	link := TDiscoveryEntityLink{Invert: true}
+
+	_, body, ok := buildRelayedDiscoveryConfig("switch.social_house_kitchen_workplace_furnace", "sensors.kitchen_workplace_furnace_switch", raw, payload, link, testPrefix, "test", "switch", false)
+	if !ok {
+		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
+	}
+	if body["state_on"] != "0" {
+		t.Errorf("state_on = %v, want the native state_off (\"0\") swapped in", body["state_on"])
+	}
+	if body["state_off"] != "1" {
+		t.Errorf("state_off = %v, want the native state_on (\"1\") swapped in", body["state_off"])
+	}
+}
+
+// TestBuildRelayedDiscoveryConfigNameNullForSoleGatewayCapability is the regression test for the
+// real bug found live 2026-09-29 (Junglinster's own furnace switch, reported friendly_name
+// "house/laundry_kitchen/heating/furnace_switch social_house_kitchen_workplace_furnace" -- HA
+// combining device.name with a non-null entity "name" the old code unconditionally set to
+// objectID). When soleGatewayCapability is true, "name" must come out as a literal JSON null (not
+// merely absent, and not the entity's own object id) -- "device name alone," matching
+// TBinarySensorDiscoveryPayload's own established convention (discovery.go).
+func TestBuildRelayedDiscoveryConfigNameNullForSoleGatewayCapability(t *testing.T) {
+	raw := map[string]interface{}{
+		"unique_id":   "0xf4b3b1fffed648f5_switch_zigbee2mqtt",
+		"state_topic": "zigbee2mqtt/house/kitchen/workplace/furnace",
+		"name":        "some stale native name",
+	}
+	payload := tDecodedDiscoveryPayload{
+		UniqueID:   "0xf4b3b1fffed648f5_switch_zigbee2mqtt",
+		StateTopic: "zigbee2mqtt/house/kitchen/workplace/furnace",
+	}
+
+	_, body, ok := buildRelayedDiscoveryConfig("switch.social_house_kitchen_workplace_furnace", "sensors.kitchen_workplace_furnace_switch", raw, payload, TDiscoveryEntityLink{}, testPrefix, "test", "switch", true)
+	if !ok {
+		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
+	}
+	name, present := body["name"]
+	if !present {
+		t.Fatalf("name key missing entirely, want an explicit JSON null (present, value nil)")
+	}
+	if name != nil {
+		t.Errorf("name = %v, want nil (JSON null, \"device name alone\")", name)
+	}
+}
+
+// TestBuildRelayedDiscoveryConfigNamePassesThroughForSharedGatewayCapability confirms a gateway
+// relaying SEVERAL capabilities from one physical device (e.g. a 4-facet Aqara multi-sensor) keeps
+// each entity's own native "name" -- Zigbee2MQTT/EMS-ESP already publish a short, genuinely
+// distinguishing per-entity label there (unrelated to this DSL's own entity_id positioning), so
+// forcing every one of them to the entity's own object id (the old, buggy behaviour) or to a
+// blanket null (this bug's naive first fix) would either double up or flatten every capability's
+// own display name identically -- neither is correct when there's more than one.
+func TestBuildRelayedDiscoveryConfigNamePassesThroughForSharedGatewayCapability(t *testing.T) {
+	raw := map[string]interface{}{
+		"unique_id":   "0x00158d0001aabbcc_occupancy_zigbee2mqtt",
+		"state_topic": "zigbee2mqtt/aqara_multi",
+		"name":        "Occupancy",
+	}
+	payload := tDecodedDiscoveryPayload{
+		UniqueID:   "0x00158d0001aabbcc_occupancy_zigbee2mqtt",
+		StateTopic: "zigbee2mqtt/aqara_multi",
+	}
+
+	_, body, ok := buildRelayedDiscoveryConfig("binary_sensor.social_house_hallway_occupancy", "sensors.hallway_aqara_multi", raw, payload, TDiscoveryEntityLink{}, testPrefix, "test", "binary_sensor", false)
+	if !ok {
+		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
+	}
+	if body["name"] != "Occupancy" {
+		t.Errorf("name = %v, want the gateway's own native \"Occupancy\" left untouched", body["name"])
+	}
+}
+
 // realZigbee2MQTTVidjaLeft1Payload is a real Zigbee2MQTT light discovery payload (captured live,
 // this session, Vienna's "vidja/left/1" IKEA bulb) -- used to prove buildRelayedDiscoveryConfig
 // preserves everything a real controllable light needs (command_topic, brightness,
@@ -372,7 +530,7 @@ func TestBuildRelayedDiscoveryConfigPreservesLightCapabilities(t *testing.T) {
 	}
 	raw := rawPayloadFixture(t, realZigbee2MQTTVidjaLeft1Payload)
 
-	_, body, ok := buildRelayedDiscoveryConfig("light.physical_apartment_living_room_vidja_left_1", "discovery.vidja_left_1", raw, payload, TDiscoveryEntityLink{}, testPrefix, "test", "light")
+	_, body, ok := buildRelayedDiscoveryConfig("light.physical_apartment_living_room_vidja_left_1", "discovery.vidja_left_1", raw, payload, TDiscoveryEntityLink{}, testPrefix, "test", "light", false)
 	if !ok {
 		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
 	}
@@ -416,7 +574,7 @@ func TestBuildRelayedDiscoveryConfigPreservesLightCapabilities(t *testing.T) {
 }
 
 func TestBuildRelayedDiscoveryConfigFailsWithoutUniqueID(t *testing.T) {
-	_, _, ok := buildRelayedDiscoveryConfig("sensor.social_garage_door_temperature", "discovery.ems_esp", nil, tDecodedDiscoveryPayload{}, TDiscoveryEntityLink{}, testPrefix, "test", "sensor")
+	_, _, ok := buildRelayedDiscoveryConfig("sensor.social_garage_door_temperature", "discovery.ems_esp", nil, tDecodedDiscoveryPayload{}, TDiscoveryEntityLink{}, testPrefix, "test", "sensor", false)
 	if ok {
 		t.Errorf("expected failure when the decoded payload has no unique_id")
 	}
@@ -442,7 +600,7 @@ func TestBuildRelayedDiscoveryConfigSucceedsWithoutStateTopic(t *testing.T) {
 	}
 	raw := rawPayloadFixture(t, climatePayload)
 
-	topic, body, ok := buildRelayedDiscoveryConfig("climate.physical_apartment_living_room_bitron_thermostat", "discovery.living_room_bitron_thermostat", raw, payload, TDiscoveryEntityLink{}, testPrefix, "test", "climate")
+	topic, body, ok := buildRelayedDiscoveryConfig("climate.physical_apartment_living_room_bitron_thermostat", "discovery.living_room_bitron_thermostat", raw, payload, TDiscoveryEntityLink{}, testPrefix, "test", "climate", false)
 	if !ok {
 		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed for a payload with no state_topic")
 	}

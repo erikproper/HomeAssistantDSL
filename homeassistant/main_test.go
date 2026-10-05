@@ -198,158 +198,6 @@ func TestImpliedAggregatesForVirtualSpaceUseVirtualPolicy(t *testing.T) {
 	}
 }
 
-func TestValidateInvocationParametersAcceptsSnakeCaseForCamelCaseMacroParameter(t *testing.T) {
-	ctx := &TMacroExpansionContext{Config: TExpanderConfig{CheckTypes: true}}
-	macro := &TParsedCreationMacro{
-		Name: "battery_alert",
-		Parameters: []TMacroParameter{
-			{Name: "${alert_level}", Kind: ParamInt, Optional: true},
-		},
-	}
-	invocation := &TMacroInvocation{
-		Name:       "battery_alert",
-		Target:     "roborock",
-		Parameters: map[string]string{"alert_level": "15"},
-	}
-
-	errors := ctx.ValidateInvocationParameters(invocation, macro)
-	if len(errors) != 0 {
-		t.Fatalf("expected no validation errors, got %v", errors)
-	}
-}
-
-func TestExpandMacroSubstitutesSnakeCaseInvocationIntoCamelCaseMacroBody(t *testing.T) {
-	ctx := &TMacroExpansionContext{
-		Macros: map[string]*TParsedCreationMacro{
-			"battery_alert": {
-				Name: "battery_alert",
-				Parameters: []TMacroParameter{
-					{Name: "${alert_level}", Kind: ParamInt, Optional: true},
-				},
-				Body: []string{`condition sensor.infrastructural:${entity}:battery_level "($ | int(0)) < ${alert_level}";`},
-			},
-		},
-		Config: TExpanderConfig{CheckTypes: true},
-	}
-	invocation := &TMacroInvocation{
-		Name:       "battery_alert",
-		Target:     "roborock",
-		Parameters: map[string]string{"alert_level": "15"},
-	}
-
-	expanded, _, err := ctx.ExpandMacro(invocation, nil)
-	if err != nil {
-		t.Fatalf("expected macro expansion to succeed, got %v", err)
-	}
-	if len(expanded) != 1 {
-		t.Fatalf("expected one expanded line, got %v", expanded)
-	}
-	if !strings.Contains(expanded[0], `< 15";`) {
-		t.Fatalf("expected expanded body to substitute alert level, got %q", expanded[0])
-	}
-}
-
-func TestParseParameterTreatsOptionAsImplicitlyOptional(t *testing.T) {
-	param, err := parseParameter("${no_collect} option")
-	if err != nil {
-		t.Fatalf("expected option parameter to parse, got %v", err)
-	}
-	if param.Kind != ParamOption {
-		t.Fatalf("expected option kind, got %v", param.Kind)
-	}
-	if !param.Optional {
-		t.Fatalf("expected option parameter to be implicitly optional")
-	}
-}
-
-func TestValidateInvocationParametersRejectsUnknownParameter(t *testing.T) {
-	ctx := &TMacroExpansionContext{Config: TExpanderConfig{CheckTypes: true}}
-	macro := &TParsedCreationMacro{
-		Name: "battery_alert",
-		Parameters: []TMacroParameter{
-			{Name: "${alert_level}", Kind: ParamInt, Optional: true},
-		},
-	}
-	invocation := &TMacroInvocation{
-		Name:       "battery_alert",
-		Target:     "social/living_room",
-		Parameters: map[string]string{"alertlevel": "15", "typo_param": "bad"},
-	}
-
-	errors := ctx.ValidateInvocationParameters(invocation, macro)
-	if len(errors) == 0 {
-		t.Fatalf("expected validation errors for unknown parameters, got none")
-	}
-	found := false
-	for _, e := range errors {
-		if strings.Contains(e, "unknown parameter") && strings.Contains(e, "typo_param") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("expected 'unknown parameter typo_param' error, got %v", errors)
-	}
-}
-
-func TestValidateInvocationParametersRejectsMissingRequiredParameter(t *testing.T) {
-	ctx := &TMacroExpansionContext{Config: TExpanderConfig{CheckTypes: true}}
-	macro := &TParsedCreationMacro{
-		Name: "battery_alert",
-		Parameters: []TMacroParameter{
-			{Name: "${alert_level}", Kind: ParamInt, Optional: false},
-		},
-	}
-	invocation := &TMacroInvocation{
-		Name:       "battery_alert",
-		Target:     "social/living_room",
-		Parameters: map[string]string{},
-	}
-
-	errors := ctx.ValidateInvocationParameters(invocation, macro)
-	if len(errors) == 0 {
-		t.Fatalf("expected validation error for missing required parameter, got none")
-	}
-	found := false
-	for _, e := range errors {
-		if strings.Contains(e, "missing required parameter") && strings.Contains(e, "alert_level") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("expected 'missing required parameter alert_level' error, got %v", errors)
-	}
-}
-
-func TestValidateParameterTypeEntityRejectsNonEntitySpec(t *testing.T) {
-	if err := validateParameterType("roborock", ParamEntity); err == "" {
-		t.Fatalf("expected validation error for bare name without domain, got none")
-	}
-	if err := validateParameterType("sensor.physical:living_room", ParamEntity); err != "" {
-		t.Fatalf("expected no error for valid entity spec, got %q", err)
-	}
-	if err := validateParameterType("sensor.physical/apartment/living_room", ParamEntity); err != "" {
-		t.Fatalf("expected no error for extensional entity spec, got %q", err)
-	}
-}
-
-func TestParseParameterKindRecognisesSetOfInt(t *testing.T) {
-	if kind := parseParameterKind("set of int"); kind != ParamSetOfInt {
-		t.Fatalf("expected ParamSetOfInt for 'set of int', got %v", kind)
-	}
-}
-
-func TestValidateParameterTypeSetOfIntRejectsNonIntegers(t *testing.T) {
-	if err := validateParameterType("{1, 2, 3}", ParamSetOfInt); err != "" {
-		t.Fatalf("expected no error for valid set of int, got %q", err)
-	}
-	if err := validateParameterType("{1, two, 3}", ParamSetOfInt); err == "" {
-		t.Fatalf("expected validation error for non-integer set member, got none")
-	}
-	if err := validateParameterType("{}", ParamSetOfInt); err == "" {
-		t.Fatalf("expected validation error for empty set, got none")
-	}
-}
-
 func TestListPatternMatchesSegmentBoundary(t *testing.T) {
 	patterns := parseListPatterns("all binary_sensor.*/node")
 
@@ -448,14 +296,14 @@ func TestSpaceOnInVirtualSpacePopulatesSwitchOnByName(t *testing.T) {
     space off: @all;
   end;
   virtual space social:extension with:
-    member social/house/corridor;
+    member space social/house/corridor;
     space off: @all;
     space on: light.social;
   end;
 end;`
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -467,6 +315,52 @@ end;`
 	}
 	if switchOn[0] != "light.social/house/extension" {
 		t.Fatalf("SpaceSwitchOnByName[social/house/extension] = %v, want [light.social/house/extension]", switchOn)
+	}
+}
+
+// TestMemberSpaceAndMemberEntityPopulateDistinctLists (2026-10-04) covers the new "member space
+// <spaceName>;"/"member entity <entity-ref>;" grammar -- the two keywords disambiguating what used
+// to be one bare "member <ref>;" form (always a space): "member space" populates
+// SpaceMembersByName (a whole member space, its own light/media/switch aggregates pulled into
+// @all), "member entity" populates the new SpaceMemberEntitiesByName (a single literal entity,
+// included directly in @all), and a bare "member <ref>;" with neither keyword now warns rather
+// than silently doing nothing.
+func TestMemberSpaceAndMemberEntityPopulateDistinctLists(t *testing.T) {
+	const miniDSL = `space social:house with:
+  virtual space social:extension with:
+    member space social/house/corridor;
+    member entity switch.infrastructural:standalone_plug;
+    space off: @all;
+  end;
+end;`
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	admin := result.Administration
+	const wantMemberEntity = "switch.infrastructural/house/extension/standalone_plug"
+
+	members := admin.SpaceMembersByName["social/house/extension"]
+	if len(members) != 1 || members[0] != "social/house/corridor" {
+		t.Errorf("SpaceMembersByName[social/house/extension] = %v, want [social/house/corridor]", members)
+	}
+
+	memberEntities := admin.SpaceMemberEntitiesByName["social/house/extension"]
+	if len(memberEntities) != 1 || memberEntities[0] != wantMemberEntity {
+		t.Errorf("SpaceMemberEntitiesByName[social/house/extension] = %v, want [%s]", memberEntities, wantMemberEntity)
+	}
+
+	off := admin.SpaceOffByName["social/house/extension"]
+	found := false
+	for _, e := range off {
+		if e == wantMemberEntity {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("SpaceOffByName[social/house/extension] = %v, want it to include the \"member entity\" via @all expansion", off)
 	}
 }
 
@@ -535,9 +429,9 @@ func TestNormalizeEntityFullNameLeadingSlashIsSphereAbsolute(t *testing.T) {
 func TestDeviceEntityImpliesDiscoveryEntitiesWithoutSpacePrefix(t *testing.T) {
 	const miniDSL = `space social:garage with:
   device host.smarty as /smarty with:
-    entity binary_sensor.infrastructural:/smarty/node      from node;
-    entity sensor.infrastructural:/smarty/cpu/load        from cpu/load;
-    entity sensor.infrastructural:/smarty/cpu/temperature from cpu/temperature;
+    entity binary_sensor.infrastructural:/smarty/node      from binary_sensor.node;
+    entity sensor.infrastructural:/smarty/cpu/load        from sensor.cpu/load;
+    entity sensor.infrastructural:/smarty/cpu/temperature from sensor.cpu/temperature;
   end;
 end;`
 
@@ -546,7 +440,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -617,8 +511,8 @@ end;`
 func TestDeviceEntitySingleAttributeFlagRegistersOnlyThatAttribute(t *testing.T) {
 	const miniDSL = `space social:garage with:
   device host.mqtt as /mqtt with:
-    entity binary_sensor.infrastructural:/mqtt/node from node;
-    entity sensor.infrastructural:/mqtt/cpu/load from cpu/load;
+    entity binary_sensor.infrastructural:/mqtt/node from binary_sensor.node;
+    entity sensor.infrastructural:/mqtt/cpu/load from sensor.cpu/load;
   end;
 end;`
 
@@ -627,7 +521,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -663,7 +557,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -689,7 +583,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -809,7 +703,7 @@ func TestGenerateReportingAutomationsSplitsNumericAndDeviceInfoCapabilities(t *t
 
 func TestGenerateCustomizationFilesSkipsDiscoveryImpliedEntities(t *testing.T) {
 	const miniDSL = `space social:garage with:
-  device host.smarty as /smarty with entity binary_sensor.infrastructural:/smarty/node from node;
+  device host.smarty as /smarty with entity binary_sensor.infrastructural:/smarty/node from binary_sensor.node;
   entity switch.social:test_switch;
 end;`
 
@@ -818,7 +712,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -856,7 +750,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -899,7 +793,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1274,6 +1168,61 @@ func TestParseDiscoveryIntegrationBodyHiddenCapability(t *testing.T) {
 	}
 }
 
+// TestParseDiscoveryIntegrationBodyInvertedCapability is the regression test for the "inverted "
+// qualifier (2026-09-28, Junglinster's own furnace switch -- a normally-closed relay where the raw
+// switch being "off" means the controlled circuit is actually powered): stackable with "hidden ",
+// either order, same as this file's own "hidden" precedent just above.
+func TestParseDiscoveryIntegrationBodyInvertedCapability(t *testing.T) {
+	body := []string{
+		"device discovery.furnace_switch with:",
+		`  identifiers "zigbee2mqtt_0xf4b3b1fffed648f5";`,
+		"  inverted switch.core 0xf4b3b1fffed648f5_switch_zigbee2mqtt;",
+		"end;",
+	}
+
+	devices, warnings := parseDiscoveryIntegrationBody(body)
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("got %d devices, want 1: %+v", len(devices), devices)
+	}
+
+	cap, ok := devices[0].Capabilities["core"]
+	if !ok || cap.Domain != "switch" || cap.Leaf != "0xf4b3b1fffed648f5_switch_zigbee2mqtt" || !cap.Inverted || cap.Hidden {
+		t.Errorf("Capabilities[core] = %+v, ok=%v, want an inverted (not hidden) raw-leaf capability", cap, ok)
+	}
+}
+
+// TestParseDiscoveryIntegrationBodyHiddenAndInvertedStack confirms "hidden "/"inverted " stack in
+// either order -- both are independent leading qualifiers on the same capability line.
+func TestParseDiscoveryIntegrationBodyHiddenAndInvertedStack(t *testing.T) {
+	bothOrders := [][]string{
+		{
+			"device discovery.thing with:",
+			`  identifiers "zigbee2mqtt_0xabc";`,
+			"  hidden inverted switch.core_raw 0xabc_switch_zigbee2mqtt;",
+			"end;",
+		},
+		{
+			"device discovery.thing with:",
+			`  identifiers "zigbee2mqtt_0xabc";`,
+			"  inverted hidden switch.core_raw 0xabc_switch_zigbee2mqtt;",
+			"end;",
+		},
+	}
+	for i, body := range bothOrders {
+		devices, warnings := parseDiscoveryIntegrationBody(body)
+		if len(warnings) != 0 {
+			t.Fatalf("order %d: unexpected warnings: %v", i, warnings)
+		}
+		cap, ok := devices[0].Capabilities["core_raw"]
+		if !ok || !cap.Hidden || !cap.Inverted {
+			t.Errorf("order %d: Capabilities[core_raw] = %+v, ok=%v, want BOTH Hidden and Inverted set", i, cap, ok)
+		}
+	}
+}
+
 // TestParseDiscoveryIntegrationBodySourceDomainQualifiedLeaf is a focused unit test for the
 // "<raw-domain>:<leaf>" qualifier (2026-09-15, Vienna's Moes scene-remote buttons): a leaf id
 // published by the gateway under more than one raw MQTT discovery domain for the same underlying
@@ -1313,7 +1262,7 @@ func TestParseDiscoveryIntegrationBodySourceDomainQualifiedLeaf(t *testing.T) {
 func TestDiscoveryDerivedFromHiddenCapability(t *testing.T) {
 	const miniDSL = `space social:hallway with:
   device discovery.door_aqara_multi as door/aqara_multi with:
-    entity sensor.physical:pressure from pressure;
+    entity sensor.physical:pressure from sensor.pressure;
   end;
 end;`
 
@@ -1329,7 +1278,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1370,7 +1319,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1425,7 +1374,7 @@ func TestRegisterDiscoveryEntityLinkViaParse(t *testing.T) {
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1462,14 +1411,14 @@ func TestRegisterDiscoveryEntityLinkViaParse(t *testing.T) {
 // resolution actually works order-independently (parser.go's existing pendingCapabilityLinks
 // mechanism, reused here rather than inventing a new one). Since the 2026-09-24 redesign, "node"
 // is no longer auto-registered from the device positioning header alone for ANY kind (including
-// discovery) -- it needs the same explicit "entity binary_sensor.infrastructural:node from node;"
+// discovery) -- it needs the same explicit "entity binary_sensor.infrastructural:node from binary_sensor.node;"
 // line as every other capability, the moment the gateway has a "node" capability declared in
 // Physical.def.
 func TestDiscoveryDeviceBlockWithNodeCapability(t *testing.T) {
 	const miniDSL = `space social:vidja with:
   device discovery.vidja_left_1 as left/1 with:
-    entity binary_sensor.infrastructural:node from node;
-    entity light.physical: from core;
+    entity binary_sensor.infrastructural:node from binary_sensor.node;
+    entity light.physical: from light.core;
   end;
 end;`
 
@@ -1485,7 +1434,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1523,6 +1472,62 @@ end;`
 	}
 }
 
+// TestDiscoveryAvailabilityEntityLinkDeterministicWithMultipleSiblingPositionings is the
+// regression test for a real bug found live 2026-09-27, end to end: a discovery device's "core"
+// leaf positioned TWICE (two separate "entity ... from light.core;" lines in two different
+// spaces -- the real live shape Junglinster's server_room/corridor "switched by" pilot produces,
+// where the same raw MQTT leaf legitimately gets a second, differently-named conceptual entity)
+// used to make the device's own "node" availability condition non-deterministic (map iteration
+// order), confirmed by regenerating the same unchanged .def content 6 times in a row and getting
+// 2 different outputs. Fixed in registerDiscoveryAvailabilityEntityLink (collect all matches, sort,
+// pick lexicographically first).
+func TestDiscoveryAvailabilityEntityLinkDeterministicWithMultipleSiblingPositionings(t *testing.T) {
+	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
+		"discovery.vidja_left_1": {
+			DeviceID:    "discovery.vidja_left_1",
+			Identifiers: []string{"zigbee2mqtt_0x84b4dbfffefbb43a"},
+			Capabilities: map[string]TDiscoveryCapability{
+				"core": {Domain: "light", Leaf: "0x84b4dbfffefbb43a_light_zigbee2mqtt"},
+				"node": {Domain: "binary_sensor", AvailabilityOf: "core", AvailabilityOfDomain: "light"},
+			},
+		},
+	}
+
+	for i := 0; i < 20; i++ {
+		const miniDSL = `space social:vidja_a with:
+  device discovery.vidja_left_1 with:
+    entity light.physical:aaa from light.core;
+  end;
+end;
+space social:vidja_b with:
+  device discovery.vidja_left_1 with:
+    entity binary_sensor.infrastructural:node from binary_sensor.node;
+    entity light.physical:bbb from light.core;
+  end;
+end;`
+		var report strings.Builder
+		result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("run %d: parse error: %v", i, err)
+		}
+		admin := result.Administration
+
+		var node *TEntityRecord
+		for j, rec := range admin.EntityRecordsBySpace["social/vidja_b"] {
+			if rec.Name == "binary_sensor.infrastructural/vidja_b/node" {
+				node = &admin.EntityRecordsBySpace["social/vidja_b"][j]
+			}
+		}
+		if node == nil {
+			t.Fatalf("run %d: expected the explicit node entity to be registered, got %+v", i, admin.EntityRecordsBySpace["social/vidja_b"])
+		}
+		want := "light.physical_vidja_a_aaa" // lexicographically first of the two "core" positionings
+		if len(node.ConditionSources) != 1 || node.ConditionSources[0] != want {
+			t.Errorf("run %d: node.ConditionSources = %v, want the same deterministic choice [%q] every time", i, node.ConditionSources, want)
+		}
+	}
+}
+
 // TestDiscoveryDeviceBlockNoNodeCapabilitySkipsSilently proves a discovery device with no "node"
 // capability declared at all is left alone -- no auto-registered entity, no warning (unlike
 // hosts/hassbridge, which DO warn: MQTT discovery gateways aren't uniformly controlled, so
@@ -1530,7 +1535,7 @@ end;`
 func TestDiscoveryDeviceBlockNoNodeCapabilitySkipsSilently(t *testing.T) {
 	const miniDSL = `space social:vidja with:
   device discovery.vidja_left_1 as left/1 with:
-    entity light.physical: from core;
+    entity light.physical: from light.core;
   end;
 end;`
 
@@ -1545,7 +1550,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1565,8 +1570,8 @@ end;`
 func TestDiscoveryDeviceBlockAvailabilityDomainMismatchIsRejected(t *testing.T) {
 	const miniDSL = `space social:vidja with:
   device discovery.vidja_left_1 as left/1 with:
-    entity binary_sensor.infrastructural:node from node;
-    entity light.physical: from core;
+    entity binary_sensor.infrastructural:node from binary_sensor.node;
+    entity light.physical: from light.core;
   end;
 end;`
 
@@ -1583,7 +1588,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1597,9 +1602,9 @@ end;`
 func TestDiscoveryDeviceBlockWithDerivedCapability(t *testing.T) {
 	const miniDSL = `space social:hallway with:
   device discovery.aqara_windoor as door with:
-    entity binary_sensor.social: from door;
-    entity sensor.infrastructural:battery_level from battery_level;
-    entity sensor.infrastructural:battery_alert from battery_alert;
+    entity binary_sensor.social: from binary_sensor.door;
+    entity sensor.infrastructural:battery_level from sensor.battery_level;
+    entity sensor.infrastructural:battery_alert from binary_sensor.battery_alert;
   end;
 end;`
 
@@ -1616,7 +1621,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1653,7 +1658,7 @@ func TestRegisterDiscoveryEntityLinkWarnsOnUnknownGateway(t *testing.T) {
 end;`
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, map[string]TDiscoveryGatewayDevice{}, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, map[string]TDiscoveryGatewayDevice{}, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}

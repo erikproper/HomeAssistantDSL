@@ -1,134 +1,124 @@
-# Checkpoint — Home Assistant DSL Generator
-**Frozen:** 2026-08-29 (end of session)
-**Status:** generator + coordinator both build/vet/test clean, gofmt clean. Real `./generate`
-against Junglinster runs clean. **PROJECT.md 1.1's core mechanism (kind-3) is deployed and
-confirmed running live** — coordinator on protocols-server-1, both instances' automation trees
-deployed, inquiry loop running against both main and protocols-server-2 without incident.
-**PROJECT.md 1.8's kind-2 mechanism (new 2026-08-29) is built and unit-tested, NOT yet deployed to
-the live coordinator.** See PROJECT.md items 1.1/1.8 and memory
-`project_entity_existence_inquiry_design` for the full build log — this file is a short pointer,
-not a duplicate of that detail.
+# Checkpoint — Home Assistant DSL Generator + Coordinator
 
-**Immediate next steps queued**:
-1. Deploy 1.8 (kind-2 discovery existence tracking) to protocols-server-1's coordinator, then
-   confirm live against a real gateway (EMS-ESP) — trigger a discovery payload, confirm
-   `[discovery-existence]` log lines and a `discovery_gateways/<gatewayID>/existence/state` publish,
-   same deploy-then-verify step 1.1's kind-3 mechanism already went through.
-2. Clean up PROJECT.md — item 1.1 in particular has accumulated a lot of "Status" / "Test plan" /
-   "Also caught and fixed" / "Remaining" prose across a long live-debugging session and is due for
-   a tidy-up pass (consolidate, drop what's now redundant, make sure DONE/remaining is accurate and
-   easy to scan). Queued by the user 2026-08-28, not started yet.
+**Frozen:** 2026-09-29 (mid-session, ahead of a possible `/clear`)
+**Status:** both Go modules (`homeassistant` generator, `house_event_bus_coordinator`) build/vet/
+test clean. Both houses (Vienna, Junglinster) regenerate clean. **Coordinator is deployed and live
+on both houses' protocols-server-1 as of this session**, carrying today's two coordinator-side name
+fixes (see below). The generator-side whitespace/continuation-join fix is built, tested, and
+regenerates clean on both houses, but **has not been deployed** (no `.def`/generated-YAML change
+resulted from it on either house, so there's nothing new to push — see below for why).
 
----
+This file is a short pointer, not a duplicate. The full, extremely detailed build log for
+everything below (and for the whole multi-week Junglinster migration this session is deep inside)
+lives in the plan file: **`/Users/erikproper/.claude/plans/splendid-zooming-lighthouse.md`** — read
+that first for real continuation, this file only orients you to where things stand *right now* and
+what's still open.
 
-## What landed this session (2026-08-28), in order
-
-1. **PROJECT.md 1.1 core mechanism** — three-state entity-existence tracking (known-to-exist /
-   not-known-to-exist / known-not-to-exist), paced (≤1/min/instance) coordinator inquiry loop,
-   optimistic generation, device-level sibling discovery (`DiscoverSiblings`), "Discover entity"
-   manual bootstrap. Built, deployed, confirmed live against both `main` and `protocols-server-2`.
-   Old manifest/`entities_detailed` mechanism deleted entirely (both sides).
-2. **Synthetic device grouping** — a `DiscoverSiblings`-discovered anchor with no owning DSL device
-   now gets a stable synthetic `hass.discovered_<slug>` id (from the remote instance's own
-   `device_attr(did, 'name')`) instead of landing ungrouped. Confirmed live (`office_garden`).
-3. **Inquiry-state persistence across coordinator restarts** — `entity_existence.json`
-   (coordinator-owned runtime state, mirrors `discovery_topics.json`'s pattern). Unit-tested, not
-   yet exercised via a real coordinator restart in production.
-4. **Physical.def overrides a synthetic name** — once any sibling of a synthetically-grouped device
-   gets declared for real in Physical.def, the suggestion report's remaining entities render under
-   that real device id instead of the synthetic one (`declaredDeviceIDByEntity`,
-   `buildSuggestionReportFromExistence`). Confirmed live (`office_garden` → `hass.office_garden`).
-5. **New warning**: a `device hass.<id> with: ...; end;` block sitting outside any
-   `integration home_assistant <qualifier> with:` block used to silently vanish with zero
-   feedback — now warns with a line number (`warnAboutOrphanedHassBridgeDeviceBlocks`). Found and
-   fixed live (the user's own `office_garden` Physical.def placement mistake).
-6. **Two real, pre-existing Spaces.def typos** found and fixed live: `hass.laserjet`'s
-   capability-key lines used the raw remote entity_id instead of the local capability label, and
-   its device-positioning line used `device.` (dot) instead of `device ` (space) — both silently
-   broke, now fixed in the real file.
-7. **New DSL sugar**: `for <device-id>: entity <spec> from entity <capability>; ...; end;`
-   abbreviates repeated `entity <spec> from <device-id> entity <capability>;` lines. Purely textual,
-   expanded inline in parser.go's existing single-pass loop
-   (`Conceptual_DeviceCapabilityEntities.go`'s `expandForDeviceShorthandLine`). Confirmed
-   byte-identical generated output vs. the old explicit form (A/B `./generate` checksum). Real
-   Spaces.def converted at its three repeated-block sites (`hass.laserjet`, `hass.davids_bedroom`,
-   `hass.office_corridor`).
-8. Small keyword additions to `recognizedCapabilityKeywords`: `rf_strength`, `uptime` → both map to
-   existing domains (`sensor.radio`, `sensor.uptime`).
-9. Suggestion-report indentation fixed from 3 spaces to 2, matching the house's own Physical.def
-   convention.
-10. Investigated (not a bug): `host.laserjet`'s implied `_node` entity has no static
-   customization/template YAML by design (`DiscoveryImplied: true` — the coordinator creates it
-   live via MQTT discovery, per memory `project_discovery_over_yaml_templates`); confirmed
-   `coordinator/devices.yaml` has the correct entry and the coordinator's `discovery.go` consumes it
-   generically. Also confirmed the generator fully wipes+rebuilds `hass/` every run
-   (`os.RemoveAll`), so stale customization files can't survive a `./generate` regardless.
-
-All of the above: `go build ./...`, `go vet ./...`, `go test ./...`, `gofmt -l` clean on both
-modules; generator reinstalled (`go install .`) after every source change; real `./generate`
-against Junglinster confirmed clean multiple times over the session.
-
-New memory files this session: `project_entity_existence_inquiry_design.md` (heavily extended —
-now the canonical build log for all of items 1-5 above), `project_for_device_shorthand.md` (item 6).
+**Git note**: both Go modules and both houses' `Definitions/` repos currently carry a large
+uncommitted changeset (this whole session's work, plus earlier accumulated work never committed).
+Don't assume a clean git state, and don't discard any of it — `git status`/`git diff` are the
+authoritative record of what's changed; nothing here has been committed yet.
 
 ---
 
-## What landed 2026-08-29
+## What landed THIS session (2026-09-29), in order
 
-**PROJECT.md 1.8: kind-2 (discovery) passive existence tracking.** The user identified a real gap
-in the previous day's Architecture.md §6.10: it correctly concluded kind-2 gateways don't need
-*active inquiry* (unlike kind-3, a gateway self-announces via native HA MQTT discovery), but wrongly
-generalized that into "needs no existence tracking at all" — leaving the generator with zero
-existence signal for kind-2 sources, not even kind-3's old bare-assumption gap. The user's own
-framing, precisely: existence checks always anchor on the physical layer's own declared *source*
-specification (a capability line's right-hand side), never the conceptual-layer name; kind-1 needs
-nothing (direct link), kind-2 and kind-3 both need the coordinator to report source-entity status,
-kind-3 by active inquiry, kind-2 by passive observation.
+1. **Hassbridge/discovery-relay MQTT "name" field bug — found, fixed, deployed, live-verified.**
+   Two entities (`cover.social_house_kitchen`, `switch.social_house_kitchen_workplace_furnace`)
+   showed garbled doubled `friendly_name`s (e.g. "house/kitchen house/kitchen/cover"). Root cause:
+   neither `discoverybridge.go`'s `buildRelayedDiscoveryConfig` (raw Zigbee2MQTT/EMS-ESP relay) nor
+   `discoveryhassbridge.go`'s `buildHassBridgeEntityDiscoveryBody` (hassbridge relay) used the
+   `Name *string`-nil-means-"device name alone" pattern `TBinarySensorDiscoveryPayload` already
+   established (discovery.go) — both wrote a non-null "name" HA then combined with device.name.
+   Fixed in both files: a new `soleGatewayCapability` distinction (raw relay — null only when the
+   gateway relays exactly one capability, otherwise the gateway's own native per-entity label is
+   left untouched, since many gateways — Aqara multi-sensors, EMS-ESP — genuinely relay several
+   capabilities from one device) and a DisplaySuffix-empty→null / DisplaySuffix-non-empty→suffix-
+   alone fix (hassbridge). 4 new/updated tests, both modules green. **Deployed to both houses'
+   coordinators and confirmed live.**
+2. **Two live registry collisions found and fixed** (same class hit repeatedly all session — a
+   stale/orphaned registry entry squatting a clean entity_id, forcing the real one to `_2`):
+   - Furnace switch: an old, non-tombstoned template-platform orphan (from before this session's
+     `inverted` mechanism replaced the old two-entity "flipped" wrapper) — deleted, `_2` renamed.
+   - **Kitchen corridor's `corb` light** (`light.social_house_corridor_corb`) — found live TODAY,
+     reported by the user ("z2m agrees it IS available" while HA showed unavailable/restored). Root
+     cause: an old *raw* native Zigbee2MQTT registration (predating corb's 2026-09-28 migration to
+     the coordinator relay) never got cleaned up at the time, leaving the real relayed entity stuck
+     at `_2`. Fixed via the established registry-surgery playbook (backup, `ha core stop`, remove
+     orphan + rename `_2`→clean, `ha core start`, verified live: now reports `on`/`off` correctly).
+     **Confirmed this was a pre-existing gap from 2026-09-28's own deploy verification (which
+     checked 3 other devices but missed corb), not caused by anything this session did.**
+3. **DSL parser fix: a wrapped one-liner "with" clause is now joined back into one logical line**
+   (`defined.go`, `joinWrappedStatementContinuations` + `normalizeDefinitionWhitespace`). Real bug:
+   an editor auto-wrapped `device X with <statement>;` right after the bare word "with" (Junglinster
+   Conceptual.def:517), which neither the block-header nor one-liner regex recognised — the
+   device's positioning silently vanished from any *future* regeneration (the live-deployed entity
+   from before the wrap kept working, which is why nothing looked broken in HA). Fixed narrowly: a
+   line ending in the standalone word "with" (not "with:") gets joined, single-space, to whatever
+   follows, until a real terminator (`;`/`:`) or a blank line. **Real regression caught before
+   shipping**: the first version didn't exempt comment lines, and a `# ... with` comment two lines
+   above a real `device ... with:` block header swallowed that header into itself, breaking the
+   block (Physical.def's aqara_magnet device, 5 "unrecognised line" warnings) — fixed by excluding
+   comment lines from ever triggering or being swallowed by the join. Both houses regenerate clean
+   with zero warnings now. **Confirmed NOT a live bug** — byte-diffed clean against the currently-
+   deployed state on Junglinster (the one affected line was already correctly deployed back on
+   2026-09-28, before whatever edit wrapped it — so nothing to redeploy).
+4. Investigated and **ruled out** a suspected gap: `light.social_house_kitchen_main`/
+   `light.social_house_wc_main` (node 057's two endpoints) looked "missing" because I searched the
+   wrong output tree (`hass/`, for YAML-template entities) — they're discovery-kind (MQTT relay)
+   entities, correctly present in `coordinator/discovery.yaml`, confirmed live and matching the
+   registry exactly. No bug; my own investigation mistake, corrected.
+5. **Coordinator deployed to both houses** (Junglinster + Vienna protocols-server-1), carrying item
+   1's fix. Verified via `systemctl is-active coordinator` + fresh binary timestamp on both.
 
-Built first-phase (arrival-only, retraction deferred — see PROJECT.md 1.8's own note on why):
-- Coordinator: `discovery_existence.go` (new) — `TDiscoveryExistenceTracker`, wired into
-  `discoverybridge.go`'s existing discovery-payload handler (no new subscription) and `main.go`.
-- Generator: `mqtt_discovery_existence.go` (new) — `fetchDiscoveryExistence`/
-  `checkDiscoveryKnownNotToExistErrors`, wired into `Physical_Generator.go` right after the kind-3
-  check.
-- Architecture.md §6.10 corrected/rewritten; PROJECT.md 1.1's "Scope confirmation" note corrected to
-  point at 1.8; memory `project_entity_existence_inquiry_design.md` extended with the full build
-  log.
+## Immediate next steps queued
 
-`go build/vet/test`, gofmt clean on both modules. Confirmed via a real `./generate` against
-Junglinster: soft-fails gracefully offline (no broker, no cache yet), generation still succeeds —
-same behavior kind-3 already has. **Not yet deployed to the live coordinator or exercised against a
-real gateway payload** — see this file's own "Immediate next steps" at the top.
+1. **Update the plan file** (`splendid-zooming-lighthouse.md`) with everything in this checkpoint —
+   not yet done as of this freeze (the plan file's own last entry is 2026-09-28).
+2. Resume **Phase 3** of the plan: a genuine line-by-line read of Junglinster's Conceptual.def from
+   the "#### HERE" marker (~line 391) onward — not a keyword grep, per this session's own lesson
+   about missing the old flat "has_state" macro shape that way once already.
+3. `timer.social:removing_smell` (`definition as timer "00:03:00"; limits ... fan.social: off on;`)
+   — flagged by the user as the likely next migration target, explicitly needing its own planning
+   pass before starting (not begun).
+4. PROJECT.md lines ~13-19 (surfaced via an IDE selection, not yet actioned): a note about "turn
+   XXX" switcher on/off ordering and a possible `follows` simplification into two when-if-then
+   rules for the `corb`-style switched-light case. Relevance to current work unconfirmed.
+5. The plan's own still-open items: 7 of 13 with-clause consumers left unmigrated (deliberately
+   deferred, low priority); Phase 1's two cross-checks were already closed out; Phase 4 (PROJECT.md's
+   backlog) waits behind Phase 3.
 
----
-
-## Earlier sessions (2026-08-27 and before) — see PROJECT.md for the full numbered TODO list
-
-Everything below "Phase 1" in this file's git history is stale bash-parity-era content, already
-superseded. Trust `PROJECT.md` and `Architecture.md` over any further historical detail here.
-
-## Key files
+## Key files (unchanged from before, still accurate)
 
 | File | Role |
 |------|------|
-| `generator.go` | Bulk of YAML generation steps |
-| `administration.go` | Runtime state; space/entity registry; derived aggregate derivation |
-| `parser.go` | Single-pass parser (since 2026-08-27); now also handles the `for` shorthand's inline expansion |
-| `expander.go` | Macro expansion; `normalizeEntityFullName`; entity identity |
-| `defined.go` | Installation/instance resolution; `toHomeAssistantEntityID` |
-| `Conceptual_Device*.go` | The various "position/reference a device's entity" DSL constructs |
-| `mqtt_entity_existence.go` | Generator-side existence status cache, suggestion-report builder |
-| `remote_instance_entity_existence.go` | Generator-side inquiry automation body |
-| `house_event_bus_coordinator/entity_existence.go` | Coordinator-side kind-3 three-state tracker, paced inquiry loop, persistence |
-| `house_event_bus_coordinator/discover_entity_input.go` | Manual "Discover entity" bootstrap |
-| `mqtt_discovery_existence.go` | Generator-side kind-2 existence status cache/check |
-| `house_event_bus_coordinator/discovery_existence.go` | Coordinator-side kind-2 three-state tracker, passive (no inquiry), persistence |
+| `homeassistant/generator.go` | Bulk of YAML generation steps |
+| `homeassistant/administration.go` | Runtime state; space/entity registry; derived aggregate derivation |
+| `homeassistant/parser.go` | Single-pass parser |
+| `homeassistant/expander.go` | Macro expansion; `normalizeEntityFullName`; entity identity |
+| `homeassistant/defined.go` | Installation/instance resolution; `toHomeAssistantEntityID`; **new: `normalizeDefinitionWhitespace`/`joinWrappedStatementContinuations`** |
+| `homeassistant/Conceptual_Device*.go` | The various "position/reference a device's entity" DSL constructs |
+| `homeassistant/integration_logical_*.go` | Logical-layer `enabled by`/`is switched by`/`dependency on` mechanisms |
+| `homeassistant/logical_enabler_dependency_sugar.go` | `enabled by`/`dependency on` desugaring |
+| `homeassistant/logical_switched_by.go` | `is switched by` desugaring |
+| `house_event_bus_coordinator/discoverybridge.go` | Raw Zigbee2MQTT/EMS-ESP discovery relay; **today's `soleGatewayCapability`/name fix** |
+| `house_event_bus_coordinator/discoveryhassbridge.go` | Hassbridge (remote-HA) relay; **today's DisplaySuffix/name fix** |
+| `house_event_bus_coordinator/discovery.go` | `TBinarySensorDiscoveryPayload`/`TSensorDiscoveryPayload` — the original `Name *string`-null pattern both of today's fixes now match |
 
 ## Commands
 
 ```bash
-cd homeassistant && go build ./... && go vet ./... && go test ./...   # generator package
-cd house_event_bus_coordinator && go build ./... && go test ./...     # coordinator package
-go install .                                                          # ALWAYS before treating a real ./generate run as verification (from homeassistant/)
-cd /Users/erikproper/Nextcloud/Systems/SmartLiving/Junglinster && ./generate   # real regenerate, real house
+cd homeassistant && go build ./... && go vet ./... && go test ./...              # generator module
+cd house_event_bus_coordinator && go build ./... && go vet ./... && go test ./...  # coordinator module
+go install .                                                                      # ALWAYS before trusting a real ./generate run (from homeassistant/)
+cd /Users/erikproper/SmartLiving/Junglinster && ./generate                       # real regenerate, real house
+cd /Users/erikproper/SmartLiving/Vienna && ./generate                           # real regenerate, real house
 ```
+
+Deploy (both houses): `./deploy` sources `deploy.d/01..05` in order; `04_deploy.coordinator`
+routinely exceeds a foreground timeout — run it in background and verify via
+`systemctl is-active coordinator` + `/usr/local/bin/coordinator` timestamp on protocols-server-1
+(port 1970 SSH, `erikp` user). HA Core restart/stop for registry surgery:
+`SUPERVISOR_TOKEN=$(cat /run/s6/container_environment/SUPERVISOR_TOKEN) ha core start|stop|restart`
+(port 1967 SSH, `hassio` user — that user's own `sudo -n` works for `/config/.storage/*` edits,
+plain `cp` does not).

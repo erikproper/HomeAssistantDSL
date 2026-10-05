@@ -457,12 +457,21 @@ func hassBridgeAvailabilityTopics(device THassBridgeDevice, capability string) [
 // every found.DiscoveryExtra field verbatim -- all fully resolved by the generator
 // (hassbridge_commands.go), never domain-specific logic here.
 func buildHassBridgeEntityDiscoveryBody(stableID, localEntity string, found hassBridgeMatch, stateTopic, attributesTopic string, devBlock TDiscoveryDevice, nodeAvailabilityTopics []string, liveUnit, liveDeviceClass, liveIcon, instance string, commandsEnabled bool, installation string) map[string]interface{} {
-	// name: devBlock.Name alone when DisplaySuffix is empty -- an intentional signal (see
-	// TDeviceAttributeLink.DisplaySuffix's own doc comment) that the device's own display name
-	// already conveys everything (its own leaf equals the entity's domain), not "field absent."
-	name := devBlock.Name
+	// name -- real bug found live 2026-09-29 (Junglinster's "utility.somfy_kitchen" cover,
+	// reported friendly_name "house/kitchen house/kitchen/cover"): this used to set "name" to
+	// devBlock.Name + "/" + DisplaySuffix, a non-null string HA then combined with device.name
+	// itself, doubling devBlock.Name into the display. Fixed the same way
+	// TBinarySensorDiscoveryPayload's own doc comment already fixed this exact mistake once
+	// (discovery.go) and buildRelayedDiscoveryConfig's own analogous fix repeats one file over
+	// (discoverybridge.go): when DisplaySuffix is empty (the device's own display name already
+	// conveys everything -- its own leaf equals the entity's domain), "name" is a literal JSON
+	// null ("device name alone"), not devBlock.Name repeated. Otherwise "name" is DisplaySuffix
+	// ALONE -- a short leaf label (e.g. "cover") HA auto-combines with device.name on its own,
+	// matching TSensorDiscoveryPayload's own established convention for a device with several
+	// entities -- devBlock.Name must never be prefixed onto it by hand.
+	var name interface{}
 	if found.DisplaySuffix != "" {
-		name = devBlock.Name + "/" + found.DisplaySuffix
+		name = found.DisplaySuffix
 	}
 	body := map[string]interface{}{
 		"unique_id":         stableID,

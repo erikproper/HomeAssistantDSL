@@ -317,6 +317,19 @@ var discoveryAbbreviatedKeyPairs = [][2]string{
 	{"ic", "icon"},
 }
 
+// discoveryEntityLinksPerGateway counts how many entity_links share each gateway id -- used by
+// buildRelayedDiscoveryConfig to decide whether a relayed entity is its gateway device's ONLY
+// entity (a bare "furnace switch" leaf, a single-capability cover) or one of several sharing the
+// same physical device (a 4-capability Aqara multi-sensor, an EMS-ESP boiler). See
+// buildRelayedDiscoveryConfig's own "name" doc comment for why this distinction matters.
+func discoveryEntityLinksPerGateway(links map[string]TDiscoveryEntityLink) map[string]int {
+	counts := make(map[string]int, len(links))
+	for _, link := range links {
+		counts[link.Gateway]++
+	}
+	return counts
+}
+
 // buildRelayedDiscoveryConfig builds our own discovery payload for entityID (e.g.
 // "sensor.social_garage_door_temperature"), sourced from rawPayload -- the gateway leaf's own
 // discovery payload, decoded into payload for the fields this function needs to inspect/override,
@@ -326,7 +339,28 @@ var discoveryAbbreviatedKeyPairs = [][2]string{
 // changes default_entity_id/name but never the topic itself; "object_id"/"has_entity_name" are
 // not real MQTT discovery keys, see discovery.go's payload doc comments); everything else the
 // gateway published (brightness/supported_color_modes/effect_list/schema/availability/device/...)
-// passes through untouched. This is a deliberate change (2026-09-14) from an earlier version that
+// passes through untouched.
+//
+// "name" -- real bug found live 2026-09-29 (Junglinster's "furnace switch," reported
+// friendly_name "house/laundry_kitchen/heating/furnace_switch social_house_kitchen_workplace_furnace"):
+// this used to unconditionally overwrite "name" with objectID (entityID's own sanitised,
+// underscore-joined tail) -- the exact same "not real null" mistake TBinarySensorDiscoveryPayload's
+// own doc comment already fixed once for the "hosts" node entity (discovery.go), and
+// buildHassBridgeEntityDiscoveryBody's own devBlock.Name/DisplaySuffix fix repeated for hassbridge
+// (discoveryhassbridge.go) -- HA combines a non-null "name" with device.name for any
+// device-grouped MQTT entity, so a single-capability gateway (this furnace switch's own device
+// publishes exactly one entity) showed device.name + " " + objectID, doubled and unreadable.
+// soleGatewayCapability (discoveryEntityLinksPerGateway, computed once per subscribe rather than
+// per message) is true for exactly this shape -- "name" is then set to nil (JSON null), "device
+// name alone," matching TBinarySensorDiscoveryPayload's own established convention. A gateway
+// relaying SEVERAL capabilities (a 4-facet Aqara multi-sensor, an EMS-ESP boiler) is different:
+// there, "name" is left as whatever the clone above already carried from the gateway's own native
+// payload (Zigbee2MQTT/EMS-ESP already publish a short, genuinely distinguishing per-entity label
+// there -- "Occupancy"/"Battery"/"Boiler Temperature" -- unrelated to this DSL's own entity_id
+// positioning, so there was never a real "stale name after a Spaces.def reposition" risk to guard
+// against in the first place; forcing objectID onto every one of a multi-entity gateway's
+// capabilities would have made them all show the SAME doubled string, an even worse regression
+// than the single-capability case this was found from). This is a deliberate change (2026-09-14) from an earlier version that
 // reconstructed the whole body from scratch, keyed only on this function's own narrow decoded
 // subset: that silently dropped command_topic entirely (a relayed light/switch/fan came up
 // completely uncontrollable -- no error, just no way to command it) and never even decoded
@@ -411,7 +445,7 @@ func extractValueJSONKey(inner string) (key string, ok bool) {
 	return quoted[1 : len(quoted)-1], true
 }
 
-func buildRelayedDiscoveryConfig(entityID, gatewayID string, rawPayload map[string]interface{}, payload tDecodedDiscoveryPayload, link TDiscoveryEntityLink, prefix, installation, rawDomain string) (topic string, body map[string]interface{}, ok bool) {
+func buildRelayedDiscoveryConfig(entityID, gatewayID string, rawPayload map[string]interface{}, payload tDecodedDiscoveryPayload, link TDiscoveryEntityLink, prefix, installation, rawDomain string, soleGatewayCapability bool) (topic string, body map[string]interface{}, ok bool) {
 	dotIdx := strings.Index(entityID, ".")
 	if dotIdx < 0 || payload.UniqueID == "" {
 		return "", nil, false
@@ -446,7 +480,9 @@ func buildRelayedDiscoveryConfig(entityID, gatewayID string, rawPayload map[stri
 
 	body["unique_id"] = stableID
 	body["default_entity_id"] = domain + "." + objectID
-	body["name"] = objectID
+	if soleGatewayCapability {
+		body["name"] = nil
+	}
 	if payload.StateTopic != "" {
 		body["state_topic"] = payload.StateTopic
 	}
@@ -508,7 +544,48 @@ func buildRelayedDiscoveryConfig(entityID, gatewayID string, rawPayload map[stri
 	if link.Icon != "" {
 		body["icon"] = link.Icon
 	}
+	if link.Invert {
+		// payload_on/payload_off govern BOTH the command sent on turn_on/turn_off AND (absent an
+		// explicit state_on/state_off override) how the state_topic's own payload is interpreted --
+		// always meaningful, so always ensured present and swapped, defaulting whichever key the
+		// native payload left implicit to HA's own documented default ("ON"/"OFF") first. state_on/
+		// state_off, by contrast, only exist to override state INTERPRETATION specifically when it
+		// differs from the command payload -- left untouched when the native payload never set
+		// either (that already means "same as payload_on/off", which is correctly inverted above);
+		// only swapped when the native payload genuinely uses that override.
+		swapDiscoveryPayloadPairWithDefaults(body, "payload_on", "payload_off", "ON", "OFF")
+		swapDiscoveryPayloadPairIfPresent(body, "state_on", "state_off")
+	}
 	return discoveryTopic(prefix, domain, stableID), body, true
+}
+
+// swapDiscoveryPayloadPairWithDefaults swaps body[onKey]/body[offKey] in place, substituting
+// defaultOn/defaultOff for whichever key the native payload left unset before swapping -- so a
+// native payload relying entirely on HA's own implicit MQTT switch/binary_sensor defaults still
+// gets an explicit, correctly-inverted pair written (link.Invert's own physical-level on/off
+// inversion, buildRelayedDiscoveryConfig above), never silently doing nothing.
+func swapDiscoveryPayloadPairWithDefaults(body map[string]interface{}, onKey, offKey, defaultOn, defaultOff string) {
+	on, hasOn := body[onKey]
+	off, hasOff := body[offKey]
+	if !hasOn {
+		on = defaultOn
+	}
+	if !hasOff {
+		off = defaultOff
+	}
+	body[onKey], body[offKey] = off, on
+}
+
+// swapDiscoveryPayloadPairIfPresent swaps body[onKey]/body[offKey] in place ONLY when the native
+// payload set at least one of the pair -- unlike swapDiscoveryPayloadPairWithDefaults, absence of
+// both keys means "no override here" and is left alone, not defaulted.
+func swapDiscoveryPayloadPairIfPresent(body map[string]interface{}, onKey, offKey string) {
+	on, hasOn := body[onKey]
+	off, hasOff := body[offKey]
+	if !hasOn && !hasOff {
+		return
+	}
+	body[onKey], body[offKey] = off, on
 }
 
 // subscribeDiscoveryBridge subscribes to "<physical_prefix>/+/+/+/config" (the same
@@ -564,6 +641,7 @@ func buildRelayedDiscoveryConfig(entityID, gatewayID string, rawPayload map[stri
 // exists to prevent a repeat of.
 func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation string, discoveryFile TDiscoveryFile, publisher *TDiscoveryPublisher, conceptualPrefix string, existenceTracker *TDiscoveryExistenceTracker, passthroughRules []TDiscoveryPassthroughRule, passthroughDeviceTracker *TPassthroughDeviceTracker, relayJobs chan<- TDiscoveryRelayJob) error {
 	passthroughPrefixes := passthroughTopicPrefixes(passthroughRules, discoveryFile.PhysicalPrefix)
+	gatewayCapabilityCount := discoveryEntityLinksPerGateway(discoveryFile.EntityLinks)
 
 	handler := func(_ mqtt.Client, msg mqtt.Message) {
 		passthroughTopic := conceptualPrefix + strings.TrimPrefix(msg.Topic(), discoveryFile.PhysicalPrefix)
@@ -738,7 +816,7 @@ func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation s
 			if link.SourceDomain != "" && topicComponent(msg.Topic(), discoveryFile.PhysicalPrefix) != link.SourceDomain {
 				continue
 			}
-			topic, body, ok := buildRelayedDiscoveryConfig(entityID, gatewayID, rawPayload, payload, link, conceptualPrefix, ownInstallation, topicComponent(msg.Topic(), discoveryFile.PhysicalPrefix))
+			topic, body, ok := buildRelayedDiscoveryConfig(entityID, gatewayID, rawPayload, payload, link, conceptualPrefix, ownInstallation, topicComponent(msg.Topic(), discoveryFile.PhysicalPrefix), gatewayCapabilityCount[gatewayID] == 1)
 			if !ok {
 				continue
 			}

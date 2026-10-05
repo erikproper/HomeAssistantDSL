@@ -33,6 +33,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -148,6 +149,7 @@ func registerDiscoveryEntityLink(administration *TAdministrationState, decl TDis
 		Unit:            unit,
 		StateClass:      stateClass,
 		Icon:            icon,
+		Invert:          capability.Inverted,
 	}
 	return nil
 }
@@ -231,13 +233,23 @@ func registerDiscoveryAvailabilityEntityLink(administration *TAdministrationStat
 	// Reverse lookup: which entity_id did the sibling capability's own "entity ... from <leaf>;"
 	// line (if it has run yet) resolve to? DiscoveryEntityLinks is keyed by entity_id, so this is a
 	// scan -- fine at DSL-generation scale (a handful of capabilities per device, at most a few
-	// hundred discovery entities house-wide).
-	var siblingEntityID string
+	// hundred discovery entities house-wide). Collects EVERY match rather than breaking on the
+	// first (map iteration order is randomised per Go process -- a real non-determinism bug found
+	// live 2026-09-27, confirmed by two consecutive ./generate runs, zero .def changes between
+	// them, producing different output for Junglinster's node 48 -- see
+	// resolveLogicalSiblingSourceEntityID's own identical fix, Conceptual_LogicalEntities.go, for
+	// the first two instances of this exact bug class found the same day). Picking the
+	// lexicographically-first match is an arbitrary but STABLE tie-break.
+	var siblingEntityIDCandidates []string
 	for entityID, link := range administration.DiscoveryEntityLinks {
 		if link.GatewayDeviceID == decl.GatewayDeviceID && link.Leaf == siblingCapability.Leaf {
-			siblingEntityID = entityID
-			break
+			siblingEntityIDCandidates = append(siblingEntityIDCandidates, entityID)
 		}
+	}
+	sort.Strings(siblingEntityIDCandidates)
+	var siblingEntityID string
+	if len(siblingEntityIDCandidates) > 0 {
+		siblingEntityID = siblingEntityIDCandidates[0]
 	}
 	if siblingEntityID == "" {
 		if !finalAttempt {
@@ -307,13 +319,19 @@ func registerDiscoveryDerivedEntityLink(administration *TAdministrationState, de
 	}
 
 	// Reverse lookup: which entity_id did the sibling capability's own "entity ... from <leaf>;"
-	// line (if it has run yet) resolve to? Same linear scan as registerDiscoveryAvailabilityEntityLink.
-	var siblingEntityID string
+	// line (if it has run yet) resolve to? Same linear scan as registerDiscoveryAvailabilityEntityLink
+	// (collect-all-then-sort-then-pick-first, for the same determinism reason -- see that
+	// function's own comment).
+	var siblingEntityIDCandidates []string
 	for entityID, link := range administration.DiscoveryEntityLinks {
 		if link.GatewayDeviceID == decl.GatewayDeviceID && link.Leaf == siblingCapability.Leaf {
-			siblingEntityID = entityID
-			break
+			siblingEntityIDCandidates = append(siblingEntityIDCandidates, entityID)
 		}
+	}
+	sort.Strings(siblingEntityIDCandidates)
+	var siblingEntityID string
+	if len(siblingEntityIDCandidates) > 0 {
+		siblingEntityID = siblingEntityIDCandidates[0]
 	}
 	if siblingEntityID == "" {
 		if !finalAttempt {

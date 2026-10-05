@@ -190,7 +190,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -225,7 +225,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -252,9 +252,9 @@ end;`
 // bulk-imply, without needing that flag at all.
 func TestForDeviceBlockRegistersHostsCapabilities(t *testing.T) {
 	const miniDSL = `device host.xanadu as xanadu with:
-  entity binary_sensor.infrastructural:xanadu/node     from node;
-  entity sensor.infrastructural:xanadu/cpu/load        from cpu/load;
-  entity sensor.infrastructural:xanadu/cpu/temperature from cpu/temperature;
+  entity binary_sensor.infrastructural:xanadu/node     from binary_sensor.node;
+  entity sensor.infrastructural:xanadu/cpu/load        from sensor.cpu/load;
+  entity sensor.infrastructural:xanadu/cpu/temperature from sensor.cpu/temperature;
 end;`
 
 	hostDevicesByID := map[string]THostDevice{
@@ -262,7 +262,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -293,7 +293,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -310,7 +310,7 @@ end;`
 // autoMaterializePhysicalCapability's own synthetic path already did).
 func TestHostCapabilityEntityLinkResolvesNode(t *testing.T) {
 	const miniDSL = `device host.xanadu as xanadu with:
-  entity binary_sensor.infrastructural:xanadu/node from node;
+  entity binary_sensor.infrastructural:xanadu/node from binary_sensor.node;
 end;`
 
 	hostDevicesByID := map[string]THostDevice{
@@ -318,7 +318,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -334,12 +334,103 @@ end;`
 	}
 }
 
+// TestHostCapabilityEntityLinkResolvesCompoundNodeLeafViaNoRenameShorthand is the regression test
+// for a real bug found live 2026-09-29 (Junglinster's ring_chime_hallway/corridor migration): a
+// BARE, no-rename entity spec whose own compound leaf ends in "/node" (no "as" leaf on the device,
+// no explicit "from" clause at all -- "entity binary_sensor.infrastructural:ring_chime/node;")
+// must resolve to a hosts device's own "node" capability, exactly the way it already does for
+// every OTHER integration kind (discovery/hassbridge/import/local/logical), via
+// resolveLongestSuffixCapability's own general progressive-suffix-stripping mechanism
+// (Conceptual_DeviceCapabilityEntities.go, confirmed already wired in uniformly for every kind via
+// deviceHasCapability). The gap was narrow: deviceHasCapability's own "hosts" branch checked only
+// mat.AttributeNames(device), which never includes "node" (a hosts device's own "node" is
+// synthesized on the fly from a ping check, never a real map entry) -- so the one candidate
+// resolveLongestSuffixCapability was stripping DOWN TO always came back "no" for hosts devices
+// specifically, silently defeating the already-general mechanism for this one kind only.
+func TestHostCapabilityEntityLinkResolvesCompoundNodeLeafViaNoRenameShorthand(t *testing.T) {
+	const miniDSL = `device appliance.ring_chime_hallway with:
+  entity binary_sensor.infrastructural:ring_chime/node;
+end;`
+
+	hostDevicesByID := map[string]THostDevice{
+		"appliance.ring_chime_hallway": {DeviceID: "appliance.ring_chime_hallway", HostName: "ring-chime-hallway", IntegrationType: "ping"},
+	}
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	link, ok := result.Administration.DeviceConceptualLinks["appliance.ring_chime_hallway"]
+	if !ok {
+		t.Fatalf("expected DeviceConceptualLinks[appliance.ring_chime_hallway] to be populated")
+	}
+	if link.NodeEntityID == "" {
+		t.Errorf("link.NodeEntityID = %q, want it resolved via the compound \"ring_chime/node\" no-rename leaf", link.NodeEntityID)
+	}
+	wantSuffix := "ring_chime_node"
+	if !strings.HasSuffix(toHomeAssistantEntityID(link.NodeEntityID), wantSuffix) {
+		t.Errorf("NodeEntityID = %q, want it to preserve the full \"ring_chime/node\" conceptual path (ending %q)", link.NodeEntityID, wantSuffix)
+	}
+}
+
+// TestLogicalAbsorbResolvesHostsNodeWithNoPriorPositioning is the regression test for a real gap
+// found live 2026-09-29, minutes after the compound-leaf fix above: Junglinster's own
+// "device appliance.ring_chime_hallway with: capabilities from node.ring_chime_hallway:
+// binary_sensor.node; end; end;" -- absorbing a hosts/ping device's own "node" capability, where
+// that hosts device (node.ring_chime_hallway) has NO Conceptual.def positioning of its own
+// anywhere at all (its liveness is otherwise only ever reached indirectly, via Logical.def's own
+// "condition node.X;" bare-device-id sugar). Before this fix, absorb's own recursive delegate call
+// (registerLogicalAbsorbedCapability -> registerDeviceCapabilityEntityLinkAllowingHidden ->
+// registerHostCapabilityEntityLink) required administration.DeviceConceptualLinks[deviceID] to
+// ALREADY exist for the "node" case specifically -- i.e. the source hosts device needed at least
+// one OTHER direct reference somewhere first -- even though the exact same absence was already
+// proven safe to tolerate by autoMaterializePhysicalCapability's own hosts-kind "node" branch,
+// which "condition node.X;" already relies on successfully. Confirmed by the user directly: a
+// device referenced only indirectly is the desired semantics, not a state to reject.
+func TestLogicalAbsorbResolvesHostsNodeWithNoPriorPositioning(t *testing.T) {
+	// The absorb block itself is represented via logicalDevicesByID below (pre-parsed Logical.def
+	// content, passed as Go structs) -- this miniDSL is Conceptual.def-shaped content only: the one
+	// line that positions and so triggers resolution of appliance.ring_chime_hallway's own
+	// (absorbed) "node" capability.
+	const miniDSL = `entity binary_sensor.infrastructural:ring_chime/node from appliance.ring_chime_hallway binary_sensor.node;`
+
+	hostDevicesByID := map[string]THostDevice{
+		"node.ring_chime_hallway": {DeviceID: "node.ring_chime_hallway", HostName: "ring-chime-hallway", IntegrationType: "ping"},
+	}
+	logicalDevicesByID := map[string]TLogicalDevice{
+		"appliance.ring_chime_hallway": {
+			DeviceID: "appliance.ring_chime_hallway",
+			Capabilities: map[string]TLogicalCapability{
+				"node": {Domain: "binary_sensor", AbsorbedFromDeviceID: "node.ring_chime_hallway", AbsorbedFromCapability: "node"},
+			},
+		},
+	}
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, hostDevicesByID, nil, nil, nil, nil, nil, logicalDevicesByID, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if report.Len() != 0 {
+		t.Fatalf("expected no warnings, got: %s", report.String())
+	}
+	// node.ring_chime_hallway (the absorbed-FROM device) never gets its own Conceptual.def
+	// positioning at all -- confirming this really did resolve with no pre-existing link, not by
+	// some other path incidentally populating it first.
+	if _, hasOwnPositioning := result.Administration.DeviceConceptualLinks["node.ring_chime_hallway"]; !hasOwnPositioning {
+		t.Fatalf("expected node.ring_chime_hallway's own DeviceConceptualLinks entry to exist NOW (created by the absorb resolution itself), even though it has no direct positioning line of its own")
+	} else if result.Administration.DeviceConceptualLinks["node.ring_chime_hallway"].NodeEntityID == "" {
+		t.Errorf("node.ring_chime_hallway's own NodeEntityID is empty, want it resolved")
+	}
+}
+
 // TestHostCapabilityEntityLinkDefersWithoutPriorPositioning confirms a capability-link line
 // appearing BEFORE its device's positioning line in the same file still resolves correctly (via
 // the single retry ParseEntitiesAndFillAdministration makes after the whole file is read), mirroring
 // the same order-independence the hassbridge/import branches already have.
 func TestHostCapabilityEntityLinkDefersWithoutPriorPositioning(t *testing.T) {
-	const miniDSL = `entity sensor.infrastructural:xanadu/cpu/load from host.xanadu cpu/load;
+	const miniDSL = `entity sensor.infrastructural:xanadu/cpu/load from host.xanadu sensor.cpu/load;
 device host.xanadu as xanadu with:
 end;`
 
@@ -348,7 +439,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -375,10 +466,10 @@ end;`
 func TestAbsorbedHassBridgeDeviceKeepsOwnPhysicalPositioning(t *testing.T) {
 	const miniDSL = `space social:shower_room with:
   device appliance.washing_machine as washing_machine with:
-    entity binary_sensor.infrastructural:washing_machine/node from node;
-    entity sensor.status from status;
-    entity switch.social: from core;
-    entity sensor.social:power from power;
+    entity binary_sensor.infrastructural:washing_machine/node from binary_sensor.node;
+    entity sensor.status from sensor.status;
+    entity switch.social: from switch.core;
+    entity sensor.social:power from sensor.power;
   end;
 end;`
 
@@ -415,7 +506,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, hassBridgeDevicesByID, nil, nil, nil, logicalDevicesByID, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, discoveryGatewaysByID, hassBridgeDevicesByID, nil, nil, nil, logicalDevicesByID, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -462,10 +553,10 @@ end;`
 func TestDiscoveryDeviceKeepsOwnPhysicalPositioningWhenGainingLogicalCapabilities(t *testing.T) {
 	const miniDSL = `space social:terrace with:
   device sensors.terrace_motion as signify_motion with:
-    entity binary_sensor.physical:motion from core;
-    entity sensor.physical:illuminance from illuminance;
-    entity input_number.social:sunny_threshold from sunny_threshold;
-    entity binary_sensor.social:sunny from sunny;
+    entity binary_sensor.physical:motion from binary_sensor.core;
+    entity sensor.physical:illuminance from sensor.illuminance;
+    entity input_number.social:sunny_threshold from input_number.sunny_threshold;
+    entity binary_sensor.social:sunny from binary_sensor.sunny;
   end;
 end;`
 
@@ -487,14 +578,14 @@ end;`
 				"sunny_threshold": {Domain: "input_number", IsDefinedInputNumber: true, DefinedMinimum: "0", DefinedMaximum: "1000"},
 				"sunny": {
 					Domain: "binary_sensor", IsDerivedCondition: true,
-					DerivedCondition: testJinjaCondition("($1 | int) > ($2 | int)", "illuminance", "sunny_threshold"),
+					DerivedCondition: testJinjaCondition("($1 | int) > ($2 | int)", "sensor.illuminance", "input_number.sunny_threshold"),
 				},
 			},
 		},
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, logicalDevicesByID, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, logicalDevicesByID, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -556,7 +647,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -601,7 +692,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -651,7 +742,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}

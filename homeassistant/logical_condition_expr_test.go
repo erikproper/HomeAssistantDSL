@@ -126,24 +126,33 @@ func TestParseConditionExprIsAvailableSuffix(t *testing.T) {
 	}
 }
 
+// TestParseConditionExprJinjaClause covers a literal-string jinja head (2026-10-05, PROJECT.md 1h):
+// its "$[domain.label]" placeholder(s) are captured verbatim in JinjaExpr at PARSE time -- JinjaSources
+// stays nil/empty for this head shape (nothing to resolve until render time; see
+// resolveJinjaToken/the CondJinja render case).
 func TestParseConditionExprJinjaClause(t *testing.T) {
-	tree, warnings := parseConditionExpr(`jinja "$1 < 10" { sensor.s }`, nil, "test")
+	tree, warnings := parseConditionExpr(`jinja "$[sensor.s] < 10"`, nil, "test")
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
-	if tree.Kind != CondJinja || tree.JinjaExpr != "$1 < 10" || len(tree.JinjaSources) != 1 || tree.JinjaSources[0] != "sensor.s" {
-		t.Errorf("tree = %+v, want CondJinja{JinjaExpr: \"$1 < 10\", JinjaSources: [sensor.s]}", tree)
+	if tree.Kind != CondJinja || tree.JinjaExpr != "$[sensor.s] < 10" || len(tree.JinjaSources) != 0 {
+		t.Errorf("tree = %+v, want CondJinja{JinjaExpr: \"$[sensor.s] < 10\", JinjaSources: nil}", tree)
 	}
 }
 
+// TestParseConditionExprJinjaClauseMultipleSources covers a literal-string head with TWO distinct
+// "$[domain.label]" placeholders -- both captured verbatim in JinjaExpr, JinjaSources still
+// nil/empty (parse time doesn't resolve or even enumerate them; render-time resolution/scoping of
+// multiple placeholders is covered end-to-end by
+// TestRegisterLogicalDerivedConditionCapabilityPerClauseLocalDollarScoping).
 func TestParseConditionExprJinjaClauseMultipleSources(t *testing.T) {
-	tree, warnings := parseConditionExpr(`jinja "($1 | int) > ($2 | int)" { illuminance, sunny_threshold }`, nil, "test")
+	tree, warnings := parseConditionExpr(`jinja "($[sensor.illuminance] | int) > ($[input_number.sunny_threshold] | int)"`, nil, "test")
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
-	want := []string{"illuminance", "sunny_threshold"}
-	if tree.Kind != CondJinja || len(tree.JinjaSources) != 2 || tree.JinjaSources[0] != want[0] || tree.JinjaSources[1] != want[1] {
-		t.Errorf("tree = %+v, want JinjaSources=%v", tree, want)
+	wantExpr := "($[sensor.illuminance] | int) > ($[input_number.sunny_threshold] | int)"
+	if tree.Kind != CondJinja || tree.JinjaExpr != wantExpr || len(tree.JinjaSources) != 0 {
+		t.Errorf("tree = %+v, want CondJinja{JinjaExpr: %q, JinjaSources: nil}", tree, wantExpr)
 	}
 }
 
@@ -151,7 +160,7 @@ func TestParseConditionExprJinjaNamedTemplateCall(t *testing.T) {
 	jinjaTemplates := map[string]TJinjaTemplateDefinition{
 		"int_less_then": {Params: []string{"i"}, Template: "'on' if (($ | int(0)) < ${i}) else 'off'"},
 	}
-	tree, warnings := parseConditionExpr("jinja ${int_less_then}(10) { sensor.battery_level }", jinjaTemplates, "test")
+	tree, warnings := parseConditionExpr("jinja (sensor.battery_level) ${int_less_then}(10)", jinjaTemplates, "test")
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
@@ -161,7 +170,7 @@ func TestParseConditionExprJinjaNamedTemplateCall(t *testing.T) {
 }
 
 func TestParseConditionExprJinjaNamedTemplateCallUndeclared(t *testing.T) {
-	_, warnings := parseConditionExpr("jinja ${no_such}(10) { sensor.x }", map[string]TJinjaTemplateDefinition{}, "test")
+	_, warnings := parseConditionExpr("jinja (sensor.x) ${no_such}(10)", map[string]TJinjaTemplateDefinition{}, "test")
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "no_such") {
 		t.Fatalf("warnings = %v, want exactly one mentioning \"no_such\"", warnings)
 	}
@@ -171,7 +180,7 @@ func TestParseConditionExprJinjaNamedTemplateCallWrongArgCount(t *testing.T) {
 	jinjaTemplates := map[string]TJinjaTemplateDefinition{
 		"int_less_then": {Params: []string{"i"}, Template: "'on' if (($ | int(0)) < ${i}) else 'off'"},
 	}
-	_, warnings := parseConditionExpr("jinja ${int_less_then}(10, 20) { sensor.x }", jinjaTemplates, "test")
+	_, warnings := parseConditionExpr("jinja (sensor.x) ${int_less_then}(10, 20)", jinjaTemplates, "test")
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "2 argument") {
 		t.Fatalf("warnings = %v, want exactly one warning naming the wrong argument count", warnings)
 	}
@@ -179,7 +188,7 @@ func TestParseConditionExprJinjaNamedTemplateCallWrongArgCount(t *testing.T) {
 
 func TestParseConditionExprBooleanComposition(t *testing.T) {
 	tree, warnings := parseConditionExpr(
-		`binary_sensor.x and ( not c or jinja "$1 < 10" { sensor.s } )`, nil, "test")
+		`binary_sensor.x and ( not c or jinja "$[sensor.s] < 10" )`, nil, "test")
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
@@ -196,8 +205,8 @@ func TestParseConditionExprBooleanComposition(t *testing.T) {
 	if or.Left.Kind != CondNot || or.Left.Child.Kind != CondRef || or.Left.Child.Ref != "c" {
 		t.Errorf("or.Left = %+v, want CondNot{Child: CondRef{Ref: c}}", or.Left)
 	}
-	if or.Right.Kind != CondJinja || or.Right.JinjaExpr != "$1 < 10" {
-		t.Errorf("or.Right = %+v, want CondJinja{JinjaExpr: \"$1 < 10\"}", or.Right)
+	if or.Right.Kind != CondJinja || or.Right.JinjaExpr != "$[sensor.s] < 10" {
+		t.Errorf("or.Right = %+v, want CondJinja{JinjaExpr: \"$[sensor.s] < 10\"}", or.Right)
 	}
 }
 
@@ -234,12 +243,12 @@ func TestParseValueExprBareRef(t *testing.T) {
 }
 
 func TestParseValueExprJinjaClause(t *testing.T) {
-	tree, warnings := parseValueExpr(`jinja "$1" { weather.forecast_junglinster!pressure }`, nil, "test")
+	tree, warnings := parseValueExpr(`jinja "$[weather.forecast_junglinster!pressure]"`, nil, "test")
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
-	if tree.Kind != CondJinja || tree.JinjaExpr != "$1" || len(tree.JinjaSources) != 1 {
-		t.Errorf("tree = %+v, want a single CondJinja source", tree)
+	if tree.Kind != CondJinja || tree.JinjaExpr != "$[weather.forecast_junglinster!pressure]" || len(tree.JinjaSources) != 0 {
+		t.Errorf("tree = %+v, want a literal-string CondJinja head with one placeholder", tree)
 	}
 }
 
@@ -293,24 +302,32 @@ func TestRegisterLogicalDerivedConditionCapabilityRejectsValueOnBinarySensor(t *
 }
 
 // TestRegisterLogicalDerivedConditionCapabilityPerClauseLocalDollarScoping is the key semantic
-// regression test for the new grammar: two independent "jinja ... { ... }" clauses composed in one
-// "condition" must each resolve their OWN "$1"/"$2" placeholders from their OWN "{ ... }" list --
-// never a single global list, which is what makes composing multiple jinja clauses in one
-// expression unambiguous (the user's own explicit design).
+// regression test for composing multiple independent jinja clauses in one "condition": each
+// clause's own "$[domain.label]" placeholders (2026-10-05, PROJECT.md 1h) name their sources
+// directly, so there is no shared numbering at all to leak between clauses -- unlike the
+// 2026-09-24 grammar's positional "$1"/"$2" scoped to each clause's own "{ ... }" list, which this
+// test originally exercised. Kept (with updated syntax) as a plain two-independent-clauses
+// regression: nothing about one clause's own placeholders should affect the other's.
 func TestRegisterLogicalDerivedConditionCapabilityPerClauseLocalDollarScoping(t *testing.T) {
 	admin := newAdministrationState()
 	admin.LogicalEntityLinks["sensor.social_a"] = TLogicalEntityLink{DeviceID: "thing.x", Label: "a"}
 	admin.LogicalEntityLinks["sensor.social_b"] = TLogicalEntityLink{DeviceID: "thing.x", Label: "b"}
 	admin.LogicalEntityLinks["sensor.social_c"] = TLogicalEntityLink{DeviceID: "thing.x", Label: "c"}
+	// Their own DECLARATIONS (2026-09-28, mandatory jinja-source domain-qualification).
+	logicalDevicesByID := map[string]TLogicalDevice{
+		"thing.x": {DeviceID: "thing.x", Capabilities: map[string]TLogicalCapability{
+			"a": {Domain: "sensor"}, "b": {Domain: "sensor"}, "c": {Domain: "sensor"},
+		}},
+	}
 
-	tree, warnings := parseConditionExpr(`jinja "$1 < 10" { a } and jinja "($1|int) > ($2|int)" { b, c }`, nil, "test")
+	tree, warnings := parseConditionExpr(`jinja "$[sensor.a] < 10" and jinja "($[sensor.b]|int) > ($[sensor.c]|int)"`, nil, "test")
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected parse warnings: %v", warnings)
 	}
 
 	decl := TDeviceCapabilityEntityDeclaration{LocalSpec: "binary_sensor.social:combined", DeviceID: "thing.x", Capability: "binary_sensor.combined"}
 	capability := TLogicalCapability{Domain: "binary_sensor", IsDerivedCondition: true, DerivedCondition: tree}
-	regWarnings, deferred := registerLogicalDerivedConditionCapability(admin, decl, capability, "combined", "x", "Logical.def", 1, true, nil, nil, nil, nil, nil, nil)
+	regWarnings, deferred := registerLogicalDerivedConditionCapability(admin, decl, capability, "combined", "x", "Logical.def", 1, true, nil, nil, nil, nil, nil, logicalDevicesByID)
 	if deferred {
 		t.Fatalf("did not expect deferral -- all three siblings are already positioned")
 	}
@@ -322,15 +339,15 @@ func TestRegisterLogicalDerivedConditionCapabilityPerClauseLocalDollarScoping(t 
 	if !found {
 		t.Fatalf("no entity record registered for binary_sensor.social/x/combined")
 	}
-	// "a" ($1 of the first clause) must be substituted into "$1 < 10"; "b"/"c" ($1/$2 of the SECOND
-	// clause) must be substituted into "($1|int) > ($2|int)" -- NOT "a" leaking into the second
-	// clause's own $1, which a naive global-numbering scheme would produce.
+	// "a" must be substituted into the first clause's own "$[sensor.a] < 10"; "b"/"c" into the
+	// second clause's own "($[sensor.b]|int) > ($[sensor.c]|int)" -- each clause's placeholders
+	// resolved independently, with nothing from one clause affecting the other.
 	wantFirst := "states('sensor.social_a') < 10"
 	wantSecond := "(states('sensor.social_b')|int) > (states('sensor.social_c')|int)"
 	if !strings.Contains(rec.ConditionExpr, wantFirst) {
-		t.Errorf("ConditionExpr = %q, want it to contain %q (first clause's own local $1)", rec.ConditionExpr, wantFirst)
+		t.Errorf("ConditionExpr = %q, want it to contain %q (first clause's own substitution)", rec.ConditionExpr, wantFirst)
 	}
 	if !strings.Contains(rec.ConditionExpr, wantSecond) {
-		t.Errorf("ConditionExpr = %q, want it to contain %q (second clause's own local $1/$2)", rec.ConditionExpr, wantSecond)
+		t.Errorf("ConditionExpr = %q, want it to contain %q (second clause's own substitution)", rec.ConditionExpr, wantSecond)
 	}
 }

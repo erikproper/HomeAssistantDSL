@@ -224,7 +224,19 @@ func deviceHasCapability(capName, deviceID string, discoveryGatewaysByID map[str
 	}
 	if device, ok := hostDevicesByID[deviceID]; ok {
 		if mat, known := MaterializationForIntegrationType(device.IntegrationType); known {
-			if slices.Contains(mat.AttributeNames(device), capName) {
+			// "node" is real bug found live 2026-09-29 (Junglinster's ring_chime_hallway/corridor,
+			// migrating a bare "entity binary_sensor.infrastructural:ring_chime/node;" -- no "as"
+			// leaf, no "from" clause, relying purely on resolveLongestSuffixCapability's own
+			// progressive-stripping to find "node" as a suffix of "ring_chime/node"): a "hosts"
+			// device's own "node" capability is NEVER a real map entry in mat.AttributeNames() (it's
+			// synthesized on the fly from a ping check, exactly like registerHostCapabilityEntityLink's
+			// own "if bareName == \"node\"" special case handles separately) -- so this function's own
+			// hosts-kind branch always said "no" for "node", the ONE thing resolveLongestSuffixCapability
+			// was stripping down TO, silently defeating the whole general mechanism for this one kind.
+			// Every OTHER kind's own "node" is a genuine Physical.def-declared map entry already
+			// covered by that kind's own generic Capabilities[capName] check below -- hosts is the only
+			// kind needing this explicit exception, matching registerHostCapabilityEntityLink's own.
+			if capName == "node" || slices.Contains(mat.AttributeNames(device), capName) {
 				return true
 			}
 		}
@@ -245,6 +257,57 @@ func deviceHasCapability(capName, deviceID string, discoveryGatewaysByID map[str
 		}
 	}
 	return false
+}
+
+// lookupCapabilityDomain reports capName's own REAL declared domain on deviceID (whichever
+// integration kind it turns out to be), for the mandatory domain-qualification error message
+// (registerDeviceCapabilityEntityLinkAllowingHiddenCore, 2026-09-27) -- turns "add a domain
+// prefix" into an ACTIONABLE "write \"<real-domain>.<capability>\"" by mirroring
+// deviceHasCapability's own kind-by-kind scan, returning the domain instead of a bare bool.
+// "node" is special-cased for the "hosts" kind (mat.NodeDomain, not mat.AttributeDomain) --
+// exactly the same split registerHostCapabilityEntityLink's own dispatch already makes.
+func lookupCapabilityDomain(capName, deviceID string, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, hostDevicesByID map[string]THostDevice, commandlineDevicesByID map[string]TCommandlineDevice, localDevicesByID map[string]TLocalDevice, logicalDevicesByID map[string]TLogicalDevice) (string, bool) {
+	if gateway, ok := discoveryGatewaysByID[deviceID]; ok {
+		if cap, ok := gateway.Capabilities[capName]; ok {
+			return cap.Domain, true
+		}
+	}
+	if device, ok := hassBridgeDevicesByID[deviceID]; ok {
+		if cap, ok := device.Capabilities[capName]; ok {
+			return cap.Domain, true
+		}
+	}
+	if device, ok := importedDevicesByID[deviceID]; ok {
+		if cap, ok := device.Capabilities[capName]; ok {
+			return cap.Domain, true
+		}
+	}
+	if device, ok := hostDevicesByID[deviceID]; ok {
+		if mat, known := MaterializationForIntegrationType(device.IntegrationType); known {
+			if capName == "node" {
+				return mat.NodeDomain, true
+			}
+			if slices.Contains(mat.AttributeNames(device), capName) {
+				return mat.AttributeDomain, true
+			}
+		}
+	}
+	if device, ok := commandlineDevicesByID[deviceID]; ok {
+		if cap, ok := device.Capabilities[capName]; ok {
+			return cap.Kind, true
+		}
+	}
+	if device, ok := localDevicesByID[deviceID]; ok {
+		if cap, ok := device.Capabilities[capName]; ok {
+			return cap.Domain, true
+		}
+	}
+	if device, ok := logicalDevicesByID[deviceID]; ok {
+		if cap, ok := device.Capabilities[capName]; ok {
+			return cap.Domain, true
+		}
+	}
+	return "", false
 }
 
 // registerDeviceCapabilityEntityLink dispatches decl.DeviceID to whichever integration kind it
@@ -277,7 +340,7 @@ func registerDeviceCapabilityEntityLink(administration *TAdministrationState, de
 }
 
 // registerDeviceCapabilityEntityLinkAllowingHidden is registerDeviceCapabilityEntityLink's real
-// body, with one extra parameter: allowHidden. Every ordinary DSL-authored "entity ... from
+// entry point, with one extra parameter: allowHidden. Every ordinary DSL-authored "entity ... from
 // <device-id> <capability>;" line (parser.go's main dispatch loop and its deferred retry pass) goes
 // through the public wrapper above with allowHidden always false -- a hidden discovery capability
 // (integration_discovery_storage.go) may never be positioned directly by Spaces.def. The one
@@ -285,9 +348,71 @@ func registerDeviceCapabilityEntityLink(administration *TAdministrationState, de
 // underlying entity (Conceptual_DevicePositioning.go) -- that registration is what MAKES the
 // capability's value readable at all (a "derived" sibling's own reverse lookup needs a real
 // DiscoveryEntityLinks entry to find), so it calls this allowing-hidden entry point directly.
+//
+// A thin wrapper (2026-09-27, the "switched by" migration) around
+// registerDeviceCapabilityEntityLinkAllowingHiddenCore (the unchanged original body, every kind's
+// own dispatch): after a successful, non-deferred registration, ALSO checks whether this specific
+// (decl.DeviceID, capability-label) pair carries a Logical.def "is switched by" annotation
+// (logical_switched_by.go's maybeRegisterSwitchedByRelation) -- reusing this single choke point
+// (rather than each kind's own branch individually) because every kind funnels through here
+// uniformly, discovery/local (the physical light-armature/relay case this migration is FOR)
+// included, unlike administration.DeviceConceptualLinks (populated by some kinds, not others -- see
+// that file's own header comment for why this dispatcher, not that map, is the only reliable
+// universal hook). Applies identically regardless of which of the 3+ call sites reached here
+// (including registerLogicalAbsorbedCapability's own recursive call targeting a DIFFERENT device
+// id) -- each invocation only ever checks its OWN decl.DeviceID/label pair, so recursion is safe.
+//
+// bareName is resolved here, BEFORE Core runs (duplicating Core's own identical resolution,
+// deterministic given the same inputs -- capabilityIsInferred's resolveLongestSuffixCapability
+// never depends on anything Core itself mutates), so switchedBySuppressesEntity
+// (logical_switched_by.go) can tell Core whether THIS positioning is the "is switched by"
+// SelfEntity trigger -- if so, Core must skip generating its own raw entity for it entirely (a real
+// bug found live 2026-09-28: without this, Core's raw discovery/local entity and the switched-by
+// mechanism's own generated group both tried to claim the SAME entity_id, and the raw one won,
+// leaving the intended switched-light entity never actually created under its real name).
 func registerDeviceCapabilityEntityLinkAllowingHidden(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, hostDevicesByID map[string]THostDevice, commandlineDevicesByID map[string]TCommandlineDevice, localDevicesByID map[string]TLocalDevice, logicalDevicesByID map[string]TLogicalDevice, entitiesPath string, lineNum int, finalAttempt bool, deviceNamePath string, allowHidden bool, capabilityIsInferred bool) (warnings []string, deferred bool) {
+	bareName := bareCapabilityName(decl.Capability)
+	if capabilityIsInferred {
+		bareName = resolveLongestSuffixCapability(bareName, func(candidate string) bool {
+			return deviceHasCapability(candidate, decl.DeviceID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID)
+		})
+	}
+	suppressEntity := switchedBySuppressesEntity(administration, decl, bareName, deviceNamePath, logicalDevicesByID)
+
+	warnings, deferred = registerDeviceCapabilityEntityLinkAllowingHiddenCore(administration, decl, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, deviceNamePath, allowHidden, capabilityIsInferred, suppressEntity)
+	if deferred || len(warnings) > 0 {
+		return warnings, deferred
+	}
+
+	extraWarnings, extraDeferred := maybeRegisterSwitchedByRelation(administration, decl, bareName, deviceNamePath, logicalDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, hostDevicesByID, localDevicesByID, finalAttempt, entitiesPath, lineNum)
+	return append(warnings, extraWarnings...), extraDeferred
+}
+
+// registerDeviceCapabilityEntityLinkAllowingHiddenCore is the original dispatcher body, structurally
+// unchanged (see registerDeviceCapabilityEntityLinkAllowingHidden's own doc comment above for why
+// it's now wrapped rather than called directly) except for one new parameter, suppressEntityGeneration
+// -- when true, the discovery and local branches below skip their own final entity-generating call
+// (the capability's real entity_id is about to come from the "is switched by" group instead) while
+// still running every validation step first (domain-qualification, "does this device actually
+// declare this capability" -- an author error there must still surface as a warning regardless of
+// suppression).
+func registerDeviceCapabilityEntityLinkAllowingHiddenCore(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, hostDevicesByID map[string]THostDevice, commandlineDevicesByID map[string]TCommandlineDevice, localDevicesByID map[string]TLocalDevice, logicalDevicesByID map[string]TLogicalDevice, entitiesPath string, lineNum int, finalAttempt bool, deviceNamePath string, allowHidden bool, capabilityIsInferred bool, suppressEntityGeneration bool) (warnings []string, deferred bool) {
 	provenance := fmt.Sprintf("%s:%d → %s from %s %s", filepath.Base(entitiesPath), lineNum, decl.LocalSpec, decl.DeviceID, decl.Capability)
 	bareName := bareCapabilityName(decl.Capability)
+
+	// Mandatory domain-qualification (2026-09-27, the user's own "Note 3": "always include the
+	// domain when referring to a capability in a 'CC from YY' clause" -- generalized from a
+	// preference into a hard rule, since a bare, domain-less capability reference (e.g. "core"
+	// instead of "light.core") silently hid which domain the author actually meant, right up until
+	// this rule existed to catch it. Scoped to an EXPLICIT "entity X from Y Z;" reference only
+	// (capabilityIsInferred's own no-rename shorthand has no separate capability token to qualify
+	// at all -- Note 3 was about "CC from YY" clauses specifically, not that different shape).
+	if !capabilityIsInferred && !strings.Contains(decl.Capability, ".") {
+		if realDomain, found := lookupCapabilityDomain(decl.Capability, decl.DeviceID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID); found {
+			return []string{fmt.Sprintf("%s: capability reference %q has no domain prefix -- write %q", provenance, decl.Capability, realDomain+"."+decl.Capability)}, false
+		}
+		return []string{fmt.Sprintf("%s: capability reference %q has no domain prefix -- write the domain explicitly (e.g. %q), matching whatever domain %s's own Physical.def declaration actually gives it", provenance, decl.Capability, "<domain>."+decl.Capability, decl.DeviceID)}, false
+	}
 
 	// The no-rename shorthand's own inferred capability name is the entity's WHOLE compound leaf
 	// path (e.g. "aqara/node" from "entity binary_sensor.infrastructural:aqara/node;", no "from" at
@@ -388,6 +513,9 @@ func registerDeviceCapabilityEntityLinkAllowingHidden(administration *TAdministr
 			}
 			return registerDiscoveryDerivedEntityLink(administration, discoveryDecl, capability, discoveryGatewaysByID, deviceNamePath, entitiesPath, lineNum, finalAttempt)
 		}
+		if suppressEntityGeneration {
+			return nil, false
+		}
 		return registerDiscoveryEntityLink(administration, discoveryDecl, discoveryGatewaysByID, entitiesPath, lineNum, deviceNamePath, allowHidden), false
 	}
 
@@ -448,7 +576,11 @@ func registerDeviceCapabilityEntityLinkAllowingHidden(administration *TAdministr
 
 	if device, found := localDevicesByID[decl.DeviceID]; found {
 		if capability, capFound := device.Capabilities[bareName]; capFound {
-			return registerLocalCapabilityEntityLink(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum, finalAttempt)
+			if suppressEntityGeneration {
+				return nil, false
+			}
+			_, hasNodeCapability := device.Capabilities["node"]
+			return registerLocalCapabilityEntityLink(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum, hasNodeCapability, finalAttempt)
 		}
 		// Fall through to this SAME device id's Logical.def overlay before erroring -- mirrors the
 		// hassbridge/discovery/imported branches' own identical fallback (a "local" device's own id
@@ -530,13 +662,23 @@ func registerHostCapabilityEntityLink(administration *TAdministrationState, devi
 	}
 
 	if bareName == "node" {
-		link, hasLink := administration.DeviceConceptualLinks[deviceID]
-		if !hasLink {
-			if !finalAttempt {
-				return nil, true
-			}
-			return []string{fmt.Sprintf("%s: device %q has no \"device %s [as ...] with: ...;\" positioning yet -- add one (any space) before referencing one of its entities directly", provenance, deviceID, deviceID)}, true
-		}
+		// Real gap found live 2026-09-29 (Junglinster's ring_chime_hallway, absorbing
+		// node.ring_chime_hallway's own "node" -- a hosts/ping device NEVER otherwise directly
+		// referenced anywhere in Conceptual.def, relying entirely on Logical.def's own
+		// "condition node.ring_chime_hallway;" bare-device-id sugar): this used to require
+		// administration.DeviceConceptualLinks[deviceID] to ALREADY exist -- i.e. deviceID must
+		// have at least one OTHER direct Conceptual.def reference somewhere, deferring/erroring
+		// otherwise. That requirement was never actually load-bearing: Go's own zero-value for a
+		// missing map entry is already a perfectly usable empty TDeviceConceptualLink, and
+		// autoMaterializePhysicalCapability's own hosts-kind "node" branch (Conceptual_LogicalEntities.go)
+		// already proves creating a hosts device's own node entity with NO pre-existing link is
+		// safe -- it's exactly how "condition node.X;" resolves one today. Dropped the
+		// deferred-retry/error branch entirely: proceeding with the zero-value link (Go's own
+		// `administration.DeviceConceptualLinks[deviceID]`, present or not) now works uniformly
+		// for both an ordinary direct "entity X from Y node;" reference AND an absorb block's own
+		// recursive delegate call, matching the user's own explicit confirmation that a device
+		// referenced ONLY indirectly (never positioned on its own) should still resolve.
+		link := administration.DeviceConceptualLinks[deviceID]
 		fullName := resolveDeviceEntityFullName(localSpec, administration.SpacePath, deviceNamePath)
 		if identity := extractEntityIdentity(fullName); identity.Domain == "" {
 			return []string{fmt.Sprintf("%s: could not resolve a domain from %q; skipping", provenance, localSpec)}, false
@@ -559,8 +701,38 @@ func registerHostCapabilityEntityLink(administration *TAdministrationState, devi
 		return []string{fmt.Sprintf("%s: device %q has no \"device %s [as ...] with: ...;\" positioning yet -- add one (any space) before referencing one of its entities directly", provenance, deviceID, deviceID)}, true
 	}
 
+	// Real bug found live 2026-10-04, migrating server.xanadu/server.backups (the first-ever absorb
+	// of a hosts-kind device's own attribute into a DIFFERENT logical device): this used to trust
+	// link.HostIdentity unconditionally -- correct ONLY when deviceID's own link was established by
+	// ITS OWN direct Conceptual.def positioning (registerHostDeviceIdentity, always sphere
+	// "infrastructural"). For an absorb block's recursive delegate call
+	// (registerLogicalAbsorbedCapability), deviceID is the ABSORBED SOURCE device, which may never
+	// be directly positioned at all -- hasLink can still be true because
+	// autoMaterializePhysicalCapability's own "node" branch (Conceptual_LogicalEntities.go) lazily
+	// created a zero-value link and stamped its OWN synthetic "physical/<device-id>" shadow identity
+	// onto HostIdentity, as a side effect of this SAME source device's bare "node.X" liveness being
+	// referenced elsewhere (e.g. Logical.def's own hand-written "node" condition). Blindly reusing
+	// that shadow identity here produced a wrong, shadow-named entity (e.g.
+	// "sensor.physical_node_backups_cpu_load" instead of the real
+	// "sensor.infrastructural_house_storage_room_backups_cpu_load"), silently duplicated into the
+	// room-level temperature aggregate besides (that aggregate deliberately excludes sphere
+	// "infrastructural" node/cpu sensors, but has no reason to know about "physical" shadows too).
+	// Fixed: only trust link.HostIdentity when it's a genuine direct positioning (sphere
+	// "infrastructural"); otherwise build the identity fresh from deviceNamePath/SpacePath instead --
+	// the exact same formula registerDevicePositioning uses for a device's own identity, correctly
+	// reflecting the ABSORBING device's own position here (per registerLogicalAbsorbedCapability's
+	// own doc comment: "the resulting entity is positioned/named as part of the HOST device").
+	deviceIdentity := link.HostIdentity
+	if deviceIdentity.Sphere != "infrastructural" {
+		deviceSpecForIdentity := deviceNamePath
+		if deviceSpecForIdentity != "" {
+			deviceSpecForIdentity = "infrastructural:" + deviceSpecForIdentity
+		}
+		deviceIdentity = extractEntityIdentity(normalizeEntityFullName("device."+deviceSpecForIdentity, administration.SpacePath))
+	}
+
 	spaceName := administration.CurrentSpaceName()
-	registerHostAttributeEntity(administration, mat, device, link.HostIdentity, spaceName, provenance, link, bareName)
+	registerHostAttributeEntity(administration, mat, device, deviceIdentity, spaceName, provenance, link, bareName)
 	administration.DeviceConceptualLinks[deviceID] = link
 	return nil, false
 }

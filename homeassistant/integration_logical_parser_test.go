@@ -50,6 +50,76 @@ func TestParseLogicalLayerBodyMultipleDependencies(t *testing.T) {
 	}
 }
 
+// TestParseLogicalLayerBodyEnabledBy covers the device-level "<domain>.<label> enabled by
+// <domain>.<label> from <device-id>;" line (2026-09-28, replacing the old plain "enabler
+// <device-id>;" form), both alongside "dependency on" and as the block form's own single line.
+func TestParseLogicalLayerBodyEnabledBy(t *testing.T) {
+	devices, warnings := parseLogicalLayerBody([]string{
+		"device appliance.tv_living_room with:",
+		"  dependency on utility.sonytv;",
+		"  media_player.core enabled by switch.core from switch.house_living_room_tv;",
+		"end;",
+	}, nil)
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("got %d devices, want 1", len(devices))
+	}
+	d := devices[0]
+	if d.EnabledBy == nil {
+		t.Fatalf("EnabledBy = nil, want a fact")
+	}
+	want := TLogicalEnabledByFact{OwnDomain: "media_player", OwnLabel: "core", SourceDomain: "switch", SourceLabel: "core", SourceDeviceID: "switch.house_living_room_tv"}
+	if *d.EnabledBy != want {
+		t.Errorf("EnabledBy = %+v, want %+v", *d.EnabledBy, want)
+	}
+	if len(d.DependsOn) != 1 || d.DependsOn[0] != "utility.sonytv" {
+		t.Errorf("DependsOn = %v, want [utility.sonytv]", d.DependsOn)
+	}
+}
+
+// TestParseLogicalLayerBodyDeviceLevelDelayOff covers the device-level "delay_off <time>;" line
+// (2026-09-28, Vienna's own appliance.tv -- carries a debounce into the "enabled by" sugar's own
+// synthesized "node" capability, TLogicalDevice.NodeDelayOff's own doc comment), alongside
+// "dependency on" and "enabled by" in the same block.
+func TestParseLogicalLayerBodyDeviceLevelDelayOff(t *testing.T) {
+	devices, warnings := parseLogicalLayerBody([]string{
+		"device appliance.tv with:",
+		"  dependency on node.tv;",
+		"  delay_off 00:01:00;",
+		"  media_player.core enabled by switch.core from appliance.living_room_tv;",
+		"end;",
+	}, nil)
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("got %d devices, want 1", len(devices))
+	}
+	if devices[0].NodeDelayOff != "00:01:00" {
+		t.Errorf("NodeDelayOff = %q, want 00:01:00", devices[0].NodeDelayOff)
+	}
+}
+
+// TestParseLogicalLayerBodyOneLinerEnabledBy covers the single-statement "with <domain>.<label>
+// enabled by ...;" shorthand (no "dependency on" alongside it).
+func TestParseLogicalLayerBodyOneLinerEnabledBy(t *testing.T) {
+	devices, warnings := parseLogicalLayerBody([]string{
+		"device appliance.sonos_garage with media_player.core enabled by switch.core from switch.garage_sonos_plug;",
+	}, nil)
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(devices) != 1 || devices[0].EnabledBy == nil {
+		t.Fatalf("devices = %+v, want exactly one with a non-nil EnabledBy", devices)
+	}
+	want := TLogicalEnabledByFact{OwnDomain: "media_player", OwnLabel: "core", SourceDomain: "switch", SourceLabel: "core", SourceDeviceID: "switch.garage_sonos_plug"}
+	if *devices[0].EnabledBy != want {
+		t.Errorf("EnabledBy = %+v, want %+v", *devices[0].EnabledBy, want)
+	}
+}
+
 // TestParseLogicalLayerBodyOneLinerDependencyOn is the regression test for the picture_frame case
 // found live 2026-09-25: a device declaring exactly one "dependency on <id>;" body line can now be
 // written as a single-line shorthand, "device <id> with dependency on <id>;", instead of the full
@@ -503,15 +573,38 @@ func TestParseLogicalLayerBodyDefinedInputNumber(t *testing.T) {
 	}
 }
 
+// TestParseLogicalLayerBodyDefinedOneLiner covers the new one-liner shorthand for a "defined"
+// block with a single field (2026-09-27, the generic with-clause dispatcher, with_clause.go) --
+// rarely useful given every real case so far needs all five fields, but free once the shared
+// statement list exists, and consistent with every other with-clause consumer gaining one.
+func TestParseLogicalLayerBodyDefinedOneLiner(t *testing.T) {
+	devices, warnings := parseLogicalLayerBody([]string{
+		"device sensors.x with:",
+		"  defined input_number.threshold with minimum 5;",
+		"end;",
+	}, nil)
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	capEntry, ok := devices[0].Capabilities["threshold"]
+	if !ok {
+		t.Fatalf("Capabilities = %+v, want a %q entry", devices[0].Capabilities, "threshold")
+	}
+	if !capEntry.IsDefinedInputNumber || capEntry.Domain != "input_number" || capEntry.DefinedMinimum != "5" {
+		t.Errorf("capEntry = %+v, want IsDefinedInputNumber=true Domain=input_number DefinedMinimum=5", capEntry)
+	}
+}
+
 // TestParseLogicalLayerBodyDerivedCondition covers the "derived <domain>.<label> with: condition
-// jinja "<expr>" { ... }; device_class ...; delay_on ...; delay_off ...; end;" block (2026-09-18,
-// grammar redesigned 2026-09-24) -- the "windy" capability's own shape, replacing Macros.def's
-// "windy" macro's "condition ${entity} ${windy_threshold} ...;" line.
+// jinja "<expr-with-$[domain.label]-placeholders>"; device_class ...; delay_on ...; delay_off ...;
+// end;" block (2026-09-18, grammar redesigned 2026-09-24, named placeholders 2026-10-05,
+// PROJECT.md 1h) -- the "windy" capability's own shape, replacing Macros.def's "windy" macro's
+// "condition ${entity} ${windy_threshold} ...;" line.
 func TestParseLogicalLayerBodyDerivedCondition(t *testing.T) {
 	devices, warnings := parseLogicalLayerBody([]string{
 		"device sensors.vienna_terrace_wind with:",
 		`  derived binary_sensor.windy with:`,
-		`    condition jinja "($1 in ['unknown', 'unavailable']) or (($1 | int) > ($2 | int))" { wind_speed, windy_threshold };`,
+		`    condition jinja "($[sensor.wind_speed] in ['unknown', 'unavailable']) or (($[sensor.wind_speed] | int) > ($[input_number.windy_threshold] | int))";`,
 		"    device_class wind;",
 		"    delay_on  00:01:00;",
 		"    delay_off 00:10:00;",
@@ -534,14 +627,12 @@ func TestParseLogicalLayerBodyDerivedCondition(t *testing.T) {
 	if capEntry.DerivedCondition == nil || capEntry.DerivedCondition.Kind != CondJinja {
 		t.Fatalf("DerivedCondition = %+v, want a single CondJinja node", capEntry.DerivedCondition)
 	}
-	wantExpr := "($1 in ['unknown', 'unavailable']) or (($1 | int) > ($2 | int))"
+	wantExpr := "($[sensor.wind_speed] in ['unknown', 'unavailable']) or (($[sensor.wind_speed] | int) > ($[input_number.windy_threshold] | int))"
 	if capEntry.DerivedCondition.JinjaExpr != wantExpr {
 		t.Errorf("JinjaExpr = %q, want %q", capEntry.DerivedCondition.JinjaExpr, wantExpr)
 	}
-	wantOver := []string{"wind_speed", "windy_threshold"}
-	gotOver := capEntry.DerivedCondition.JinjaSources
-	if len(gotOver) != len(wantOver) || gotOver[0] != wantOver[0] || gotOver[1] != wantOver[1] {
-		t.Errorf("JinjaSources = %v, want %v", gotOver, wantOver)
+	if len(capEntry.DerivedCondition.JinjaSources) != 0 {
+		t.Errorf("JinjaSources = %v, want nil/empty (a literal-string head embeds its own sources)", capEntry.DerivedCondition.JinjaSources)
 	}
 	if capEntry.DerivedDeviceClass != "wind" || capEntry.DelayOn != "00:01:00" || capEntry.DelayOff != "00:10:00" {
 		t.Errorf("capEntry = %+v, want DerivedDeviceClass=wind DelayOn=00:01:00 DelayOff=00:10:00", capEntry)
@@ -561,7 +652,7 @@ func TestParseLogicalLayerBodyDefinedAndDerivedCoexist(t *testing.T) {
 		"    units km/h;",
 		"  end;",
 		`  derived binary_sensor.windy with:`,
-		`    condition jinja "($1|int) > ($2|int)" { wind_speed, windy_threshold };`,
+		`    condition jinja "($[sensor.wind_speed]|int) > ($[input_number.windy_threshold]|int)";`,
 		"    device_class wind;",
 		"    delay_on  00:01:00;",
 		"    delay_off 00:10:00;",
@@ -611,7 +702,7 @@ func TestParseLogicalLayerBodyDerivedConditionJinjaNamedTemplateCall(t *testing.
 	devices, warnings := parseLogicalLayerBody([]string{
 		"device appliance.sonos_roam with:",
 		"  derived binary_sensor.battery_alert with:",
-		"    condition jinja ${int_less_then}(10) { sensor.infrastructural_apartment_bedroom_sonos_battery_level };",
+		"    condition jinja (sensor.infrastructural_apartment_bedroom_sonos_battery_level) ${int_less_then}(10);",
 		"  end;",
 		"end;",
 	}, jinjaTemplates)
@@ -642,7 +733,7 @@ func TestParseLogicalLayerBodyDerivedConditionJinjaNamedTemplateCallWarnsOnUndec
 	_, warnings := parseLogicalLayerBody([]string{
 		"device appliance.sonos_roam with:",
 		"  derived binary_sensor.battery_alert with:",
-		"    condition jinja ${no_such_template}(10) { sensor.battery_level };",
+		"    condition jinja (sensor.battery_level) ${no_such_template}(10);",
 		"  end;",
 		"end;",
 	}, map[string]TJinjaTemplateDefinition{})
@@ -743,6 +834,134 @@ func TestRegisterLogicalDerivedConditionCapabilityResolvesLiteralEntityAttribute
 	}
 	if rec.ConditionExpr != "state_attr('weather.forecast', 'pressure')" {
 		t.Errorf("ConditionExpr = %q, want state_attr('weather.forecast', 'pressure')", rec.ConditionExpr)
+	}
+}
+
+// TestParseLogicalLayerBodySwitchedBy covers the block-form "<domain>.<label> is switched by
+// <domain>.<label> from <device-id>;" line (2026-09-27, the "switched_device" migration).
+func TestParseLogicalLayerBodySwitchedBy(t *testing.T) {
+	devices, warnings := parseLogicalLayerBody([]string{
+		"device sensors.server_room_main_spots with:",
+		"  light.core is switched by light.light_2 from switches.house_server_room_fuse_box_zwave_048;",
+		"end;",
+	}, nil)
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("got %d devices, want 1", len(devices))
+	}
+	d := devices[0]
+	fact, ok := d.SwitchedBy["core"]
+	if !ok {
+		t.Fatalf("SwitchedBy[%q] missing, got %v", "core", d.SwitchedBy)
+	}
+	want := TLogicalSwitchedByFact{
+		OwnDomain:      "light",
+		SourceDomain:   "light",
+		SourceLabel:    "light_2",
+		SourceDeviceID: "switches.house_server_room_fuse_box_zwave_048",
+	}
+	if fact != want {
+		t.Errorf("SwitchedBy[core] = %+v, want %+v", fact, want)
+	}
+}
+
+// TestParseLogicalLayerBodyOneLinerSwitchedBy covers the single-statement "with <domain>.<label>
+// is switched by <domain>.<label> from <device-id>;" shorthand.
+func TestParseLogicalLayerBodyOneLinerSwitchedBy(t *testing.T) {
+	devices, warnings := parseLogicalLayerBody([]string{
+		"device sensors.corridor_main_spots with light.core is switched by light.light_1 from switches.house_server_room_fuse_box_zwave_048;",
+	}, nil)
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("got %d devices, want 1", len(devices))
+	}
+	fact, ok := devices[0].SwitchedBy["core"]
+	if !ok {
+		t.Fatalf("SwitchedBy[%q] missing, got %v", "core", devices[0].SwitchedBy)
+	}
+	want := TLogicalSwitchedByFact{
+		OwnDomain:      "light",
+		SourceDomain:   "light",
+		SourceLabel:    "light_1",
+		SourceDeviceID: "switches.house_server_room_fuse_box_zwave_048",
+	}
+	if fact != want {
+		t.Errorf("SwitchedBy[core] = %+v, want %+v", fact, want)
+	}
+}
+
+// TestParseLogicalLayerBodyCapabilityOneLinerNoPlayInput is the regression test for a real bug
+// found live: the user's own hand-written one-liner "switch.media media_player.X with
+// no_play_input \"TV\";" (collapsing the block form's "with: no_play_input ...; end;") used to
+// silently fall through to logicalCapabilityPattern's own permissive catch-all, swallowing
+// "with no_play_input \"TV\"" as literal (garbage) entity text instead of being recognised --
+// "with clauses are with clauses," the SAME single-statement collapsing rule the device-level
+// one-liner already gets must also apply to a capability's own "with:" block.
+func TestParseLogicalLayerBodyCapabilityOneLinerNoPlayInput(t *testing.T) {
+	devices, warnings := parseLogicalLayerBody([]string{
+		`device appliance.sonos_playbar_livingroom with:`,
+		`  switch.media media_player.social_house_living_room_sonos with no_play_input "TV";`,
+		`end;`,
+	}, nil)
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("got %d devices, want 1", len(devices))
+	}
+	cap, ok := devices[0].Capabilities["media"]
+	if !ok {
+		t.Fatalf("Capabilities[media] missing, got %v", devices[0].Capabilities)
+	}
+	if cap.Entity != "media_player.social_house_living_room_sonos" {
+		t.Errorf("Entity = %q, want the plain media_player entity id (no \"with no_play_input\" text leaking in)", cap.Entity)
+	}
+	if cap.NoPlayInput != "TV" {
+		t.Errorf("NoPlayInput = %q, want %q", cap.NoPlayInput, "TV")
+	}
+}
+
+// TestParseLogicalLayerBodyCapabilityOneLinerEnabler covers the same one-liner shorthand for the
+// "enabler <entity-ref>;" refinement.
+func TestParseLogicalLayerBodyCapabilityOneLinerEnabler(t *testing.T) {
+	devices, warnings := parseLogicalLayerBody([]string{
+		`device appliance.x with:`,
+		`  binary_sensor.node utility.x is available with enabler switch.y;`,
+		`end;`,
+	}, nil)
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	cap, ok := devices[0].Capabilities["node"]
+	if !ok {
+		t.Fatalf("Capabilities[node] missing, got %v", devices[0].Capabilities)
+	}
+	if !cap.IsAvailable || cap.Entity != "utility.x" {
+		t.Errorf("Entity/IsAvailable = %q/%v, want \"utility.x\"/true", cap.Entity, cap.IsAvailable)
+	}
+	if cap.EnablerEntity != "switch.y" {
+		t.Errorf("EnablerEntity = %q, want %q", cap.EnablerEntity, "switch.y")
+	}
+}
+
+// TestParseLogicalLayerBodyCapabilityOneLinerRejectsMultiStatement covers the guard: a "with"
+// body that ISN'T one of the recognised single-statement shapes warns clearly rather than being
+// silently misparsed (matching logicalDeviceOneLinerPattern's own equivalent guard).
+func TestParseLogicalLayerBodyCapabilityOneLinerRejectsMultiStatement(t *testing.T) {
+	devices, warnings := parseLogicalLayerBody([]string{
+		`device appliance.x with:`,
+		`  switch.media media_player.y with something_unrecognised "z";`,
+		`end;`,
+	}, nil)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "isn't a recognised single-statement form") {
+		t.Fatalf("warnings = %v, want exactly one \"isn't a recognised single-statement form\" warning", warnings)
+	}
+	if _, ok := devices[0].Capabilities["media"]; ok {
+		t.Errorf("expected no Capabilities[media] entry for the rejected one-liner")
 	}
 }
 

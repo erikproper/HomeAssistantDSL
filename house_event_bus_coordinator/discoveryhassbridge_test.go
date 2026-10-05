@@ -151,8 +151,14 @@ func TestSubscribeHassBridgePublishesDiscoveryAndState(t *testing.T) {
 		if body["state_topic"] != localTopic {
 			t.Errorf("state_topic = %v, want %q (pure relay, no republishing)", body["state_topic"], localTopic)
 		}
-		if body["name"] != "infrastructural/house/downward_hallway/laserjet/status" {
-			t.Errorf("name = %v, want the device location baked in ahead of the bare capability", body["name"])
+		// name is DisplaySuffix ALONE ("status") -- real bug fixed 2026-09-29: the old code baked
+		// devBlock.Name in ahead of it ("infrastructural/house/downward_hallway/laserjet/status"),
+		// a non-null string HA then combined with device.name itself, doubling the device's own
+		// location into the displayed friendly_name. HA auto-combines a short leaf label like
+		// "status" with device.name on its own -- see buildHassBridgeEntityDiscoveryBody's own
+		// updated doc comment.
+		if body["name"] != "status" {
+			t.Errorf("name = %v, want the bare DisplaySuffix (\"status\"), left for HA to combine with device.name itself", body["name"])
 		}
 		device, ok := body["device"].(map[string]interface{})
 		if !ok {
@@ -163,6 +169,65 @@ func TestSubscribeHassBridgePublishesDiscoveryAndState(t *testing.T) {
 		}
 		if device["model"] != "LaserJet P1102w" {
 			t.Errorf("device.model = %v, want the declared constant attribute", device["model"])
+		}
+	}
+	if !found {
+		t.Errorf("expected a discovery config published to %q, got %v", wantTopic, client.published)
+	}
+}
+
+// TestSubscribeHassBridgePublishesNullNameWhenDisplaySuffixEmpty is the regression test for the
+// real bug found live 2026-09-29 (Junglinster's "utility.somfy_kitchen" cover, reported
+// friendly_name "house/kitchen house/kitchen/cover" -- doubled, since a non-null "name" is always
+// combined with device.name by HA for a device-grouped MQTT entity). A capability whose own
+// DisplaySuffix is empty (its device's own display name already conveys everything -- e.g. a
+// single-capability device with no separate leaf worth naming) must publish a literal JSON null
+// for "name", not devBlock.Name repeated.
+func TestSubscribeHassBridgePublishesNullNameWhenDisplaySuffixEmpty(t *testing.T) {
+	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
+		"hass.somfy_kitchen": {
+			Instances:   []string{"protocols-server-2"},
+			DisplayName: "house/kitchen",
+			Capabilities: map[string]THassBridgeCapability{
+				"cover": {
+					SourceEntities: map[string]string{"protocols-server-2": "cover.somfy_kitchen"},
+					LocalEntity:    "cover.social_house_kitchen",
+					DisplaySuffix:  "",
+				},
+			},
+		},
+	}}
+
+	localTopic := "homeassistant_instances/protocols-server-2/bridge/cover.social_house_kitchen/state"
+	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte("open")}}}
+	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
+	store := NewLiveDeviceInfoStore("", nil)
+
+	if err := subscribeHassBridge(client, nil, "", bridgeFile, store, publisher, testPrefix, nil); err != nil {
+		t.Fatalf("subscribeHassBridge error: %v", err)
+	}
+
+	wantTopic, ok := hassBridgeDiscoveryTopic("cover.social_house_kitchen", testPrefix)
+	if !ok {
+		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
+	}
+
+	found := false
+	for _, p := range client.published {
+		if p.topic != wantTopic {
+			continue
+		}
+		found = true
+		var body map[string]interface{}
+		if err := json.Unmarshal(p.payload, &body); err != nil {
+			t.Fatalf("unmarshalling discovery payload: %v", err)
+		}
+		name, present := body["name"]
+		if !present {
+			t.Fatalf("name key missing entirely, want an explicit JSON null (present, value nil)")
+		}
+		if name != nil {
+			t.Errorf("name = %v, want nil (JSON null, \"device name alone\") -- not devBlock.Name repeated", name)
 		}
 	}
 	if !found {

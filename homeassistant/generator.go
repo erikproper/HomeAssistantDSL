@@ -90,15 +90,10 @@ func runGenerationFromDefFile(cwd, defPath string) error {
 func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label string) (*TAdministrationState, error) {
 	fmt.Printf("%s: reading configuration...\n", label)
 
-	ctx, err := loadMacroContext(sharedDefinitionDir)
-	if err != nil {
-		return nil, err
-	}
-
 	sharedSettingsBytes, _ := os.ReadFile(filepath.Join(sharedDefinitionDir, "Settings.def"))
 	localSettingsBytes, _ := os.ReadFile(filepath.Join(definitionDir, "Settings.def"))
 	combinedSettings := string(sharedSettingsBytes) + "\n" + string(localSettingsBytes)
-	ctx.Settings = parseDefinitionAssignments(combinedSettings)
+	settings := parseDefinitionAssignments(combinedSettings)
 
 	fmt.Printf("%s: interpreting entities...\n", label)
 
@@ -122,8 +117,16 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 		fmt.Printf("[physical] %s\n", w)
 	}
 
-	logicalByID, logicalWarnings := collectLogicalDevicesByID(definitionDir, ctx.Settings)
+	logicalByID, logicalWarnings := collectLogicalDevicesByID(definitionDir, settings)
 	for _, w := range logicalWarnings {
+		fmt.Printf("[logical] %s\n", w)
+	}
+	isHassbridgeOrImport := func(deviceID string) bool {
+		_, isHassBridge := hassBridgeDevicesByID[deviceID]
+		_, isImported := importedDevicesByID[deviceID]
+		return isHassBridge || isImported
+	}
+	for _, w := range applyLogicalEnablerDependencySugar(logicalByID, isHassbridgeOrImport, loadJinjaTemplateDefinitions(definitionDir)) {
 		fmt.Printf("[logical] %s\n", w)
 	}
 
@@ -153,8 +156,12 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 		fmt.Printf("[physical] %s\n", w)
 	}
 
-	for _, w := range validateBatteryLevelAlertBiconditional(hassBridgeDevicesByID, importedDevicesByID, discoveryGatewaysByID) {
+	for _, w := range validateBatteryLevelAlertBiconditional(hostDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, localDevicesByID) {
 		fmt.Printf("[physical] %s\n", w)
+	}
+
+	for _, w := range validateLogicalBatteryLevelAlertBiconditional(logicalByID) {
+		fmt.Printf("[logical] %s\n", w)
 	}
 
 	for _, w := range validatePowerImpliesConsumes(hassBridgeDevicesByID, importedDevicesByID, discoveryGatewaysByID) {
@@ -181,7 +188,7 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 
 	var report strings.Builder
 	parseResult, err := ParseEntitiesAndFillAdministration(
-		strings.Split(entitiesContent, "\n"), entitiesLineNos, entitiesPath, ctx, &report, hostDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, localDevicesByID, logicalByID, capabilityDefaults)
+		strings.Split(entitiesContent, "\n"), entitiesLineNos, entitiesPath, settings, &report, hostDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, localDevicesByID, logicalByID, capabilityDefaults)
 	if err != nil {
 		return nil, err
 	}
@@ -1933,14 +1940,17 @@ func generateMediaSwitches(outputDir string, admin *TAdministrationState) error 
 		// Derive the turn_off list: leaf media switches + child aggregate media switches.
 		var offItems []string
 		for _, player := range sortedCopy(leafPlayers) {
-			// Build leaf switch name: strip "media_player." prefix and sphere/path up to the space,
-			// then take the last segment as the player shortname within the space.
-			playerPath := player[len("media_player."):]
-			dotIdx := strings.Index(playerPath, "/")
-			if dotIdx >= 0 {
-				playerPath = playerPath[dotIdx+1:]
-			}
-			switchName := "switch." + spaceName + "/" + lastPathSegment(playerPath) + "/media"
+			// Build leaf switch name: strip "media_player." and this space's own exact "sphere/path/"
+			// prefix, keeping the player's own FULL remaining sub-path as its shortname within the
+			// space -- real bug found live 2026-09-30 (Junglinster's "sonos_headphones", positioned
+			// two segments deep as "sonos/headphones" rather than directly under the space like every
+			// other media player): the old code took only the LAST segment ("headphones"), silently
+			// dropping "sonos/" and producing a switch name ("switch.house/headphones/media") that was
+			// never actually generated, instead of the real one ("switch.house/sonos/headphones/media").
+			// That had worked by coincidence for every single-segment player (e.g. "garage/sonos"),
+			// where the last segment and the full sub-path are the same string.
+			playerPath := strings.TrimPrefix(player[len("media_player."):], spaceName+"/")
+			switchName := "switch." + spaceName + "/" + playerPath + "/media"
 			offItems = append(offItems, switchName)
 		}
 		offItems = append(offItems, sortedCopy(childMediaSwitches)...)
@@ -2771,6 +2781,9 @@ func generateAutomations(outputDir string, admin *TAdministrationState) error {
 		return err
 	}
 	if err := generateFollowsAutomations(outputDir, admin); err != nil {
+		return err
+	}
+	if err := generateWhenRuleAutomations(outputDir, admin); err != nil {
 		return err
 	}
 	if err := generateSwitchedDeviceAutomations(outputDir, admin); err != nil {
@@ -3924,40 +3937,52 @@ func writeYAMLFile(path, content string) error {
 
 // --- follows automations ---
 
+// buildStateTriggerAutomationYAML renders one "entity X changes to triggerState -> call
+// actionDomain.turn_<actionState> on actionEntity" automation, exactly the shape both
+// generateFollowsAutomations and generateWhenRuleAutomations need -- a "follows <follower>
+// <leader>;" directive really is just permanent sugar for two of these (see TWhenRule's own doc
+// comment), and sharing this one builder is what makes that "sugar for" relationship real at the
+// implementation level rather than just a comment. triggerState/actionState are "on"/"off".
+func buildStateTriggerAutomationYAML(aliasPath, automationID, triggerEntity, triggerState, actionDomain, actionEntity, actionState string) string {
+	var sb strings.Builder
+	sb.WriteString(generatorHeader)
+	sb.WriteString("- alias: " + aliasPath + "\n")
+	sb.WriteString("  id: automation." + automationID + "\n")
+	sb.WriteString("  initial_state: True\n")
+	sb.WriteString("  trigger:\n")
+	sb.WriteString("  - platform: state\n")
+	sb.WriteString("    entity_id: " + triggerEntity + "\n")
+	sb.WriteString("    to: '" + triggerState + "'\n")
+	sb.WriteString("  action:\n")
+	sb.WriteString("  - service: " + actionDomain + ".turn_" + actionState + "\n")
+	sb.WriteString("    entity_id: " + actionEntity + "\n")
+	return sb.String()
+}
+
+// generateFollowsAutomations names each pair "<sphere1>/<path1>/<domain1>/follows/turn_on|off/
+// <sphere2>/<path2>/<domain2>" (2026-09-29, replacing the earlier "<followerPath>/follows/
+// <leaderDomain>/<leaderPath>/turn_on|off" shape) -- symmetric in follower/leader (each contributes
+// its own full "sphere/path/domain" triple), matching the naming the user settled on for the new
+// named "rule" construct's own sibling automations (generateWhenRuleAutomations).
 func generateFollowsAutomations(outputDir string, admin *TAdministrationState) error {
 	for _, rel := range admin.FollowsRelations {
 		followerID := toHomeAssistantEntityID(rel.Follower)
 		leaderID := toHomeAssistantEntityID(rel.Leader)
 
 		followerPath := rel.Follower[strings.Index(rel.Follower, ".")+1:]
+		followerDomain := rel.Follower[:strings.Index(rel.Follower, ".")]
 		leaderPath := rel.Leader[strings.Index(rel.Leader, ".")+1:]
 		leaderDomain := rel.Leader[:strings.Index(rel.Leader, ".")]
 
 		sphere := entitySphere(rel.Follower)
 
 		for _, dir := range []string{"turn_on", "turn_off"} {
-			aliasPath := followerPath + "/follows/" + leaderDomain + "/" + leaderPath + "/" + dir
+			state := strings.TrimPrefix(dir, "turn_")
+			aliasPath := followerPath + "/" + followerDomain + "/follows/" + dir + "/" + leaderPath + "/" + leaderDomain
 			automationID := strings.ReplaceAll(aliasPath, "/", "_")
-			service := leaderDomain + "." + dir
 
-			var sb strings.Builder
-			sb.WriteString(generatorHeader)
-			sb.WriteString("- alias: " + aliasPath + "\n")
-			sb.WriteString("  id: automation." + automationID + "\n")
-			sb.WriteString("  initial_state: True\n")
-			sb.WriteString("  trigger:\n")
-			sb.WriteString("  - platform: state\n")
-			sb.WriteString("    entity_id: " + leaderID + "\n")
-			if dir == "turn_on" {
-				sb.WriteString("    to: 'on'\n")
-			} else {
-				sb.WriteString("    to: 'off'\n")
-			}
-			sb.WriteString("  action:\n")
-			sb.WriteString("  - service: " + service + "\n")
-			sb.WriteString("    entity_id: " + followerID + "\n")
-
-			if err := writeAutomationFile(outputDir, sphere, automationID, sb.String()); err != nil {
+			content := buildStateTriggerAutomationYAML(aliasPath, automationID, leaderID, state, leaderDomain, followerID, state)
+			if err := writeAutomationFile(outputDir, sphere, automationID, content); err != nil {
 				return err
 			}
 		}
@@ -3965,24 +3990,66 @@ func generateFollowsAutomations(outputDir string, admin *TAdministrationState) e
 	return nil
 }
 
+// --- when-rule automations ---
+
+// generateWhenRuleAutomations writes one automation per TWhenRule, named directly off the rule's
+// own explicit "rule <spec>" Name (2026-09-29, replacing the earlier trigger/action-derived
+// "<eventPath>/when/turns_.../then/turn_..." shape -- that derivation stops being mechanically
+// possible once a rule can have several triggers/conditions/actions, which is exactly why the
+// name became mandatory; see TWhenRule's own doc comment). One automation per rule, unlike
+// follows' two: a when-rule's own trigger state and action state are independently chosen by the
+// DSL author (e.g. removing_smell's own rule only ever needs the "turns on" direction), not
+// automatically paired on/off like follows always is. The output sphere/directory now comes from
+// the rule's own Name (its first "/"-segment) rather than the event entity's sphere -- the rule
+// has its own identity now, independent of which entity happens to trigger it.
+func generateWhenRuleAutomations(outputDir string, admin *TAdministrationState) error {
+	for _, rule := range admin.WhenRules {
+		eventID := toHomeAssistantEntityID(rule.EventEntity)
+		actionID := toHomeAssistantEntityID(rule.ActionEntity)
+		actionDomain := rule.ActionEntity[:strings.Index(rule.ActionEntity, ".")]
+
+		sphere := rule.Name
+		if slashIdx := strings.Index(sphere, "/"); slashIdx >= 0 {
+			sphere = sphere[:slashIdx]
+		}
+
+		automationID := strings.ReplaceAll(rule.Name, "/", "_")
+
+		content := buildStateTriggerAutomationYAML(rule.Name, automationID, eventID, rule.EventState, actionDomain, actionID, rule.ActionState)
+		if err := writeAutomationFile(outputDir, sphere, automationID, content); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // --- flipped switch entities ---
 
-// generateFlippedSwitches writes the template switch entity for every "definition as flipped
-// <source>;" directive: its state mirrors <source> inverted, and turning it on/off turns the
-// source off/on respectively.
+// generateFlippedSwitches writes the template switch entity for every entity record carrying a
+// FlippedSourceEntityID (2026-10-05, Logical.def's "<domain>.<label> flipped <capability>;" absorb
+// qualifier, Conceptual_LogicalEntities.go's registerLogicalFlippedAbsorbedCapability) -- its own
+// state mirrors the source inverted, and turning it on/off turns the source off/on respectively.
+// Retired the old Conceptual.def "entity <raw>; entity <spec> with definition as flipped <raw>;"
+// two-free-entity construct (admin.FlippedRelations/TFlippedRelation) this replaces -- same
+// rendering (buildFlippedSwitchYAML unchanged), just driven from the normal per-space entity-record
+// scan every other capability kind already uses, rather than a standalone list parser.go alone
+// populated by its own bespoke text extraction.
 func generateFlippedSwitches(outputDir string, admin *TAdministrationState) error {
-	for _, rel := range admin.FlippedRelations {
-		selfID := toHomeAssistantEntityID(rel.SelfEntity)
-		sourceID := toHomeAssistantEntityID(rel.Source)
-		if selfID == "" || sourceID == "" {
-			continue
-		}
-		identity := extractEntityIdentity(rel.SelfEntity)
-		displayName := identity.Sphere + "/" + identity.Path
-		content := buildFlippedSwitchYAML(selfID, displayName, sourceID)
-		dir := filepath.Join(outputDir, "entities", "template", "switch", identity.Sphere)
-		if err := writeYAMLFile(filepath.Join(dir, selfID+".yaml"), content); err != nil {
-			return err
+	for _, spaceName := range admin.SpaceOrder {
+		for _, rec := range admin.EntityRecordsBySpace[spaceName] {
+			if rec.FlippedSourceEntityID == "" {
+				continue
+			}
+			selfID := toHomeAssistantEntityID(rec.Name)
+			if selfID == "" {
+				continue
+			}
+			displayName := rec.Identity.Sphere + "/" + rec.Identity.Path
+			content := buildFlippedSwitchYAML(selfID, displayName, rec.FlippedSourceEntityID)
+			dir := filepath.Join(outputDir, "entities", "template", "switch", rec.Identity.Sphere)
+			if err := writeYAMLFile(filepath.Join(dir, selfID+".yaml"), content); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -4029,22 +4096,22 @@ func generateSwitchedDeviceEntities(outputDir string, admin *TAdministrationStat
 		if deviceIdentity.Domain == "light" {
 			helperName := "light.physical/" + mainIdentity.Path + "/helper"
 			helperID := toHomeAssistantEntityID(helperName)
-			helperKey := strings.TrimPrefix(helperID, "light.")
-			helperContent := buildPlatformGroupYAML(helperKey, true, []string{deviceID, mainID})
+			helperDisplayName := strings.TrimPrefix(helperName, "light.")
+			helperContent := buildPlatformGroupYAML(helperID, helperDisplayName, true, []string{deviceID, mainID})
 			helperDir := filepath.Join(outputDir, "entities", "light", "physical")
 			if err := writeYAMLFile(filepath.Join(helperDir, helperID+".yaml"), helperContent); err != nil {
 				return err
 			}
 
-			selfKey := strings.TrimPrefix(selfID, "light.")
-			selfContent := buildPlatformGroupYAML(selfKey, false, []string{helperID, mainID})
+			selfDisplayName := strings.TrimPrefix(rel.SelfEntity, "light.")
+			selfContent := buildPlatformGroupYAML(selfID, selfDisplayName, false, []string{helperID, mainID})
 			selfDir := filepath.Join(outputDir, "entities", "light", selfIdentity.Sphere)
 			if err := writeYAMLFile(filepath.Join(selfDir, selfID+".yaml"), selfContent); err != nil {
 				return err
 			}
 		} else {
-			selfKey := strings.TrimPrefix(selfID, selfIdentity.Domain+".")
-			content := buildPlatformGroupYAML(selfKey, true, []string{deviceID, mainID})
+			selfDisplayName := strings.TrimPrefix(rel.SelfEntity, selfIdentity.Domain+".")
+			content := buildPlatformGroupYAML(selfID, selfDisplayName, true, []string{deviceID, mainID})
 			dir := filepath.Join(outputDir, "entities", selfIdentity.Domain, selfIdentity.Sphere)
 			if err := writeYAMLFile(filepath.Join(dir, selfID+".yaml"), content); err != nil {
 				return err
@@ -4054,16 +4121,24 @@ func generateSwitchedDeviceEntities(outputDir string, admin *TAdministrationStat
 	return nil
 }
 
-// buildPlatformGroupYAML builds a "platform: group" entity keyed by its short (domain-stripped)
-// id, optionally requiring all members to be on (rather than any).
-func buildPlatformGroupYAML(key string, all bool, memberIDs []string) string {
+// buildPlatformGroupYAML builds a "platform: group" entity, optionally requiring all members to
+// be on (rather than any). displayName is the slash-separated conceptual path (e.g.
+// "social/house/kitchen/workplace/main", domain stripped) -- HA slugifies this into the object_id
+// when no unique_id is given, but here entityID is ALWAYS supplied explicitly (matching
+// buildLightGroupYAML's own established convention, generator.go, used for room-level light
+// aggregates), so "name" is purely the friendly_name HA displays, decoupled from the actual
+// entity_id. A real gap found live 2026-09-28: this function used to write the already-sanitised,
+// underscore-joined object_id itself as "name" (e.g. "social_house_kitchen_workplace_main"), unlike
+// every other group-style light entity in this codebase -- fixed to match the same convention.
+func buildPlatformGroupYAML(entityID, displayName string, all bool, memberIDs []string) string {
 	var sb strings.Builder
 	sb.WriteString(generatorHeader)
 	sb.WriteString("platform: group\n")
 	if all {
 		sb.WriteString("all: true\n")
 	}
-	sb.WriteString("name: " + key + "\n")
+	sb.WriteString("name: " + displayName + "\n")
+	sb.WriteString("unique_id: " + entityID + "\n")
 	sb.WriteString("entities:\n")
 	for _, id := range memberIDs {
 		sb.WriteString("- " + id + "\n")
@@ -4141,10 +4216,21 @@ func generateSwitchedDeviceAutomations(outputDir string, admin *TAdministrationS
 		mainPath := rel.MainEntity[strings.Index(rel.MainEntity, ".")+1:]
 		sphere := entitySphere(rel.MainEntity)
 		domain := rel.MainEntity[:strings.Index(rel.MainEntity, ".")]
+		// mainObjectID is mainID (already fully sanitized by toHomeAssistantEntityID) with its own
+		// "<domain>." prefix stripped -- used for automationID instead of a raw slash-only
+		// replacement of mainPath, since mainPath may itself embed a literal "." when MainEntity was
+		// auto-materialized from a raw DSL device-id rather than an ordinary Conceptual.def spec
+		// (logical_switched_by.go, 2026-09-27's "switched by" migration -- a hand-written spec never
+		// itself contains a "."). A raw dot slipping past this file's own slash-only replacement
+		// used to leak verbatim into automation.<id>, a real bug found live regenerating Junglinster's
+		// server_room/corridor pilot. Byte-identical to the old derivation for every pre-existing
+		// switched_device instance (none of their MainEntity paths ever contained a "." to begin
+		// with, so sanitizeObjectID's own dot-handling is a no-op there).
+		mainObjectID := strings.TrimPrefix(mainID, domain+".")
 
 		for _, dir := range []string{"switched_on", "switched_off"} {
 			aliasPath := mainPath + "/" + dir
-			automationID := strings.ReplaceAll(aliasPath, "/", "_")
+			automationID := mainObjectID + "_" + dir
 			toState, condState, service := "'on'", "'off'", domain+".turn_on"
 			if dir == "switched_off" {
 				toState, condState, service = "'off'", "'on'", domain+".turn_off"

@@ -72,13 +72,13 @@ func TestExtractDeviceWithOneLinerNoAs(t *testing.T) {
 func TestRegisterDevicePositioningIsIdempotentAcrossThreeOccurrences(t *testing.T) {
 	const dsl = `space social:front as area with:
   device switches.zwave_054 as ring with:
-    entity switch.social:main from core_1;
+    entity switch.social:main from switch.core_1;
   end;
 end;
 
 space social:rear with:
   device switches.zwave_054 with:
-    entity switch.social:rear from core_2;
+    entity switch.social:rear from switch.core_2;
   end;
 end;
 
@@ -97,7 +97,7 @@ device switches.zwave_054 as fuse_cabinet/zwave/054 with entity binary_sensor.in
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", nil, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -148,11 +148,11 @@ device switches.zwave_054 as fuse_cabinet/zwave/054 with entity binary_sensor.in
 // including when the block carrying the device's own "as" leaf comes LAST.
 func TestRegisterDevicePositioningOrderIndependent(t *testing.T) {
 	const dsl = `device hass.multiswitch with:
-  entity light.social::carport from core_1;
+  entity light.social::carport from light.core_1;
 end;
 
 device hass.multiswitch with:
-  entity light.social::main from core_2;
+  entity light.social::main from light.core_2;
 end;
 
 device hass.multiswitch as multiswitch with entity binary_sensor.infrastructural:node;`
@@ -166,7 +166,7 @@ device hass.multiswitch as multiswitch with entity binary_sensor.infrastructural
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", nil, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -187,7 +187,7 @@ device hass.multiswitch as multiswitch with entity binary_sensor.infrastructural
 // device sharing its DeviceID had no way to ever get positioned at all.
 func TestRegisterDevicePositioningForStandaloneCommandlineDevice(t *testing.T) {
 	const dsl = `device appliance.picture_frame as picture_frame with:
-  entity switch.social:picture_frame from slideshow;
+  entity switch.social:picture_frame from switch.slideshow;
 end;`
 
 	commandlineDevicesByID := map[string]TCommandlineDevice{
@@ -201,7 +201,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, nil, nil, commandlineDevicesByID, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", nil, &report, nil, nil, nil, nil, commandlineDevicesByID, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -228,8 +228,8 @@ end;`
 // itself, now an explicit reference like any other capability (2026-09-24).
 func TestDeviceWithBlockMatchesTwoStatementFormForHosts(t *testing.T) {
 	const separateLinesDSL = `device host.xanadu as xanadu with entity binary_sensor.infrastructural:node;
-entity sensor.infrastructural:xanadu/cpu/load        from host.xanadu load;
-entity sensor.infrastructural:xanadu/cpu/temperature from host.xanadu temperature;`
+entity sensor.infrastructural:xanadu/cpu/load        from host.xanadu sensor.load;
+entity sensor.infrastructural:xanadu/cpu/temperature from host.xanadu sensor.temperature;`
 	const mergedDSL = `device host.xanadu as xanadu with:
   entity binary_sensor.infrastructural:node;
   entity sensor.infrastructural:xanadu/cpu/load        from load;
@@ -241,11 +241,11 @@ end;`
 	}
 
 	var reportA, reportB strings.Builder
-	resultA, errA := ParseEntitiesAndFillAdministration(strings.Split(separateLinesDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &reportA, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
+	resultA, errA := ParseEntitiesAndFillAdministration(strings.Split(separateLinesDSL, "\n"), nil, "test.def", nil, &reportA, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if errA != nil {
 		t.Fatalf("separate-lines parse error: %v", errA)
 	}
-	resultB, errB := ParseEntitiesAndFillAdministration(strings.Split(mergedDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &reportB, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
+	resultB, errB := ParseEntitiesAndFillAdministration(strings.Split(mergedDSL, "\n"), nil, "test.def", nil, &reportB, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
 	if errB != nil {
 		t.Fatalf("merged-form parse error: %v", errB)
 	}
@@ -361,7 +361,7 @@ device utility.laserjet as laserjet with entity binary_sensor.infrastructural:no
 	var result TExpansionParseResult
 	var err error
 	stderr := captureStderr(t, func() {
-		result, err = ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
+		result, err = ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", nil, &report, hostDevicesByID, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
@@ -417,9 +417,9 @@ func TestRegisterDevicePositioningRejectsLoneInfrastructuralSpherePrefix(t *test
 func TestRegisterDevicePositioningMultiSphereLeafPerEntitySphere(t *testing.T) {
 	const miniDSL = `space social:terrace with:
   device sensors.terrace_frient as physical:front infrastructural:front/frient with:
-    entity binary_sensor.physical:motion from core;
-    entity sensor.physical:illuminance from illuminance;
-    entity sensor.infrastructural:battery_level from battery_level;
+    entity binary_sensor.physical:motion from binary_sensor.core;
+    entity sensor.physical:illuminance from sensor.illuminance;
+    entity sensor.infrastructural:battery_level from sensor.battery_level;
   end;
 end;`
 
@@ -436,7 +436,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}

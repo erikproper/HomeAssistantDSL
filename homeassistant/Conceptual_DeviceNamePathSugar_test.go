@@ -212,14 +212,14 @@ func TestDisplaySuffixForHassBridgeCapability(t *testing.T) {
 
 	const dsl = `space social:living_room with:
   device hass.roomba as vacuum with:
-    entity vacuum.social: from roomba;
+    entity vacuum.social: from vacuum.roomba;
   end;
   device hass.gadget as gadget with:
-    entity vacuum.social: from main;
+    entity vacuum.social: from vacuum.main;
   end;
 end;`
 
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", &TMacroExpansionContext{}, &strings.Builder{}, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", nil, &strings.Builder{}, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -267,7 +267,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", nil, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -302,7 +302,7 @@ end;`
 func TestDeferredCapabilityLinkResolvesAgainstItsOwnDeclaredSpace(t *testing.T) {
 	const dsl = `space social:apartment with:
   space social:living_room with:
-    entity switch.social:picture_frame from hass.frame slideshow;
+    entity switch.social:picture_frame from hass.frame switch.slideshow;
   end;
 end;
 device hass.frame as frame with:
@@ -316,7 +316,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", nil, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}

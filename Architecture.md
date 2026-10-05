@@ -248,6 +248,10 @@ This is a coordinator *setting* — an explicit passthrough default — not a sp
 
 **Design rationale: passthrough naming is a robustness liability, not just a cosmetic gap.** A live incident on Vienna (2026-09-09, see README.md's "Operational notes") showed why finishing this migration matters beyond naming consistency. Home Assistant's MQTT integration treats a missing/empty retained discovery config as an instruction to *delete* the entity outright, not merely mark it unavailable — unlike most other integrations, which leave an orphaned entity behind when a device stops reporting. For an entity still on raw Zigbee2MQTT passthrough, the `entity_id` HA shows is whatever a human manually renamed it to at some point after creation, entirely outside this codebase's control; if the registry row is ever deleted and recreated (broker losing retained state, a bad reload, or any other event that makes the config genuinely disappear for a while), the entity comes back under Zigbee2MQTT's own raw `friendly_name`-based naming, and the manual rename is lost with no record of what it should be. An entity that has been moved to true model-driven refinement doesn't have this problem: the coordinator itself authors the discovery config, including its `object_id`/name, so it can set that name to already match the DSL's naming convention. Even in the worst case — the registry row deleted and the entity recreated completely from scratch — the freshly-created `entity_id` comes back correct immediately, because there is no longer a human-only, unrecorded naming step to lose. This is a concrete, incident-tested reason (not just tidiness) to keep moving entities off passthrough and onto real model-driven refinement over time.
 
+**Junglinster switched its own `discovery_passthrough` off, 2026-10-05 (PROJECT.md item 2), once every real Zigbee2MQTT device was confirmed migrated to proper discovery-kind declarations.** The mechanism itself stays in the generator/coordinator unchanged — it's deliberately reusable infrastructure for *any future* legacy-to-conceptual migration (a different house adopting this architecture from scratch, a future protocol gateway, re-onboarding after a broker rebuild), not something scoped to Junglinster's own one-time migration. Turning it off for a specific house is just commenting out (or never writing) that house's own `discovery_passthrough "<prefix>" from "<source>";` line in its Physical.def — the coordinator code path, `discovery_passthrough_suggestions.go`'s own "what's still unclaimed" report, and this section's whole design rationale remain exactly as useful the next time they're needed.
+
+**A second incident, the same day, makes the deeper motivation explicit.** Fixing 4 heating relays (discovered mid-migration to be raw Zigbee2MQTT devices wrongly declared as native `home_assistant`-bridge entities) meant moving their entity_id from one HA platform (`template`) to another (`mqtt`, coordinator-published). Same conceptual device, same intended `entity_id`, but HA's registry keys identity off `(platform, unique_id)`, not the bare `entity_id` — so the switch required a full stop-core/edit-registry/start-core pass to free the name before the new platform could claim it cleanly (§6.11-style registry surgery, not just a file deploy). This is exactly the class of friction the whole MQTT-mediated design already exists to reduce — routing every device through one coordinator-owned bus, rather than binding a conceptual entity directly to whichever native integration happens to back it today, is what makes it *possible* to swap the backing mechanism at all without the entity's own history (automations, dashboards, the user's own mental model of "this switch") breaking. The passthrough-off mechanism above and the still-unimplemented "stable entity identity" design ([[project_stable_entity_identity_design]] in memory; PROJECT.md's own "stable coordinator<->HA entity identity" item) are two instances of the same goal taken further: an entity's *identity* should survive changes to its own backing mechanism, not merely its physical implementation. Passthrough already does this for "which integration first discovers the device"; stable identity would do it for "which unique_id HA remembers it by," eliminating today's manual registry-surgery step entirely once built.
+
 ### 6.5 Worked example: Netatmo cross-home federation
 
 Netatmo is the sharpest example of why federation needs explicit lineage: there is one Netatmo account, but devices physically belong to different houses.
@@ -345,6 +349,47 @@ enabler ...;]` capability shape already uses (e.g. Vienna's `apple_tv`/`tv` `nod
 `buildConditionBinarySensorYAML`'s existing condition-entity rendering). The two mechanisms don't
 share one code path — they're deliberately separate, matching which side of the MQTT boundary the
 entity in question lives on.
+
+**`dependency on <id>;` is actually three separate compilation paths, not one (2026-10-04).**
+`integration_logical_storage.go`/`logical_enabler_dependency_sugar.go`:
+
+- Device-level, on a hassbridge/import-kind device with NO `enabled by`
+  (`resolveDependencyAvailabilityTopics`): walks the full transitive dependency graph
+  (`resolveTransitiveDependencies`, cycle-detected), resolves every `hosts`-kind dependency to its
+  own raw MQTT node/liveness topic, and feeds the flattened list straight into the coordinator's
+  native MQTT `availability:` topic list (`depends_on_availability`) — this is the path described
+  just above, ANDed by MQTT/HA itself, no generator-authored template at all.
+- Device-level, on any other kind (or a hassbridge/import device that also has `enabled by`)
+  (`applyLogicalEnablerDependencySugar`): each dependency becomes a literal "and &lt;dep-id&gt;"
+  clause folded into a generator-authored Jinja condition (a `derived binary_sensor.node`
+  capability) — the bare device-id resolves via the ordinary sibling-ref machinery to mean "that
+  device's own availability". If `enabled by` is also present, the dependencies are ANDed first,
+  then the enabler's own `... or jinja "$1 == 'off'" { enabler }` OR-exception wraps the whole
+  thing last (a deliberately powered-down device is never treated as a fault, even if a dependency
+  is down).
+- Capability-level, inside a capability's own `is available with: ...; end;` block
+  (`TLogicalCapability.DependsOn`, resolved by `resolveLogicalDependencyNodeEntities`): a flat,
+  non-transitive, one-hop resolution — each `hosts`-kind target gets its own entity_id (reusing an
+  existing positioning, or auto-materializing a synthetic "physical/&lt;id&gt;/node" entity if none
+  exists yet) and those are folded as literal, already-resolved `is_state(...)` strings directly
+  into the capability's own ConditionExpr, same AND-first/enabler-OR-last ordering.
+
+Two or three `dependency on` lines on one device: the device-level path is repeatable and fully
+transitive — if A depends on B and C, and B itself depends on D, A's own resolved chain is B+C+D,
+deduped, with a cycle reported (and the whole dependency list ignored) if the graph loops. The
+capability-level path is repeatable too, but each target is resolved as its own flat one-hop lookup
+(no further walk of *that* target's own dependencies) — a documented simplification, not a hard
+limit; extend it the day a real case needs more than one hop.
+
+Versus hand-writing a `derived binary_sensor.node with: condition ...;` block yourself: for the two
+template-based paths above, `dependency on` generates exactly the same
+`TLogicalCapability{IsDerivedCondition: true, DerivedCondition: ...}` shape a hand-written block
+would — pure sugar, byte-for-byte equivalent output. What hand-writing can't reach: (1) the
+hassbridge/import-with-no-enabler case, which compiles to real native MQTT `depends_on_availability`
+instead of any template at all; (2) automatic transitive closure and cycle detection for the
+device-level path, which a hand-written condition would need spelled out (and unchecked) by hand;
+(3) the guaranteed AND-dependencies-first/OR-enabler-last ordering, enforced by the sugar every
+time rather than depending on the DSL author nesting it correctly themselves.
 
 **A non-bridgeable entity pulls its whole device onto the same side of the boundary (2026-09-24).**
 The workaround above is per-*domain*: `weather`/`media_player`/etc. themselves can't be MQTT-

@@ -299,18 +299,19 @@ func namingSpacePath(spec string, spacePath []string, deviceNamePath string) []s
 // again," independent of namingSpacePath's own separate suppression for a domain-matching tail on
 // the DEVICE's own leaf (a different source of the same redundancy).
 //
-// Deliberately scoped to deviceNamePath != "" (i.e. only when this entity is positioned inside a
-// "device ... with:" block) rather than folded into normalizeEntityFullName itself as a blanket
-// rule for every entity spec everywhere -- a real regression caught live: "entity
-// vacuum.physical:vacuum from hass.roomba vacuum.roomba;" (remote_instance_entity_reporting_test.go)
-// is a bare hassbridge reference with NO device leaf of its own, where "vacuum" is a genuine,
-// meaningful qualifier that only coincidentally matches its own domain word -- stripping it there
-// would be wrong, not redundant.
+// Applied UNCONDITIONALLY (2026-09-29, the user's own explicit correction) -- an EARLIER version of
+// this function gated the strip on deviceNamePath != "" (skipped whenever the entity's own device
+// has no "as" leaf), to protect a real regression caught live: "entity vacuum.physical:vacuum from
+// hass.roomba vacuum.roomba;" (remote_instance_entity_reporting_test.go), where "vacuum" was judged
+// a genuine, meaningful qualifier rather than a redundant domain-echo. The user's own correction:
+// that gating was WRONG -- the strip should "always [be] attempt[ed]... based on the original name
+// with '/'", independent of whether a device leaf exists at all (a real, live example needing this,
+// found the same day: Junglinster's own "utility.somfy_kitchen", which has no "as" clause and
+// likely never will -- the user is separately considering dropping "as" from the grammar entirely).
+// The roomba precedent's own expectation was updated to match (see that test's own comment).
 func resolveDeviceEntityFullName(spec string, spacePath []string, deviceNamePath string) string {
 	extendedSpacePath := namingSpacePath(spec, spacePath, deviceNamePath)
-	if deviceNamePath != "" {
-		spec = stripEntityOwnTrailingDomainSegment(spec)
-	}
+	spec = stripEntityOwnTrailingDomainSegment(spec)
 	return normalizeEntityFullName(spec, extendedSpacePath)
 }
 
@@ -414,7 +415,16 @@ func deviceDisplayName(spaceName, path string) string {
 	if len(segments) == 0 {
 		return path
 	}
-	return strings.Join(segments, "/") + "/" + path
+	joined := strings.Join(segments, "/")
+	// path is "" for a device with no "as" leaf of its own (e.g. "device utility.somfy_kitchen
+	// with: ...;", no "as X") -- appending "/" + "" unconditionally left a dangling trailing slash
+	// ("house/kitchen/"), which a caller combining this with its own per-capability suffix (e.g.
+	// the hassbridge relay's own "display_suffix") then doubled up into "house/kitchen//cover" --
+	// confirmed live, 2026-09-28. Only join with "/" when there's an actual leaf to append.
+	if path == "" {
+		return joined
+	}
+	return joined + "/" + path
 }
 
 // spaceAreaDisplayName is deviceDisplayName's own counterpart for a "space <spec> as area with:"

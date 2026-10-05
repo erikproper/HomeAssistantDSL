@@ -89,4 +89,9 @@ func RunPostParseChecks(administration *TAdministrationState) {
 		checkRelationEntityRef("timer limits (timer)", rel.SpaceName, rel.TimerEntity, declared)
 		checkRelationEntityRef("timer limits (bound)", rel.SpaceName, rel.BoundEntity, declared)
 	}
+
+	for _, rule := range administration.WhenRules {
+		checkRelationEntityRef("when (event)", rule.SpaceName, rule.EventEntity, declared)
+		checkRelationEntityRef("when (action)", rule.SpaceName, rule.ActionEntity, declared)
+	}
 }

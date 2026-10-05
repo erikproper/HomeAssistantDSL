@@ -116,16 +116,25 @@ func parseDiscoveryDeviceBody(cur *TLineCursor, deviceID, parentDeviceID string)
 			cur.Advance()
 			continue
 		}
-		// "hidden " is an optional leading qualifier on a capability line (either shape below) --
-		// stripped here, once, so the two patterns below never need to know about it. A hidden
-		// capability still fully exists for internal use (a "derived ... from ...;" elsewhere on
-		// the SAME device may still reference it, via the raw Capabilities map lookup, never the
-		// entity-registration dispatch this marks), but registerDiscoveryEntityLink/
-		// registerDeviceCapabilityEntityLink's discovery branch refuse to position it directly as
-		// a Spaces.def entity -- it's an internal-only intermediate value (e.g. a sensor's raw,
-		// unadjusted reading that only a "derived" capability should ever read), not something the
-		// conceptual (or logical) layer should see.
+		// "hidden "/"inverted " are optional leading qualifiers on a capability line (either shape
+		// below), stackable in either order -- stripped here, once, so the two patterns below never
+		// need to know about them. A hidden capability still fully exists for internal use (a
+		// "derived ... from ...;" elsewhere on the SAME device may still reference it, via the raw
+		// Capabilities map lookup, never the entity-registration dispatch this marks), but
+		// registerDiscoveryEntityLink/registerDeviceCapabilityEntityLink's discovery branch refuse
+		// to position it directly as a Spaces.def entity -- it's an internal-only intermediate value
+		// (e.g. a sensor's raw, unadjusted reading that only a "derived" capability should ever
+		// read), not something the conceptual (or logical) layer should see. "inverted" marks a
+		// switch/binary_sensor whose raw on/off payload means the opposite of what it should
+		// report/command (TDiscoveryCapability.Inverted's own doc comment has the full rationale).
 		capabilityLine, hidden := strings.CutPrefix(line, "hidden ")
+		capabilityLine, inverted := strings.CutPrefix(capabilityLine, "inverted ")
+		if !hidden {
+			// Also accept the opposite order, "inverted hidden ...;".
+			if strippedHidden, ok := strings.CutPrefix(capabilityLine, "hidden "); ok {
+				capabilityLine, hidden = strippedHidden, true
+			}
+		}
 
 		// Checked first, before discoveryCapabilityPattern: "derived" is a distinct leading
 		// keyword, unambiguous against "<domain>.<path>: ...;" -- same ordering rationale as
@@ -136,6 +145,7 @@ func parseDiscoveryDeviceBody(cur *TLineCursor, deviceID, parentDeviceID string)
 				DerivedFromCapability: decl.FromLabel,
 				DerivedViaTemplate:    decl.Template,
 				Hidden:                hidden,
+				Inverted:              inverted,
 			}
 			cur.Advance()
 			continue
@@ -149,7 +159,7 @@ func parseDiscoveryDeviceBody(cur *TLineCursor, deviceID, parentDeviceID string)
 					cur.Advance()
 					continue
 				}
-				current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], AvailabilityOf: siblingMatch[2], AvailabilityOfDomain: siblingMatch[1], Hidden: hidden}
+				current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], AvailabilityOf: siblingMatch[2], AvailabilityOfDomain: siblingMatch[1], Hidden: hidden, Inverted: inverted}
 			} else if sourceDomain, leaf, ok := strings.Cut(matches[3], ":"); ok {
 				// "<raw-domain>:<leaf>" (2026-09-15) -- an optional qualifier disambiguating a
 				// leaf id Zigbee2MQTT (or any gateway) publishes under more than one raw MQTT
@@ -161,9 +171,9 @@ func parseDiscoveryDeviceBody(cur *TLineCursor, deviceID, parentDeviceID string)
 				// leaf) matches whichever raw domain publishes it, unchanged from before -- this is
 				// what lets e.g. "fan.core: 0x..._switch_zigbee2mqtt;" deliberately relay a
 				// switch-domain-published leaf under a different declared conceptual domain.
-				current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], Leaf: leaf, SourceDomain: sourceDomain, Hidden: hidden}
+				current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], Leaf: leaf, SourceDomain: sourceDomain, Hidden: hidden, Inverted: inverted}
 			} else {
-				current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], Leaf: matches[3], Hidden: hidden}
+				current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], Leaf: matches[3], Hidden: hidden, Inverted: inverted}
 			}
 			cur.Advance()
 			continue

@@ -31,69 +31,6 @@ const (
 	StatementEndToken = ";"
 )
 
-// extractRelativeProvidingTarget extracts the target path from a "call providing :Y;" or
-// "call providing /Y;" invocation (plain statement or "with: ..." block header). A ':'-prefixed
-// target has its marker stripped — the caller re-attaches its own ':' when building the node
-// entity's reference, so the space-relative resolution in normalizeEntityFullName still applies.
-// A '/'-prefixed (absolute) target is returned with its leading '/' intact: appended after the
-// caller's "sphere:" prefix, "sphere:/path" is exactly the marker normalizeEntityFullName needs
-// to treat the path as absolute rather than relative to the calling space. Returns "" for
-// unmarked (bare) targets — see warnOnUnqualifiedEntitySpacePathTarget for that case — or for
-// invocations that aren't "providing" calls at all.
-func extractRelativeProvidingTarget(invText string) string {
-	invText = strings.TrimSpace(invText)
-	if !strings.HasPrefix(invText, "call providing ") {
-		return ""
-	}
-	rest := strings.TrimPrefix(invText, "call providing ")
-	if idx := strings.Index(rest, " with"); idx > 0 {
-		rest = rest[:idx]
-	}
-	rest = strings.TrimSuffix(rest, ";")
-	rest = strings.TrimSpace(rest)
-	if strings.HasPrefix(rest, ":") {
-		return strings.TrimPrefix(rest, ":")
-	}
-	if strings.HasPrefix(rest, "/") {
-		return rest
-	}
-	return ""
-}
-
-// warnOnUnqualifiedEntitySpacePathTarget warns when a top-level (Entities.def-authored) macro
-// invocation passes its positional entity_space_path argument without a ':' (relative) or '/'
-// (absolute) marker — e.g. "call providing ring;" instead of "call providing :ring;". Such a
-// value is used verbatim by the macro body with no space-context resolution, which usually isn't
-// what the author intended and can silently collapse several distinct spaces' entities into one
-// shared, wrongly-named entity. Only top-level invocations are checked (this function is called
-// from processInvocation, never from macro-internal expansion), so every value seen here is
-// literal author-typed text, not an already-resolved value passed between nested macro calls —
-// the ambiguity that makes blanket auto-resolution unsafe deeper in the expansion engine doesn't
-// apply here.
-func warnOnUnqualifiedEntitySpacePathTarget(ctx *TMacroExpansionContext, invocation *TMacroInvocation, entitiesPath string, lineNum int) {
-	macroDef, ok := ctx.Macros[invocation.Name]
-	if !ok {
-		return
-	}
-	for _, p := range macroDef.Parameters {
-		if !p.Positional {
-			continue
-		}
-		if p.Kind == ParamEntitySpacePath && isUnqualifiedEntitySpacePath(invocation.Target) {
-			fmt.Fprintf(os.Stderr, "[WARNING] %s line %d: %q passed to %s's entity_space_path parameter without a ':' or '/' marker — did you mean %q (relative) or %q (absolute)?\n",
-				entitiesPath, lineNum, invocation.Target, invocation.Name, ":"+invocation.Target, "/"+invocation.Target)
-		}
-		return
-	}
-}
-
-// isUnqualifiedEntitySpacePath reports whether value is neither ':'-relative, '/'-absolute, nor a
-// dotted entity_name (which castParamValue can cast to entity_space_path) — i.e. a bare fragment
-// with no resolution marker at all.
-func isUnqualifiedEntitySpacePath(value string) bool {
-	return value != "" && !strings.HasPrefix(value, ":") && !strings.HasPrefix(value, "/") && !strings.Contains(value, ".")
-}
-
 // --- semantic types and processing (unchanged) ---
 
 type TExpansionParseResult struct {
@@ -109,7 +46,7 @@ type TExpansionParseResult struct {
 // number in entitiesPath. It must be used for every reported line number instead of i+1 --
 // entityLines is layer-extracted content with blank/comment lines already stripped, so the two
 // no longer coincide. Pass nil to fall back to i+1 (entityLines is the raw, unstripped file).
-func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, entitiesPath string, ctx *TMacroExpansionContext, report *strings.Builder, hostDevicesByID map[string]THostDevice, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, commandlineDevicesByID map[string]TCommandlineDevice, localDevicesByID map[string]TLocalDevice, logicalDevicesByID map[string]TLogicalDevice, capabilityDefaults []TCapabilityDefaultRule) (TExpansionParseResult, error) {
+func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, entitiesPath string, settings map[string]string, report *strings.Builder, hostDevicesByID map[string]THostDevice, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, commandlineDevicesByID map[string]TCommandlineDevice, localDevicesByID map[string]TLocalDevice, logicalDevicesByID map[string]TLogicalDevice, capabilityDefaults []TCapabilityDefaultRule) (TExpansionParseResult, error) {
 	sourceLine := func(i int) int {
 		if lineNos != nil && i >= 0 && i < len(lineNos) {
 			return lineNos[i]
@@ -170,53 +107,6 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 	var pendingCapabilityLinks []pendingCapabilityLink
 	var pendingSourceLinks []pendingSourceLink
 
-	// processInvocation parses, validates, expands, and registers one macro invocation text.
-	// It is used both for top-level invocations and for inline "entity … with <invocation>;" bodies.
-	processInvocation := func(invText string, lineNum int) error {
-		invocationCount++
-		report.WriteString(fmt.Sprintf("Line %d (in %s):\n", lineNum, formatSpacePath(administration.SpacePath)))
-		report.WriteString(fmt.Sprintf("  Invocation: %s\n", invText))
-		invocation, parseErr := ctx.ParseMacroInvocation(invText)
-		if parseErr != nil {
-			return fmt.Errorf("strict macro validation failed in %s at line %d: failed to parse invocation %q: %w", entitiesPath, lineNum, invText, parseErr)
-		}
-		if strictErr := ctx.ValidateInvocationStrict(invocation); strictErr != nil {
-			return fmt.Errorf("strict macro validation failed in %s at line %d for invocation %q: %w", entitiesPath, lineNum, invText, strictErr)
-		}
-		warnOnUnqualifiedEntitySpacePathTarget(ctx, invocation, entitiesPath, lineNum)
-		validInvocations++
-		report.WriteString("  Status: OK (all parameters valid)\n")
-		callChain := fmt.Sprintf("%s:%d → %s %s", filepath.Base(entitiesPath), lineNum, invocation.Name, invocation.Target)
-		expandedRecords, expandErr := collectExpandedEntityRecords(ctx, invocation, administration.SpacePath, false, callChain)
-		if expandErr != nil {
-			return fmt.Errorf("strict macro validation failed in %s at line %d while expanding invocation %q: %w", entitiesPath, lineNum, invText, expandErr)
-		}
-		for _, expandedRecord := range expandedRecords {
-			administration.EnsureSpaceRegistered(expandedRecord.SpacePath, SpaceKindRegular)
-			expandedSpaceName := formatNestedSpaceName(expandedRecord.SpacePath)
-			isExternal := !expandedRecord.Record.HasDefinitionOrImport
-			externalEntry := ""
-			if isExternal {
-				externalEntry = expandedRecord.Record.Name
-			}
-			administration.RegisterEntityClosure(TPendingEntityCollection{
-				SpaceName:      expandedSpaceName,
-				Entry:          expandedRecord.Record.Name,
-				ExternalEntry:  externalEntry,
-				Record:         expandedRecord.Record,
-				HasExternalRef: isExternal,
-			})
-		}
-		if len(invocation.Parameters) > 0 {
-			report.WriteString("  Parameters:\n")
-			for pkey, pval := range invocation.Parameters {
-				report.WriteString(fmt.Sprintf("    %s = %q\n", pkey, pval))
-			}
-		}
-		report.WriteString("\n")
-		return nil
-	}
-
 	// forDeviceID is "" outside a device-capability-shorthand block -- either the older standalone
 	// "for <device-id>: ... end;" form or the merged "device <spec> from <device-id> with: ...
 	// end;" form (Conceptual_DeviceCapabilityEntities.go / Conceptual_DevicePositioning.go); a flat
@@ -266,12 +156,6 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			forDeviceID = withBlockDecl.DeviceID
 			forDeviceNamePath = deviceSpecLeafPath(withBlockDecl.Spec)
 			continue
-		}
-
-		if candidateMacroName, isCreateInvocation := extractCallInvocationMacroName(trimmed); isCreateInvocation {
-			if _, exists := ctx.Macros[candidateMacroName]; !exists {
-				return TExpansionParseResult{}, fmt.Errorf("strict macro validation failed in %s at line %d: unknown macro %q in invocation %q", entitiesPath, sourceLine(i), candidateMacroName, trimmed)
-			}
 		}
 
 		if oneLinerDecl, embeddedEntity, ok := extractDeviceWithOneLiner(trimmed); ok {
@@ -412,24 +296,19 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			if withIdx := strings.Index(trimmed, " with icon "); withIdx >= 0 {
 				iconPart := strings.TrimSuffix(strings.TrimSpace(trimmed[withIdx+len(" with icon "):]), ";")
 				iconPart = strings.Trim(iconPart, "\"")
-				resolved := resolveSettingsVar(iconPart, ctx.Settings)
+				resolved := resolveSettingsVar(iconPart, settings)
 				record.EntityIcon = resolved
 				if record.Identity.Domain == "input_boolean" {
 					record.InputBooleanIcon = resolved
 				}
 			}
-			// Extract inline "with definition as flipped <source>;" — the declaring switch
-			// mirrors <source>, inverted.
-			if withIdx := strings.Index(trimmed, " with definition as flipped "); withIdx >= 0 {
-				sourcePart := strings.TrimSuffix(strings.TrimSpace(trimmed[withIdx+len(" with definition as flipped "):]), ";")
-				source := normalizeEntityFullName(sourcePart, administration.SpacePath)
-				if !strings.ContainsAny(source, "$:{}[]*") {
-					administration.FlippedRelations = append(administration.FlippedRelations, TFlippedRelation{
-						SelfEntity: fullName,
-						Source:     source,
-					})
-				}
-			}
+			// "with definition as flipped <source>;" retired 2026-10-05 -- superseded by
+			// Logical.def's "<domain>.<label> flipped <capability>;" absorb qualifier
+			// (Conceptual_LogicalEntities.go's registerLogicalFlippedAbsorbedCapability), which
+			// also stops the source needing its own free, separately-declared Conceptual.def
+			// entity at all. No warning added for a leftover use of the old phrase: the
+			// enclosing "entity ...;" line still registers normally (just without the flip
+			// behaviour), and zero real .def sites used this by the time it was removed.
 			// Extract inline "with definition as timer \"<duration>\";" — the declaring timer
 			// gets that fixed duration.
 			if withIdx := strings.Index(trimmed, " with definition as timer "); withIdx >= 0 {
@@ -457,19 +336,6 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 					Record:         record,
 					HasExternalRef: hasExternalRef,
 				})
-				// "entity … with <invocation>;" — process the inline body as a macro invocation.
-				if withIdx := strings.Index(trimmed, " with "); withIdx >= 0 {
-					inlineStmt := strings.TrimSpace(trimmed[withIdx+len(" with "):])
-					if isMacroInvocation(inlineStmt, ctx.Macros) {
-						if target := extractRelativeProvidingTarget(inlineStmt); target != "" {
-							nodeEntityName := normalizeEntityFullName("binary_sensor.infrastructural:"+target+"/node", administration.SpacePath)
-							administration.NodeRepresentativeByEntityID[nodeEntityName] = toHomeAssistantEntityID(fullName)
-						}
-						if err := processInvocation(inlineStmt, sourceLine(i)); err != nil {
-							return TExpansionParseResult{}, err
-						}
-					}
-				}
 			}
 		}
 
@@ -520,7 +386,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 					if strings.HasPrefix(trimmed, prefix.pfx) {
 						val := strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(trimmed, prefix.pfx)), ";")
 						val = strings.Trim(val, "\"")
-						val = resolveSettingsVar(val, ctx.Settings)
+						val = resolveSettingsVar(val, settings)
 						switch prefix.field {
 						case "min":
 							pending.Record.InputNumberMin = val
@@ -537,7 +403,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 				if strings.HasPrefix(trimmed, "icon ") {
 					val := strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(trimmed, "icon ")), ";")
 					val = strings.Trim(val, "\"")
-					pending.Record.InputNumberIcon = resolveSettingsVar(val, ctx.Settings)
+					pending.Record.InputNumberIcon = resolveSettingsVar(val, settings)
 					continue
 				}
 			}
@@ -549,7 +415,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			pending := &administration.PendingEntityCollections[lastIdx]
 			iconVal := strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(trimmed, "icon ")), ";")
 			iconVal = strings.Trim(iconVal, "\"")
-			resolved := resolveSettingsVar(iconVal, ctx.Settings)
+			resolved := resolveSettingsVar(iconVal, settings)
 			pending.Record.EntityIcon = resolved
 			if pending.Record.Identity.Domain == "input_boolean" {
 				pending.Record.InputBooleanIcon = resolved
@@ -634,35 +500,6 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			// renders it — the hardcoded default in generateTemplateBinarySensors only applies
 			// when there is no explicit definition at all (see resolveNodeRepresentative).
 			pending.Record.ConditionSources, pending.Record.ConditionExpr = parseConditionDirective(trimmed, administration.SpacePath)
-			continue
-		}
-
-		if isMacroInvocation(trimmed, ctx.Macros) {
-			// Collect multi-line "with:" body into a single invocation text if needed.
-			invocationText := trimmed
-			if strings.HasSuffix(trimmed, "with:") {
-				j := i + 1
-				for ; j < len(entityLines); j++ {
-					nextTrimmed := strings.TrimSpace(entityLines[j])
-					invocationText += "\n" + nextTrimmed
-					if nextTrimmed == "end;" {
-						break
-					}
-				}
-				if j < len(entityLines) {
-					i = j
-				}
-			}
-			if target := extractRelativeProvidingTarget(invocationText); target != "" {
-				nodeEntityName := normalizeEntityFullName("binary_sensor.infrastructural:"+target+"/node", administration.SpacePath)
-				if len(administration.PendingEntityCollections) > 0 {
-					hostName := administration.PendingEntityCollections[len(administration.PendingEntityCollections)-1].Record.Name
-					administration.NodeRepresentativeByEntityID[nodeEntityName] = toHomeAssistantEntityID(hostName)
-				}
-			}
-			if err := processInvocation(invocationText, sourceLine(i)); err != nil {
-				return TExpansionParseResult{}, err
-			}
 			continue
 		}
 
@@ -858,6 +695,67 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			continue
 		}
 
+		// Handle "rule <spec> when <event-entity> turns on|off then turn <action-entity> on|off;"
+		// (2026-09-29) -- records a TWhenRule. See TWhenRule's own doc comment for the deliberately
+		// minimal scope of this first cut (single bare event atom, no "if" gate clause, no
+		// composition, no multi-action block -- none of that is needed by either real site this was
+		// built for) and for why the leading "rule <spec>" name is mandatory (a future multi-clause
+		// rule body can't mechanically derive a name from its own trigger/action any more). <spec>
+		// resolves exactly like a domain-less entity leaf (normalizeEntityFullName's own
+		// "sphere:path" branch) -- reused as-is, not a new mechanism. Malformed input is silently
+		// skipped, matching "follows"/"limits" immediately above -- this construct is new but
+		// structurally identical to them, so it follows their own local precedent rather than
+		// introducing a general warnings path this function doesn't otherwise have; the one
+		// exception is a duplicate rule Name, which IS warned about (see WhenRuleNamesSeen's own
+		// doc comment) since a silent collision would silently overwrite one rule's own generated
+		// automation with another's.
+		if strings.HasPrefix(trimmed, "rule ") {
+			spaceName := administration.CurrentSpaceName()
+			body := strings.TrimPrefix(trimmed, "rule ")
+			whenIdx := strings.Index(body, " when ")
+			if whenIdx > 0 {
+				nameSpec := strings.TrimSpace(body[:whenIdx])
+				content := strings.TrimSuffix(strings.TrimSpace(body[whenIdx+len(" when "):]), ";")
+				thenIdx := strings.Index(content, " then ")
+				if thenIdx > 0 {
+					eventFields := strings.Fields(content[:thenIdx])
+					actionFields := strings.Fields(content[thenIdx+len(" then "):])
+					if nameSpec != "" && len(eventFields) == 3 && eventFields[1] == "turns" &&
+						(eventFields[2] == "on" || eventFields[2] == "off") &&
+						len(actionFields) == 3 && actionFields[0] == "turn" &&
+						(actionFields[2] == "on" || actionFields[2] == "off") {
+						eventEntity := normalizeEntityFullName(eventFields[0], administration.SpacePath)
+						actionEntity := normalizeEntityFullName(actionFields[1], administration.SpacePath)
+						ruleName := normalizeEntityFullName(nameSpec, administration.SpacePath)
+						if !strings.ContainsAny(eventEntity+actionEntity+ruleName, "$:{}[]*") {
+							if administration.WhenRuleNamesSeen[ruleName] {
+								fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: rule %q is declared more than once -- each \"rule <spec> when ...;\" must resolve to a unique name\n", ruleName)
+							}
+							administration.WhenRuleNamesSeen[ruleName] = true
+							administration.WhenRules = append(administration.WhenRules, TWhenRule{
+								SpaceName:    spaceName,
+								Name:         ruleName,
+								EventEntity:  eventEntity,
+								EventState:   eventFields[2],
+								ActionEntity: actionEntity,
+								ActionState:  actionFields[2],
+							})
+						}
+					}
+				}
+			}
+			continue
+		}
+
+		// A bare "when ...;" with no leading "rule <spec>" is the RETIRED form (2026-09-29,
+		// same day it first shipped) -- warn with the exact fix rather than silently dropping the
+		// rule, matching this codebase's own established practice for a just-retired keyword
+		// (e.g. "enabler <id>;" -> "... enabled by ...;").
+		if strings.HasPrefix(trimmed, "when ") {
+			fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: bare \"when ...;\" is retired -- prefix it with a rule name, e.g. \"rule <sphere:leaf> when ...;\"\n")
+			continue
+		}
+
 		// Handle "space on: <items>;" — records the explicit turn-on items for the space switch.
 		// Distinct from "light on:" which drives the template light entity.
 		if strings.HasPrefix(trimmed, "space on:") {
@@ -885,13 +783,34 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			continue
 		}
 
-		// Handle "member <spaceName>;" — records a member space for virtual-space @all expansion.
+		// Handle "member space <spaceName>;" (a whole member space, its own light/media/switch
+		// aggregates pulled into virtual-space @all expansion) and "member entity <entity-ref>;"
+		// (2026-10-04: a single literal entity, any domain, included directly) -- the two keywords
+		// disambiguating what used to be one bare "member <ref>;" form (always a space).
 		if strings.HasPrefix(trimmed, "member ") {
-			memberRef := strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(trimmed, "member ")), ";")
-			if memberRef != "" {
-				spaceName := administration.CurrentSpaceName()
-				administration.SpaceMembersByName[spaceName] = append(
-					administration.SpaceMembersByName[spaceName], memberRef)
+			rest := strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(trimmed, "member ")), ";")
+			switch {
+			case strings.HasPrefix(rest, "space "):
+				memberRef := strings.TrimSpace(strings.TrimPrefix(rest, "space "))
+				if memberRef != "" {
+					spaceName := administration.CurrentSpaceName()
+					administration.SpaceMembersByName[spaceName] = append(
+						administration.SpaceMembersByName[spaceName], memberRef)
+				}
+			case strings.HasPrefix(rest, "entity "):
+				item := strings.TrimSpace(strings.TrimPrefix(rest, "entity "))
+				if item != "" {
+					if !strings.Contains(item, ".") {
+						item = "light." + item
+					}
+					if normalized := normalizeEntityFullName(item, administration.SpacePath); normalized != "" && !strings.ContainsAny(normalized, "$:{}[]*") {
+						spaceName := administration.CurrentSpaceName()
+						administration.SpaceMemberEntitiesByName[spaceName] = append(
+							administration.SpaceMemberEntitiesByName[spaceName], normalized)
+					}
+				}
+			default:
+				fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: bare \"member %s;\" is retired -- write \"member space %s;\" (or \"member entity ...;\" for a single literal entity)\n", rest, rest)
 			}
 			continue
 		}

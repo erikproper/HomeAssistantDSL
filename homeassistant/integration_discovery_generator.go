@@ -120,6 +120,9 @@ func generateDiscoveryIntegrationOutputs(bodyLines []string, ctx TPhysicalGenera
 			if link.ValueTemplateWrap != "" {
 				sb.WriteString("    value_template_wrap: \"" + link.ValueTemplateWrap + "\"\n")
 			}
+			if link.Invert {
+				sb.WriteString("    invert: true\n")
+			}
 		}
 	}
 

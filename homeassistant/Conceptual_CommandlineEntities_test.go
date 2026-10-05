@@ -37,15 +37,15 @@ func frameCommandlineDevicesByID() map[string]TCommandlineDevice {
 // resolve the commandline capability, reusing the SAME DeviceConceptualLink rather than needing its
 // own positioning statement.
 func TestCommandlineCapabilityEntityLinkResolvesOnDualKindDevice(t *testing.T) {
-	const miniDSL = `device host.frame as apartment/living_room/rack/frame with entity binary_sensor.infrastructural:apartment/living_room/rack/frame/node from node;
-entity switch.social:apartment/living_room/picture_frame from host.frame slideshow;`
+	const miniDSL = `device host.frame as apartment/living_room/rack/frame with entity binary_sensor.infrastructural:apartment/living_room/rack/frame/node from binary_sensor.node;
+entity switch.social:apartment/living_room/picture_frame from host.frame switch.slideshow;`
 
 	hostDevicesByID := map[string]THostDevice{
 		"host.frame": {DeviceID: "host.frame", HostName: "frame", IntegrationType: "cpu"},
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, frameCommandlineDevicesByID(), nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, hostDevicesByID, nil, nil, nil, frameCommandlineDevicesByID(), nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -79,7 +79,7 @@ entity switch.social:apartment/living_room/picture_frame from host.frame slidesh
 func TestCommandlineCapabilityEntityLinkRejectsDomainMismatch(t *testing.T) {
 	const miniDSL = `device host.frame as apartment/living_room/rack/frame with:
 end;
-entity binary_sensor.social:apartment/living_room/picture_frame from host.frame slideshow;`
+entity binary_sensor.social:apartment/living_room/picture_frame from host.frame switch.slideshow;`
 
 	hostDevicesByID := map[string]THostDevice{
 		"host.frame": {DeviceID: "host.frame", HostName: "frame", IntegrationType: "cpu"},
@@ -87,7 +87,7 @@ entity binary_sensor.social:apartment/living_room/picture_frame from host.frame 
 
 	var report strings.Builder
 	output := captureStderr(t, func() {
-		_, _ = ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, hostDevicesByID, nil, nil, nil, frameCommandlineDevicesByID(), nil, nil, nil)
+		_, _ = ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, hostDevicesByID, nil, nil, nil, frameCommandlineDevicesByID(), nil, nil, nil)
 	})
 	if !strings.Contains(output, "must match") {
 		t.Fatalf("expected a domain-mismatch warning, got: %q", output)

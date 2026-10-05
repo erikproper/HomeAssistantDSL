@@ -43,7 +43,9 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"sort"
 	"strings"
 )
 
@@ -135,10 +137,21 @@ func registerLogicalIsAvailableCapability(administration *TAdministrationState, 
 // any other branch the recursive call might land in (e.g. a discovery "derived" sibling not yet
 // positioned), so deferred is threaded straight back to the caller.
 func registerLogicalAbsorbedCapability(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, capability TLogicalCapability, label, deviceNamePath string, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, hostDevicesByID map[string]THostDevice, commandlineDevicesByID map[string]TCommandlineDevice, localDevicesByID map[string]TLocalDevice, logicalDevicesByID map[string]TLogicalDevice, entitiesPath string, lineNum int, finalAttempt bool) (warnings []string, deferred bool) {
+	if capability.Flipped {
+		return registerLogicalFlippedAbsorbedCapability(administration, decl, capability, label, deviceNamePath, hassBridgeDevicesByID, entitiesPath, lineNum)
+	}
+	// Capability is domain-qualified here (2026-09-27, mandatory domain-qualification) using
+	// capability.Domain -- the SAME domain this absorbed capability's own outer declaration
+	// already carries (the absorb grammar's own "<domain>.<label>: <bare-capability>;" line,
+	// integration_logical_parser.go) -- rather than passing capability.AbsorbedFromCapability
+	// bare. AbsorbedFromCapability itself stays bare by design (bareCapabilityName strips any
+	// domain the author wrote on the RHS, since the map key it eventually feeds is never
+	// domain-prefixed) -- this recursive dispatch is the one place that needs the domain
+	// re-attached, so the mandatory check below doesn't reject its own internal plumbing.
 	absorbedDecl := TDeviceCapabilityEntityDeclaration{
 		LocalSpec:  decl.LocalSpec,
 		DeviceID:   capability.AbsorbedFromDeviceID,
-		Capability: capability.AbsorbedFromCapability,
+		Capability: capability.Domain + "." + capability.AbsorbedFromCapability,
 		NoCollect:  decl.NoCollect,
 	}
 	warnings, deferred = registerDeviceCapabilityEntityLinkAllowingHidden(administration, absorbedDecl, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, deviceNamePath, false, false)
@@ -156,6 +169,80 @@ func registerLogicalAbsorbedCapability(administration *TAdministrationState, dec
 		administration.LogicalEntityLinks[entityID] = TLogicalEntityLink{DeviceID: decl.DeviceID, Label: label}
 	}
 	return warnings, deferred
+}
+
+// registerLogicalFlippedAbsorbedCapability resolves a "<domain>.<label> flipped <capability>;"
+// absorb line (2026-10-05, PROJECT.md: "the '_raw' and 'flipped' should be hidden on the logical
+// level") -- unlike the plain absorb path just above, this NEVER positions the absorbed source
+// itself at all: its own real HA entity_id is read as a literal, already-known Source field
+// directly off the absorbed-from device's own hassbridge declaration (the only real case today --
+// a hassbridge-kind capability's own value IS a literal entity reference by construction, unlike a
+// discovery-kind capability's raw MQTT leaf). This is what makes the source genuinely hidden: no
+// second Conceptual.def entity, no second conceptual identity, nothing for a DSL author to even
+// reference directly. No deferral is ever needed either, for the same reason -- the source's own
+// entity_id is fully known the instant Physical.def itself is parsed, with no dependency on
+// anything else's Conceptual.def positioning order.
+//
+// Renders via generateFlippedSwitches (generator.go), which now scans EntityRecordsBySpace for
+// FlippedSourceEntityID instead of the retired admin.FlippedRelations/"definition as flipped"
+// Conceptual.def construct this replaces.
+func registerLogicalFlippedAbsorbedCapability(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, capability TLogicalCapability, label, deviceNamePath string, hassBridgeDevicesByID map[string]THassBridgeDevice, entitiesPath string, lineNum int) (warnings []string, deferred bool) {
+	provenance := fmt.Sprintf("%s:%d → %s from %s %s", filepath.Base(entitiesPath), lineNum, decl.LocalSpec, decl.DeviceID, decl.Capability)
+
+	sourceDevice, found := hassBridgeDevicesByID[capability.AbsorbedFromDeviceID]
+	if !found {
+		return []string{fmt.Sprintf("%s: \"flipped\" absorb source %q is not a \"home_assistant\" bridge device -- only a hassbridge-kind source's own literal entity reference can be flipped today", provenance, capability.AbsorbedFromDeviceID)}, false
+	}
+	sourceCapability, hasCap := sourceDevice.Capabilities[capability.AbsorbedFromCapability]
+	source := representativeSource(sourceCapability.Sources)
+	if !hasCap || source == "" {
+		return []string{fmt.Sprintf("%s: device %q declares no %q capability with a literal source to flip", provenance, capability.AbsorbedFromDeviceID, capability.AbsorbedFromCapability)}, false
+	}
+	sourceEntityID := toHomeAssistantEntityID(source)
+	if sourceEntityID == "" {
+		return []string{fmt.Sprintf("%s: could not resolve a Home Assistant entity id from %q", provenance, source)}, false
+	}
+
+	fullName := resolveDeviceEntityFullName(decl.LocalSpec, administration.SpacePath, deviceNamePath)
+	identity := extractEntityIdentity(fullName)
+	if identity.Domain == "" {
+		return []string{fmt.Sprintf("%s: could not resolve a domain from %q; skipping", provenance, decl.LocalSpec)}, false
+	}
+	entityID := toHomeAssistantEntityID(fullName)
+	if entityID == "" {
+		return []string{fmt.Sprintf("%s: could not resolve a Home Assistant entity id from %q; skipping", provenance, decl.LocalSpec)}, false
+	}
+
+	spaceName := administration.CurrentSpaceName()
+	administration.AppendEntityRecord(spaceName, TEntityRecord{
+		Name:                  fullName,
+		Identity:              identity,
+		Provenance:            provenance,
+		FlippedSourceEntityID: sourceEntityID,
+		NoCollect:             decl.NoCollect,
+		HasDefinitionOrImport: true,
+	})
+	// The raw source's own literal entity_id (sourceEntityID) is never itself conceptually
+	// positioned -- that's the whole point of "hidden" -- but it DOES appear verbatim in the
+	// generated flipped-switch YAML (buildFlippedSwitchYAML's state/turn_on/turn_off fields), and
+	// checkEntityReferences (presence.go) only ever considers EntityRecordsBySpace (plus generated
+	// file names) "known." Registering a bookkeeping-only record under its own already-valid HA
+	// entity_id (toHomeAssistantEntityID is a safe no-op on one) satisfies that check without
+	// giving the source any conceptual identity of its own. NoCollect keeps it out of every
+	// aggregate; DiscoveryImplied (real bug found live 2026-10-05: without it, this bookkeeping
+	// record got its own stray customization/icon file, generateCustomizationFiles' own "this
+	// generator never materialises these itself" skip gate) keeps it fully invisible, matching
+	// "hidden" literally.
+	administration.AppendEntityRecord("root", TEntityRecord{
+		Name:                  sourceEntityID,
+		Identity:              extractEntityIdentity(sourceEntityID),
+		Provenance:            provenance,
+		NoCollect:             true,
+		DiscoveryImplied:      true,
+		HasDefinitionOrImport: true,
+	})
+	administration.LogicalEntityLinks[entityID] = TLogicalEntityLink{DeviceID: decl.DeviceID, Label: label}
+	return nil, false
 }
 
 // registerLogicalMediaSwitchCapability resolves a "switch.<label>: <media-player-entity> [with:
@@ -212,13 +299,25 @@ func registerLogicalMediaSwitchCapability(administration *TAdministrationState, 
 	}
 
 	// Reverse lookup: which entity_id did this SAME device's own "node" capability resolve to?
-	// See this function's own doc comment for why it may not have resolved yet.
-	var nodeEntityID string
+	// Collects EVERY match rather than breaking on the first (map iteration order is randomised
+	// per Go process -- real bug found live 2026-09-27: two consecutive ./generate runs, no code
+	// or .def change in between, produced DIFFERENT output for
+	// appliance.sonos_playbar_livingroom's own media switch, since more than one LogicalEntityLinks
+	// entry matched this device's own "node" label and whichever one iteration hit first was pure
+	// chance). Picking the lexicographically-first match is an arbitrary but STABLE tie-break --
+	// correctness of which match is "right" when there's more than one is a separate, pre-existing
+	// question this function doesn't attempt to resolve. See this function's own doc comment for
+	// why nodeEntityID may not have resolved yet at all.
+	var nodeEntityIDCandidates []string
 	for id, link := range administration.LogicalEntityLinks {
 		if link.DeviceID == decl.DeviceID && link.Label == "node" {
-			nodeEntityID = id
-			break
+			nodeEntityIDCandidates = append(nodeEntityIDCandidates, id)
 		}
+	}
+	sort.Strings(nodeEntityIDCandidates)
+	var nodeEntityID string
+	if len(nodeEntityIDCandidates) > 0 {
+		nodeEntityID = nodeEntityIDCandidates[0]
 	}
 	if hasNodeCapability && nodeEntityID == "" && !finalAttempt {
 		return nil, true
@@ -302,6 +401,34 @@ func isKnownDeviceID(id string, discoveryGatewaysByID map[string]TDiscoveryGatew
 	return false
 }
 
+// autoMaterializedFullName builds an auto-materialized capability's own fullName (domain.sphere/
+// path[/label], pre-toHomeAssistantEntityID) -- factored out of autoMaterializePhysicalCapability's
+// discovery/local branches (2026-09-27, the "switched by" migration) so BOTH share the exact same
+// label-shortening rule: a bare "core" label (the same default every EXPLICIT positioning already
+// omits from its own final id, e.g. "entity light.social:main from core;" needs no "_core" suffix)
+// is dropped entirely, and a label whose own leading "<domain>_" word duplicates the domain itself
+// (e.g. "light_2" under domain "light" -- the "switched by" migration's own deliberate capability-
+// naming convention, letting the capability's OWN label double as documentation of its domain)
+// shortens to just the remainder ("2"), avoiding a doubled-up "..._light_2" tail. Neither rule
+// existed before 2026-09-27 -- every auto-materialized id up to then always appended label
+// verbatim (confirmed nothing relies on that -- these are purely internal/plumbing ids, never
+// hand-authored or referenced by their exact string elsewhere).
+func autoMaterializedFullName(domain string, syntheticIdentity TEntityIdentity, label string) string {
+	shortLabel := label
+	switch {
+	case label == "core", label == domain:
+		shortLabel = ""
+	default:
+		if rest, ok := strings.CutPrefix(label, domain+"_"); ok && rest != "" {
+			shortLabel = rest
+		}
+	}
+	if shortLabel == "" {
+		return fmt.Sprintf("%s.%s/%s", domain, syntheticIdentity.Sphere, syntheticIdentity.Path)
+	}
+	return fmt.Sprintf("%s.%s/%s/%s", domain, syntheticIdentity.Sphere, syntheticIdentity.Path, shortLabel)
+}
+
 // autoMaterializePhysicalCapability generalizes resolveLogicalDependencyNodeEntities' own
 // synthetic-identity pattern (integration_logical_storage.go, pre-2026-09-24: "hosts" kind + "node"
 // label only) to any physical capability referenced via a cross-device "<label> from [physical]
@@ -374,12 +501,21 @@ func autoMaterializePhysicalCapability(administration *TAdministrationState, dev
 		if !hasCap || capability.AvailabilityOf != "" || capability.DerivedFromCapability != "" || capability.Hidden {
 			return "", false
 		}
-		attrFullName := fmt.Sprintf("%s.%s/%s/%s", capability.Domain, syntheticIdentity.Sphere, syntheticIdentity.Path, label)
+		attrFullName := autoMaterializedFullName(capability.Domain, syntheticIdentity, label)
 		id := toHomeAssistantEntityID(attrFullName)
 		if id == "" {
 			return "", false
 		}
-		administration.RegisterDiscoveryImpliedEntity("root", attrFullName, provenance, deviceID+"!"+label, false)
+		// sourceKey carries a "!physical" discriminator (2026-09-27) distinguishing this auto-
+		// materialized SHADOW entity's own source-reuse bookkeeping from an ordinary, independent
+		// positioning of the SAME (deviceID, label) elsewhere (e.g. the "social" sphere entity that
+		// triggered this very auto-materialization, via a "switched by"/"dependency on" style
+		// cross-device reference) -- without it, RegisterDiscoveryImpliedEntity's own duplicate-
+		// conceptual-entity guard (administration.go) fires a false-positive "already used as a
+		// different conceptual entity" warning every time, since by design this capability
+		// deliberately gets TWO legitimate entity views (one user-facing, one purely internal
+		// plumbing), not a genuine authoring mistake.
+		administration.RegisterDiscoveryImpliedEntity("root", attrFullName, provenance, deviceID+"!"+label+"!physical", false)
 		deviceClass, unit, stateClass, icon := resolveCapabilityDefaults(administration.CapabilityDefaults, capability.Domain, label)
 		administration.DiscoveryEntityLinks[id] = TDiscoveryEntityLink{
 			EntityID:        id,
@@ -405,7 +541,7 @@ func autoMaterializePhysicalCapability(administration *TAdministrationState, dev
 		if !hasCap {
 			return "", false
 		}
-		attrFullName := fmt.Sprintf("%s.%s/%s/%s", capability.Domain, syntheticIdentity.Sphere, syntheticIdentity.Path, label)
+		attrFullName := autoMaterializedFullName(capability.Domain, syntheticIdentity, label)
 		id := toHomeAssistantEntityID(attrFullName)
 		if id == "" {
 			return "", false
@@ -432,7 +568,16 @@ func autoMaterializePhysicalCapability(administration *TAdministrationState, dev
 				HasDefinitionOrImport: true,
 			})
 		} else {
-			administration.RegisterDiscoveryImpliedEntity("root", attrFullName, provenance, deviceID+"!"+label, false)
+			// sourceKey carries a "!physical" discriminator (2026-09-27) distinguishing this auto-
+		// materialized SHADOW entity's own source-reuse bookkeeping from an ordinary, independent
+		// positioning of the SAME (deviceID, label) elsewhere (e.g. the "social" sphere entity that
+		// triggered this very auto-materialization, via a "switched by"/"dependency on" style
+		// cross-device reference) -- without it, RegisterDiscoveryImpliedEntity's own duplicate-
+		// conceptual-entity guard (administration.go) fires a false-positive "already used as a
+		// different conceptual entity" warning every time, since by design this capability
+		// deliberately gets TWO legitimate entity views (one user-facing, one purely internal
+		// plumbing), not a genuine authoring mistake.
+		administration.RegisterDiscoveryImpliedEntity("root", attrFullName, provenance, deviceID+"!"+label+"!physical", false)
 		}
 		link.AttributeEntityIDs[label] = TDeviceAttributeLink{EntityID: id, Identity: identity}
 		administration.DeviceConceptualLinks[deviceID] = link
@@ -468,28 +613,60 @@ func autoMaterializePhysicalCapability(administration *TAdministrationState, dev
 // media_player, not a capability of this device (2026-09-19) -- callers must register it as an
 // external reference (administration.RegisterExternalEntityReference) so its own live existence
 // gets tracked like any other imported/hassbridge-declared entity.
-func resolveLogicalSiblingSourceEntityID(administration *TAdministrationState, deviceID, token string, forcePhysical, allowAutoMaterialize bool, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, hostDevicesByID map[string]THostDevice, localDevicesByID map[string]TLocalDevice, provenance string) (entityID string, ok bool, isLiteral bool) {
+func resolveLogicalSiblingSourceEntityID(administration *TAdministrationState, deviceID, token string, forcePhysical, allowAutoMaterialize, mustBeSibling bool, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, hostDevicesByID map[string]THostDevice, localDevicesByID map[string]TLocalDevice, provenance string) (entityID string, ok bool, isLiteral bool) {
+	// lookupLabel strips a leading "<domain>." from token before every sibling-lookup tier below
+	// (2026-09-28, generalizing the "from"-qualified path's own bareCapabilityLabel stripping,
+	// resolveRefNode, to this SAME-DEVICE path too -- a jinja "{ ... }" source is now required to be
+	// domain-qualified, see render's own CondJinja case). The tier-4 literal-entity-id fallback below
+	// still matches against the ORIGINAL, unstripped token -- an already-fully-qualified literal
+	// entity_id (e.g. "sensor.eriks_iphone_15_pro_battery_level", never a same-device sibling label)
+	// must keep resolving to itself verbatim, not a mis-stripped fragment. mustBeSibling (2026-09-28)
+	// suppresses that tier-4 fallback entirely -- the CALLER (render's own CondJinja case) sets it
+	// once lookupCapabilityDomain has ALREADY confirmed token names a REAL declared capability of
+	// this device, so a merely-not-yet-LINKED sibling (tiers 1-3 all miss, e.g. a discovery
+	// capability that exists but has no matching DiscoveryEntityLinks entry yet) correctly
+	// defers/warns via the caller's own !ok handling, instead of this function silently accepting it
+	// as a literal entity_id merely because the token "contains a dot" too.
+	lookupLabel := bareCapabilityLabel(token)
 	if !forcePhysical {
 		for id, link := range administration.LogicalEntityLinks {
-			if link.DeviceID == deviceID && link.Label == token {
+			if link.DeviceID == deviceID && link.Label == lookupLabel {
 				return id, true, false
 			}
 		}
 	}
 	if deviceLink, hasDeviceLink := administration.DeviceConceptualLinks[deviceID]; hasDeviceLink {
-		if token == "node" && deviceLink.NodeEntityID != "" {
+		if lookupLabel == "node" && deviceLink.NodeEntityID != "" {
 			return deviceLink.NodeEntityID, true, false
 		}
-		if attr, hasAttr := deviceLink.AttributeEntityIDs[token]; hasAttr {
+		if attr, hasAttr := deviceLink.AttributeEntityIDs[lookupLabel]; hasAttr {
 			return attr.EntityID, true, false
 		}
 	}
 	if gateway, isGateway := discoveryGatewaysByID[deviceID]; isGateway {
-		if siblingCapability, hasCapability := gateway.Capabilities[token]; hasCapability {
+		if siblingCapability, hasCapability := gateway.Capabilities[lookupLabel]; hasCapability {
+			// Collects EVERY match rather than breaking on the first (map iteration order is
+			// randomised per Go process) -- the SAME non-determinism bug found and fixed twice
+			// already this session (registerLogicalMediaSwitchCapability/
+			// registerLocalMediaSwitchCapability's own identical sibling-node loops), now found a
+			// third time here: a real live case, Junglinster's server_room/corridor "switched by"
+			// pilot, where the SAME (deviceID, leaf) genuinely has two matching DiscoveryEntityLinks
+			// entries -- an explicit Conceptual.def positioning (kept for an unrelated "follows"
+			// reference) alongside the switched-by mechanism's own auto-materialized entity.
+			// Confirmed live: two consecutive ./generate runs, zero .def changes between them,
+			// produced different `derived binary_sensor.node` output for node 48's own liveness
+			// sensor. Picking the lexicographically-first match is an arbitrary but STABLE
+			// tie-break -- both candidates are always equivalent in practice (same raw MQTT leaf),
+			// so which one wins is cosmetic, but it must be deterministic.
+			var candidates []string
 			for id, link := range administration.DiscoveryEntityLinks {
 				if link.GatewayDeviceID == deviceID && link.Leaf == siblingCapability.Leaf {
-					return id, true, false
+					candidates = append(candidates, id)
 				}
+			}
+			if len(candidates) > 0 {
+				sort.Strings(candidates)
+				return candidates[0], true, false
 			}
 		}
 	}
@@ -498,7 +675,7 @@ func resolveLogicalSiblingSourceEntityID(administration *TAdministrationState, d
 			return id, true, false
 		}
 	}
-	if strings.Contains(token, ".") {
+	if !mustBeSibling && strings.Contains(token, ".") {
 		return token, true, true
 	}
 	return "", false, false
@@ -528,11 +705,82 @@ type logicalConditionResolver struct {
 	warnings  []string
 }
 
-// resolveLeaf resolves an ordinary same-device sibling label or literal entity_id (a CondJinja
-// source, or a CondRef with no "from" clause and not itself a recognized device id) -- never
-// auto-materializes, preserving every pre-2026-09-24 declaration's exact behaviour.
+// resolveLeaf resolves an ordinary same-device sibling label or literal entity_id (a CondRef with
+// no "from" clause and not itself a recognized device id) -- never auto-materializes, preserving
+// every pre-2026-09-24 declaration's exact behaviour.
+//
+// Mandatory domain-qualification (2026-09-29, generalizing the same rule the jinja-source clause
+// and "entity X from Y Z;" already enforce, same actionable-suggestion style via
+// lookupCapabilityDomain): a bare, non-dotted token ("core") is rejected outright in favour of
+// "<domain>.core" -- the user's own words, the live trigger for this: "that 'core' without domain
+// should be illegal." Not gated on r.finalAttempt, matching the jinja-source check: this is a pure
+// syntax rule, never something a later line in the file could resolve.
+//
+// Once a dot is confirmed present, the SAME disambiguation render's own CondJinja case already
+// uses is applied here too: lookupCapabilityDomain decides whether token names a REAL declared
+// capability of r.deviceID. If it does, mustBeSibling=true forces genuine sibling resolution
+// (tiers 1-3, properly deferred/retried via resolveTargeted's own !ok handling) and suppresses
+// resolveLogicalSiblingSourceEntityID's tier-4 literal-entity-id fallback entirely. This is NOT
+// optional polish: tier-4 has no notion of r.finalAttempt at all, so without mustBeSibling it
+// happily "succeeds" by treating a genuinely-real-but-not-yet-linked capability as a literal
+// entity_id on the very FIRST pass -- permanently locking in the wrong answer instead of deferring
+// to a later pass once the real positioning is parsed. A real regression, caught live 2026-09-29
+// immediately after mandatory-domain-qualification first shipped for this function: Junglinster's
+// "appliance.tv_living_room" (its "enabled by" sugar's own synthesized "media_player.core is
+// available" condition) rendered as `states('media_player.core')` verbatim -- a nonsense literal
+// entity_id -- instead of resolving to the real `media_player.social_house_living_room_tv`, purely
+// because tier-4 fired before the device's own Conceptual.def positioning had been parsed yet.
+// Passing mustBeSibling=false for a token lookupCapabilityDomain does NOT recognise (a genuinely
+// literal, already-existing HA entity reference, e.g. an "over:"-style external entity_id) keeps
+// that legitimate case working exactly as before.
 func (r *logicalConditionResolver) resolveLeaf(token string) (string, bool) {
-	return r.resolveTargeted(r.deviceID, token, false, false)
+	if !strings.Contains(token, ".") {
+		if realDomain, found := lookupCapabilityDomain(token, r.deviceID, r.discoveryGatewaysByID, r.hassBridgeDevicesByID, r.importedDevicesByID, r.hostDevicesByID, nil, r.localDevicesByID, r.logicalDevicesByID); found {
+			r.warnings = append(r.warnings, fmt.Sprintf("%s: condition/value reference %q has no domain prefix -- write %q", r.provenance, token, realDomain+"."+token))
+		} else {
+			r.warnings = append(r.warnings, fmt.Sprintf("%s: condition/value reference %q has no domain prefix -- write the domain explicitly (e.g. %q), matching whatever domain %q's own declaration actually gives it", r.provenance, token, "<domain>."+token, token))
+		}
+		return "", false
+	}
+	_, isDeclaredCapability := lookupCapabilityDomain(bareCapabilityLabel(token), r.deviceID, r.discoveryGatewaysByID, r.hassBridgeDevicesByID, r.importedDevicesByID, r.hostDevicesByID, nil, r.localDevicesByID, r.logicalDevicesByID)
+	return r.resolveTargeted(r.deviceID, token, false, false, isDeclaredCapability)
+}
+
+// jinjaPlaceholderPattern matches one "$[domain.label]" placeholder inside a literal-string jinja
+// head (2026-10-05, PROJECT.md 1h) -- the same charset a bare ref/jinja-source token already uses
+// elsewhere in this grammar (letters/digits/underscore/dot/slash/"!").
+var jinjaPlaceholderPattern = regexp.MustCompile(`\$\[[A-Za-z_][A-Za-z0-9_./!]*\]`)
+
+// resolveJinjaToken resolves one jinja clause's own source reference -- a "$[domain.label]"
+// placeholder's own contents (literal-string head) or a named-template-call head's single
+// parenthesized source, both the exact same shape. Mandatory domain-qualification (2026-09-28,
+// generalizing the "entity X from Y Z;" hard rule, Conceptual_DeviceCapabilityEntities.go) -- a
+// bare "battery_level" is rejected outright in favour of "sensor.battery_level", same actionable-
+// suggestion style via lookupCapabilityDomain. Not gated on r.finalAttempt: this is a pure syntax
+// rule, never something a later line in the file could resolve.
+//
+// A domain-qualified token is ambiguous on its own -- "sensor.battery_level" could mean either
+// "the sibling capability battery_level, whose real domain is sensor" or a genuinely literal,
+// already-existing HA entity_id (e.g. "sensor.infrastructural_apartment_bedroom_sonos_battery_level",
+// never a capability of THIS device at all). Only take the sibling-lookup path (with its own
+// deferred-retry semantics -- a sibling that's simply not positioned YET must defer/warn, never
+// silently fall back to literal) when lookupCapabilityDomain confirms the token's own bare label is
+// a REAL declared capability of r.deviceID; otherwise it's used verbatim as a literal reference,
+// exactly like resolveLeaf's own identical disambiguation for a plain condition/value atom.
+func (r *logicalConditionResolver) resolveJinjaToken(token string) (string, bool) {
+	if !strings.Contains(token, ".") {
+		if realDomain, found := lookupCapabilityDomain(token, r.deviceID, r.discoveryGatewaysByID, r.hassBridgeDevicesByID, r.importedDevicesByID, r.hostDevicesByID, nil, r.localDevicesByID, r.logicalDevicesByID); found {
+			r.warnings = append(r.warnings, fmt.Sprintf("%s: jinja source %q has no domain prefix -- write %q", r.provenance, token, realDomain+"."+token))
+		} else {
+			r.warnings = append(r.warnings, fmt.Sprintf("%s: jinja source %q has no domain prefix -- write the domain explicitly (e.g. %q), matching whatever domain %q's own declaration actually gives it", r.provenance, token, "<domain>."+token, token))
+		}
+		return "", false
+	}
+	if _, isDeclaredCapability := lookupCapabilityDomain(bareCapabilityLabel(token), r.deviceID, r.discoveryGatewaysByID, r.hassBridgeDevicesByID, r.importedDevicesByID, r.hostDevicesByID, nil, r.localDevicesByID, r.logicalDevicesByID); isDeclaredCapability {
+		return r.resolveTargeted(r.deviceID, token, false, false, true)
+	}
+	r.administration.RegisterExternalEntityReference(r.administration.CurrentSpaceName(), token, r.provenance)
+	return token, true
 }
 
 // resolveRefNode resolves a CondRef node that may carry a "from [physical] <device-id>" qualifier
@@ -558,7 +806,7 @@ func (r *logicalConditionResolver) resolveRefNode(node *TConditionExpr) (string,
 	default:
 		return r.resolveLeaf(node.Ref)
 	}
-	return r.resolveTargeted(targetDeviceID, label, node.ForcePhysical, true)
+	return r.resolveTargeted(targetDeviceID, label, node.ForcePhysical, true, false)
 }
 
 // bareCapabilityLabel strips a leading "<domain>." from a "from"-qualified ref, if present --
@@ -570,9 +818,27 @@ func bareCapabilityLabel(ref string) string {
 	return ref
 }
 
-func (r *logicalConditionResolver) resolveTargeted(targetDeviceID, label string, forcePhysical, allowAutoMaterialize bool) (string, bool) {
-	entityID, ok, isLiteral := resolveLogicalSiblingSourceEntityID(r.administration, targetDeviceID, label, forcePhysical, allowAutoMaterialize, r.discoveryGatewaysByID, r.hassBridgeDevicesByID, r.hostDevicesByID, r.localDevicesByID, r.provenance)
+func (r *logicalConditionResolver) resolveTargeted(targetDeviceID, label string, forcePhysical, allowAutoMaterialize, mustBeSibling bool) (string, bool) {
+	entityID, ok, isLiteral := resolveLogicalSiblingSourceEntityID(r.administration, targetDeviceID, label, forcePhysical, allowAutoMaterialize, mustBeSibling, r.discoveryGatewaysByID, r.hassBridgeDevicesByID, r.hostDevicesByID, r.localDevicesByID, r.provenance)
 	if !ok {
+		// Fallback (2026-09-29, the user's own explicit call): an ABSORBED capability with no
+		// Conceptual.def positioning of its own (e.g. a Logical.def "enabled by" sugar's own
+		// synthesized "enabler") doesn't need one if its real underlying source
+		// (AbsorbedFromDeviceID!AbsorbedFromCapability) is ALREADY conceptually positioned under
+		// some OTHER name -- reuse that entity_id directly rather than demanding a second,
+		// redundant positioning (which would only ever trip RegisterDiscoveryImpliedEntity's own
+		// "already used as a different conceptual entity" warning anyway, since it's genuinely the
+		// same physical source). Concrete case: Junglinster's office "cycling" smart plug is both
+		// its own real switch AND the shared enabler for two independent media devices (apple_tv,
+		// tv) -- all three legitimately reference the exact same switch.core.
+		if logical, isLogical := r.logicalDevicesByID[targetDeviceID]; isLogical {
+			if cap, hasCap := logical.Capabilities[bareCapabilityLabel(label)]; hasCap && cap.AbsorbedFromDeviceID != "" {
+				sourceKey := cap.AbsorbedFromDeviceID + "!" + cap.AbsorbedFromCapability
+				if existing, seen := r.administration.ConceptualUseBySource[sourceKey]; seen {
+					return toHomeAssistantEntityID(existing.EntityName), true
+				}
+			}
+		}
 		if !r.finalAttempt {
 			r.deferred = true
 			return "", false
@@ -610,15 +876,33 @@ func (r *logicalConditionResolver) render(node *TConditionExpr) (string, bool) {
 		}
 		return fmt.Sprintf("is_state('%s', 'on')", entityID), true
 	case CondJinja:
-		sources := make([]string, 0, len(node.JinjaSources))
-		for _, token := range node.JinjaSources {
-			entityID, ok := r.resolveLeaf(token)
-			if !ok {
-				return "", false
+		if len(node.JinjaSources) == 0 {
+			// Literal-string head (2026-10-05, PROJECT.md 1h): sources are embedded directly in
+			// JinjaExpr as "$[domain.label]" placeholders -- resolve and substitute each one,
+			// in place, via the exact same per-token resolution the named-template-call head's
+			// own single source uses below.
+			expr := node.JinjaExpr
+			for _, match := range jinjaPlaceholderPattern.FindAllString(node.JinjaExpr, -1) {
+				if !strings.Contains(expr, match) {
+					continue // a repeated placeholder, already substituted on an earlier match
+				}
+				token := strings.TrimSuffix(strings.TrimPrefix(match, "$["), "]")
+				entityID, ok := r.resolveJinjaToken(token)
+				if !ok {
+					return "", false
+				}
+				expr = strings.ReplaceAll(expr, match, sourceToJinja2(entityID))
 			}
-			sources = append(sources, entityID)
+			return "(" + expr + ")", true
 		}
-		return "(" + buildConditionStateExpr(sources, node.JinjaExpr) + ")", true
+		// Named-template-call head: a single, already-parenthesized source (ParseJinjaClause only
+		// ever populates exactly one), substituted positionally into JinjaExpr's own bare "$"/"$1"
+		// (that template's text lives in Settings.def, so it can't embed a placeholder of its own).
+		entityID, ok := r.resolveJinjaToken(node.JinjaSources[0])
+		if !ok {
+			return "", false
+		}
+		return "(" + buildConditionStateExpr([]string{entityID}, node.JinjaExpr) + ")", true
 	case CondNot:
 		child, ok := r.render(node.Child)
 		if !ok {

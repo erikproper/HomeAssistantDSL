@@ -97,7 +97,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -211,7 +211,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -346,7 +346,7 @@ end;`
 	}
 
 	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", &TMacroExpansionContext{}, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -356,12 +356,18 @@ end;`
 		t.Fatalf("generateHassBridgeEntityReportingAutomations error: %v", err)
 	}
 
-	attrFile := filepath.Join(outputDir, "automation", "infrastructural", "automation.reporting_attributes_vacuum_physical_living_room_vacuum.yaml")
+	// entity_id is "vacuum.physical_living_room", NOT "..._vacuum" -- resolveDeviceEntityFullName's
+	// own domain-tail stripping (2026-09-29, the user's own correction: it must apply
+	// UNCONDITIONALLY, not just when the entity's own device has an "as" leaf) strips
+	// "vacuum.physical:vacuum"'s own redundant trailing "vacuum" the same way "light.social:light"
+	// already was -- this device has no "as" leaf at all, exactly the case that stripping used to
+	// skip.
+	attrFile := filepath.Join(outputDir, "automation", "infrastructural", "automation.reporting_attributes_vacuum_physical_living_room.yaml")
 	body, err := os.ReadFile(attrFile)
 	if err != nil {
 		t.Fatalf("expected the sibling attributes automation file to exist: %v", err)
 	}
-	if !strings.Contains(string(body), `topic: "homeassistant_instances/protocols-server-2/bridge/vacuum.physical_living_room_vacuum/attributes"`) {
+	if !strings.Contains(string(body), `topic: "homeassistant_instances/protocols-server-2/bridge/vacuum.physical_living_room/attributes"`) {
 		t.Errorf("attributes automation = %q, want the sibling .../attributes topic", body)
 	}
 	if !strings.Contains(string(body), "state_attr('vacuum.roomba', 'error')") || !strings.Contains(string(body), "state_attr('vacuum.roomba', 'error_code')") {
@@ -374,7 +380,7 @@ end;`
 	// -- otherwise HA auto-suffixes one entity_id with "_2" on load, confusing in the UI even
 	// though functionally harmless (real lesson from this same session's netatmo battery_alert
 	// collision).
-	if !strings.Contains(string(body), `alias: "reporting/vacuum/physical/living_room/vacuum/attributes"`) {
+	if !strings.Contains(string(body), `alias: "reporting/vacuum/physical/living_room/attributes"`) {
 		t.Errorf("attributes automation = %q, want a distinct \"/attributes\"-suffixed alias", body)
 	}
 }
