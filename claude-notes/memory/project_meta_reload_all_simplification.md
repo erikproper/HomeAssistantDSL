@@ -1,0 +1,19 @@
+---
+name: project-meta-reload-all-simplification
+description: DONE+DEPLOYED 2026-09-17 both houses -- replaced the hand-maintained per-domain reload automation scheme with a single homeassistant.reload_all call; real lesson on orphaned registry entries surviving restarts
+metadata: 
+  node_type: memory
+  type: project
+  originSessionId: 02e0cbb6-56e4-4de4-b032-b8a76cfdca1f
+  modified: 2026-09-17T13:01:50.855Z
+---
+
+**What changed**: `remote_instance_meta_control.go`'s `metaReloadAutomationBody` used to generate SEVERAL independent automations per instance, one per `"<domain>.reload"` service (`metaReloadServices`/`metaOptionalReloadServices`), plus a delayed `automation.reload` automation -- all workarounds for HA's script engine re-raising `ServiceNotFound` regardless of `continue_on_error`, and `automation.reload`'s own self-cancellation. Replaced with ONE automation calling `homeassistant.reload_all` -- confirmed live present on both houses' main instances (HA Core 2026.9.2) and on Junglinster's protocols-server-2 indirectly (same deployment era, not directly checked). `reload_all` is HA's own first-party backend for the UI's "Reload all YAML configuration" quick action -- it iterates HA's own internal reload-hook registry, so it structurally can't miss a domain or need a hand-maintained list.
+
+**Why**: recurring live warnings ("unknown action: command_line.reload" etc.) from the old scheme's per-domain automations on instances missing that domain's config. Deployed and verified live on both Vienna and Junglinster (manually published to `<installation>/meta/reload/main/request` on the cloud broker, confirmed the new single `automation.coordinator_meta_reload` fires and goes `on`).
+
+**Real lesson learned the hard way**: a full HA restart does **not** clean up automation entities whose YAML definition disappeared -- the entity registry persists them as orphaned `unavailable` placeholders regardless of restarts, exactly like [[project_ha_entity_registry_collision_lessons]]'s own orphaned-entity pattern. I incorrectly assumed a restart would reconcile the registry against current config and triggered one on Vienna's live instance for no benefit (it just turned the previously-`on` old automations `unavailable` too, alongside the ones that already were). Genuinely removing an orphaned entity registry entry needs either the HA UI directly (Settings > Automations/Entities, since HA's REST API doesn't expose registry deletion) or a WebSocket API call to `config/entity_registry/remove` -- untested this session, user opted to clean up via the UI themselves instead.
+
+**How to apply**: don't reach for "just restart it" to clean up orphaned entities in the future -- it doesn't work, and unlike a plain reload it's a real, brief, whole-house interruption not worth causing for zero effect. Junglinster's main instance had no old per-domain automations at all when checked post-deploy (either never accumulated, or this house's automations.yaml handling differs) -- no cleanup needed there.
+
+**Vienna's protocols-server-2 instance** also needed cleanup (found by the user via the UI, 2026-09-17, after Vienna main and both Junglinster instances were already confirmed clean): a leftover `"Coordinator meta: reload automations"` automation, orphaned the same way once the new single-automation file was deployed and its reload triggered. Only that one entity was reported (not the full nine-way per-domain set Vienna main had) -- likely because this instance was last deployed with an OLDER intermediate version of the scheme (the simple two-automation "core"+"automations" shape, from before the 2026-09-15 per-domain isolation fix), not the fuller set. Removed via the same UI path. Junglinster's own protocols-server-2 instance was checked and confirmed clean (only the new automation, no leftovers) -- so this was Vienna-specific.
