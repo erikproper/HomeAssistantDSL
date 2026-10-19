@@ -46,6 +46,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 // TDeviceSourceEntityDeclaration is one parsed "entity <local-spec> as <source> from <device-id>;"
@@ -223,9 +224,39 @@ func registerDeviceSourceEntityLink(administration *TAdministrationState, decl T
 	// friendly name. But when the device's OWN leaf already equals the domain (e.g. "device
 	// infrastructural:vacuum from appliance.vacuum" -- devBlock.Name already ends in "vacuum"),
 	// even the domain word would be a redundant repeat, so omit the suffix entirely.
+	//
+	// deviceNamePath alone (the device header's own raw "as <leaf>" text) stops being a reliable
+	// signal once that clause is gone -- it reads as "no leaf at all" even when the device's own
+	// OVERALL identity still carries one via a DIFFERENT entity's own explicit text (typically its
+	// "node"), e.g. Junglinster's utility.somfy_david_bedroom ("entity
+	// binary_sensor.infrastructural:somfy/node;", no "as" clause ever) still has display_name
+	// "house/david_bedroom/somfy" (fixUpDisplayNameFromNode, device_friendly_name.go) even though
+	// THIS "cover" capability's own deviceNamePath/LocalSpec contribute nothing -- and "cover" is
+	// still the correct, distinguishing display_suffix there (confirmed live against the real,
+	// unmodified deployment), not "" -- only Vienna's appliance.vacuum (no "as" clause AND no
+	// other entity contributing a leaf at all, since its own leaf WAS "vacuum", matching the
+	// domain, before being fully absorbed) should suppress it. Falling back to the device's own
+	// node-derived leaf (DeviceNodeEntityID, the SAME choke point resolveDeviceFriendlyName uses)
+	// when deviceNamePath is empty distinguishes the two: "vacuum" (fully absorbed into the
+	// domain) suppresses, "somfy" (a real, different leaf) doesn't. If the device's own "node"
+	// isn't resolved yet (an ordering risk this doesn't fully rule out), falls back to the
+	// pre-2026-10-07 behaviour (show the domain word) rather than guessing "" -- the safe default
+	// is to show a suffix that might be redundant, not to silently drop a real distinguishing one.
+	deviceLeaf := deviceNamePath
+	if deviceLeaf == "" {
+		if entityID, hasNode := administration.DeviceNodeEntityID[decl.DeviceID]; hasNode {
+			if nodeIdentity, found := entityIdentityByID(administration, entityID); found {
+				deviceLeaf = stripLastPathSegment(nodeIdentity).Path
+				_, contextPath := normalizeSpaceContext(administration.SpacePath)
+				if contextPath != "" {
+					deviceLeaf = strings.TrimPrefix(strings.TrimPrefix(deviceLeaf, contextPath), "/")
+				}
+			}
+		}
+	}
 	displaySuffix := key
 	if deviceSpecLeafPath(decl.LocalSpec) == "" {
-		if deviceNamePath == identity.Domain {
+		if deviceLeaf == identity.Domain {
 			displaySuffix = ""
 		} else {
 			displaySuffix = identity.Domain

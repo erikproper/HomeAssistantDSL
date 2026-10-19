@@ -2,6 +2,8 @@
 
 ## Extend coverage
 
+2. Leakage / nomotion on both sites
+
 3. Complement suggested in both locations.
 So, suggested entities of a device we included already.
 
@@ -13,88 +15,78 @@ JLI
 VIE
 JLI
 
-6. Then also (ensure it is) re-enable(d) the checking of locally (on main HA) assumed entities via the inquiry process. So, using the three values approach, triggering the inquiry of assumed to exist local entities (on main) via the coordinator. 
+6. Then also (ensure it is re-enable(d) the checking of locally (on main HA) assumed entities via the inquiry process. So, using the three values approach, triggering the inquiry of assumed to exist local entities (on main) via the coordinator. 
 
 Also: Check for more of the existing integrations, like fritzbox, ems-esp, etc.
 
 Also: EMS heater device -- not started, design/syntax not yet worked out.
+  
+## Linux and hardware migration
 
-## Hardware in Junglinster
+0. Offload xanadu:
+    [ ] Music to p-s-1
+    [ ] Stop samba
+    [ ] Keep printer functional?
+    [ ] Clean xanadu -- survey done 2026-10-16 (read-only, nothing removed yet -- explicitly
+        deferred until xanadu's role is actually down to Plex-video + RAID-backup only).
+        Candidates found, roughly most-to-least confident:
+      - mariadb (hosts "nextcloud"/"nextclouddb" databases) -- a Nextcloud instance's own
+        backend, unrelated to Plex/backup. NEEDS A DECISION, not a safe auto-remove: is this
+        Nextcloud instance itself still wanted anywhere, or is the whole thing dead?
+      - samba-ad-dc.service -- an Active Directory Domain Controller role enabled; a quick
+        `samba-tool domain info` against it failed outright, suggesting it's not actually
+        functioning as one. Likely a stale/accidental enablement, not a deliberate AD setup.
+      - dnsmasq + xinetd -- dnsmasq.conf configures a full PXE network-boot setup (DHCP proxy +
+        TFTP + pxelinux.0), presumably a one-off provisioning tool from an earlier hardware
+        install, not an ongoing service this role needs. Mind that it's DHCP-adjacent -- review
+        before disabling, don't just rip it out.
+      - containerd + the `docker` binary + /opt/containerd -- a second, apparently fully UNUSED
+        container runtime alongside podman (`ctr containers list` came back empty); podman is
+        this project's own established tool here (and already runs xanadu's one real container,
+        below). Strong candidate to drop entirely.
+      - The podman "bt-proxy" container + /opt/bt-proxy (status "Created", not running, ~2
+        months old) -- looks like an earlier/abandoned bt-proxy experiment, predating the
+        actually-deployed one on frame.junglinster (2026-10-15,
+        memory: project_living_room_bt_proxy_plan.md). Not currently running, low risk either
+        way, but worth confirming it's superseded before deleting.
+      - /opt's Oracle VM VirtualBox Extension Pack (.vbox-extpack, 2017) -- no VirtualBox
+        service found enabled; looks like a dead leftover.
+      - Desktop-oriented services that don't fit a headless Plex/backup box: bluetooth.service,
+        blueman-mechanism.service, accounts-daemon.service, switcheroo-control.service,
+        spice-vdagentd.service, console-setup.service, keyboard-setup.service, whoopsie.service,
+        kerneloops.service, cups.service, cups-browsed.service. Lower priority/risk than the
+        above, but consistent with "this box was once a full desktop install."
+      - A large, old, accumulated pile of pip-installed (not apt-managed) single-purpose CLI
+        tools directly under /usr/local/bin (imap-backup, geeknote, airsonos, chromecast-cli,
+        OCR/PDF tools, cpanm, etc.) -- exactly the "not in line with apt-get structures" issue
+        flagged 2026-10-16. Needs its own itemized pass later, not a blind wipe -- too many to
+        vet individually right now.
+      - mosquitto.service -- an MQTT broker running on xanadu itself; PURPOSE UNCLEAR (possibly
+        tied to this project's own multi-broker relay/roaming-devices mechanism, possibly dead) --
+        do NOT assume this one is safe to remove without checking what, if anything, still
+        talks to it.
+      Also to be removed:
+      - Golang
+      - dovecot
+      But keep: cupsd + printer definition.
+    [X] Test plex + samba 4 music with 500G SSD
+    [ ] Check usage of internal disks. Optimize with logical volumes?
+    Optimize with Raid capacity?
 
-1. Stick migration for Pi3 and PiB:
-- Copy the pi3 stick in vienna to one of these sticks
-- Migrate frame.junglinster to one of these sticks on fedora
-  - Note (2026-09-08, from Vienna's protocols-server-2 Fedora migration): a `dnf -y upgrade` right
-    after installing X/feh bumped mesa-dri-drivers (26.0.3 -> 26.1.8) and broke the modesetting
-    driver's GLAMOR/GPU acceleration on the Pi's SoC GPU -- Xorg segfaulted inside glamoregl right
-    after loading it (Xorg.0.log: crash immediately follows loading libglamoregl.so, modeset(0) on
-    /dev/dri/cardN). Fix: `/etc/X11/xorg.conf.d/10-modesetting-noaccel.conf` with a `Device`
-    section (`Driver "modesetting"`, `Option "AccelMethod" "none"`) forcing software/shadow
-    framebuffer rendering -- fine for a static picture-frame slideshow, no GPU needed. Apply this
-    same file proactively on frame.junglinster's Fedora install, ideally before the first
-    `start_slideshow` test rather than after hitting the same crash again.
-  - Note (2026-09-10, item 0): fold the swap/cache fix in here too, rather than doing it
-    standalone -- fresh-install-on-USB-then-copy-containers-across is exactly the right moment to
-    set up proper disk-backed swap from day one, instead of retrofitting it live like Vienna
-    needed. Specifically follow the Vienna protocols-server-2 model (same class of hardware/RAM as
-    frame.junglinster, not Junglinster's own existing protocols-server-2, which is a different,
-    better-resourced machine): a 4GB disk-backed /swapfile at priority -1, alongside zram at its
-    default priority 100 (zram absorbs load first, the swapfile is overflow) -- exact commands in
-    memory: project_ps2_swap_fix_procedure.md.
+1. Ubuntu as standard.
+   [ ] Then the old laptop
+   [ ] Then the old pro (https://ubuntuasahi.org/)
 
-sudo growpart /dev/sda 3
-sudo pvresize /dev/sda3
-sudo lvextend -l +100%FREE /dev/systemVG/LVRoot
-sudo xfs_growfs /
+2. Migration of home automation:
+  [ ] Switch to new Zigbee antenna (planned for the weekend of 2026-10-24/25, not this coming one)
 
-Confirmed working on the first clone (frame @ Junglinster) 2026-09-21: root grown from 26.19G to
-118G (XFS, not ext4 -- xfs_growfs takes the mountpoint, not the device). Same commands apply
-verbatim to the next stick.
+3. Xanadu only for plex ...
+[ ] P-s-1@JLI as plex+samba music server
+[ ] Move music away from Xanadu
 
-And sudo hostnamectl set-hostname <name> for the rename — also trivially safe once it's the only one running. 
+4. MQTT (local) broker in container on p-s-1 @JLI
 
-Note (2026-09-23, found live): the cloned Fedora-on-stick image carries over whatever timezone the
-SOURCE stick had set (`timedatectl`), not each clone's own correct one -- confirmed live on 3 of 4
-already-deployed hosts cloned from it (protocols-server-1 @ Vienna, frame @ Vienna,
-protocols-server-1 @ Junglinster, all found set to `America/New_York` instead of
-`Europe/Vienna`/`Europe/Luxembourg` respectively; only protocols-server-2/ha2mqtt @ Junglinster had
-already been manually corrected). Both houses' main HAOS instances were unaffected -- this is
-specific to the Fedora-on-stick clones. Fixed live on all three wrong ones via `sudo timedatectl
-set-timezone <Europe/Vienna|Europe/Luxembourg>`. The two NOT-YET-DEPLOYED cloned sticks (the
-Vienna frame replacement and the Frame@Junglinster migration target, item 2's own "Copy the pi3
-stick... to one of these sticks" / "Migrate frame.junglinster... on fedora" bullets above) are
-ALSO confirmed still set to US time -- add "`sudo timedatectl set-timezone ...`" to this item's own
-checklist, to run BEFORE first bringing either of them into live service, not after (a wrong
-timezone silently skews every log timestamp and can otherwise confuse time-sensitive scheduling
-until caught).
-
-2. Once Frame@Junglinster is migrated to Fedora (item 2): 
-==> As we will use a cloned USB stick, the things below might already
-work "out of the stick".
-back up its `~/bin` folder the same way
-   as Frame@Vienna's own frame host (done 2026-09-21, see Architecture.md 11.3) -- a
-   `sudo ln -s ~/bin /var/lib/home-automation/frame-bin` symlink, so the existing
-   `backup-home-automation` script (already fixed+redeployed everywhere to dereference such
-   symlinks) picks it up with zero script changes. NOT just the `*_slideshow` scripts -- the whole
-   folder, since it holds various hand-tuned, monitor/location-specific scripts that would be
-   painful to reconstruct.
-
-3. Z-Wave migration from winsock to MQTT. Also on a device per device base, but no MQTT passthrough needed.
-   Pre-work notes from the original roadmap: new environment is Home Assistant Green + a
-   Raspberry Pi running Podman + Z-Wave JS UI + Aeotec ZWA-2 controller + two Aeotec ZW117 range
-   extenders; mesh validation confirmed a Fibaro module excluded/included successfully through
-   Basement (ZWA-2) -> 1st floor repeater -> 2nd floor repeater -> device; Node ID allocation
-   observed monotonically increasing (first inclusion -> Node ID 4, second -> Node ID 5) rather
-   than immediate reuse of released IDs, not fully validated -- migration plan deliberately avoids
-   depending on Node ID preservation (possible allocation strategies to watch for: first unused
-   ID, highest known ID + 1, highest ever assigned ID + 1); migration order keeps the old Gen5
-   mesh operational while building an initial new backbone from the ZW117 repeaters, migrating
-   remote mains-powered devices first, letting migrated Fibaro modules become new repeaters
-   (strengthening the mesh as migration proceeds), migrating controller-near devices last -- keeps
-   RF coverage acceptable throughout and doesn't require every device to be physically reachable
-   from the new controller during migration.
-
-4. Migration of Zigbee2MQTT app from Green to p-s-1 in JLI, plus antenna migration.
+3. Migration of Zigbee2MQTT app from Green to p-s-1 in JLI, plus antenna migration.
 
     Unlike Vienna's move (same physical Sonoff dongle, just relocated -- DONE + VERIFIED LIVE
     2026-09-08, real network/73 devices preserved intact), Junglinster is also swapping the radio
@@ -146,79 +138,31 @@ back up its `~/bin` folder the same way
     - [ ] Only decommission/repurpose the old Sonoff dongle once the above is verified stable, not
           immediately.
 
-5. MQTT (local) broker in container on p-s-1 @JLI
-
 ## Migration & improvements
-
-5. do a /clean
-
-6. check HA main's ID's from the registry in preparation of the next step. Any orphans? Any unused ones we may want to re-use later?
-  (example found live 2026-09-29, Junglinster: binary_sensor.infrastructural_house_sarah_bedroom_apple_tv_node_raw
-  -- a registry-only "template" platform ghost, self-referential unique_id, no backing file anywhere
-  on disk, created_at/modified_at both epoch -- clearly generated by some earlier revision of
-  Physical.def/Conceptual.def, predating even the media_player_device macro state this session's own
-  Sarah's bedroom Apple TV migration replaced. Harmless (reads unavailable, nothing references it),
-  but a real registry-surgery removal candidate for whenever this item is picked up.)
-
-7. stable coordinator<->HA entity identity via Physical.def "as <id>" (design discussed 2026-09-29,
-  not yet implemented; PLAN AFTER "do a /clean" above): today the coordinator computes each
-  relayed entity's unique_id fresh, every time, as gatewayID+leaf (a pure function of Physical.def's
-  own raw declaration) -- so a hardware swap (even same conceptual position, e.g. replacing a zwave
-  switch with a zigbee one) changes the unique_id, HA treats it as a brand-new entity, and we get
-  the same "_2" registry-collision dance this whole session has repeatedly fixed by hand. Proposed
-  fix: the GENERATOR assigns a permanent id the moment a capability is first declared (device-name +
-  capability-name derived) and writes it back into Physical.def itself as
-  "light.light_1 <raw-leaf> as <assigned-id>;" -- once the "as ..." is present, it's authoritative
-  and the generator never touches it again, regardless of later raw-leaf changes, conceptual
-  repositions, or renames of the device/capability itself. Coordinator side: a small, contained
-  change -- prefer this carried-through id (via discovery.yaml) over its own computed one when
-  present; no new coordinator-owned database, coordinator stays a faithful executor of what
-  Physical.def says, matching the rest of the architecture's own division of labour. Needs a
-  one-time bootstrap first: seed "as <id>" for every ALREADY-LIVE capability from its CURRENTLY
-  assigned unique_id (pulled once from the coordinator/HA registry, never freshly minted for
-  something already live) -- scripted, byte-diffed, dated backups, same discipline as every other
-  .def rewrite this session has done. Side benefit: a natural "orphaned id" warning at generate time
-  (an "as <id>"-carrying capability nothing in Conceptual.def positions anymore any more), the
-  complement of the existing "undeclared entity" checks. Once live, rename-driven work (e.g. "moes
-  related renames" below) stops causing registry churn at all -- worth sequencing that work after
-  this lands, if it's otherwise gated on registry-impact concerns.
-
-8. check zwave related entity friendly names
-  (example seen live 2026-09-29, node 058 switch_1: zwavejs2mqtt's own native name reads
-  "garage/fuse_box/zwave/058_switch_1" -- almost right, would be better as
-  "garage/fuse_box/zwave/058/switch_1", a "/" instead of the "_" before "switch_N")
-
-9. check if all unused zwave is cleaned out
-
-10. remove the " .. as .." clause for devices? reduce/remove!! "as sss:eee"? Use positioning, and add device (aqara) name to the infra entities.
-
-12. harmonise implied rules like:
-    lights_motion_guarded with delay 10
-  in line with the "rules"
-  Also fix that name "with delay" without _ and then motion_guarded. Odd ...
-  includes "heating", but let claude search for "that" what generates automations.
-  We need to enforce this through the same set of calls.
-  Note the automations for ha2mqtt can probably also be included, but we
-  need to look at the names.
-
-Note (2026-09-29): named the ground under this before it started migrating further -- the "when
-<event> turns X then turn <action> Y;" construct now requires a leading "rule <sphere:leaf>"
-name (mandatory, resolved exactly like a domain-less entity leaf), since a name can no longer be
-mechanically derived from trigger/action the moment a rule is allowed multiple triggers/
-conditions/actions (this item's own eventual scope). Two rules resolving to the same name now
-warn. "follows <follower> <leader>;" (permanent sugar for two such rules) got a matching
-symmetric rename: "<sphere1>/<path1>/<domain1>/follows/turn_on|off/<sphere2>/<path2>/<domain2>".
-Both houses regenerated; Vienna is byte-identical (neither construct used there yet).
-DEFERRED to whenever this item is actually picked up: harmonise the OTHER rule-shaped generators
-(motion_guarded, the heating functionality's own rules) onto this same naming
-convention/mechanism -- not done today, flagged only.
-
-13. migrate manual automations. Might need a syntactice extension, but it would be good if we can add all rules to conceptual.def, within the relevant space.
 
 14. moes related renames. Check in Junglinster. Maybe use buttons instead of moes, and then have _1, etc.
   (registry-impact concern -- see the "stable coordinator<->HA entity identity" item above, plan
   this after that lands if avoidable)
 Also check somfy rename
+
+  DONE 2026-10-05 (Junglinster, same device-ID-category-naming concern): 4 "philips_dimmer"
+  devices were declared as `sensors.*` but are actually remote buttons (battery_level +
+  event.pressed, no sensor reading of their own) -- renamed to `buttons.*`
+  (living_room_dining/living_room_living/house_kitchen_terrace_door/bathroom). Confirmed zero
+  entity_id impact (byte-identical hass/ output and discovery.yaml otherwise) before applying --
+  these devices have explicit Conceptual.def positioning, so the device-ID prefix never leaks into
+  any HA-facing name.
+
+  DEFERRED, same review, same reason as this item's own moes/somfy case: 3 "main_dimmer"/
+  "workplace_dimmer" devices (`sensors.living_room_living_main_dimmer`, `sensors.living_room_
+  dining_main_dimmer`, `sensors.house_kitchen_workplace_dimmer`) are actual dimmable lights, not
+  sensors -- `lights.*` would be the correct prefix, but unlike the buttons case above, these use
+  the "light.core is switched by ... from ...;" one-liner sugar (Logical.def), which has no
+  explicit positioning of its own and auto-materializes its light entity's name straight from the
+  device ID. Confirmed via generate+diff: renaming would change 3 real, currently-live entity_ids
+  (light.physical_sensors_<name> -> light.physical_lights_<name>) -- exactly the registry-churn
+  class item 7 (stable coordinator<->HA entity identity) exists to eliminate. User's call:
+  defer until item 7 lands, same sequencing as the moes/somfy renames already noted here.
 
 15. fix physical. Carefull with taps and moeses because of the manual automations.
 - physical to social
@@ -235,6 +179,68 @@ Also check somfy rename
       device sensors.server_room_main_spots with entity light.social:main from light.core;
     ==>
       device sensors.server_room_main_spots with entity light.social:main/light;
+
+48. Template-rendered entities (condition/derived capabilities -- battery_alert-style "derived
+    capability ... via jinja ...;", the aggregate sensors, etc.) have no stable-identity
+    protection at all, unlike Physical.def's "as <id>" mechanism (the old item 7, DONE
+    2026-10-05) for raw discovery capabilities. `buildConditionBinarySensorYAML`/
+    `buildTemplateSensorYAML` (generator.go) write `unique_id: <entity_id>` derived fresh from
+    the entity's CURRENT Conceptual.def name every single generate -- any rename/reposition
+    orphans the old registry row permanently (HA never cleans up a stale `unique_id` on its
+    own, regardless of platform). Not theoretical: real orphans of exactly this shape were
+    already found and cleaned in the 2026-10-05 registry audit (`stale_node_old_device_name`/
+    `stale_battery_alert_old_device_name` categories, which explicitly covered
+    template-platform entities too). Needs its own stable-id design, mirroring item 7's own
+    shape but scoped to `unique_id:`-bearing template entities instead of MQTT capabilities.
+
+49. Floated 2026-10-17, linked to item 48 above: expose a named trigger (PROJECT.md's own
+    device-level trigger-abstraction item, "Deal with the 'physical' sphere") as a REAL
+    HA entity via the template integration's trigger-based "event" platform
+    (https://www.home-assistant.io/integrations/template/#event), instead of purely expanding
+    it inline at generation time. New device-side syntax floated:
+    `trigger event.social:/apartment/living_room/main/light/request with "toggle" when
+    event.pressed is in ['on_row_2', 'off_row_2'];` -- note the target is now a full
+    domain-qualified entity-ref (an `event.*` entity that will really exist), not a bare
+    "sphere:path" name, and `with "<value>"` names which `event_type` this device's own match
+    contributes. Key benefits: (1) a rule can then reference it via the ALREADY-EXISTING "when
+    <entity-ref> is <event-type>;" grammar (no special "trigger.<name> is triggered" keyword
+    needed at all -- could retire that mechanism entirely); (2) a user's own hand-authored
+    manual automation could ALSO trigger off this same named, semantic event entity, without
+    ever learning the raw device/MQTT details -- something today's pure-codegen-macro named
+    trigger cannot offer at all; (3) potentially unifies what are today several separate named
+    triggers per target (e.g. the Signify dimmer's turn_on/turn_off/dim_up/dim_down) into ONE
+    event entity carrying several different event_type values instead -- not yet decided
+    whether that's the intent or if one event entity per action should stay.
+    MUST be designed together with item 48, not sequentially: this creates a genuinely new
+    HA registry entity (its own `unique_id`) for every named trigger, so it inherits item 48's
+    exact stale-registry-orphan risk from day one if built without a stable-id answer first.
+    Also reopens a DEEPER architectural question, not yet resolved (see
+    [[project_discovery_over_yaml_templates]], a 2026-08-19 decision that may need revisiting
+    now that stable unique_ids exist): with Physical.def's own stable "as <id>" mechanism (item
+    7) already removing one of MQTT discovery's traditional advantages over generator-authored
+    static/template YAML (entity_id stability across renames), and given this project's whole
+    workflow is deploy-driven anyway (nothing is ever truly "discovered" spontaneously at
+    runtime, independent of a `./generate`+`./deploy` cycle) -- is the live MQTT-discovery relay
+    between the coordinator and main HA still worth its own complexity, versus the coordinator
+    (or generator) authoring static/templated YAML directly? The one reason from the original
+    2026-08-19 decision that is UNRELATED to id-stability and still stands on its own: Z2M/
+    Z-Wave JS's own discovery payloads carry rich device metadata (manufacturer/model/device
+    grouping/availability/unit hints) for free, which a hand-authored or generator-templated
+    entity would have to reconstruct manually and keep in sync by hand. Not decided; needs its
+    own dedicated reflection before any implementation in this area.
+
+17. Maybe also apply to Junglinster's own picture frame: Vienna's frame got a dedicated
+    `xinit-slideshow.service` (systemd, `Restart=always`) 2026-10-19, so its X server/feh
+    slideshow always comes back within seconds if it ever dies, instead of silently sitting on a
+    bare text login screen for hours (bad for the monitor) until the next scheduled "on" cycle
+    happened to relaunch it. Root trigger not fully confirmed (leading theory: the monitor's own
+    standby drops HDMI hotplug-detect while the output is off via `xrandr --output HDMI-1 --off`,
+    which can cascade into X losing its last input device and exiting cleanly) -- the fix doesn't
+    depend on nailing that down, since supervision recovers regardless of cause. Also simplified
+    `start_slideshow` (removed its now-redundant/race-prone manual X-relaunch fallback, now that
+    systemd owns X's lifecycle) -- `stop_slideshow`/`check_slideshow` unchanged. Not yet done on
+    Junglinster's own frame; check whether it shows the same symptom before assuming it needs the
+    same fix.
 
 17a. We can now update the UIs with the latest lists
 
@@ -258,20 +264,19 @@ Also adjust the names of generated automations.
 
 21. depencency versus via ... connexoon. Via is the stronger version of dependency?
 
-22. should we allow for multi-integration coverage of (different capabilities) of the same device. Would impact the node work on the logical level.
 
-23. devices for integrations
-    device ddd.eee with:
-      this integration;
-      depends ...;
-    end;
-  The "this integration" adds the node as default.
-  Also when we cannot detect this.
-  That node is also given as a potential (integration dependent) implied dependence on all entities based on devices within this integration.
+23. Can we trigger, within HA, the reload of an integration?
+The netatmo integration on P-s-2@JLI  often "losed" some connection
+leading to entities of especially the "Smart Indoor Air Quality Monitor" to report
+as being unavailable.
+The idea would be to enable the automatic triggering on P-s-2@JLI of a reload when 
+selected "indicator" entities are unavailable.
+
+We should be able to treat these rules as involving the infrastructural sphere, at
+the conceptual layer, while their implementation could run on e.g. ha2mqtt when this 
+is possible. 
 
 24. (Enforced) default units for e.g. pressure as well as the precision??
-
-25. Maybe replace ":" with "|"?
 
 26. Logical layer + available nuances in relation to "via device"  (netatmo radio module via main module) and aggregation.
   
@@ -300,7 +305,93 @@ Should be byte level equivallent.
   coordinative, and may belong in that same higher-reliability separate role rather than the
   coordinator) -- an open design question, not yet decided, to resolve when this item is picked up
   together with item 19.
-- Deal with the "physical" sphere. Should be empty, where contributing sensors need a conceptual name as well based on the location the material (= real physical) world. 
+- Deal with the "physical" sphere. Should be empty, where contributing sensors need a conceptual name as well based on the location the material (= real physical) world.
+  - Prerequisite step identified 2026-10-15: a rule's "when" clause breaches abstraction by
+    containing raw, device-level protocol codes (e.g. "event.physical:door/moes/1 is 2_single or
+    ...") -- those belong in the device declaration, not the rule. Step 1 DONE: a new device-block
+    construct, "trigger <sphere:path> when <capability> is '<value>'[or in ['<v1>', ...]];"
+    (Conceptual_NamedTriggerEntities.go), replaces the explicit "entity ... from <capability>;"
+    line for this case. The underlying hidden entity's own local path comes from the device's own
+    "at <leaf> with:" header (new, narrow, opt-in-per-line-via-"::" mechanism -- deliberately NOT
+    the blanket "device <id> as <leaf> with:" grammar removed outright 2026-10-11, item 10) when
+    given, so migrating an EXISTING device's raw entity to this construct reproduces its live
+    entity_id exactly rather than inventing a new one; falls back to deriving from the device id
+    itself for a device with no live entity_id to preserve. A rule references a named trigger via
+    "when trigger.<sphere:path> is triggered" -- deliberately reusing the "trigger." prefix
+    "trigger.<attr>" template conditions already use (same underlying idea: a derived value built
+    from the firing context), not a separate keyword; parses for free via the ordinary
+    entity-ref grammar (domain "trigger"), swapped to Kind "named_trigger" after the fact
+    (resolveNamedTriggerReference, rule_parser.go) -- no special lookahead needed. The name itself
+    is resolved space-relative (normalizeEntityFullName), same as any other entity reference, so
+    the same relative name written in two different spaces does NOT collide. Multiple devices may
+    declare the SAME name, OR'd together by the generator into one automation's trigger list
+    (administration.go's NamedTriggers registry). First real migration DONE+VERIFIED live on
+    Vienna 2026-10-15 (hallway_door_moes/hallway_bedroom_door_moes, 3 rules) -- byte/semantically
+    identical generated automations confirmed against the pre-migration baseline.
+
+    Step 2 DONE 2026-10-15: the trigger declaration's own optional "and if trigger.<attr> is
+    '<value>';" suffix (the Signify dimmer's press/hold + button-direction case, e.g. "trigger
+    social:main/light/dim_up_request when event.pressed is in ['press','hold'] and if
+    trigger.button is 'up';") folds into the generated automation's own gating condition at
+    generation time (namedTriggerImpliedCondition, generator.go) -- scoped narrowly on purpose:
+    only applies when EVERY trigger on the rule is a named trigger and all their sources agree on
+    exactly one (attr, value) pair; a mix of trigger kinds or genuine disagreement falls back to
+    no implied condition (TNamedTriggerSource's own doc comment, administration.go). Verified
+    live on Vienna's whole Signify dimmer (4 rules: turn_on/turn_off/dim_up/dim_down) -- generated
+    automations confirmed identical (dim_up/dim_down's own trigger list merges what used to be 2
+    separate same-entity trigger entries into 1 with a 2-item event_type list -- same HA schema,
+    confirmed semantically equivalent, not a regression).
+
+    Action-verb cleanup DONE 2026-10-15 alongside it: "dim <entity-ref> with <N>%;" /
+    "brighten <entity-ref> with <N>%;" (rule_parser.go's DimAction/BrightenAction) are sugar for
+    "turn <entity-ref> on with brightness_step_pct -<N>/<N>;" -- no raw negative number/HA field
+    name in rule text. "with [default] brightness <N>%;" (DataFields) is sugar for "with
+    brightness_pct <N>;" -- "default"/"%" both optional and purely cosmetic, discarded at parse
+    time (not a second kind of data field).
+
+    A LOGICAL-layer generalisation floated 2026-10-15, not designed/scoped yet: a "derived
+    capability event.YYY with: trigger DDD.XXX turns ZZZ; [device_class ...;] [delay_on ...;]
+    [delay_off ...;] end;" construct, letting a derived capability be defined by another
+    device's own capability transition (plus HA-style debounce), rather than only the existing
+    condition-expression form.
+
+    Migration + live deploy status (updated 2026-10-18): Vienna's hallway door family, the whole
+    Signify dimmer, living_room door/kitchen_bj family, terrace/light/toggle (cross-room), and
+    bedroom's own door family are all migrated -- 25+ rules, generated output confirmed
+    byte-identical to pre-migration, and DEPLOYED LIVE to Vienna 2026-10-18 (real `./generate` +
+    `./deploy`, not just a test fixture check).
+
+    CORRECTION 2026-10-19: shower_room's door_moes_1/door_moes_2 family turned out to already be
+    migrated (found while fixing the regression below) -- the "not yet migrated" note below was
+    wrong.
+
+    Real regression found + fixed live 2026-10-19 (full writeup in README.md's Operational notes):
+    every Moes multi-gang button in Vienna broke after this migration -- the coordinator's own
+    pre-existing discovery-layer value_template normalizes a multi-gang button's raw action
+    ("1_single") into event_type "single" + a separate "button" attribute, which the migrated
+    rules never accounted for. Fixed by extending the trigger declaration's embedded attr-condition
+    to accept a list of values too, and a new per-source "id"-scoped OR condition
+    (namedTriggerSourceCondition, generator.go) for when several different devices feed the same
+    named trigger with DIFFERING button-number requirements (falls back to the original simple
+    shared-condition shape when they agree, so the Signify dimmer's proven output stays
+    byte-identical). 43 Conceptual.def lines fixed, deployed live, first manual test confirmed
+    working -- full verification still pending as of 2026-10-19 night.
+
+    Still open, next concrete steps:
+    - Confirm the Moes button fix above actually works across ALL affected rules, not just the
+      first one tested.
+    - A fresh sweep of the rest of Vienna's Conceptual.def for any other remaining raw
+      event-code/protocol leakage into `when` clauses the earlier batches might have missed --
+      don't assume the file is fully clean without re-checking.
+    - Junglinster's Conceptual.def: zero rules migrated to this construct so far -- entirely
+      separate, not started. Given Vienna's own Moes devices ALL had the same latent bug, check
+      whether Junglinster has any Moes-style multi-gang buttons before migrating there, and build
+      the trigger declarations with the normalized event_type + button-attribute form from the
+      start rather than naively copying raw action values again.
+    - Not all rules need to be "better conceptualised" at once (confirmed with the user) -- migrate
+      rule by rule as time allows, verifying byte/semantic identity against the pre-migration
+      baseline each time, same as this batch.
+    See /Users/erikproper/.claude/plans/binary-weaving-iverson.md for Step 1's own full design.
 - Node/battery_alert rules: DONE -- Rule 1 (node required, live since 2026-09-10) and Rule 2
   (battery_level iff battery_alert, live since 2026-09-11 once both houses' real macro-driven
   usages were migrated to `derived`); see
@@ -482,11 +573,7 @@ Should be byte level equivallent.
   dependent availability" problem this same design work should solve together, not separately.
 
 27. Further conceptualising the conceptual layer.
-node, temperature, etc, as "sub domains". 
-First move to this first class treatment of sub-domains from conceptual to physical layer imports.
-What is generated for the homes after this step, should still be conforming to what was generated before
-Existing domains are "catch alls"
-In doing so also look at the use of "core". We might actually replace this with "switch.switch" shorted to switch.switch or "motion.motion" shorted to motion.
+CHeck if node, temperature, etc, are acknowledged as axplicit "sub domains" in the code.
 
 28. Check aggregation of sensors. If one is down, what do we do with data?
 

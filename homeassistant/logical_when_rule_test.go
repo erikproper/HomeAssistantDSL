@@ -7,12 +7,16 @@ import (
 	"testing"
 )
 
-// TestParseWhenRuleTurnsOn confirms the basic "rule <spec> when <event> turns on then turn
-// <action> on;" shape populates a TWhenRule correctly, including the new mandatory rule Name
-// (2026-09-29) resolved exactly like a domain-less entity leaf.
-func TestParseWhenRuleTurnsOn(t *testing.T) {
+// TestParseRuleTurnsOn confirms the basic "rule <spec> with: when <event> turns on; then turn
+// <action> off; end;" block shape populates a TRule correctly (PROJECT.md item 13 Phase 1 --
+// the new three-layer CDL1-style parser, replacing the old ad hoc one-liner TWhenRule it
+// mechanically matches in scope: one trigger, one action, no conditions).
+func TestParseRuleTurnsOn(t *testing.T) {
 	const dsl = `space social:wc as area with:
-  rule social:done_removing_smells when binary_sensor.social:done_removing turns on then turn fan.social off;
+  rule social:done_removing_smells with:
+    when binary_sensor.social:done_removing turns on
+    then turn fan.social off;
+  end;
 end;`
 
 	var report strings.Builder
@@ -21,59 +25,66 @@ end;`
 		t.Fatalf("parse error: %v", err)
 	}
 	admin := result.Administration
-	if len(admin.WhenRules) != 1 {
-		t.Fatalf("got %d WhenRules, want 1", len(admin.WhenRules))
+	if len(admin.Rules) != 1 {
+		t.Fatalf("got %d Rules, want 1", len(admin.Rules))
 	}
-	rule := admin.WhenRules[0]
+	rule := admin.Rules[0]
 	if rule.Name != "social/wc/done_removing_smells" {
 		t.Errorf("Name = %q, want %q", rule.Name, "social/wc/done_removing_smells")
 	}
-	if rule.EventEntity != "binary_sensor.social/wc/done_removing" {
-		t.Errorf("EventEntity = %q, want %q", rule.EventEntity, "binary_sensor.social/wc/done_removing")
+	if len(rule.Triggers) != 1 {
+		t.Fatalf("got %d Triggers, want 1", len(rule.Triggers))
 	}
-	if rule.EventState != "on" {
-		t.Errorf("EventState = %q, want \"on\"", rule.EventState)
+	if rule.Triggers[0].EntitySpec != "binary_sensor.social/wc/done_removing" {
+		t.Errorf("Triggers[0].EntitySpec = %q, want %q", rule.Triggers[0].EntitySpec, "binary_sensor.social/wc/done_removing")
 	}
-	if rule.ActionEntity != "fan.social/wc" {
-		t.Errorf("ActionEntity = %q, want %q", rule.ActionEntity, "fan.social/wc")
+	if rule.Triggers[0].State != "on" {
+		t.Errorf("Triggers[0].State = %q, want \"on\"", rule.Triggers[0].State)
 	}
-	if rule.ActionState != "off" {
-		t.Errorf("ActionState = %q, want \"off\"", rule.ActionState)
+	if len(rule.Actions) != 1 {
+		t.Fatalf("got %d Actions, want 1", len(rule.Actions))
+	}
+	if rule.Actions[0].EntitySpec != "fan.social/wc" {
+		t.Errorf("Actions[0].EntitySpec = %q, want %q", rule.Actions[0].EntitySpec, "fan.social/wc")
+	}
+	if rule.Actions[0].State != "off" {
+		t.Errorf("Actions[0].State = %q, want \"off\"", rule.Actions[0].State)
 	}
 }
 
-// TestParseWhenRuleMalformedLinesAreSkipped confirms a handful of near-miss shapes are silently
-// ignored (matching "follows"/"limits" own established local precedent) rather than crashing or
-// producing a bogus WhenRule.
-func TestParseWhenRuleMalformedLinesAreSkipped(t *testing.T) {
+// TestParseRuleMalformedStatementsAreSkipped confirms a handful of near-miss "when"/"then"
+// statement shapes inside a rule block are rejected (via the parser's own warnings), not
+// silently turned into a bogus trigger/action.
+func TestParseRuleMalformedStatementsAreSkipped(t *testing.T) {
 	tests := []string{
-		`rule social:x when fan.social turns sideways then turn fan.social on;`,
-		`rule social:x when fan.social then turn fan.social on;`,
-		`rule social:x when fan.social turns on then toggle fan.social;`,
-		`rule social:x when fan.social turns on turn fan.social on;`, // missing "then"
-		`rule when fan.social turns on then turn fan.social on;`,    // missing rule name
+		"when fan.social;",            // missing "turns <state>" or "is <event-type>"
+		"then frobnicate fan.social;", // not a recognised action verb
+		"then turn fan.social;",       // missing state
 	}
 	for _, line := range tests {
 		t.Run(line, func(t *testing.T) {
-			dsl := "space social:wc as area with:\n  " + line + "\nend;"
+			dsl := "space social:wc as area with:\n  rule social:x with:\n    " + line + "\n  end;\nend;"
 			var report strings.Builder
 			result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", nil, &report, nil, nil, nil, nil, nil, nil, nil, nil)
 			if err != nil {
 				t.Fatalf("parse error: %v", err)
 			}
-			if len(result.Administration.WhenRules) != 0 {
-				t.Errorf("got %d WhenRules for malformed line %q, want 0", len(result.Administration.WhenRules), line)
+			if len(result.Administration.Rules) != 1 {
+				t.Fatalf("got %d Rules, want 1 (the rule itself still closes cleanly)", len(result.Administration.Rules))
+			}
+			rule := result.Administration.Rules[0]
+			if len(rule.Triggers) != 0 || len(rule.Actions) != 0 {
+				t.Errorf("malformed statement %q was still recorded: %+v", line, rule)
 			}
 		})
 	}
 }
 
-// TestParseWhenRuleBareFormRetiredWarns confirms a bare "when ...;" (no leading "rule <spec>",
-// the form this construct shipped with for one day before the mandatory name landed) is rejected
-// with an actionable warning rather than silently dropped.
-func TestParseWhenRuleBareFormRetiredWarns(t *testing.T) {
+// TestParseRuleOutsideBlockWarns confirms a bare "when ...;"/"then ...;" outside any "rule <spec>
+// with: ...; end;" block is rejected with an actionable warning rather than silently dropped.
+func TestParseRuleOutsideBlockWarns(t *testing.T) {
 	const dsl = `space social:wc as area with:
-  when binary_sensor.social:done_removing turns on then turn fan.social off;
+  when binary_sensor.social:done_removing turns on;
 end;`
 
 	var report strings.Builder
@@ -85,22 +96,28 @@ end;`
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	if len(result.Administration.WhenRules) != 0 {
-		t.Errorf("got %d WhenRules for a bare (unnamed) when-rule, want 0", len(result.Administration.WhenRules))
+	if len(result.Administration.Rules) != 0 {
+		t.Errorf("got %d Rules for a stray when-statement, want 0", len(result.Administration.Rules))
 	}
-	if !strings.Contains(output, "retired") || !strings.Contains(output, "rule <sphere:leaf> when") {
-		t.Errorf("expected a retired-form warning naming the fix, got: %q", output)
+	if !strings.Contains(output, "outside a") || !strings.Contains(output, "rule <spec> with:") {
+		t.Errorf("expected a warning naming the fix, got: %q", output)
 	}
 }
 
-// TestParseWhenRuleDuplicateNameWarns confirms two rules resolving to the same Name trigger a
-// warning (WhenRuleNamesSeen) -- both still get recorded (last-writer-wins is the generator's own
+// TestParseRuleDuplicateNameWarns confirms two rules resolving to the same Name trigger a
+// warning (RuleNamesSeen) -- both still get recorded (last-writer-wins is the generator's own
 // concern, e.g. writeAutomationFile overwriting the same path), but the collision itself must be
 // surfaced, not silently accepted.
-func TestParseWhenRuleDuplicateNameWarns(t *testing.T) {
+func TestParseRuleDuplicateNameWarns(t *testing.T) {
 	const dsl = `space social:wc as area with:
-  rule social:done_removing_smells when binary_sensor.social:done_removing turns on then turn fan.social off;
-  rule social:done_removing_smells when binary_sensor.social:done_removing turns off then turn fan.social on;
+  rule social:done_removing_smells with:
+    when binary_sensor.social:done_removing turns on
+    then turn fan.social off;
+  end;
+  rule social:done_removing_smells with:
+    when binary_sensor.social:done_removing turns off
+    then turn fan.social on;
+  end;
 end;`
 
 	var report strings.Builder
@@ -112,20 +129,24 @@ end;`
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	if len(result.Administration.WhenRules) != 2 {
-		t.Fatalf("got %d WhenRules, want 2 (both still recorded, just warned about)", len(result.Administration.WhenRules))
+	if len(result.Administration.Rules) != 2 {
+		t.Fatalf("got %d Rules, want 2 (both still recorded, just warned about)", len(result.Administration.Rules))
 	}
 	if !strings.Contains(output, "[WARNING]") || !strings.Contains(output, "social/wc/done_removing_smells") || !strings.Contains(output, "more than once") {
 		t.Errorf("expected a duplicate rule-name warning naming the repeated name, got: %q", output)
 	}
 }
 
-// TestGenerateWhenRuleAutomationsWritesExpectedYAML confirms the generated automation's
-// alias/id (now the rule's own explicit Name, 2026-09-29) and trigger/action shape match what a
-// state-transition "when" rule needs.
-func TestGenerateWhenRuleAutomationsWritesExpectedYAML(t *testing.T) {
+// TestGenerateRuleAutomationsWritesExpectedYAML confirms the generated automation's alias/id
+// (the rule's own explicit Name) and trigger/action shape match what a state-transition rule
+// needs -- unchanged output shape from the old TWhenRule construct (buildStateTriggerAutomationYAML
+// is still shared, unmodified), just produced from the new TRule/CDL1-parsed data model.
+func TestGenerateRuleAutomationsWritesExpectedYAML(t *testing.T) {
 	const dsl = `space social:wc as area with:
-  rule social:done_removing_smells when binary_sensor.social:done_removing turns on then turn fan.social off;
+  rule social:done_removing_smells with:
+    when binary_sensor.social:done_removing turns on
+    then turn fan.social off;
+  end;
 end;`
 
 	var report strings.Builder
@@ -135,8 +156,8 @@ end;`
 	}
 
 	outDir := t.TempDir()
-	if err := generateWhenRuleAutomations(outDir, result.Administration); err != nil {
-		t.Fatalf("generateWhenRuleAutomations: %v", err)
+	if err := generateRuleAutomations(outDir, result.Administration); err != nil {
+		t.Fatalf("generateRuleAutomations: %v", err)
 	}
 	matches, err := filepath.Glob(filepath.Join(outDir, "automation", "*", "automation.*.yaml"))
 	if err != nil {
@@ -165,10 +186,11 @@ end;`
 }
 
 // TestFollowsStillProducesTwoAutomationsViaSharedBuilder is the regression test for the
-// generateFollowsAutomations refactor (2026-09-29): it now delegates its actual YAML-building to
-// buildStateTriggerAutomationYAML, the same helper generateWhenRuleAutomations uses -- this
-// confirms that refactor didn't change follows' own output (still exactly 2 automations, still
-// the same alias/trigger/action shape it always had) even though the code is now shared.
+// generateFollowsAutomations refactor (2026-09-29): it delegates its actual YAML-building to
+// buildStateTriggerAutomationYAML, the same helper generateRuleAutomations uses -- this confirms
+// that refactor (and the later TWhenRule -> TRule/CDL1-parser swap) didn't change follows' own
+// output (still exactly 2 automations, still the same alias/trigger/action shape it always had)
+// even though the code is shared.
 func TestFollowsStillProducesTwoAutomationsViaSharedBuilder(t *testing.T) {
 	const dsl = `space social:corridor as area with:
   follows light.social:corb light.social:main;

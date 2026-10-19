@@ -44,9 +44,9 @@ import (
 	"strings"
 )
 
-// registerLogicalAbsorbedCapability resolves a "<domain>.<label>: <bare-capability>;" line found
-// inside a device's own "capabilities from <device-id>: ... end;" block (2026-09-18, the "absorb"
-// operation -- integration_logical_storage.go's own header comment, and memory/project_logical_
+// registerLogicalAbsorbedCapability resolves a "capability <domain>.<label>: <bare-capability>;"
+// line found inside a device's own "absorb from <device-id>: ... end;" block (2026-09-18, the
+// "absorb" operation -- integration_logical_storage.go's own header comment, and memory/project_logical_
 // layer_device_combining.md). Unlike this file's other two capability shapes, this one computes
 // NOTHING of its own: capability.AbsorbedFromDeviceID/AbsorbedFromCapability simply name another,
 // already-declared device's own capability, so this just rebuilds an ordinary
@@ -222,7 +222,17 @@ func autoMaterializePhysicalCapability(administration *TAdministrationState, dev
 		if !slices.Contains(mat.AttributeNames(host), label) {
 			return "", false
 		}
-		registerHostAttributeEntity(administration, mat, host, syntheticIdentity, "root", provenance, link, label)
+		// No real Conceptual.def entity line exists here at all (that's the whole point of this
+		// on-demand path), so there's nothing to fold a path from -- build attrFullName the same
+		// way registerHostAttributeEntity itself used to, straight from the device's own synthetic
+		// identity (see registerHostAttributeEntity's own doc comment for why the explicit-entity-
+		// line caller, registerHostCapabilityEntityLink, no longer does this).
+		group, leaf := splitCapabilityName(label)
+		if group == "" {
+			group = mat.AttributeSuffix
+		}
+		attrFullName := fmt.Sprintf("%s.%s/%s/%s/%s", mat.AttributeDomain, syntheticIdentity.Sphere, syntheticIdentity.Path, group, leaf)
+		registerHostAttributeEntity(administration, mat, host, attrFullName, "root", provenance, link, label)
 		administration.DeviceConceptualLinks[deviceID] = link
 		attr, found := link.AttributeEntityIDs[label]
 		return attr.EntityID, found
@@ -278,6 +288,7 @@ func autoMaterializePhysicalCapability(administration *TAdministrationState, dev
 			Unit:            unit,
 			StateClass:      stateClass,
 			Icon:            icon,
+			StableID:        capability.AssignedID,
 		}
 		return id, true
 	}
@@ -344,7 +355,7 @@ func autoMaterializePhysicalCapability(administration *TAdministrationState, dev
 // deviceID's own COMPLETE logical device, checked in order (the user's own explicit design,
 // 2026-09-18, extended 2026-09-24 for cross-device references): (1) unless forcePhysical,
 // administration.LogicalEntityLinks (DeviceID+Label -- covers an ordinary derived/switch-coercion
-// capability, another "defined" one, or one absorbed via "capabilities from ...;"); (2)
+// capability, another "defined" one, or one absorbed via "absorb from ...;"); (2)
 // administration.DeviceConceptualLinks[deviceID]'s own already-positioned physical entity --
 // .NodeEntityID for "node" (hosts-kind), else .AttributeEntityIDs[token] (import/hassbridge-kind,
 // covers e.g. sensors.vienna_terrace_wind's own imported "wind_speed"); (3) discoveryGatewaysByID
@@ -574,8 +585,9 @@ func (r *logicalConditionResolver) resolveTargeted(targetDeviceID, label string,
 	entityID, ok, isLiteral := resolveLogicalSiblingSourceEntityID(r.administration, targetDeviceID, label, forcePhysical, allowAutoMaterialize, mustBeSibling, r.discoveryGatewaysByID, r.hassBridgeDevicesByID, r.hostDevicesByID, r.localDevicesByID, r.provenance)
 	if !ok {
 		// Fallback (2026-09-29, the user's own explicit call): an ABSORBED capability with no
-		// Conceptual.def positioning of its own (e.g. a Logical.def "enabled by" sugar's own
-		// synthesized "enabler") doesn't need one if its real underlying source
+		// Conceptual.def positioning of its own (e.g. an explicit "switch.enabler <capability>;"
+		// absorb line, declared alongside a device's own "derived binary_sensor.node" condition)
+		// doesn't need one if its real underlying source
 		// (AbsorbedFromDeviceID!AbsorbedFromCapability) is ALREADY conceptually positioned under
 		// some OTHER name -- reuse that entity_id directly rather than demanding a second,
 		// redundant positioning (which would only ever trip RegisterDiscoveryImpliedEntity's own

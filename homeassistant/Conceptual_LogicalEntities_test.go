@@ -234,6 +234,39 @@ func TestRegisterLogicalAbsorbedCapability(t *testing.T) {
 	}
 }
 
+// TestAutoMaterializePhysicalCapabilityDiscoveryKindPropagatesStableID is a regression test for a
+// real bug found live 2026-10-05, Step 7's PROJECT.md item 7 rollout: the discovery-kind branch of
+// autoMaterializePhysicalCapability (the "switched by"/"dependency on" auto-materialization path --
+// exactly how e.g. "device X with light.core is switched by ...;" one-liner sugar resolves its own
+// light entity) built its own TDiscoveryEntityLink without copying TDiscoveryCapability.AssignedID
+// at all, unlike registerDiscoveryEntityLink/registerDiscoveryDerivedFromRawLeafEntityLink (which
+// both do) -- silently dropping a frozen stable id for every capability that happens to be
+// auto-materialized this way, discovered live on Junglinster's own "sensors.house_kitchen_
+// workplace_dimmer" after bootstrapping.
+func TestAutoMaterializePhysicalCapabilityDiscoveryKindPropagatesStableID(t *testing.T) {
+	admin := newAdministrationState()
+	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
+		"sensors.house_kitchen_workplace_dimmer": {
+			DeviceID: "sensors.house_kitchen_workplace_dimmer",
+			Capabilities: map[string]TDiscoveryCapability{
+				"core": {Domain: "light", Leaf: "0x00124b0019e7af0c_light_zigbee2mqtt", AssignedID: "sensors_house_kitchen_workplace_dimmer_0x00124b0019e7af0c_light_zigbee2mqtt"},
+			},
+		},
+	}
+
+	entityID, ok := autoMaterializePhysicalCapability(admin, "sensors.house_kitchen_workplace_dimmer", "core", discoveryGatewaysByID, nil, nil, nil, "test")
+	if !ok {
+		t.Fatalf("expected auto-materialization to succeed")
+	}
+	link, found := admin.DiscoveryEntityLinks[entityID]
+	if !found {
+		t.Fatalf("no DiscoveryEntityLinks entry for %q", entityID)
+	}
+	if link.StableID != "sensors_house_kitchen_workplace_dimmer_0x00124b0019e7af0c_light_zigbee2mqtt" {
+		t.Errorf("StableID = %q, want the capability's own AssignedID carried through", link.StableID)
+	}
+}
+
 // TestRegisterLogicalAbsorbedCapabilityFromHostsDeviceIgnoresSourcesOwnShadowIdentity is a
 // regression test for a real bug found live 2026-10-04, migrating Junglinster's
 // server.xanadu/server.backups (the first-ever absorb of a HOSTS-kind device's own attribute into

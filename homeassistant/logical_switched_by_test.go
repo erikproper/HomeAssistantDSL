@@ -476,8 +476,8 @@ end;`
 // for a device with NO SwitchedBy fact at all must not touch SwitchedDeviceRelations.
 func TestSwitchedByNoOpWithoutFact(t *testing.T) {
 	const dsl = `space social:living_room as area with:
-  device sensors.living_room_indirect as indirect with:
-    entity light.social: from light.core;
+  device sensors.living_room_indirect with:
+    entity light.social:indirect from light.core;
   end;
 end;`
 

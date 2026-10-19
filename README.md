@@ -287,6 +287,59 @@ call battery_level_device :aqara_sensor with:
 end;
 ```
 
+### Rules
+
+A `rule` compiles to a real HA automation. It requires exactly one `when` (trigger) clause, allows
+at most one `if` (condition) clause, and requires exactly one `then` (action) clause — writing a
+second of any of these warns and discards the extra one rather than merging it in. No `;` ever
+separates these clauses from each other (Pascal-style — a clause ends wherever the next clause's
+own keyword begins); only the final `then` action(s) keep their own `;`, since there is no further
+clause after them:
+
+```
+rule social:main/light/turn_on with:
+  when event.physical:signify/dimmer is press
+  if trigger.button is "on"
+  then turn light.social:main on with brightness_pct 70;
+end;
+```
+
+**`when`** — one or more trigger clauses, inline-`or`-chained (may wrap across physical lines
+after `or`): `<entity-ref> turns <state> [for <duration>]`, `<entity-ref> changes [for
+<duration>]` (any transition, no target state), `<entity-ref> is <event-type>` (an
+`event.received` MQTT button/dimmer click), `time is <HH:MM[:SS]>`, or `every minute`.
+
+**`if`** — a single boolean expression: `<entity-ref> is <state> [for <duration>]` (state,
+with an optional debounce), `trigger.<attr> is "<value>"` (checks the firing trigger's own
+context, e.g. a Hue dimmer's `button` attribute), `time [after <HH:MM[:SS]>] [before <HH:MM[:SS]>]
+[weekday <day>[, <day>]*]`, combined with `and`/`or`/`not` and parentheses exactly like any other
+boolean expression (standard precedence: `not` > `and` > `or`):
+
+```
+if binary_sensor.social:/is_vacuuming_day_time is on and
+   input_boolean.social:/occupation/home is off
+```
+
+**`then`** — one action, or `then: <action>; <action>; ...; end;` for several. Action verbs:
+`turn <entity-ref> on|off [with <field> <value>[, <field> <value>]*];`, `toggle <entity-ref> [with
+...];`, `press <entity-ref>;`, `open|close|stop <entity-ref>;`, `set <entity-ref> to <value>|jinja
+"<expr>";`, `start|pause|return_to_base <entity-ref>;` (vacuum), `delay <duration>;`, and branching:
+
+```
+then if cover.social:house/sarah_bedroom is closing:
+  stop cover.social:house/sarah_bedroom;
+else:
+  set cover.social:house/sarah_bedroom to jinja "100 - (states('number.social_house_sarah_bedroom_my_position') | int)";
+end;
+```
+
+A leading `/` on an entity-ref's path (e.g. `event.physical:/garage/door/tap`) resolves from the
+sphere root regardless of the rule's own position — needed whenever a trigger/condition/action
+entity lives outside the rule's own space subtree. Without it, a path resolves relative to
+wherever the rule itself is positioned (which may still reach into a child/descendant space, not
+only the rule's own exact space) — so a rule is best positioned at the lowest common ancestor of
+every entity it touches, to keep as many of its own references relative as possible.
+
 ## Macro system
 
 ### Parameter types
@@ -452,3 +505,76 @@ manual per-entity renaming needed. A backup restore is only safe this way if not
 *manually* in HA's registries between the backup and the incident — any state that arrived purely
 via MQTT discovery in that window is self-healing after the restore, but a manual registry edit in
 that window would be lost.
+
+**Vienna's p-s-1 (Pi4) migrated live from Fedora to Ubuntu, 2026-10-18 — four reusable gotchas,
+all found and fixed the same day, relevant to Junglinster's own pending HP EliteDesk/Ubuntu
+consolidation:**
+
+1. *Stale LVM device-mapper table on first mount of an old disk moved to a new system.* Mounting
+   the retired Fedora SSD as a secondary disk failed with "can't read superblock" / `Buffer I/O
+   error on dev dm-0`, even though `pvs`/`vgs`/`lvs` all reported the volume group healthy and
+   `pvck` read the PV's own metadata cleanly. The real cause: `dmsetup table` showed the logical
+   volume's live kernel mapping pointed at a stale major:minor from an earlier activation against
+   a different device-enumeration order, not the disk's actual current path. Fix:
+   `vgchange -an <vg> && vgchange -ay <vg>` to force LVM to rebuild the table against the current
+   device nodes.
+2. *Quadlet-generated systemd units reject `systemctl enable`.* Copying `.container` files into
+   `/etc/containers/systemd/` and running `systemctl enable --now <name>.service` fails with "Unit
+   ... is transient or generated." A quadlet's own `[Install]` section is processed automatically
+   by the generator at every `daemon-reload`, materializing the want-link under
+   `/run/systemd/generator/multi-user.target.wants/` directly — never call `systemctl enable` on
+   one; `daemon-reload` + plain `systemctl start` is both necessary and sufficient.
+3. *Ubuntu's Samba defaults silently break Sonos streaming.* Sonos speakers only ever speak
+   SMB1/NT1; Ubuntu's Samba 4.23 defaults to `server min protocol = SMB2_02`, outright refusing
+   that negotiation (confirmed via `smbstatus` showing zero Sonos connections even attempted, not
+   a performance problem). Fedora's own Samba build defaults more permissively, which is why this
+   never surfaced before a Fedora→Ubuntu migration. Fix: add `server min protocol = NT1` to
+   `[global]` in `/etc/samba/smb.conf` (a floor, not forced — other clients still negotiate
+   SMB2/3 as normal) + `systemctl restart smbd nmbd`.
+4. *A fresh Ubuntu install's root/service-account `known_hosts` starts empty.* Any systemd service
+   that runs as `root` and SSHes out (a backup script, a self-referential fleet-deploy script) will
+   fail host-key verification against hosts the *interactive* user already trusts — `BatchMode=yes`
+   fails silently as "unreachable"/"permission denied" even once the right private key exists,
+   because host-key verification happens first. Fix each gap with
+   `ssh-keyscan <host> >> ~/.ssh/known_hosts` (or `/root/.ssh/known_hosts`) as the account the
+   service actually runs as — expect more than one gap (e.g. a cloud backup target AND each
+   house's own HAOS SSH add-on use separate host-key entries), and a service that self-references
+   its own bare LAN hostname needs that entry too, not just externally-reached FQDN forms.
+
+Running the real `./generate` + `diff` against a pre-migration snapshot, and the real `./deploy`
+end-to-end (not just spot-checking individual services), is what surfaced gotcha 2 and 4 — worth
+doing deliberately after any future OS migration rather than assuming earlier targeted checks
+caught everything.
+
+**Named-trigger rule migration (2026-10-15 to -18) broke every Moes multi-gang button in Vienna —
+found live 2026-10-19, root cause was a latent mismatch with pre-existing discovery-layer value
+normalization, not the migration mechanism itself.** The coordinator's own discovery-config
+generation for `event`-domain button entities already applies a regex-based `state_value_template`
+that strips a numeric gang prefix from multi-button Zigbee devices' raw `action` values — a
+Moes/Tuya "4 buttons" device's raw MQTT action `1_single` becomes the entity's own `event_type`
+`single` plus a separate `button: "1"` state attribute (confirmed live via `mosquitto_sub` on the
+`homeassistant/event/coordinator/.../config` discovery topic). This normalization predates the
+rule migration entirely and was invisible before it, because the old rule style matched the raw
+MQTT topic/value directly, bypassing the entity. The new named-trigger rules, migrated by
+literally copying the old raw values (`when event.pressed is in ['1_single', '2_single']`) into
+the new construct, therefore could never match — the entity's real `event_type` is never
+`"1_single"`, only `"single"`. Devices whose raw action values don't collide with the
+button-prefix regex (bj-brand buttons, IKEA shortcut buttons) pass through unchanged, which is
+why only Moes devices broke and nothing else did.
+
+**Fix required extending the generator, not just editing `.def` text**, because several different
+physical devices commonly feed the SAME named trigger (e.g. four different Moes/door buttons all
+feeding Vienna's `bedroom/main/light/toggle`), each needing its own, possibly different
+button-number filter. A single shared condition can't express that — HA's automation template
+context (`trigger.to_state`) only ever reflects whichever one entity's trigger actually fired.
+Added: list-value support for the trigger declaration's own embedded `and if trigger.<attr> is in
+['<v1>', ...]` suffix (previously single-value only); and `namedTriggerSourceCondition`
+(generator.go), which assigns each contributing trigger entry its own `id` and builds an OR,
+across sources, of `(trigger.id == this source's id) AND its own attr check` — falling back to the
+original simple single-shared-condition shape (no `id` machinery at all) when every contributing
+source genuinely agrees on one (attr, valueset) pair, preserving the Signify dimmer's
+already-proven-live output byte-for-byte. 43 `.def` lines across Vienna's whole file needed the
+same mechanical rewrite (`'<N>_single'` → `'single' and if trigger.button is '<N>'`, or the list
+form for multi-button targets) — the bug was universal across every migrated Moes device, not an
+isolated case. Deployed live 2026-10-19; first manual test confirmed working, full verification
+pending.

@@ -226,8 +226,9 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 	// colon-optional trial ran first, then both houses' Physical.def/Logical.def were rewritten
 	// to the colon-less form and verified byte-identical on regenerate, so the colon alternative
 	// was dropped here outright) -- see logicalCapabilityPattern's own identical change for the
-	// full rationale.
-	capabilityPattern := regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+(.+?)\s*;\s*$`)
+	// full rationale. Requires the explicit "capability" keyword (PROJECT.md item 11b,
+	// 2026-10-11) -- see discoveryCapabilityPattern's own doc comment for the general rationale.
+	capabilityPattern := regexp.MustCompile(`^capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+(.+?)\s*;\s*$`)
 	// Same capability line, but opening a nested "with: ... end;" block of its own typing
 	// metadata instead of terminating with ";" -- an alternative to the bare
 	// "<path> <keyword>: ...;" trailing-line form (capabilityMetadataPattern) that keeps a
@@ -250,7 +251,13 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 	// match would otherwise swallow the whole "<source> with <statement>" as its own Source,
 	// corrupting it exactly like the earlier "position:" domain-qualified parsing bug this session
 	// already hit once (see capabilityWithPositionPattern's own doc comment).
-	capabilityWithOneLinerPattern := regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+(\S+)\s+with\s+(.+?)\s*;\s*$`)
+	// Requires the explicit "capability" keyword at the very front (PROJECT.md item 11b,
+	// 2026-10-11) -- it ends in ";" like any other bare capability declaration, just with an
+	// inline refinement folded on, so it gets the keyword exactly the same way; unlike
+	// capabilityWithPattern just above, which ends in ":" and opens its own nested block instead,
+	// and so stays unprefixed (the same category as Logical.def's "derived .../"defined ..."
+	// block openers are the only ones to prefix, among the ":"-ending shapes).
+	capabilityWithOneLinerPattern := regexp.MustCompile(`^capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+(\S+)\s+with\s+(.+?)\s*;\s*$`)
 	// A bare typing-metadata line inside a capability's own "with: ... end;" block -- same four
 	// keywords as capabilityMetadataPattern, just without the leading path (implied by nesting).
 	capabilityWithMetadataPattern := regexp.MustCompile(`^(unit|icon|device_class|state_class):\s*"([^"]*)"\s*;\s*$`)

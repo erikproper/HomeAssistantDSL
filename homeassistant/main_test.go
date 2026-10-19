@@ -428,7 +428,7 @@ func TestNormalizeEntityFullNameLeadingSlashIsSphereAbsolute(t *testing.T) {
 
 func TestDeviceEntityImpliesDiscoveryEntitiesWithoutSpacePrefix(t *testing.T) {
 	const miniDSL = `space social:garage with:
-  device host.smarty as /smarty with:
+  device host.smarty with:
     entity binary_sensor.infrastructural:/smarty/node      from binary_sensor.node;
     entity sensor.infrastructural:/smarty/cpu/load        from sensor.cpu/load;
     entity sensor.infrastructural:/smarty/cpu/temperature from sensor.cpu/temperature;
@@ -481,8 +481,8 @@ end;`
 	if link.NodeEntityID != "binary_sensor.infrastructural_smarty_node" {
 		t.Errorf("link.NodeEntityID = %q, want %q", link.NodeEntityID, "binary_sensor.infrastructural_smarty_node")
 	}
-	if link.DisplayName != "garage/smarty" {
-		t.Errorf("link.DisplayName = %q, want %q (sphere \"infrastructural\" is omitted from display names, 2026-08-29)", link.DisplayName, "garage/smarty")
+	if link.DisplayName != "garage" {
+		t.Errorf("link.DisplayName = %q, want %q (bare enclosing space, no device leaf of its own at all now that \"as <leaf>\" is gone -- generator.go's own fixUpDisplayNameFromNode re-derives a better name from the node entity's own position later in the real pipeline, not exercised at this level)", link.DisplayName, "garage")
 	}
 	if got := link.ConstantAttributes["model"]; got != (TDeviceAttributeConstant{Value: "Compute host"}) {
 		t.Errorf("link.ConstantAttributes[model] = %+v, want %+v", got, TDeviceAttributeConstant{Value: "Compute host"})
@@ -510,7 +510,7 @@ end;`
 // permanently-unavailable entity for the rest.
 func TestDeviceEntitySingleAttributeFlagRegistersOnlyThatAttribute(t *testing.T) {
 	const miniDSL = `space social:garage with:
-  device host.mqtt as /mqtt with:
+  device host.mqtt with:
     entity binary_sensor.infrastructural:/mqtt/node from binary_sensor.node;
     entity sensor.infrastructural:/mqtt/cpu/load from sensor.cpu/load;
   end;
@@ -547,7 +547,7 @@ end;`
 // nothing for it, rather than being silently matched.
 func TestDeviceEntityUnrecognisedFlagRegistersNothingExtra(t *testing.T) {
 	const miniDSL = `space social:garage with:
-  device host.mqtt as /mqtt with:
+  device host.mqtt with:
     entity sensor.infrastructural:/mqtt/bogus_attribute from bogus_attribute;
   end;
 end;`
@@ -575,7 +575,7 @@ func TestDeviceEntityBareSpecDefaultsToInfrastructuralSphereAndSpaceRelativePath
 	// (taxonomy.go's SphereOf), but the path still follows the normal space-relative
 	// convention -- same as any other entity declared without a leading "/".
 	const miniDSL = `space social:garage with:
-  device host.smarty as smarty with entity binary_sensor.infrastructural:node;
+  device host.smarty with entity binary_sensor.infrastructural:smarty/node;
 end;`
 
 	hostDevicesByID := map[string]THostDevice{
@@ -599,16 +599,16 @@ end;`
 		t.Fatalf("expected space-relative node entity binary_sensor.infrastructural/garage/smarty/node; got %v", records)
 	}
 
-	// Regression guard: a space-relative spec's DisplayName must not double the space's own
-	// location segments -- normalizeEntityFullName already merges them into the entity's
-	// structural path, so deviceDisplayName must derive its own location prefix from the
-	// spec's bare leaf path (deviceSpecLeafPath), not from the already-merged path.
+	// DisplayName itself is just the bare enclosing space now -- "device <id> with:" carries no
+	// leaf text of its own any more (2026-10-11), so there's nothing for deviceDisplayName to fold
+	// in at registration time. generator.go's own fixUpDisplayNameFromNode re-derives a better name
+	// from the node entity's own resolved position later in the real pipeline, not exercised here.
 	link, ok := admin.DeviceConceptualLinks["host.smarty"]
 	if !ok {
 		t.Fatalf("expected DeviceConceptualLinks[host.smarty] to be populated")
 	}
-	if link.DisplayName != "garage/smarty" {
-		t.Errorf("link.DisplayName = %q, want %q (sphere \"infrastructural\" is omitted from display names, 2026-08-29)", link.DisplayName, "garage/smarty")
+	if link.DisplayName != "garage" {
+		t.Errorf("link.DisplayName = %q, want %q", link.DisplayName, "garage")
 	}
 }
 
@@ -665,7 +665,7 @@ func TestGenerateReportingAutomationsSplitsNumericAndDeviceInfoCapabilities(t *t
 
 func TestGenerateCustomizationFilesSkipsDiscoveryImpliedEntities(t *testing.T) {
 	const miniDSL = `space social:garage with:
-  device host.smarty as /smarty with entity binary_sensor.infrastructural:/smarty/node from binary_sensor.node;
+  device host.smarty with entity binary_sensor.infrastructural:/smarty/node from binary_sensor.node;
   entity switch.social:test_switch;
 end;`
 
@@ -701,7 +701,7 @@ func TestSpaceAsAreaAssignsSuggestedAreaToDevices(t *testing.T) {
 	const miniDSL = `space social:house with:
   space social:laundry_kitchen with:
     space infrastructural:rack as area with:
-      device host.junglinster as junglinster with:
+      device host.junglinster with:
       end;
     end;
   end;
@@ -733,12 +733,12 @@ func TestSpaceAsAreaShadowingAndExplicitOverride(t *testing.T) {
 	// the outer garage area. protocols-server-1 has its own explicit suggested_area override,
 	// which must survive even though it's positioned inside the "rack" area space.
 	const miniDSL = `space infrastructural:garage as area with:
-  device host.smarty as smarty with:
+  device host.smarty with:
   end;
   space infrastructural:rack as area with:
-    device host.junglinster as junglinster with:
+    device host.junglinster with:
     end;
-    device host.protocols-server-1 as protocols-server-1 with:
+    device host.protocols-server-1 with:
     end;
   end;
 end;`
@@ -783,8 +783,8 @@ end;`
 func TestParseHostsIntegrationBodyConstantDeviceAttributes(t *testing.T) {
 	body := []string{
 		"device host.junglinster junglinster home_assistant with:",
-		"  load:        sensor.processor_use;",
-		"  temperature: sensor.processor_temperature;",
+		"  capability load:        sensor.processor_use;",
+		"  capability temperature: sensor.processor_temperature;",
 		`  model: "Cool raspi"; # Default value`,
 		`  hw_version: "1928930" forced; # The "forced" means we do not allow for updates`,
 		"end;",
@@ -853,8 +853,8 @@ func TestParseHostsIntegrationBodyIgnoreOtherCapabilities(t *testing.T) {
 func TestParseHostsIntegrationBodyCapabilityWithLiteralPrefixAndAttribute(t *testing.T) {
 	body := []string{
 		"device host.junglinster junglinster home_assistant with:",
-		`  sw_version: "Home Assistant Operating System " update.home_assistant_operating_system_update!installed_version;`,
-		"  load: sensor.processor_use;",
+		`  capability sw_version: "Home Assistant Operating System " update.home_assistant_operating_system_update!installed_version;`,
+		"  capability load: sensor.processor_use;",
 		"end;",
 	}
 
@@ -885,9 +885,9 @@ func TestParseHostsIntegrationBodyCapabilityWithLiteralPrefixAndAttribute(t *tes
 func TestParseHostsIntegrationBodyGroupedCapabilityName(t *testing.T) {
 	body := []string{
 		"device host.junglinster junglinster home_assistant with:",
-		"  cpu/load:        sensor.processor_use;",
-		"  cpu/temperature: sensor.processor_temperature;",
-		`  sw_version: "Home Assistant Operating System " update.home_assistant_operating_system_update!installed_version;`,
+		"  capability cpu/load:        sensor.processor_use;",
+		"  capability cpu/temperature: sensor.processor_temperature;",
+		`  capability sw_version: "Home Assistant Operating System " update.home_assistant_operating_system_update!installed_version;`,
 		`  model:       "Home Assistant Green";`,
 		"end;",
 	}
@@ -927,7 +927,7 @@ func TestParseDiscoveryIntegrationBody(t *testing.T) {
 		"device discovery.ems_esp with:",
 		`  identifiers "ems-esp-extra";`,
 		"  device discovery.ems_esp_boiler with:",
-		"    sensor.outdoor_temperature boiler_outdoortemp;",
+		"    capability sensor.outdoor_temperature boiler_outdoortemp;",
 		"  end;",
 		"end;",
 	}
@@ -986,7 +986,7 @@ func TestParseDiscoveryIntegrationBodyIgnoreOtherCapabilities(t *testing.T) {
 		"device node.zigbee2mqtt_bridge with:",
 		`  identifiers "zigbee2mqtt_bridge_0x00124b0029e8c409";`,
 		"  ignore other capabilities;",
-		"  sensor.version bridge_0x00124b0029e8c409_version_zigbee2mqtt;",
+		"  capability sensor.version bridge_0x00124b0029e8c409_version_zigbee2mqtt;",
 		"end;",
 	}
 
@@ -1008,7 +1008,7 @@ func TestParseDiscoveryIntegrationBodyIgnoreOtherCapabilities(t *testing.T) {
 func TestParseDiscoveryIntegrationBodyWithoutIgnoreOtherCapabilitiesDefaultsFalse(t *testing.T) {
 	body := []string{
 		"device discovery.ems_esp with:",
-		"  sensor.outdoor_temperature boiler_outdoortemp;",
+		"  capability sensor.outdoor_temperature boiler_outdoortemp;",
 		"end;",
 	}
 
@@ -1029,8 +1029,8 @@ func TestParseDiscoveryIntegrationBodyAvailabilityCapability(t *testing.T) {
 	body := []string{
 		"device discovery.vidja_left_1 with:",
 		`  identifiers "zigbee2mqtt_0x84b4dbfffefbb43a";`,
-		"  light.core 0x84b4dbfffefbb43a_light_zigbee2mqtt;",
-		"  binary_sensor.node light.core is available;",
+		"  capability light.core 0x84b4dbfffefbb43a_light_zigbee2mqtt;",
+		"  capability binary_sensor.node light.core is available;",
 		"end;",
 	}
 
@@ -1088,8 +1088,8 @@ func TestParseDiscoveryIntegrationBodyAvailabilityCapabilityRequiresDomain(t *te
 	body := []string{
 		"device discovery.vidja_left_1 with:",
 		`  identifiers "zigbee2mqtt_0x84b4dbfffefbb43a";`,
-		"  light.core 0x84b4dbfffefbb43a_light_zigbee2mqtt;",
-		"  binary_sensor.node core is available;",
+		"  capability light.core 0x84b4dbfffefbb43a_light_zigbee2mqtt;",
+		"  capability binary_sensor.node core is available;",
 		"end;",
 	}
 
@@ -1106,8 +1106,8 @@ func TestParseDiscoveryIntegrationBodyHiddenCapability(t *testing.T) {
 	body := []string{
 		"device discovery.door_aqara_multi with:",
 		`  identifiers "zigbee2mqtt_0x00158d0003f0d585";`,
-		"  hidden sensor.pressure_raw 0x00158d0003f0d585_pressure_zigbee2mqtt;",
-		`  derived sensor.pressure from sensor.pressure_raw via "($ | float(0)) + 20";`,
+		"  hidden capability sensor.pressure_raw 0x00158d0003f0d585_pressure_zigbee2mqtt;",
+		`  derived capability sensor.pressure from sensor.pressure_raw via "($ | float(0)) + 20";`,
 		"end;",
 	}
 
@@ -1138,7 +1138,7 @@ func TestParseDiscoveryIntegrationBodyInvertedCapability(t *testing.T) {
 	body := []string{
 		"device discovery.furnace_switch with:",
 		`  identifiers "zigbee2mqtt_0xf4b3b1fffed648f5";`,
-		"  inverted switch.core 0xf4b3b1fffed648f5_switch_zigbee2mqtt;",
+		"  inverted capability switch.core 0xf4b3b1fffed648f5_switch_zigbee2mqtt;",
 		"end;",
 	}
 
@@ -1163,13 +1163,13 @@ func TestParseDiscoveryIntegrationBodyHiddenAndInvertedStack(t *testing.T) {
 		{
 			"device discovery.thing with:",
 			`  identifiers "zigbee2mqtt_0xabc";`,
-			"  hidden inverted switch.core_raw 0xabc_switch_zigbee2mqtt;",
+			"  hidden inverted capability switch.core_raw 0xabc_switch_zigbee2mqtt;",
 			"end;",
 		},
 		{
 			"device discovery.thing with:",
 			`  identifiers "zigbee2mqtt_0xabc";`,
-			"  inverted hidden switch.core_raw 0xabc_switch_zigbee2mqtt;",
+			"  inverted hidden capability switch.core_raw 0xabc_switch_zigbee2mqtt;",
 			"end;",
 		},
 	}
@@ -1193,8 +1193,8 @@ func TestParseDiscoveryIntegrationBodySourceDomainQualifiedLeaf(t *testing.T) {
 	body := []string{
 		"device discovery.hallway_door_moes with:",
 		`  identifiers "zigbee2mqtt_0x70ac08fffe4f0c15";`,
-		"  event.core event:0x70ac08fffe4f0c15_action_zigbee2mqtt;",
-		"  sensor.battery_level 0x70ac08fffe4f0c15_battery_zigbee2mqtt;",
+		"  capability event.core event:0x70ac08fffe4f0c15_action_zigbee2mqtt;",
+		"  capability sensor.battery_level 0x70ac08fffe4f0c15_battery_zigbee2mqtt;",
 		"end;",
 	}
 
@@ -1223,8 +1223,8 @@ func TestParseDiscoveryIntegrationBodySourceDomainQualifiedLeaf(t *testing.T) {
 
 func TestDiscoveryDerivedFromHiddenCapability(t *testing.T) {
 	const miniDSL = `space social:hallway with:
-  device discovery.door_aqara_multi as door/aqara_multi with:
-    entity sensor.physical:pressure from sensor.pressure;
+  device discovery.door_aqara_multi with:
+    entity sensor.physical:door/aqara_multi/pressure from sensor.pressure;
   end;
 end;`
 
@@ -1265,7 +1265,7 @@ end;`
 
 func TestDiscoveryDeviceBlockRejectsHiddenCapabilityPositionedDirectly(t *testing.T) {
 	const miniDSL = `space social:hallway with:
-  device discovery.door_aqara_multi as door/aqara_multi with:
+  device discovery.door_aqara_multi with:
     entity sensor.physical:pressure_raw from pressure_raw;
   end;
 end;`
@@ -1367,7 +1367,7 @@ func TestRegisterDiscoveryEntityLinkViaParse(t *testing.T) {
 
 // TestDiscoveryDeviceBlockWithNodeCapability is the end-to-end coverage for PROJECT.md item 7's
 // 2026-09-15 work: a "device <device-id> [as ...] with: ... end;" block (the same shape already
-// proven live for hassbridge's own "device appliance.vacuum as vacuum with:
+// proven live for hassbridge's own "device appliance.vacuum with:
 // ...;"), with a "node" capability declared as "... is available;" over a sibling capability --
 // deliberately declared BEFORE its sibling in the DSL text, proving the deferred/retry-at-EOF
 // resolution actually works order-independently (parser.go's existing pendingCapabilityLinks
@@ -1378,9 +1378,9 @@ func TestRegisterDiscoveryEntityLinkViaParse(t *testing.T) {
 // Physical.def.
 func TestDiscoveryDeviceBlockWithNodeCapability(t *testing.T) {
 	const miniDSL = `space social:vidja with:
-  device discovery.vidja_left_1 as left/1 with:
-    entity binary_sensor.infrastructural:node from binary_sensor.node;
-    entity light.physical: from light.core;
+  device discovery.vidja_left_1 with:
+    entity binary_sensor.infrastructural:left/1/node from binary_sensor.node;
+    entity light.physical:left/1 from light.core;
   end;
 end;`
 
@@ -1496,7 +1496,7 @@ end;`
 // declaring no liveness capability is a legitimate, unremarkable choice here).
 func TestDiscoveryDeviceBlockNoNodeCapabilitySkipsSilently(t *testing.T) {
 	const miniDSL = `space social:vidja with:
-  device discovery.vidja_left_1 as left/1 with:
+  device discovery.vidja_left_1 with:
     entity light.physical: from light.core;
   end;
 end;`
@@ -1531,7 +1531,7 @@ end;`
 // whichever capability happens to share that label.
 func TestDiscoveryDeviceBlockAvailabilityDomainMismatchIsRejected(t *testing.T) {
 	const miniDSL = `space social:vidja with:
-  device discovery.vidja_left_1 as left/1 with:
+  device discovery.vidja_left_1 with:
     entity binary_sensor.infrastructural:node from binary_sensor.node;
     entity light.physical: from light.core;
   end;
@@ -1563,10 +1563,10 @@ end;`
 
 func TestDiscoveryDeviceBlockWithDerivedCapability(t *testing.T) {
 	const miniDSL = `space social:hallway with:
-  device discovery.aqara_windoor as door with:
-    entity binary_sensor.social: from binary_sensor.door;
-    entity sensor.infrastructural:battery_level from sensor.battery_level;
-    entity sensor.infrastructural:battery_alert from binary_sensor.battery_alert;
+  device discovery.aqara_windoor with:
+    entity binary_sensor.social:door from binary_sensor.door;
+    entity sensor.infrastructural:door/battery_level from sensor.battery_level;
+    entity sensor.infrastructural:door/battery_alert from binary_sensor.battery_alert;
   end;
 end;`
 
@@ -1669,8 +1669,8 @@ func TestHomeAssistantCapabilityEntityIDsStripsAttributeSuffix(t *testing.T) {
 	physicalContent := `physical layer with:
   integration hosts with:
     device host.junglinster junglinster home_assistant with:
-      load: sensor.processor_use;
-      sw_version: "Home Assistant Operating System " update.home_assistant_operating_system_update!installed_version;
+      capability load: sensor.processor_use;
+      capability sw_version: "Home Assistant Operating System " update.home_assistant_operating_system_update!installed_version;
     end;
   end;
 end;

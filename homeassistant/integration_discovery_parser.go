@@ -41,7 +41,13 @@ var discoveryIdentifiersPattern = regexp.MustCompile(`^identifiers\s+"([^"]*)"\s
 // dropped here outright). The old "domain.label: source;" form is no longer accepted at all --
 // see logicalCapabilityPattern's own identical change for the full rationale (the colon visually
 // clashed with Conceptual.def entity specs' own unrelated "sphere:path" colon).
-var discoveryCapabilityPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+(.+?)\s*;\s*$`)
+//
+// Requires the explicit "capability" keyword (PROJECT.md item 11b, 2026-10-11, both houses
+// rewritten wholesale and verified byte-identical on regenerate) -- every capability-declaring
+// line in every integration kind now carries it, so a line that's merely referencing/modifying an
+// existing capability (a device-level fact, a refinement, a block opener) is visually
+// distinguishable on sight from one that's declaring a brand new one.
+var discoveryCapabilityPattern = regexp.MustCompile(`^capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+(.+?)\s*;\s*$`)
 
 // discoveryAvailabilitySuffix is the " is available" sugar on a capability line's source,
 // marking it as a reference to a SIBLING capability's own eventual entity (e.g. "binary_sensor.node:
@@ -53,6 +59,28 @@ var discoveryCapabilityPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.
 const discoveryAvailabilitySuffix = " is available"
 
 var discoveryAvailabilitySiblingPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)$`)
+
+// discoveryAssignedIDPattern matches a plain raw-leaf capability's own trailing " as <id>" suffix
+// (PROJECT.md item 7's stable coordinator<->HA entity identity design, memory/project_stable_
+// entity_identity_design.md) -- "<id>" is whatever the generator or a one-time bootstrap pass
+// already froze, carried through verbatim from here on; this grammar never interprets it, only
+// stores and re-emits it. Greedy on the leading group so a multi-word match prefers the LAST
+// " as <token>" in the line (irrelevant in practice -- no real raw leaf id contains " as " -- but
+// correct regardless).
+var discoveryAssignedIDPattern = regexp.MustCompile(`^(.+)\s+as\s+(\S+)$`)
+
+// cutDiscoveryAssignedID splits a capability line's raw source text into its own prefix and a
+// trailing " as <id>" suffix, if present. Called BEFORE the "is available"/"<raw-domain>:<leaf>"
+// dispatch below, so an assigned id composes with either -- except "is available" itself, which
+// parseDiscoveryDeviceBody's own dispatch rejects it on (AvailabilityOf capabilities never flow
+// through relayedDiscoveryUniqueID, so freezing an id for one would be a silent no-op).
+func cutDiscoveryAssignedID(source string) (rest, assignedID string, ok bool) {
+	m := discoveryAssignedIDPattern.FindStringSubmatch(source)
+	if m == nil {
+		return source, "", false
+	}
+	return m[1], m[2], true
+}
 
 // parseDiscoveryIntegrationBody parses the body lines of an "integration discovery with: ...
 // end;" block into every declared gateway device, at any nesting depth, flattened into one
@@ -151,7 +179,14 @@ func parseDiscoveryDeviceBody(cur *TLineCursor, deviceID, parentDeviceID string)
 			continue
 		}
 		if matches := discoveryCapabilityPattern.FindStringSubmatch(capabilityLine); matches != nil {
-			if sibling, ok := strings.CutSuffix(matches[3], discoveryAvailabilitySuffix); ok {
+			rawSource, assignedID, hasAssignedID := cutDiscoveryAssignedID(matches[3])
+			if !hasAssignedID {
+				rawSource = matches[3]
+			}
+			if sibling, ok := strings.CutSuffix(rawSource, discoveryAvailabilitySuffix); ok {
+				if hasAssignedID {
+					warnings = append(warnings, fmt.Sprintf("Physical.def: device %q's %q capability has an \"as <id>;\" suffix, but it's an \"... is available;\" capability -- stable ids only apply to a plain raw-leaf capability; ignoring", deviceID, matches[2]))
+				}
 				sibling = strings.TrimSpace(sibling)
 				siblingMatch := discoveryAvailabilitySiblingPattern.FindStringSubmatch(sibling)
 				if siblingMatch == nil {
@@ -160,7 +195,7 @@ func parseDiscoveryDeviceBody(cur *TLineCursor, deviceID, parentDeviceID string)
 					continue
 				}
 				current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], AvailabilityOf: siblingMatch[2], AvailabilityOfDomain: siblingMatch[1], Hidden: hidden, Inverted: inverted}
-			} else if sourceDomain, leaf, ok := strings.Cut(matches[3], ":"); ok {
+			} else if sourceDomain, leaf, ok := strings.Cut(rawSource, ":"); ok {
 				// "<raw-domain>:<leaf>" (2026-09-15) -- an optional qualifier disambiguating a
 				// leaf id Zigbee2MQTT (or any gateway) publishes under more than one raw MQTT
 				// discovery domain for the SAME underlying property (real case: a Moes scene
@@ -171,9 +206,9 @@ func parseDiscoveryDeviceBody(cur *TLineCursor, deviceID, parentDeviceID string)
 				// leaf) matches whichever raw domain publishes it, unchanged from before -- this is
 				// what lets e.g. "fan.core: 0x..._switch_zigbee2mqtt;" deliberately relay a
 				// switch-domain-published leaf under a different declared conceptual domain.
-				current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], Leaf: leaf, SourceDomain: sourceDomain, Hidden: hidden, Inverted: inverted}
+				current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], Leaf: leaf, SourceDomain: sourceDomain, Hidden: hidden, Inverted: inverted, AssignedID: assignedID}
 			} else {
-				current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], Leaf: matches[3], Hidden: hidden, Inverted: inverted}
+				current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], Leaf: rawSource, Hidden: hidden, Inverted: inverted, AssignedID: assignedID}
 			}
 			cur.Advance()
 			continue

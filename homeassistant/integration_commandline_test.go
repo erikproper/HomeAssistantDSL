@@ -23,9 +23,9 @@ func TestCollectCommandlineDevicesByIDParsesAllThreeKinds(t *testing.T) {
 	definitionDir := writePhysicalDef(t, `physical layer with:
   integration commandline with:
     device host.frame frame with:
-      switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
-      sensor.uptime    "uptime_seconds";
-      button.reboot    "reboot_frame";
+      capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
+      capability sensor.uptime    "uptime_seconds";
+      capability button.reboot    "reboot_frame";
     end;
   end;
 end;
@@ -90,7 +90,7 @@ func TestCollectCommandlineDevicesByIDWarnsOnWrongScriptCount(t *testing.T) {
 	definitionDir := writePhysicalDef(t, `physical layer with:
   integration commandline with:
     device host.frame frame with:
-      switch.slideshow "check_slideshow";
+      capability switch.slideshow "check_slideshow";
     end;
   end;
 end;
@@ -108,8 +108,8 @@ end;
 func TestGenerateCommandlineIntegrationOutputsWritesHostAndCoordinatorFiles(t *testing.T) {
 	outputRoot := t.TempDir()
 	devices, warnings := parseCommandlineIntegrationBody(strings.Split(`device host.frame frame with:
-  switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
-  button.reboot    "reboot_frame";
+  capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
+  capability button.reboot    "reboot_frame";
 end;`, "\n"))
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
@@ -117,8 +117,8 @@ end;`, "\n"))
 
 	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot}
 	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame frame with:
-  switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
-  button.reboot    "reboot_frame";
+  capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
+  capability button.reboot    "reboot_frame";
 end;`, "\n"), ctx); err != nil {
 		t.Fatalf("generateCommandlineIntegrationOutputs: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestGenerateCommandlineIntegrationOutputsUsesPositionedEntityID(t *testing.
 
 	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot, Admin: admin}
 	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame frame with:
-  switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
+  capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
 end;`, "\n"), ctx); err != nil {
 		t.Fatalf("generateCommandlineIntegrationOutputs: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestGenerateCommandlineIntegrationOutputsWritesDeviceDisplayName(t *testing
 
 	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot, Admin: admin}
 	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame frame with:
-  switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
+  capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
 end;`, "\n"), ctx); err != nil {
 		t.Fatalf("generateCommandlineIntegrationOutputs: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestGenerateCommandlineIntegrationOutputsOmitsDisplayNameWhenUnpositioned(t
 	outputRoot := t.TempDir()
 	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot}
 	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame frame with:
-  switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
+  capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
 end;`, "\n"), ctx); err != nil {
 		t.Fatalf("generateCommandlineIntegrationOutputs: %v", err)
 	}
@@ -240,5 +240,83 @@ end;`, "\n"), ctx); err != nil {
 	}
 	if strings.Contains(string(coordFile), "display_name:") {
 		t.Errorf("coordinator/commandline.yaml should have no display_name line for an unpositioned device; got:\n%s", coordFile)
+	}
+}
+
+// TestParseCommandlineIntegrationBodyParsesDependencyOn covers the 2026-10-07 grammar addition --
+// "dependency on <device-id>;" declared directly inside a commandline device's own block (the
+// user's own explicit choice: commandline is a physical-layer integration, so this dependency
+// belongs declared at the physical layer directly, unlike hassbridge/import's Logical.def-only
+// mechanism). Repeatable, same as Logical.def's own identical construct.
+func TestParseCommandlineIntegrationBodyParsesDependencyOn(t *testing.T) {
+	devices, warnings := parseCommandlineIntegrationBody(strings.Split(`device appliance.picture_frame frame with:
+  dependency on node.frame;
+  capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
+end;`, "\n"))
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("got %d devices, want 1: %+v", len(devices), devices)
+	}
+	if got := devices[0].DependsOn; len(got) != 1 || got[0] != "node.frame" {
+		t.Errorf("DependsOn = %v, want [\"node.frame\"]", got)
+	}
+}
+
+// TestGenerateCommandlineIntegrationOutputsResolvesDependencyOn confirms a parsed "dependency on
+// <id>;" resolves (single-hop, directly against ctx.HostDevicesByID) into the target's own node
+// topic, ANDed into every one of this device's own entities -- including its own liveness entity,
+// same as hassbridge's identical precedent (hassBridgeAvailabilityTopics) -- AND gets written into
+// coordinator/commandline.yaml's own "depends_on_availability:" field for the coordinator to
+// actually apply (house_event_bus_coordinator/discoverycommandline.go).
+func TestGenerateCommandlineIntegrationOutputsResolvesDependencyOn(t *testing.T) {
+	outputRoot := t.TempDir()
+	ctx := TPhysicalGenerationContext{
+		OutputRoot: outputRoot,
+		HostDevicesByID: map[string]THostDevice{
+			"node.frame": {DeviceID: "node.frame", HostName: "frame", IntegrationType: "ping"},
+		},
+	}
+	if err := generateCommandlineIntegrationOutputs(strings.Split(`device appliance.picture_frame frame with:
+  dependency on node.frame;
+  capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
+end;`, "\n"), ctx); err != nil {
+		t.Fatalf("generateCommandlineIntegrationOutputs: %v", err)
+	}
+
+	coordFile, err := os.ReadFile(filepath.Join(outputRoot, "coordinator", "commandline.yaml"))
+	if err != nil {
+		t.Fatalf("reading coordinator/commandline.yaml: %v", err)
+	}
+	coordContent := string(coordFile)
+	if !strings.Contains(coordContent, "depends_on_availability:") {
+		t.Fatalf("coordinator/commandline.yaml missing \"depends_on_availability:\"; got:\n%s", coordContent)
+	}
+	if !strings.Contains(coordContent, "hosts/frame/node/state") {
+		t.Errorf("coordinator/commandline.yaml missing the resolved node.frame topic; got:\n%s", coordContent)
+	}
+}
+
+// TestGenerateCommandlineIntegrationOutputsWarnsOnUnresolvableDependency confirms a "dependency
+// on <id>;" naming something other than a "hosts" integration device is reported, not silently
+// treated as "always available" -- mirrors resolveDependencyAvailabilityTopics' own identical
+// warn-and-continue discipline.
+func TestGenerateCommandlineIntegrationOutputsWarnsOnUnresolvableDependency(t *testing.T) {
+	outputRoot := t.TempDir()
+	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot}
+	if err := generateCommandlineIntegrationOutputs(strings.Split(`device appliance.picture_frame frame with:
+  dependency on node.unknown;
+  capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
+end;`, "\n"), ctx); err != nil {
+		t.Fatalf("generateCommandlineIntegrationOutputs: %v", err)
+	}
+
+	coordFile, err := os.ReadFile(filepath.Join(outputRoot, "coordinator", "commandline.yaml"))
+	if err != nil {
+		t.Fatalf("reading coordinator/commandline.yaml: %v", err)
+	}
+	if strings.Contains(string(coordFile), "depends_on_availability:") {
+		t.Errorf("coordinator/commandline.yaml should have no depends_on_availability for an unresolvable dependency; got:\n%s", coordFile)
 	}
 }

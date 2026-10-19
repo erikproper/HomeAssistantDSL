@@ -150,6 +150,7 @@ func registerDiscoveryEntityLink(administration *TAdministrationState, decl TDis
 		StateClass:      stateClass,
 		Icon:            icon,
 		Invert:          capability.Inverted,
+		StableID:        capability.AssignedID,
 	}
 	return nil
 }
@@ -195,6 +196,7 @@ func registerDiscoveryDerivedFromRawLeafEntityLink(administration *TAdministrati
 		StateClass:        stateClass,
 		Icon:              icon,
 		ValueTemplateWrap: capability.DerivedViaTemplate,
+		StableID:          siblingCapability.AssignedID,
 	}
 	return nil
 }

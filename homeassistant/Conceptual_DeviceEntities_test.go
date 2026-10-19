@@ -38,10 +38,10 @@ func TestDeviceDisplayNameRootSpaceEmptyPath(t *testing.T) {
 // to affect essentially every "as area" space in BOTH houses whose sphere isn't "infrastructural"
 // -- "social" being the overwhelming common case): OpenSpace's own area-name computation passed
 // the WHOLE "sphere:leaf" spec (e.g. "social:kitchen") into deviceSpecLeafPath, whose own
-// "multi-sphere" verbatim-preserving branch (isMultiSphereDeviceNamePath) is designed for a
-// DEVICE's own "as" clause, where a single non-"infrastructural" sphere token is deliberately a
-// distinct shape -- reused here for a SPACE spec (which has no such special case, always exactly
-// one ordinary sphere:leaf pair), it returned the leaf argument UNCHANGED, colon and all, so the
+// (since-removed) "multi-sphere" verbatim-preserving branch -- designed for a DEVICE's own "as"
+// clause, where a single non-"infrastructural" sphere token was deliberately a distinct shape --
+// was reused here for a SPACE spec (which has no such special case, always exactly one ordinary
+// sphere:leaf pair), so it returned the leaf argument UNCHANGED, colon and all, and the
 // resulting suggested_area read "social/house/social:kitchen" instead of "social/house/kitchen".
 func TestOpenSpaceAreaNameStripsSphereColonPrefix(t *testing.T) {
 	admin := newAdministrationState()

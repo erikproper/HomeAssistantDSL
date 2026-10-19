@@ -51,6 +51,25 @@ type TCommandlineDevice struct {
 	DeviceID     string
 	Host         string
 	Capabilities map[string]TCommandlineCapability
+
+	// DependsOn is every "dependency on <device-id>;" line declared directly inside this device's
+	// own Physical.def "integration commandline with: device <id> <host> with: ...; end;" block
+	// (integration_commandline_parser.go) -- repeatable, same convention as Logical.def's own
+	// TLogicalDevice.DependsOn. Confirmed with the user 2026-10-07: commandline is a physical-layer
+	// integration, so a dependency on another device's liveness belongs declared at the physical
+	// layer directly, not via a separate Logical.def entry -- unlike hassbridge/import, which only
+	// ever get this via Logical.def today.
+	DependsOn []string
+
+	// DependsOnAvailabilityTopics is DependsOn resolved into raw MQTT node topics
+	// (generateCommandlineIntegrationOutputs, directly against hostDevicesByID -- a commandline
+	// dependency is single-hop only, no transitive chain walk needed the way Logical.def's own
+	// resolveDependencyAvailabilityTopics does for hassbridge/import). Mirrors
+	// THassBridgeDevice's/TImportedDevice's identical field exactly. Previously commandline was the
+	// one kind with no "dependency on" support at all (real gap found live 2026-10-06/07: a
+	// commandline device like appliance.picture_frame couldn't depend on its own "hosts"-kind
+	// node.frame ping check).
+	DependsOnAvailabilityTopics []string
 }
 
 // collectCommandlineDevicesByID re-parses Physical.def's "commandline" integration block and

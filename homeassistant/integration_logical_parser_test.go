@@ -50,76 +50,6 @@ func TestParseLogicalLayerBodyMultipleDependencies(t *testing.T) {
 	}
 }
 
-// TestParseLogicalLayerBodyEnabledBy covers the device-level "<domain>.<label> enabled by
-// <domain>.<label> from <device-id>;" line (2026-09-28, replacing the old plain "enabler
-// <device-id>;" form), both alongside "dependency on" and as the block form's own single line.
-func TestParseLogicalLayerBodyEnabledBy(t *testing.T) {
-	devices, warnings := parseLogicalLayerBody([]string{
-		"device appliance.tv_living_room with:",
-		"  dependency on utility.sonytv;",
-		"  media_player.core enabled by switch.core from switch.house_living_room_tv;",
-		"end;",
-	}, nil)
-	if len(warnings) != 0 {
-		t.Fatalf("unexpected warnings: %v", warnings)
-	}
-	if len(devices) != 1 {
-		t.Fatalf("got %d devices, want 1", len(devices))
-	}
-	d := devices[0]
-	if d.EnabledBy == nil {
-		t.Fatalf("EnabledBy = nil, want a fact")
-	}
-	want := TLogicalEnabledByFact{OwnDomain: "media_player", OwnLabel: "core", SourceDomain: "switch", SourceLabel: "core", SourceDeviceID: "switch.house_living_room_tv"}
-	if *d.EnabledBy != want {
-		t.Errorf("EnabledBy = %+v, want %+v", *d.EnabledBy, want)
-	}
-	if len(d.DependsOn) != 1 || d.DependsOn[0] != "utility.sonytv" {
-		t.Errorf("DependsOn = %v, want [utility.sonytv]", d.DependsOn)
-	}
-}
-
-// TestParseLogicalLayerBodyDeviceLevelDelayOff covers the device-level "delay_off <time>;" line
-// (2026-09-28, Vienna's own appliance.tv -- carries a debounce into the "enabled by" sugar's own
-// synthesized "node" capability, TLogicalDevice.NodeDelayOff's own doc comment), alongside
-// "dependency on" and "enabled by" in the same block.
-func TestParseLogicalLayerBodyDeviceLevelDelayOff(t *testing.T) {
-	devices, warnings := parseLogicalLayerBody([]string{
-		"device appliance.tv with:",
-		"  dependency on node.tv;",
-		"  delay_off 00:01:00;",
-		"  media_player.core enabled by switch.core from appliance.living_room_tv;",
-		"end;",
-	}, nil)
-	if len(warnings) != 0 {
-		t.Fatalf("unexpected warnings: %v", warnings)
-	}
-	if len(devices) != 1 {
-		t.Fatalf("got %d devices, want 1", len(devices))
-	}
-	if devices[0].NodeDelayOff != "00:01:00" {
-		t.Errorf("NodeDelayOff = %q, want 00:01:00", devices[0].NodeDelayOff)
-	}
-}
-
-// TestParseLogicalLayerBodyOneLinerEnabledBy covers the single-statement "with <domain>.<label>
-// enabled by ...;" shorthand (no "dependency on" alongside it).
-func TestParseLogicalLayerBodyOneLinerEnabledBy(t *testing.T) {
-	devices, warnings := parseLogicalLayerBody([]string{
-		"device appliance.sonos_garage with media_player.core enabled by switch.core from switch.garage_sonos_plug;",
-	}, nil)
-	if len(warnings) != 0 {
-		t.Fatalf("unexpected warnings: %v", warnings)
-	}
-	if len(devices) != 1 || devices[0].EnabledBy == nil {
-		t.Fatalf("devices = %+v, want exactly one with a non-nil EnabledBy", devices)
-	}
-	want := TLogicalEnabledByFact{OwnDomain: "media_player", OwnLabel: "core", SourceDomain: "switch", SourceLabel: "core", SourceDeviceID: "switch.garage_sonos_plug"}
-	if *devices[0].EnabledBy != want {
-		t.Errorf("EnabledBy = %+v, want %+v", *devices[0].EnabledBy, want)
-	}
-}
-
 // TestParseLogicalLayerBodyOneLinerDependencyOn is the regression test for the picture_frame case
 // found live 2026-09-25: a device declaring exactly one "dependency on <id>;" body line can now be
 // written as a single-line shorthand, "device <id> with dependency on <id>;", instead of the full
@@ -150,7 +80,7 @@ func TestParseLogicalLayerBodyOneLinerDependencyOn(t *testing.T) {
 // there is no one-line form for those, so this must warn rather than silently mis-parse.
 func TestParseLogicalLayerBodyOneLinerRejectsBlockOpeningStatement(t *testing.T) {
 	devices, warnings := parseLogicalLayerBody([]string{
-		"device utility.thing with defined sensor.threshold with: minimum 0; end;",
+		"device utility.thing with defined capability sensor.threshold with: minimum 0; end;",
 	}, nil)
 	if len(devices) != 0 {
 		t.Errorf("got %d devices, want 0 (rejected one-liner shouldn't register a device)", len(devices))
@@ -221,12 +151,12 @@ func TestParseLogicalLayerBodyRejectsEntityDependencyForNow(t *testing.T) {
 func TestParseLogicalLayerBodyAbsorbBlock(t *testing.T) {
 	devices, warnings := parseLogicalLayerBody([]string{
 		"device appliance.washing_machine with:",
-		"  capabilities from discovery.washing_machine_switch:",
-		"    switch.core            switch.core;",
-		"    sensor.power           sensor.power;",
-		"    sensor.energy          sensor.energy;",
-		"    sensor.current         sensor.current;",
-		"    binary_sensor.consumes binary_sensor.consumes;",
+		"  absorb from discovery.washing_machine_switch:",
+		"    capability switch.core            switch.core;",
+		"    capability sensor.power           sensor.power;",
+		"    capability sensor.energy          sensor.energy;",
+		"    capability sensor.current         sensor.current;",
+		"    capability binary_sensor.consumes binary_sensor.consumes;",
 		"  end;",
 		"end;",
 	}, nil)
@@ -271,10 +201,10 @@ func TestParseLogicalLayerBodyAbsorbBlock(t *testing.T) {
 func TestParseLogicalLayerBodyAbsorbBlockBareShorthand(t *testing.T) {
 	devices, warnings := parseLogicalLayerBody([]string{
 		"device appliance.washing_machine with:",
-		"  capabilities from discovery.washing_machine_switch:",
-		"    switch.core;",
-		"    sensor.power;",
-		"    binary_sensor.consumes;",
+		"  absorb from discovery.washing_machine_switch:",
+		"    capability switch.core;",
+		"    capability sensor.power;",
+		"    capability binary_sensor.consumes;",
 		"  end;",
 		"end;",
 	}, nil)
@@ -332,12 +262,12 @@ func TestParseLogicalLayerBodyRejectsOldColonForm(t *testing.T) {
 func TestParseLogicalLayerBodyWarnsOnUnrecognisedAbsorbBodyLine(t *testing.T) {
 	_, warnings := parseLogicalLayerBody([]string{
 		"device appliance.washing_machine with:",
-		"  capabilities from discovery.washing_machine_switch:",
+		"  absorb from discovery.washing_machine_switch:",
 		"    bogus_field 42;",
 		"  end;",
 		"end;",
 	}, nil)
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "capabilities from") {
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "absorb from") {
 		t.Errorf("warnings = %v, want exactly one warning naming the absorb block", warnings)
 	}
 }
@@ -348,7 +278,7 @@ func TestParseLogicalLayerBodyWarnsOnUnrecognisedAbsorbBodyLine(t *testing.T) {
 func TestParseLogicalLayerBodyDefinedInputNumber(t *testing.T) {
 	devices, warnings := parseLogicalLayerBody([]string{
 		"device sensors.vienna_terrace_wind with:",
-		"  defined input_number.windy_threshold with:",
+		"  defined capability input_number.windy_threshold with:",
 		"    minimum 0;",
 		"    maximum 30;",
 		"    step 1;",
@@ -382,7 +312,7 @@ func TestParseLogicalLayerBodyDefinedInputNumber(t *testing.T) {
 func TestParseLogicalLayerBodyDefinedOneLiner(t *testing.T) {
 	devices, warnings := parseLogicalLayerBody([]string{
 		"device sensors.x with:",
-		"  defined input_number.threshold with minimum 5;",
+		"  defined capability input_number.threshold with minimum 5;",
 		"end;",
 	}, nil)
 	if len(warnings) != 0 {
@@ -405,7 +335,7 @@ func TestParseLogicalLayerBodyDefinedOneLiner(t *testing.T) {
 func TestParseLogicalLayerBodyDerivedCondition(t *testing.T) {
 	devices, warnings := parseLogicalLayerBody([]string{
 		"device sensors.vienna_terrace_wind with:",
-		`  derived binary_sensor.windy with:`,
+		`  derived capability binary_sensor.windy with:`,
 		`    condition jinja "($[sensor.wind_speed] in ['unknown', 'unavailable']) or (($[sensor.wind_speed] | int) > ($[input_number.windy_threshold] | int))";`,
 		"    device_class wind;",
 		"    delay_on  00:01:00;",
@@ -446,14 +376,14 @@ func TestParseLogicalLayerBodyDerivedCondition(t *testing.T) {
 func TestParseLogicalLayerBodyDefinedAndDerivedCoexist(t *testing.T) {
 	devices, warnings := parseLogicalLayerBody([]string{
 		"device sensors.vienna_terrace_wind with:",
-		"  defined input_number.windy_threshold with:",
+		"  defined capability input_number.windy_threshold with:",
 		"    minimum 0;",
 		"    maximum 30;",
 		"    step 1;",
 		"    icon mdi:weather-windy;",
 		"    units km/h;",
 		"  end;",
-		`  derived binary_sensor.windy with:`,
+		`  derived capability binary_sensor.windy with:`,
 		`    condition jinja "($[sensor.wind_speed]|int) > ($[input_number.windy_threshold]|int)";`,
 		"    device_class wind;",
 		"    delay_on  00:01:00;",
@@ -503,7 +433,7 @@ func TestParseLogicalLayerBodyDerivedConditionJinjaNamedTemplateCall(t *testing.
 	}
 	devices, warnings := parseLogicalLayerBody([]string{
 		"device appliance.sonos_roam with:",
-		"  derived binary_sensor.battery_alert with:",
+		"  derived capability binary_sensor.battery_alert with:",
 		"    condition jinja (sensor.infrastructural_apartment_bedroom_sonos_battery_level) ${int_less_then}(10);",
 		"  end;",
 		"end;",
@@ -534,7 +464,7 @@ func TestParseLogicalLayerBodyDerivedConditionJinjaNamedTemplateCall(t *testing.
 func TestParseLogicalLayerBodyDerivedConditionJinjaNamedTemplateCallWarnsOnUndeclaredTemplate(t *testing.T) {
 	_, warnings := parseLogicalLayerBody([]string{
 		"device appliance.sonos_roam with:",
-		"  derived binary_sensor.battery_alert with:",
+		"  derived capability binary_sensor.battery_alert with:",
 		"    condition jinja (sensor.battery_level) ${no_such_template}(10);",
 		"  end;",
 		"end;",
@@ -584,7 +514,7 @@ func TestRegisterLogicalDerivedConditionCapabilityResolvesLiteralEntityInOver(t 
 func TestParseLogicalLayerBodyValueAcceptsEntityAttributeLiteral(t *testing.T) {
 	devices, warnings := parseLogicalLayerBody([]string{
 		"device environment.weather with:",
-		`  derived sensor.pressure with:`,
+		`  derived capability sensor.pressure with:`,
 		`    value weather.forecast!pressure;`,
 		"  end;",
 		"end;",

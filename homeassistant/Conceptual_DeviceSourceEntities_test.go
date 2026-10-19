@@ -24,7 +24,7 @@ func TestExtractDeviceSourceEntityDeclarationDoesNotMatchDiscoveryShape(t *testi
 }
 
 func TestDeviceSourceEntityRegistersAndFeedsHassBridgeFile(t *testing.T) {
-	const miniDSL = `device hass.laserjet as laserjet with:
+	const miniDSL = `device hass.laserjet with:
 end;
 entity binary_sensor.infrastructural:laserjet/jammed as switch.laserjet_jam_sensor from hass.laserjet;`
 
@@ -73,7 +73,7 @@ entity binary_sensor.infrastructural:laserjet/jammed as switch.laserjet_jam_sens
 // capability positioned this way silently lost its typing in HA, even though the sibling
 // registerHassBridgeAttributeEntity path always has.
 func TestDeviceCapabilityEntityResolvesTypingDefaults(t *testing.T) {
-	const miniDSL = `device hass.davids_bedroom as davids_bedroom with:
+	const miniDSL = `device hass.davids_bedroom with:
 end;
 entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
 
@@ -122,7 +122,7 @@ entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
 // just affect the new "derived" fields: a device already using "map:" (ValueMap) would have hit
 // this silently too, had any real Spaces.def happened to position it this way.
 func TestDeviceCapabilityEntityPreservesValueMapAndDerivedFields(t *testing.T) {
-	const miniDSL = `device hass.roomba as roomba with:
+	const miniDSL = `device hass.roomba with:
 end;
 entity sensor.physical:vacuum/status from hass.roomba sensor.status;
 entity binary_sensor.physical:vacuum/battery_alert from hass.roomba binary_sensor.battery_alert;`
@@ -157,7 +157,7 @@ entity binary_sensor.physical:vacuum/battery_alert from hass.roomba binary_senso
 // construct runs) is preserved, never overwritten by a conflicting capabilityDefaults rule -- same
 // precedence registerHassBridgeAttributeEntity's own path already guarantees.
 func TestDeviceCapabilityEntityExplicitTypingWinsOverDefaults(t *testing.T) {
-	const miniDSL = `device hass.davids_bedroom as davids_bedroom with:
+	const miniDSL = `device hass.davids_bedroom with:
 end;
 entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
 
@@ -248,7 +248,7 @@ func TestDeviceSourceEntityWarnsOnUnknownDevice(t *testing.T) {
 func TestDeviceCapabilityEntityBeforePositioningStillResolves(t *testing.T) {
 	const miniDSL = `space social:david_bedroom with:
   entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;
-  device hass.davids_bedroom as netatmo with:
+  device hass.davids_bedroom with:
   end;
 end;`
 

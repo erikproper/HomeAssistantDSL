@@ -167,6 +167,14 @@ type TDiscoveryEntityLink struct {
 	Gateway string `yaml:"gateway"`
 	Leaf    string `yaml:"leaf"`
 
+	// StableID (2026-10-05, PROJECT.md item 7's stable coordinator<->HA entity identity design)
+	// is a frozen "as <id>;" from Physical.def, generator-assigned once and never recomputed.
+	// buildRelayedDiscoveryConfig/expectedDiscoveryBridgeTopics prefer this over their own
+	// relayedDiscoveryUniqueID(Gateway, Leaf) computation whenever it's set -- a device-ID rename
+	// or hardware swap at the same conceptual position then no longer changes this entity's own
+	// unique_id/discovery topic. Empty means not yet assigned; falls back to the old computation.
+	StableID string `yaml:"stable_id,omitempty"`
+
 	// SourceDomain (2026-09-15), when non-empty, requires the incoming raw discovery message's
 	// own topic domain component to match this exactly, in addition to (Gateway, Leaf) --
 	// disambiguates a leaf id the gateway publishes under more than one raw domain for the same

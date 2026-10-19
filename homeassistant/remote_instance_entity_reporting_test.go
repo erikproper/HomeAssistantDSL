@@ -79,7 +79,7 @@ func TestEntityReportingAutomationBody(t *testing.T) {
 
 func TestGenerateHassBridgeEntityReportingAutomationsOneFilePerCapability(t *testing.T) {
 	const miniDSL = `space social:david_bedroom with:
-  device hass.davids_bedroom as netatmo with:
+  device hass.davids_bedroom with:
   end;
   entity sensor.physical:netatmo/co2      from hass.davids_bedroom sensor.co2;
   entity sensor.physical:netatmo/humidity from hass.davids_bedroom sensor.humidity;
@@ -193,7 +193,7 @@ func TestResolveHassBridgeCapabilityExprDerivedMissingInstanceSource(t *testing.
 // value from its sibling's source and triggering on the sibling's real entity.
 func TestGenerateHassBridgeEntityReportingAutomationsForDerivedCapability(t *testing.T) {
 	const miniDSL = `space social:living_room with:
-  device hass.roomba as vacuum with:
+  device hass.roomba with:
   end;
   entity sensor.physical:vacuum/battery_level from hass.roomba sensor.battery_level;
   entity binary_sensor.physical:vacuum/battery_alert from hass.roomba binary_sensor.battery_alert;
@@ -323,7 +323,7 @@ func TestBuildAttributesPayloadExprSortsKeys(t *testing.T) {
 // sibling ".../attributes" topic -- and a capability with none declared gets no such file at all.
 func TestGenerateHassBridgeEntityReportingAutomationsWritesAttributesFile(t *testing.T) {
 	const miniDSL = `space social:living_room with:
-  device hass.roomba as vacuum with:
+  device hass.roomba with:
   end;
   entity vacuum.physical:vacuum from hass.roomba vacuum.roomba;
 end;`

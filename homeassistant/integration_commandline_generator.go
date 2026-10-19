@@ -137,6 +137,14 @@ func generateCommandlineCoordinatorFile(outputRoot string, devices []TCommandlin
 				sb.WriteString("    display_name: " + link.DisplayName + "\n")
 			}
 		}
+		// depends_on_availability (2026-10-06) mirrors integration_hassbridge_generator.go's/
+		// integration_import_generator.go's own identical field exactly.
+		if len(d.DependsOnAvailabilityTopics) > 0 {
+			sb.WriteString("    depends_on_availability:\n")
+			for _, topic := range d.DependsOnAvailabilityTopics {
+				sb.WriteString("      - \"" + topic + "\"\n")
+			}
+		}
 
 		writeKindList := func(kind, section string) {
 			var kindNames []string
@@ -163,6 +171,21 @@ func generateCommandlineCoordinatorFile(outputRoot string, devices []TCommandlin
 		writeKindList("switch", "switches")
 		writeKindList("sensor", "sensors")
 		writeKindList("button", "buttons")
+
+		// node (2026-10-12, PROJECT.md item 11c): this device's own daemon-liveness entity, which
+		// the coordinator (house_event_bus_coordinator/discoverycommandline.go) always publishes
+		// unconditionally regardless of positioning -- unlike switch/sensor/button above, there's
+		// no corresponding Capabilities map entry to iterate (see
+		// Conceptual_DeviceCapabilityEntities.go's commandline "node" special case), so this is
+		// always written, once per device, rather than looped over a kind-filtered name list.
+		nodeEntityID, nodeDisplayName := commandlineCapabilityRef(admin, d.DeviceID, "node")
+		if nodeEntityID == "" {
+			sb.WriteString("    node: {}\n")
+		} else {
+			sb.WriteString("    node:\n")
+			sb.WriteString("      entity_id: \"" + nodeEntityID + "\"\n")
+			sb.WriteString("      name: \"" + nodeDisplayName + "\"\n")
+		}
 	}
 
 	dir := filepath.Join(outputRoot, "coordinator")
@@ -181,6 +204,28 @@ func generateCommandlineIntegrationOutputs(bodyLines []string, ctx TPhysicalGene
 	}
 	if len(devices) == 0 {
 		return nil
+	}
+
+	// "dependency on <id>;" (2026-10-07, declared directly inside this device's own Physical.def
+	// block -- see TCommandlineDevice.DependsOn's own doc comment for why commandline gets this at
+	// the physical layer directly, unlike hassbridge/import's Logical.def-only mechanism).
+	// Single-hop only against hostDevicesByID -- no transitive chain walk, commandline devices
+	// aren't part of Logical.def's own dependency graph.
+	for i := range devices {
+		for _, depID := range devices[i].DependsOn {
+			host, ok := ctx.HostDevicesByID[depID]
+			if !ok {
+				fmt.Printf("[integration commandline] device %q depends on %q, which isn't a \"hosts\" integration device (commandline dependency resolution isn't built for any other kind yet) -- ignoring this dependency\n", devices[i].DeviceID, depID)
+				continue
+			}
+			mat, ok := MaterializationForIntegrationType(host.IntegrationType)
+			if !ok {
+				continue // can't happen for a real THostDevice (IntegrationType is validated at parse time)
+			}
+			if topic := mat.NodeTopic(host.HostName); topic != "" {
+				devices[i].DependsOnAvailabilityTopics = append(devices[i].DependsOnAvailabilityTopics, topic)
+			}
+		}
 	}
 
 	for _, d := range devices {

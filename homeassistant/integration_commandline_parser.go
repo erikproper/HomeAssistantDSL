@@ -33,9 +33,18 @@ var commandlineWithDevicePattern = regexp.MustCompile(`^device\s+(\S+)\s+(\S+)\s
 // colon-optional trial ran first, then both houses' Physical.def/Logical.def were rewritten to
 // the colon-less form and verified byte-identical on regenerate, so the colon alternative was
 // dropped here outright) -- see logicalCapabilityPattern's own identical change for the full
-// rationale.
-var commandlineCapabilityPattern = regexp.MustCompile(`^(switch|sensor|button)\.([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s*;\s*$`)
+// rationale. Requires the explicit "capability" keyword (PROJECT.md item 11b, 2026-10-11) -- see
+// discoveryCapabilityPattern's own doc comment for the general rationale.
+var commandlineCapabilityPattern = regexp.MustCompile(`^capability\s+(switch|sensor|button)\.([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s*;\s*$`)
 var commandlineScriptPattern = regexp.MustCompile(`"([^"]*)"`)
+
+// commandlineDependencyOnPattern is "dependency on <device-id>;" inside a commandline device
+// block -- repeatable, mirrors Logical.def's own logicalDependencyOnPattern exactly (2026-10-07:
+// commandline is a physical-layer integration, so this dependency is declared at the physical
+// layer directly rather than through a separate Logical.def entry -- the user's own explicit
+// choice, unlike hassbridge/import which only get this via Logical.def). Requires the whole
+// remainder before ";" to be ONE bare token, same safety discipline as the Logical.def pattern.
+var commandlineDependencyOnPattern = regexp.MustCompile(`^dependency\s+on\s+(\S+);$`)
 
 // commandlineScriptCountByKind is how many quoted scripts each capability kind requires, and in
 // which order they map onto TCommandlineCapability's own fields -- see that type's doc comment.
@@ -68,6 +77,10 @@ func parseCommandlineIntegrationBody(bodyLines []string) ([]TCommandlineDevice, 
 			if line == "end;" {
 				devices = append(devices, current)
 				inDeviceCapabilities = false
+				continue
+			}
+			if matches := commandlineDependencyOnPattern.FindStringSubmatch(line); matches != nil {
+				current.DependsOn = append(current.DependsOn, matches[1])
 				continue
 			}
 			if matches := commandlineCapabilityPattern.FindStringSubmatch(line); matches != nil {

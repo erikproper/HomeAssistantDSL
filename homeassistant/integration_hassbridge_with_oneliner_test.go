@@ -10,7 +10,7 @@ import "testing"
 func TestParseHassBridgeCapabilityOneLinerPosition(t *testing.T) {
 	block := []string{
 		"device utility.somfy_living_room_rear with:",
-		"  cover.cover cover.living_room_rear with derived value cover.living_room_rear!current_position;",
+		"  capability cover.cover cover.living_room_rear with derived value cover.living_room_rear!current_position;",
 		"end;",
 	}
 	devices, warnings := parseHassBridgeIntegrationBody(block, "ha2mqtt")
@@ -38,7 +38,7 @@ func TestParseHassBridgeCapabilityOneLinerPosition(t *testing.T) {
 func TestParseHassBridgeCapabilityOneLinerIcon(t *testing.T) {
 	block := []string{
 		"device utility.envoy with:",
-		`  sensor.production/today/energy sensor.envoy_today_energy with unit: "kWh";`,
+		`  capability sensor.production/today/energy sensor.envoy_today_energy with unit: "kWh";`,
 		"end;",
 	}
 	devices, warnings := parseHassBridgeIntegrationBody(block, "main")
@@ -64,7 +64,7 @@ func TestParseHassBridgeCapabilityOneLinerAndBlockFormCoexist(t *testing.T) {
 		`    map: "home" "docked";`,
 		`    icon: "mdi:robot-vacuum";`,
 		"  end;",
-		`  binary_sensor.charging binary_sensor.roomba_charging with icon: "mdi:battery-charging";`,
+		`  capability binary_sensor.charging binary_sensor.roomba_charging with icon: "mdi:battery-charging";`,
 		"end;",
 	}
 	devices, warnings := parseHassBridgeIntegrationBody(block, "main")

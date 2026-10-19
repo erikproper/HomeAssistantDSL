@@ -155,7 +155,7 @@ The coordinator is a model-aware runtime component sitting between the integrati
 
 **2. Discovery refinement.** Some integrations already speak HA MQTT Discovery (Zigbee2MQTT, Z-Wave JS). These publish to a raw discovery namespace; the coordinator applies the model to produce refined discovery (correcting `default_entity_id`, `name`, device metadata, and other model-defined properties, while retaining the rest of the technical description from the source). Integrations that don't natively speak discovery (e.g. `fhem2mqtt`) can instead be model-aware from the start and skip the refinement step entirely — there's no requirement that every producer pass through refinement.
 
-This is also why discovery is preferred over generator-authored YAML MQTT template sensors wherever a producer already speaks it: Z2M and Z-Wave JS already publish rich device metadata (manufacturer, model, `device` grouping, availability, unit/class hints, ...) as part of their raw discovery payload. Refinement lets the coordinator correct and reposition that metadata; a hand-authored YAML template sensor would instead have to reconstruct all of it from nothing, and go stale the moment the source integration's own metadata changes.
+This is also why discovery is preferred over generator-authored YAML MQTT template sensors wherever a producer already speaks it — and not merely preferred for convenience, but structurally required for anything that needs device metadata at all. A template-based entity (static `mqtt: sensor:` YAML, or HA's template platforms) can only ever extract *state* from a payload via `value_template`/`value_json.*` — the exact same mechanism discovery's own `value_template` field uses internally. Neither path offers a way to populate an entity's `device:` metadata block (manufacturer, model, `device` grouping, sw/hw version) from a live MQTT payload; that block is only ever set once, at config-publish time, never templated per message, in *either* mechanism. So a template sensor doesn't just risk the metadata going stale — it has no mechanism to carry that metadata at all, short of the generator hand-authoring and continually re-publishing it itself. Discovery sidesteps the problem entirely because Z2M and Z-Wave JS already know and supply that metadata (manufacturer, model, `device` grouping, availability, unit/class hints, ...) as part of their raw discovery payload, sourced from their own device database — refinement just lets the coordinator correct and reposition it. Discovery also, independently, makes a device's existence known to the model before it's been consciously dealt with at all — e.g. surfacing it in the "undeclared entity"/suggestion-list reports (§6.9, `project_undeclared_entity_audit_technique` in memory) — which a hand-authored template sensor, declared only once someone already decided to write it, cannot do.
 
 **3. Cross-home federation.** Selected entities/devices are cross-posted from one house's MQTT bus to another's, over MQTT, with lineage preserved so the receiving house can tell an entity isn't actually local. See the Netatmo example below.
 
@@ -344,52 +344,99 @@ An entity domain from this section's own exception list (`weather`, `media_playe
 hard-wired straight into the main instance via a local HA integration — never routed through the
 coordinator, so there is no MQTT availability topic for `dependency on` to attach to. For those,
 availability has to be expressed the other way round: as a Jinja `availability:` template on the
-generator-authored YAML entity itself — the mechanism Logical.def's own `is available [with:
-enabler ...;]` capability shape already uses (e.g. Vienna's `apple_tv`/`tv` `node` entities, reusing
-`buildConditionBinarySensorYAML`'s existing condition-entity rendering). The two mechanisms don't
-share one code path — they're deliberately separate, matching which side of the MQTT boundary the
-entity in question lives on.
+generator-authored YAML entity itself — the mechanism Logical.def's own `derived binary_sensor.node
+with: condition ...; end;` capability shape already uses (e.g. Vienna's `apple_tv`/`living_room_tv`
+`node` entities, reusing `buildConditionBinarySensorYAML`'s existing condition-entity rendering).
+The two mechanisms don't share one code path — they're deliberately separate, matching which side
+of the MQTT boundary the entity in question lives on.
 
-**`dependency on <id>;` is actually three separate compilation paths, not one (2026-10-04).**
-`integration_logical_storage.go`/`logical_enabler_dependency_sugar.go`:
+**`dependency on <id>;` is actually two separate compilation paths, not one (2026-10-04, revised
+2026-10-11).** `integration_logical_storage.go`:
 
-- Device-level, on a hassbridge/import-kind device with NO `enabled by`
-  (`resolveDependencyAvailabilityTopics`): walks the full transitive dependency graph
-  (`resolveTransitiveDependencies`, cycle-detected), resolves every `hosts`-kind dependency to its
-  own raw MQTT node/liveness topic, and feeds the flattened list straight into the coordinator's
-  native MQTT `availability:` topic list (`depends_on_availability`) — this is the path described
-  just above, ANDed by MQTT/HA itself, no generator-authored template at all.
-- Device-level, on any other kind (or a hassbridge/import device that also has `enabled by`)
-  (`applyLogicalEnablerDependencySugar`): each dependency becomes a literal "and &lt;dep-id&gt;"
-  clause folded into a generator-authored Jinja condition (a `derived binary_sensor.node`
-  capability) — the bare device-id resolves via the ordinary sibling-ref machinery to mean "that
-  device's own availability". If `enabled by` is also present, the dependencies are ANDed first,
-  then the enabler's own `... or jinja "$1 == 'off'" { enabler }` OR-exception wraps the whole
-  thing last (a deliberately powered-down device is never treated as a fault, even if a dependency
-  is down).
+- Device-level, on a hassbridge/import-kind device (`resolveDependencyAvailabilityTopics`): walks
+  the full transitive dependency graph (`resolveTransitiveDependencies`, cycle-detected), resolves
+  every `hosts`-kind dependency to its own raw MQTT node/liveness topic, and feeds the flattened
+  list straight into the coordinator's native MQTT `availability:` topic list
+  (`depends_on_availability`) — this is the path described just above, ANDed by MQTT/HA itself, no
+  generator-authored template at all.
 - Capability-level, inside a capability's own `is available with: ...; end;` block
   (`TLogicalCapability.DependsOn`, resolved by `resolveLogicalDependencyNodeEntities`): a flat,
   non-transitive, one-hop resolution — each `hosts`-kind target gets its own entity_id (reusing an
   existing positioning, or auto-materializing a synthetic "physical/&lt;id&gt;/node" entity if none
   exists yet) and those are folded as literal, already-resolved `is_state(...)` strings directly
-  into the capability's own ConditionExpr, same AND-first/enabler-OR-last ordering.
+  into the capability's own ConditionExpr.
 
-Two or three `dependency on` lines on one device: the device-level path is repeatable and fully
-transitive — if A depends on B and C, and B itself depends on D, A's own resolved chain is B+C+D,
-deduped, with a cycle reported (and the whole dependency list ignored) if the graph loops. The
-capability-level path is repeatable too, but each target is resolved as its own flat one-hop lookup
-(no further walk of *that* target's own dependencies) — a documented simplification, not a hard
-limit; extend it the day a real case needs more than one hop.
+Two `dependency on` lines on one device: the device-level path is repeatable and fully transitive —
+if A depends on B and C, and B itself depends on D, A's own resolved chain is B+C+D, deduped, with a
+cycle reported (and the whole dependency list ignored) if the graph loops. The capability-level path
+is repeatable too, but each target is resolved as its own flat one-hop lookup (no further walk of
+*that* target's own dependencies) — a documented simplification, not a hard limit; extend it the day
+a real case needs more than one hop.
 
-Versus hand-writing a `derived binary_sensor.node with: condition ...;` block yourself: for the two
-template-based paths above, `dependency on` generates exactly the same
-`TLogicalCapability{IsDerivedCondition: true, DerivedCondition: ...}` shape a hand-written block
-would — pure sugar, byte-for-byte equivalent output. What hand-writing can't reach: (1) the
-hassbridge/import-with-no-enabler case, which compiles to real native MQTT `depends_on_availability`
-instead of any template at all; (2) automatic transitive closure and cycle detection for the
-device-level path, which a hand-written condition would need spelled out (and unchecked) by hand;
-(3) the guaranteed AND-dependencies-first/OR-enabler-last ordering, enforced by the sugar every
-time rather than depending on the DSL author nesting it correctly themselves.
+**A third path -- a device-level sugar for any non-hassbridge/import kind, or a hassbridge/import
+device with "enabled by" -- existed from 2026-09-28 to 2026-10-11, then was removed (PROJECT.md item
+11a).** `applyLogicalEnablerDependencySugar` folded each dependency into a literal "and
+&lt;dep-id&gt;" clause, but built its OWN base self-check from the named `enabled by` capability's
+"is available" state (e.g. `media_player.core is available`) instead of referencing the device's
+real Physical.def `node` condition via `physical &lt;id&gt;`. For every real device that used it,
+that base self-check happened to be byte-for-byte identical to the real `node` condition — but only
+by convention, never enforced: had a device's own `node` ever been declared as anything richer than
+"this one capability is available," the sugar would have silently discarded the extra part instead
+of ANDing onto it, rather than reflecting the real condition the way the hassbridge/import native-
+MQTT path above always correctly does. Found live 2026-10-11 reviewing Vienna's own
+`appliance.living_room_tv` (`dependency on node.tv; delay_off 00:01:00; ... media_player.core
+enabled by switch.core from switch.living_room_tv;`) with the user. Fixed not by patching the
+sugar's own self-check, but by removing it entirely: every device that used to rely on it now spells
+the exact same thing out explicitly —
+
+```
+device appliance.living_room_tv with:
+  colocated switch.living_room_tv as switch;
+
+  absorb from switch.living_room_tv:
+    capability switch.enabler core;
+  end;
+
+  derived capability binary_sensor.node with:
+    condition (physical appliance.living_room_tv and node.tv) or jinja "$[switch.enabler] == 'off'";
+    delay_off 00:01:00;
+  end;
+end;
+```
+
+— the same style every hand-written case in both houses (`appliance.apple_tv`, `appliance.sonos`,
+`server.xanadu`, `server.backups`, ...) already used. `physical &lt;id&gt;` (`ParsePhysicalShorthand`,
+`logical_condition_expr.go`) forces resolution of the device's own real, raw Physical.def `node`
+capability (auto-materializing it as its own entity if it wasn't already one), so the dependency is
+genuinely ANDed onto whatever that capability really says, not an independently reconstructed
+approximation of it. Deployed live to both houses (5 devices total: Vienna's `appliance.living_room_tv`;
+Junglinster's `appliance.tv_living_room`/`appletv_bedroom_sarah`/`appletv_office`/`samsungtv`,
+plus `sonos_bathroom`/`sonos_shower_room` which needed no "enabled by" and so already matched),
+each gaining one new intermediate "physical node" entity as a result — a genuine behavior
+fix, not a no-op refactor, confirmed healthy against live state after redeploy/restart. (The
+`capability`/`absorb from` keywords shown in the block above were themselves added a day later,
+PROJECT.md item 11b, 2026-10-11 -- see this file's own note on that item, just below the
+"dependency on" writeup, for why.)
+
+**Every capability-declaring line, in every Physical.def/Logical.def integration kind, now
+carries an explicit `capability` keyword (PROJECT.md item 11b, 2026-10-11).** Before this, a
+capability was declared bare -- `media_player.core;`, `sensor.battery_level 0x...;`, `derived
+binary_sensor.node with condition ...;` -- visually indistinguishable from a device-level FACT of
+the same general shape (`<domain>.<label> is switched by ...;`, a refinement-block body line) on a
+quick read. The keyword goes at the very front of a bare line (`capability media_player.core;`),
+or right after `derived`/`defined` for those two block-opening forms (`derived capability
+binary_sensor.node with: ...;`, `defined capability input_number.x with: ...;`) -- block openers
+that DON'T start with `derived`/`defined` (hassbridge/local's own `<domain>.<label> <value> with:`
+capability-refinement block, which nests further modifier lines rather than declaring a second
+capability) stay unprefixed, same as any other device-level fact. Logical.def's absorb-block
+opener was renamed from `capabilities from <id>:` to `absorb from <id>:` in the same change --
+"absorb" already being this mechanism's own internal name everywhere else in the codebase
+(`TLogicalCapability.AbsorbedFromDeviceID`/`AbsorbedFromCapability`) -- with its own body lines
+getting the `capability` keyword too. Purely a syntax change (a one-off migration tool, `capability_keyword_migration.go` -- deleted once
+spent, same precedent as item 10's own migration tools -- rewrote ~1600 real lines across both
+houses' entire Physical.def/Logical.def in one pass, via a single kind-agnostic classifier
+covering every integration's own capability-line shape, verified by hand against a dry run before
+touching the real files) -- both houses regenerate byte-identical, so no deploy was needed.
 
 **A non-bridgeable entity pulls its whole device onto the same side of the boundary (2026-09-24).**
 The workaround above is per-*domain*: `weather`/`media_player`/etc. themselves can't be MQTT-
@@ -930,6 +977,156 @@ meaning once its domain is commandable. Deliberately deferred — same-broker wa
 (a same-house secondary HA instance), and nothing today needs a command to cross a house boundary
 yet.
 
+### 6.14 Stable coordinator↔HA entity identity: Physical.def `as <id>` (PROJECT.md item 7)
+
+**The problem this closes**: a discovery-kind (`discovery` integration — Zigbee2MQTT/Z-Wave-JS/
+EMS-ESP-style) capability's own HA `unique_id` was, until this landed, always computed fresh by
+the coordinator as `relayedDiscoveryUniqueID(gatewayID, leaf)` —
+`sanitizeTopicSegment(gatewayID) + "_" + leaf` (`discoverybridge.go`), a pure function of
+Physical.def's own raw declaration. Renaming a device's DSL id, or swapping its underlying
+hardware at the same conceptual position, changes `gatewayID` or `leaf` and therefore the
+`unique_id` — HA then treats the result as a brand-new entity: the old registration orphans, the
+new one registers fresh with no history, and the two can collide into a `_2` suffix if anything
+else still references the old name. §6.11's own persistence-across-restarts fix solved the
+*coordinator's* half of "don't lose state you shouldn't lose" — this closes the same problem for
+the *HA registry's* own idea of identity.
+
+**Mechanism**: a plain raw-leaf capability line in Physical.def (never an `is available`/
+`derived` capability — those are local condition/template entities, never relayed, so they never
+reach `relayedDiscoveryUniqueID` at all) can carry a trailing `as <id>;` —
+`light.light_1 zwavejs2mqtt_0xd0204fb2_71-37-1-currentValue as sensors_X_...;`
+(`TDiscoveryCapability.AssignedID`, `integration_discovery_parser.go`). Once present, it is
+authoritative forever: the generator carries it through to `discovery.yaml`'s `entity_links:`
+block as a new `stable_id:` field (`TDiscoveryEntityLink.StableID`), and the coordinator prefers
+it over its own `gatewayID+leaf` computation in **both** places that computation happens —
+`buildRelayedDiscoveryConfig` (the actual relay, drives both `unique_id` and the retained
+discovery topic) and `expectedDiscoveryBridgeTopics` (the orphan-cleanup pass's own "what should
+exist" calculation). Both needed the same preference, or cleanup would compute the *old*
+gatewayID-based topic as "expected" and wrongly retire the real, stable-ID'd one.
+
+**Three construction sites, not two.** `TDiscoveryEntityLink` is built independently in three
+places, and all three must copy `AssignedID` into `StableID` or the id silently stops reaching
+`discovery.yaml` for whatever path was missed:
+`registerDiscoveryEntityLink`/`registerDiscoveryDerivedFromRawLeafEntityLink`
+(`Conceptual_DiscoveryEntities.go`, the two "obvious" ones) and, less obviously,
+`autoMaterializePhysicalCapability`'s own discovery-kind branch
+(`Conceptual_LogicalEntities.go`) — the generic "any physical capability referenced via a
+cross-device condition/value reference" path a Logical.def `... is switched by ...;`/
+`dependency on ...;` one-liner resolves through, named nothing to suggest it touches discovery at
+all. Found live by checking a bootstrapped capability's own `discovery.yaml` output and finding
+`stable_id` simply absent, not by code review. **Before extending any struct built in more than
+one place, `grep -rn "<TypeName>{" --include="*.go" .` for every construction site rather than
+trusting the ones found by reading the obviously-named registration functions.**
+
+**Fresh ids, for a capability with no registry history to preserve**, are minted automatically as
+part of ordinary generation (`autoAssignDiscoveryStableIDs`,
+`physical_auto_assign_stable_ids.go`) — the one deliberate exception to this codebase's otherwise
+universal "`.def` files are only ever read, never written" rule, and purely additive (it only ever
+appends `as <id>` before an existing line's own trailing `;`). The id itself is the capability's
+own resolved entity_id at the moment it's first positioned ("position at birth", frozen from then
+on regardless of later repositioning), `_n`-disambiguated against any id already assigned anywhere
+if it collides. All-or-nothing per run: if even one assignment's own capability line can't be
+located in the real, on-disk Physical.def by reconstructing its exact domain/label/leaf text
+(deliberately NOT by tracking a parsed line's line number — the one-liner-wrapping normalisation
+pass, `joinWrappedStatementContinuations`, means a parsed line's position doesn't reliably map
+back to the file's own real layout), nothing is written that run rather than a half-assigned file.
+
+This auto-assignment call must never run during a read-only diagnostic pass (`-would_define`,
+`-derived_migration_candidates`) — both share `parseAdministrationFromPaths` with the real
+generator and are explicitly documented as never editing a file. Gated by a `writeBack bool`
+parameter on that function, true only from `generateFromPaths`.
+
+**One-time bootstrap** (`homeassistant -bootstrap_stable_ids <mapping.json> Definitions/Main.def`,
+`bootstrap_stable_ids.go`) seeds `as <id>` for every *already-live* capability from its currently
+real HA registry `unique_id` — never a freshly-minted value, preserving exactly what's already
+live. `mapping.json` is a flat `{entity_id: unique_id}` dump of the live registry's own
+mqtt-platform entities (no pre-filtering needed; only entries matching a live discovery capability
+are ever consulted). A live capability with no corresponding registry entry is reported, not
+guessed. Run once per house, before the first `as`-id-aware deploy; never again afterwards.
+
+**Net effect on a rename, confirmed live**: HA updates the entity's own `entity_id` in place from
+the new `default_entity_id` a fresh discovery payload carries (e.g.
+`light.physical_sensors_X` → `light.physical_lights_X` after a device-id rename) while the
+`unique_id` — and therefore the entity's actual identity/history — stays exactly as it was. A
+device-id rename is now a cosmetic, zero-churn operation for any capability that's been
+bootstrapped.
+
+### 6.15 Device friendly names, implied node positioning, and `colocated` (PROJECT.md item 8)
+
+**Friendly names derived from conceptual position, not the gateway.** A raw integration's own
+native discovery payload (zwavejs2mqtt's Location+Name, Zigbee2MQTT's device nickname, ...)
+describes where the *relay module* physically sits, not what it controls or where it conceptually
+belongs — a Fibaro double-relay switching two different rooms' lights has no single "room" of its
+own anyway. The fix, applied uniformly: an entity's own friendly name is always
+`identity.Sphere + "/" + identity.Path` (`friendlyEntityName`, `device_friendly_name.go`); a
+device's own friendly name is its *positioned* `node` entity's identity with the trailing `/node`
+segment dropped (`resolveDeviceFriendlyName`) — e.g. a Z-Wave relay's own node positioned at
+`infrastructural:garage/fuse_cabinet/zwave/042` gives the device itself that same path, correctly
+describing the relay's real install location regardless of which room(s) it switches.
+
+**Finding a device's own `node` entity needed one universal choke point, not per-kind lookups.**
+Four different internal shapes can back a device's "node" capability (a raw discovery leaf; a
+discovery-level `derived ... with condition ... is available;`; a Logical.def `node` override via
+`dispatchLogicalCapability`; hosts/import/commandline's own `AttributeEntityIDs["node"]`) — a
+per-kind lookup missed one shape, silently flagged dozens of genuinely-positioned devices as
+unpositioned, then tried to register a second, colliding node for them. Fixed once:
+`administration.DeviceNodeEntityID[deviceID] -> entityID`, populated inside
+`registerDeviceCapabilityEntityLinkAllowingHidden` itself (the one function every kind's "node"
+dispatch already funnels through) right after a successful registration where the resolved
+capability name is `"node"`. `resolveDeviceFriendlyName` now has exactly two cases: a hosts-kind
+device's own `HostIdentity` (its whole identity *is* its position, no separate node entity), and
+this map for everything else.
+
+**Implied node positioning**: a device used in *exactly one* conceptual space has only one
+possible answer for "where is this device" — `applyImpliedNodePositioning`
+(`device_friendly_name.go`, driven by `administration.DevicePositioningOccurrences`, one entry per
+`device <id> with:` occurrence `registerDevicePositioning` ever saw, recorded
+unconditionally regardless of that function's own register-once-merge-repeatedly identity guard)
+auto-positions `node` there with no author action needed. A device positioned in 0 or 2+ spaces is
+a genuine gap/ambiguity and gets a warning instead of a guess. Must run before
+`validateDevicesHaveFriendlyNames`.
+
+**`findSharedDevicePositions`** catches the one real hazard this creates: two *different* devices
+weaving onto the same conceptual position (a real, legitimate pattern — e.g. two Zigbee devices
+bundled in one enclosure), each independently lacking its own node, would both default to the same
+bare `.../node` entity and collide. Reports only when 2+ members of a shared-position group
+currently lack a positioned node (not merely when they share a position) — each then needs its own
+explicit, distinguishing leaf (e.g. `entity binary_sensor.infrastructural:main_spots/node;` instead
+of the bare form).
+
+**`colocated <device-id> as <leaf>;`** (Logical.def, repeatable, on the *anchor* device's own
+block): positions a device that has no conceptual location of its own but obviously lives wherever
+another, already-positioned device lives — e.g. Vienna's `switch.living_room_tv` (a bare Z-Wave
+relay switching the TV's own power) has no position of its own, but is `colocated
+switch.living_room_tv as switch;` on `appliance.living_room_tv` (positioned `as tv`), resolving to
+`tv/switch`. `applyColocatedPositioning` resolves the anchor's own single-space position (same
+single-occurrence rule as implied node positioning — an anchor positioned 0 or 2+ times is
+ambiguous) and calls `registerDevicePositioning` for the colocated device with that position plus
+the declared leaf; the colocated device's own `node` is then auto-implied for free by the
+mechanism above, since register-once also records its own occurrence.
+
+**Commandline's own `dependency on <id>;`** is declared directly inside Physical.def's
+`integration commandline with: device <id> <host> with: ...; end;` block, *not* via a separate
+Logical.def entry like hassbridge/import — confirmed with the user 2026-10-07: commandline is a
+physical-layer integration, so a dependency on another device's liveness belongs declared at the
+physical layer directly. Resolved single-hop only, directly against `hostDevicesByID`
+(`generateCommandlineIntegrationOutputs`) — no transitive chain walk, since commandline devices
+aren't part of Logical.def's own dependency graph. ANDed (via the shared `nodeAvailabilityEntries`
+helper, `house_event_bus_coordinator/discovery.go`) into every one of that device's own entities,
+including its own liveness entity — matching hassbridge's identical precedent (a device's own node
+must also reflect a dependency it declares, not just its siblings).
+
+**`heatingCapableSpaces` (`administration.go`) is sphere-agnostic**, triggered purely by a switch
+entity's own path ending in `heating` — *not* a specific sphere. Found live while renaming
+Junglinster's heating-relay devices: this was hardcoded to `Sphere == "physical"` only, which
+silently dropped the entire leakage-detection/mode-preset/`set_heating_to_*` subsystem the moment a
+heating switch was repositioned to `social`. `generateSwitchControlledHeatingContent`'s own,
+separate detection loop had the identical hardcoding, plus a second bug one level deeper: the
+`switch.turn_on`/`switch.turn_off` automations it generates had the target entity_id *hardcoded* to
+`switch.physical_<context>_heating` regardless of the switch's real sphere — fixed by resolving the
+real entity_id from the same scan (`heatingSwitchEntityIDs`) instead of guessing it from a fixed
+sphere prefix.
+
 ---
 
 ## 7. Home Assistant's two roles
@@ -1051,6 +1248,101 @@ Working examples already sketched (Junglinster):
 - `integration hass on protocols-server-2 with devices: weather.junglister with: ...; sensor.envoy with: ...; end;` — importing entities (state + attributes + metadata, kept distinct) from the secondary, integration-adapter HA instance, including looped device generation (`for ${attribute} in ...`, `for ${inverter} in ...`) and a `meta data:` block for otherwise-hardwired device metadata (model/serial/etc.) that will eventually need to travel over MQTT via the coordinator rather than being baked in statically.
 
 Open items visibly still being worked out in that file: whether "device" should carry an explicit `<name> <host_name>;` shorthand; how positioning (the eventual space assignment) determines the actual generated name versus the raw device identity; whether device metadata needs JSON or can stay flat; and a planned generator-time check that entities assumed to exist on the HA side of an integration actually do.
+
+### 9.3 Rule grammar: a CDL1-style three-layer parser (PROJECT.md item 13)
+
+**The problem this closes**: both houses carried a batch of hand-authored HA automations (31
+Vienna, 54 Junglinster) living entirely in HA's own UI-managed `automations.yaml` — symlinked into
+the generator's own `automation/` output directory so they still ran, but never generated,
+verified, or even visible to this project. A much smaller existing construct
+(`TWhenRule`, "`rule ... when ... then ...;`") already let Conceptual.def declare a *single*
+trigger/action rule, built with the same ad hoc line/`strings.Fields` matching GO_CONVENTIONS.md
+§7/§8 explicitly discourages for anything beyond the simplest one-liner. Extending that
+construct's own matching with more special cases for every new trigger/condition/action shape the
+85 real automations needed would have piled more of exactly that debt on top of itself.
+
+**Decision**: build a real three-layer CDL1-style parser from scratch for the rule grammar —
+`rule_character_stream.go` (`TDefCharacterStream`, byte-level, line/column tracked),
+`rule_tokeniser.go` (`TDefTokeniser`, keyword/identifier/number/string/punctuation
+classification), `rule_parser.go` (`TRuleParser`, CDL1 bool-returning recursive-descent grammar
+functions) — the same architecture pattern `../bibtex/bibtex_check` already exemplifies, adapted
+to this codebase's own warnings-slice error convention rather than importing a second reporting
+mechanism. `TWhenRule` was replaced outright, not kept alongside the new construct; Junglinster's
+one real pre-existing usage (`done_removing_smells`) migrated to the new block syntax in the same
+pass, with both houses regenerating byte-identical.
+
+**Grammar shape** (full syntax reference: README.md's "DSL syntax" → "Rules"). A rule requires
+exactly one `when` clause (trigger, inline-`or`-chainable), allows at most one `if` clause
+(gating condition — a single recursive and/or/not/parenthesised boolean expression, mirroring
+HA's own nested `condition: and/or/not` + `conditions: [...]` YAML shape directly, rather than a
+separate block-composition mechanism), and requires exactly one `then` clause (one action, or a
+`then: ...; end;` block for several). This exactly-one/at-most-one/exactly-one structure is
+enforced at parse time by a per-rule `ruleClauseTracker` (`parser.go`) that warns and discards any
+extra clause rather than silently merging or hard-erroring — a deliberate, user-requested
+constraint (not implied by HA's own automation schema, which tolerates an arbitrary trigger/
+condition/action list) chosen because a rule migrated from a real automation should read as one
+coherent if-this-then-that statement, not an accumulation of independently-added clauses.
+
+**Positioning convention**: a rule is written inside whichever space is the lowest common ancestor
+of all the entities its own trigger/condition/action clauses touch — not always the action's own
+leaf space. A toggle whose two triggers live in sibling subspaces and whose action lives in a
+third sibling is positioned at their shared parent, using *relative* paths that simply descend
+into each subspace from there (relative resolution is plain path concatenation against the
+current space context, so it works for a child/descendant entity exactly as well as a same-space
+one — not restricted to "the entity must be in this exact space"). Only entities genuinely outside
+that subtree — true siblings of the rule's own position, or reached only through a virtual
+space's `member` reference (which is a logical grouping for aggregation, never a parse-time
+nesting relationship) — fall back to the `/`-prefixed absolute form
+(`normalizeEntityFullName`'s existing escape hatch, reused verbatim, not redesigned for this).
+Positioning a rule near the entities it actually touches, rather than always at its action's own
+home, is also what makes the relative-path form usable at all for the common "triggers and action
+scattered across sibling spaces" shape — the reason this convention was adopted over simply
+always positioning at the action's own leaf space.
+
+**Four real bugs found live, not anticipated up front** — each fixed with a regression test:
+
+- `EntityRef` never consumed the leading `/` of the absolute-path escape hatch, so every absolute
+  entity reference failed immediately after the colon (found migrating Vienna's first
+  cross-space rule).
+- `EntityRef` couldn't tell `<sphere>:<path>` (path continues right after the colon) apart from
+  `<sphere>:` (empty path, e.g. `vacuum.social:` immediately before a predicate keyword) followed
+  by an ordinary word — it silently swallowed the next keyword as if it were the path. Fixed via a
+  new `TRuleToken.PrecededByWhitespace` field (`rule_tokeniser.go`): a path only continues when the
+  next token touches the colon with no whitespace in between.
+- `genericBodyElement` (`defined.go`, the generic top-level block-boundary scanner
+  `scanGroupClauseBlocks`/`layers.go` use to find each `"<layer> layer with: ... end;"` block's own
+  extent) treated *any* `":"`-terminated line as an independent nested block needing its own
+  matching `"end;"`, with no knowledge that a rule body's `"then if <entity-ref> is <state>: ...;
+  else: ...; end;"` branching action is a single flat construct sharing **one** closing `"end;"`
+  between its `"then if ...:"` header and `"else:"` marker. The first real if/else rule ever
+  written into a live Conceptual.def (Junglinster's sarah_bedroom cover rules — Vienna's own 31
+  never needed one) hit this: `"else:"` was mistaken for its own opener demanding a third `"end;"`
+  that doesn't exist, starving the enclosing `"rule ...:"`/`"conceptual layer with:"` blocks of
+  their own close and failing the *whole file* with a misleading "missing its closing end;" error
+  anchored at the outermost block — while the real per-line rule-body parser
+  (`ParseEntitiesAndFillAdministration`), and every existing unit test, parsed the exact same rule
+  text perfectly fine, since `parseIfActionBlock` already understands `"else:"` correctly. The bug
+  was purely in the separate, generic, rule-grammar-agnostic layer-boundary scanner. Fixed by
+  special-casing the literal line `"else:"` to never open its own group.
+- `renderRuleValue`'s jinja branch (`generator.go`) wrapped raw jinja pass-through text verbatim in
+  a single-quoted YAML scalar without escaping any embedded `'` — a real automation's own
+  `jinja "100 - (states('number...') | int)"` is exactly this shape. Deployed to Junglinster, this
+  broke the generated automation's own YAML block mapping and put the live house's HA core into
+  recovery mode on restart. The test covering this exact rule (`TestParseRuleIfThenElseAction`)
+  had passed throughout, because it only string-matched the generated text rather than confirming
+  it was valid YAML at all — fixed by doubling embedded `'` (the same rule `jinjaQuotedLiteral`
+  already applied for a different call site) and by adding a real `yaml.Unmarshal` assertion to
+  that test, since string-matching alone cannot catch a YAML-structure break.
+
+**Net effect, both houses**: Vienna's 31 and Junglinster's 53 (of 54 — one confirmed-dead
+duplicate excluded, not migrated) real automations are now DSL `rule` blocks in Conceptual.def,
+regenerating through the normal pipeline, with each house's own `automations.yaml` backed up and
+emptied. Three more dead-target automations (referencing entities that no longer exist) were found
+and fixed during migration verification against each house's live entity registry, the same
+"confirm with the user, then redirect to the real entity" resolution as an already-known Vienna
+case. Both houses' live entity registries were confirmed to have zero remaining `"_2"` collisions
+from this migration after registry surgery (the same stop-core/edit-registry/restart-core pattern
+§6.14 already established) resolved the ones found.
 
 ---
 

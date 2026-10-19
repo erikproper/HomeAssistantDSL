@@ -70,6 +70,23 @@ type TCommandlineDevice struct {
 	Switches    map[string]TCommandlineCapabilityRef `yaml:"switches,omitempty"`
 	Sensors     map[string]TCommandlineCapabilityRef `yaml:"sensors,omitempty"`
 	Buttons     map[string]TCommandlineCapabilityRef `yaml:"buttons,omitempty"`
+	// Node (2026-10-12, PROJECT.md item 11c) is this device's own daemon-liveness entity's optional
+	// Spaces.def positioning -- both fields empty when never positioned, in which case
+	// buildCommandlineDiscoveryConfigs keeps using its own long-standing auto-derived
+	// "<host>_commandline_node"/"<name>/commandline" defaults below, unchanged, so every
+	// already-deployed unpositioned commandline device keeps its existing entity_id/name exactly
+	// (no registry churn for devices this field doesn't apply to).
+	Node TCommandlineCapabilityRef `yaml:"node,omitempty"`
+	// DependsOnAvailability (2026-10-06) mirrors THassBridgeDevice's/TImportedDevice's identical
+	// field exactly -- a Logical.def "dependency on <other-id>;" declaration sharing this device's
+	// own id, resolved generator-side (homeassistant/integration_logical_storage.go's
+	// resolveDependencyAvailabilityTopics), already flattened across the full transitive
+	// dependency chain. Previously commandline was the one kind this mechanism skipped entirely
+	// (real gap found live 2026-10-06: a commandline device like appliance.picture_frame couldn't
+	// depend on its own "hosts"-kind node.frame ping check) -- ANDed (via nodeAvailabilityEntries)
+	// into every one of this device's own entities, including its own liveness entity, exactly
+	// like hassbridge/import already do.
+	DependsOnAvailability []string `yaml:"depends_on_availability,omitempty"`
 }
 
 // TCommandlineFile is the top-level shape of a generated coordinator/commandline.yaml file --
@@ -179,22 +196,43 @@ func buildCommandlineDiscoveryConfigs(deviceID string, device TCommandlineDevice
 	}
 	devBlock := TDiscoveryDevice{Identifiers: []string{deviceID}, Name: deviceName}
 	nodeTopic := commandlineNodeTopic(device.Host)
+	// availability (2026-10-06): this device's own LWT topic, AND any extra "dependency on"
+	// topics (device.DependsOnAvailability) -- applied uniformly to every entity INCLUDING this
+	// device's own liveness entity below, matching hassbridge's identical precedent
+	// (hassBridgeAvailabilityTopics: the node entity's own availability also reflects a
+	// dependency, since "is my own connectivity signal itself truly up" must account for it too).
+	availability := nodeAvailabilityEntries(append([]string{nodeTopic}, device.DependsOnAvailability...)...)
 
 	var configs []TDiscoveryConfig
 
 	nodeUniqueID := deviceID + "_commandline_node"
+	// nodeEntityID/nodeName (2026-10-12, PROJECT.md item 11c): device.Node's own Spaces.def
+	// positioning when set, else the exact same auto-derived defaults this always used before
+	// positioning support existed -- UniqueID is deliberately NEVER affected by positioning (it's
+	// this entity's real registry identity; see this function's own doc comment on why it's kept
+	// distinct from a "hosts"-kind node's unique_id), only its user-facing entity_id/name are.
+	nodeEntityID := device.Node.EntityID
+	if nodeEntityID == "" {
+		nodeEntityID = "binary_sensor." + sanitizeTopicSegment(device.Host) + "_commandline_node"
+	}
+	nodeName := device.Node.Name
+	if nodeName == "" {
+		nodeName = deviceName + "/commandline"
+	}
 	configs = append(configs, TDiscoveryConfig{
 		Topic: discoveryTopic(prefix, "binary_sensor", nodeUniqueID),
 		Payload: TBinarySensorDiscoveryPayload{
-			UniqueID:        nodeUniqueID,
-			DefaultEntityID: "binary_sensor." + sanitizeTopicSegment(device.Host) + "_commandline_node",
-			Name:            stringPtr(deviceName + "/commandline"),
-			StateTopic:      nodeTopic,
-			PayloadOn:       mqttBoolPayloadTrue,
-			PayloadOff:      mqttBoolPayloadFalse,
-			DeviceClass:     "connectivity",
-			Device:          devBlock,
-			Origin:          coordinatorOrigin(installation),
+			UniqueID:         nodeUniqueID,
+			DefaultEntityID:  nodeEntityID,
+			Name:             stringPtr(nodeName),
+			StateTopic:       nodeTopic,
+			PayloadOn:        mqttBoolPayloadTrue,
+			PayloadOff:       mqttBoolPayloadFalse,
+			DeviceClass:      "connectivity",
+			Availability:     availability,
+			AvailabilityMode: "all",
+			Device:           devBlock,
+			Origin:           coordinatorOrigin(installation),
 		},
 	})
 
@@ -205,20 +243,19 @@ func buildCommandlineDiscoveryConfigs(deviceID string, device TCommandlineDevice
 		configs = append(configs, TDiscoveryConfig{
 			Topic: discoveryTopic(prefix, "switch", uniqueID),
 			Payload: TCommandlineSwitchDiscoveryPayload{
-				UniqueID:          uniqueID,
-				DefaultEntityID:   entityID,
-				Name:              displayName,
-				StateTopic:        commandlineStateTopic(device.Host, name),
-				CommandTopic:      commandlineCommandTopic(device.Host, name),
-				PayloadOn:         "1",
-				PayloadOff:        "0",
-				StateOn:           "1",
-				StateOff:          "0",
-				AvailabilityTopic: nodeTopic,
-				PayloadAvailable:  mqttBoolPayloadTrue,
-				PayloadNotAvail:   mqttBoolPayloadFalse,
-				Device:            devBlock,
-				Origin:            coordinatorOrigin(installation),
+				UniqueID:         uniqueID,
+				DefaultEntityID:  entityID,
+				Name:             displayName,
+				StateTopic:       commandlineStateTopic(device.Host, name),
+				CommandTopic:     commandlineCommandTopic(device.Host, name),
+				PayloadOn:        "1",
+				PayloadOff:       "0",
+				StateOn:          "1",
+				StateOff:         "0",
+				Availability:     availability,
+				AvailabilityMode: "all",
+				Device:           devBlock,
+				Origin:           coordinatorOrigin(installation),
 			},
 		})
 	}
@@ -230,15 +267,14 @@ func buildCommandlineDiscoveryConfigs(deviceID string, device TCommandlineDevice
 		configs = append(configs, TDiscoveryConfig{
 			Topic: discoveryTopic(prefix, "sensor", uniqueID),
 			Payload: TSensorDiscoveryPayload{
-				UniqueID:            uniqueID,
-				DefaultEntityID:     entityID,
-				Name:                displayName,
-				StateTopic:          commandlineStateTopic(device.Host, name),
-				AvailabilityTopic:   nodeTopic,
-				PayloadAvailable:    mqttBoolPayloadTrue,
-				PayloadNotAvailable: mqttBoolPayloadFalse,
-				Device:              devBlock,
-				Origin:              coordinatorOrigin(installation),
+				UniqueID:         uniqueID,
+				DefaultEntityID:  entityID,
+				Name:             displayName,
+				StateTopic:       commandlineStateTopic(device.Host, name),
+				Availability:     availability,
+				AvailabilityMode: "all",
+				Device:           devBlock,
+				Origin:           coordinatorOrigin(installation),
 			},
 		})
 	}
@@ -250,16 +286,15 @@ func buildCommandlineDiscoveryConfigs(deviceID string, device TCommandlineDevice
 		configs = append(configs, TDiscoveryConfig{
 			Topic: discoveryTopic(prefix, "button", uniqueID),
 			Payload: TCommandlineButtonDiscoveryPayload{
-				UniqueID:          uniqueID,
-				DefaultEntityID:   entityID,
-				Name:              displayName,
-				CommandTopic:      commandlinePressTopic(device.Host, name),
-				PayloadPress:      "PRESS",
-				AvailabilityTopic: nodeTopic,
-				PayloadAvailable:  mqttBoolPayloadTrue,
-				PayloadNotAvail:   mqttBoolPayloadFalse,
-				Device:            devBlock,
-				Origin:            coordinatorOrigin(installation),
+				UniqueID:         uniqueID,
+				DefaultEntityID:  entityID,
+				Name:             displayName,
+				CommandTopic:     commandlinePressTopic(device.Host, name),
+				PayloadPress:     "PRESS",
+				Availability:     availability,
+				AvailabilityMode: "all",
+				Device:           devBlock,
+				Origin:           coordinatorOrigin(installation),
 			},
 		})
 	}
@@ -272,35 +307,40 @@ func buildCommandlineDiscoveryConfigs(deviceID string, device TCommandlineDevice
 // check_slideshow-style status scripts' own established convention (PROJECT.md item 1: "status,
 // 0/1") verbatim, so no existing script needs rewriting for this integration to use it.
 type TCommandlineSwitchDiscoveryPayload struct {
-	UniqueID          string           `json:"unique_id"`
-	DefaultEntityID   string           `json:"default_entity_id"`
-	Name              string           `json:"name"`
-	StateTopic        string           `json:"state_topic"`
-	CommandTopic      string           `json:"command_topic"`
-	PayloadOn         string           `json:"payload_on"`
-	PayloadOff        string           `json:"payload_off"`
-	StateOn           string           `json:"state_on"`
-	StateOff          string           `json:"state_off"`
-	AvailabilityTopic string           `json:"availability_topic,omitempty"`
-	PayloadAvailable  string           `json:"payload_available,omitempty"`
-	PayloadNotAvail   string           `json:"payload_not_available,omitempty"`
-	Device            TDiscoveryDevice `json:"device"`
-	Origin            TDiscoveryOrigin `json:"origin"`
+	UniqueID        string `json:"unique_id"`
+	DefaultEntityID string `json:"default_entity_id"`
+	Name            string `json:"name"`
+	StateTopic      string `json:"state_topic"`
+	CommandTopic    string `json:"command_topic"`
+	PayloadOn       string `json:"payload_on"`
+	PayloadOff      string `json:"payload_off"`
+	StateOn         string `json:"state_on"`
+	StateOff        string `json:"state_off"`
+	// Availability/AvailabilityMode (2026-10-06): replaces the single-topic AvailabilityTopic/
+	// PayloadAvailable/PayloadNotAvail fields this struct used to carry -- see
+	// TAvailabilityEntry's own doc comment (discovery.go). Always set by
+	// buildCommandlineDiscoveryConfigs (never both empty), since every commandline entity has at
+	// least its own device's node topic to AND in.
+	Availability     []TAvailabilityEntry `json:"availability,omitempty"`
+	AvailabilityMode string               `json:"availability_mode,omitempty"`
+	Device           TDiscoveryDevice     `json:"device"`
+	Origin           TDiscoveryOrigin     `json:"origin"`
 }
 
 // TCommandlineButtonDiscoveryPayload is the HA MQTT Discovery config for a commandline button
 // entity -- no state at all, matching HA's own MQTT button semantics.
 type TCommandlineButtonDiscoveryPayload struct {
-	UniqueID          string           `json:"unique_id"`
-	DefaultEntityID   string           `json:"default_entity_id"`
-	Name              string           `json:"name"`
-	CommandTopic      string           `json:"command_topic"`
-	PayloadPress      string           `json:"payload_press"`
-	AvailabilityTopic string           `json:"availability_topic,omitempty"`
-	PayloadAvailable  string           `json:"payload_available,omitempty"`
-	PayloadNotAvail   string           `json:"payload_not_available,omitempty"`
-	Device            TDiscoveryDevice `json:"device"`
-	Origin            TDiscoveryOrigin `json:"origin"`
+	UniqueID        string `json:"unique_id"`
+	DefaultEntityID string `json:"default_entity_id"`
+	Name            string `json:"name"`
+	CommandTopic    string `json:"command_topic"`
+	PayloadPress    string `json:"payload_press"`
+	// Availability/AvailabilityMode: see TCommandlineSwitchDiscoveryPayload's identical fields'
+	// own doc comment.
+	Availability     []TAvailabilityEntry `json:"availability,omitempty"`
+	AvailabilityMode string               `json:"availability_mode,omitempty"`
+	Device           TDiscoveryDevice     `json:"device"`
+	Origin           TDiscoveryOrigin     `json:"origin"`
 }
 
 // publishCommandlineDiscovery publishes every commandline.yaml device's discovery configs once,

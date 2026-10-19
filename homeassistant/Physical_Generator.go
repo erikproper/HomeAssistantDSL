@@ -217,6 +217,7 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 	for _, w := range hostDeviceWarnings {
 		fmt.Printf("[physical] %s\n", w)
 	}
+	ctx.HostDevicesByID = hostDevicesByID
 	if err := generateEntityCatalogueSuggestions(definitionDir, outputRoot, instances, hassBridgeDevicesByID, hostDevicesByID, mainEntityIDs, collectDiscoveryImpliedEntityIDs(admin), admin.ExternalEntityReferencedAttributes, ctx); err != nil {
 		return err
 	}

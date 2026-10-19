@@ -4,7 +4,7 @@
  * Package:   Main
  * Component: PhysicalDerivedCapability
  *
- * Shared parsing for Physical.def's "derived DDD.NNN from EEE.MMM via TTT;" line --
+ * Shared parsing for Physical.def's "derived capability DDD.NNN from EEE.MMM via TTT;" line --
  * plans/derived-capability-mechanism.md's Phase 2. Declares a new capability (DDD.NNN) whose
  * value is a function of a SIBLING capability of the same device (EEE.MMM), via a value_template
  * string TTT ("$" standing for EEE.MMM's own resolved value, same convention "condition" already
@@ -20,7 +20,11 @@
  * Grammar dropped the redundant "entity" keyword 2026-09-14 (user: "the word entity is
  * unneeded there") -- "derived DDD.NNN from EEE.MMM via TTT;" now, no back-compat kept for the
  * older "derived entity ..." shape since every real declaration (both houses' Physical.def) was
- * updated in the same change.
+ * updated in the same change. PROJECT.md item 11b, 2026-10-11: the explicit "capability" keyword
+ * (both houses' Physical.def/Logical.def rewritten wholesale, verified byte-identical on
+ * regenerate) was inserted right after "derived" for every "derived"-led capability declaration,
+ * matching the same keyword now required on every OTHER capability-declaring line too (see
+ * integration_discovery_parser.go's own discoveryCapabilityPattern for the general rationale).
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
@@ -38,7 +42,7 @@ import (
 	"strings"
 )
 
-var derivedCapabilityLinePattern = regexp.MustCompile(`^derived\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+from\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+via\s+"([^"]*)"\s*;\s*$`)
+var derivedCapabilityLinePattern = regexp.MustCompile(`^derived\s+capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+from\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+via\s+"([^"]*)"\s*;\s*$`)
 
 // TDerivedCapabilityDeclaration is one parsed "derived DDD.NNN from EEE.MMM via TTT;"
 // line. FromDomain is kept only for a human-readable cross-check against the sibling capability's
@@ -89,7 +93,7 @@ var jinjaTemplateDefinitionPattern = regexp.MustCompile(`^jinja\s+\$\{([A-Za-z_]
 // derivedViaJinjaCallPattern matches a "derived DDD.NNN from EEE.MMM via jinja ${name}(args);"
 // line -- group 1 is everything up to and including "via " (preserved verbatim), group 2 the
 // jinja template's own name, group 3 its comma-separated argument list.
-var derivedViaJinjaCallPattern = regexp.MustCompile(`^(derived\s+[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_/]*\s+from\s+[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_/]*\s+via\s+)jinja\s+\$\{([A-Za-z_][A-Za-z0-9_]*)\}\(([^)]*)\)\s*;\s*$`)
+var derivedViaJinjaCallPattern = regexp.MustCompile(`^(derived\s+capability\s+[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_/]*\s+from\s+[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_/]*\s+via\s+)jinja\s+\$\{([A-Za-z_][A-Za-z0-9_]*)\}\(([^)]*)\)\s*;\s*$`)
 
 // TJinjaTemplateDefinition is one parsed "jinja ${name}(params) = "template";" declaration.
 type TJinjaTemplateDefinition struct {
@@ -178,27 +182,28 @@ func resolveJinjaTemplateCallsInDerivedLines(content string, jinjaTemplates map[
 	return strings.Join(lines, "\n"), warnings
 }
 
-// derivedConditionOneLinerPattern matches "derived DDD.NNN with condition VVV;" -- Physical.def's
-// own way of writing what has always been the plain "DDD.NNN VVV;" capability line (VVV in every
-// real case so far being "<entity> is available"), reusing Logical.def's own
-// "derived <domain>.<label> with: condition <expr>; end;" wording (2026-09-25, the user's explicit
-// "to be consistent" request -- full-sweep scope, both houses). This is a PURE syntactic alias, not
-// a new capability mechanism: at the Physical layer there is no boolean composition to do (AND/OR
-// over several sources is Logical.def's own job, via "dependency on"/its own "derived ...
-// condition ...;" block) -- a Physical.def capability is always exactly one raw value, so
-// "condition" here can only ever wrap that one value verbatim.
-var derivedConditionOneLinerPattern = regexp.MustCompile(`^derived\s+([A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_/]*)\s+with\s+condition\s+(.+?)\s*;\s*$`)
+// derivedConditionOneLinerPattern matches "derived capability DDD.NNN with condition VVV;" --
+// Physical.def's own way of writing what has always been the plain "capability DDD.NNN VVV;"
+// capability line (VVV in every real case so far being "<entity> is available"), reusing
+// Logical.def's own "derived capability <domain>.<label> with: condition <expr>; end;" wording
+// (2026-09-25, the user's explicit "to be consistent" request -- full-sweep scope, both houses).
+// This is a PURE syntactic alias, not a new capability mechanism: at the Physical layer there is
+// no boolean composition to do (AND/OR over several sources is Logical.def's own job, via
+// "dependency on"/its own "derived ... condition ...;" block) -- a Physical.def capability is
+// always exactly one raw value, so "condition" here can only ever wrap that one value verbatim.
+var derivedConditionOneLinerPattern = regexp.MustCompile(`^derived\s+capability\s+([A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_/]*)\s+with\s+condition\s+(.+?)\s*;\s*$`)
 
-// resolveDerivedConditionOneLiners rewrites every "derived DDD.NNN with condition VVV;" line in
-// content into the plain "DDD.NNN VVV;" shape every Physical.def capability parser already
-// understands -- a one-line-for-one-line text rewrite (see resolveJinjaTemplateCallsInDerivedLines's
-// own doc comment for why line count must never change), applied once before Physical.def's content
-// ever reaches any integration-specific parser. Letting all ten independent Physical.def scanners
-// (hosts/discovery/hassbridge/commandline/local/import/capability_defaults/defined.go's two) go on
-// understanding only the single already-existing "DDD.NNN VVV;" shape, rather than teaching all ten
-// a second one, is the whole point of doing this as a rewrite instead of a parser change -- see
-// derivedConditionOneLinerPattern's own doc comment for why it's safe to always unwrap unconditionally
-// (no ambiguity, no failure mode that needs a warning the way an undeclared jinja template name does).
+// resolveDerivedConditionOneLiners rewrites every "derived capability DDD.NNN with condition
+// VVV;" line in content into the plain "capability DDD.NNN VVV;" shape every Physical.def
+// capability parser already understands -- a one-line-for-one-line text rewrite (see
+// resolveJinjaTemplateCallsInDerivedLines's own doc comment for why line count must never change),
+// applied once before Physical.def's content ever reaches any integration-specific parser. Letting
+// all ten independent Physical.def scanners (hosts/discovery/hassbridge/commandline/local/import/
+// capability_defaults/defined.go's two) go on understanding only the single already-existing
+// "capability DDD.NNN VVV;" shape, rather than teaching all ten a second one, is the whole point of
+// doing this as a rewrite instead of a parser change -- see derivedConditionOneLinerPattern's own
+// doc comment for why it's safe to always unwrap unconditionally (no ambiguity, no failure mode
+// that needs a warning the way an undeclared jinja template name does).
 func resolveDerivedConditionOneLiners(content string) string {
 	lines := strings.Split(content, "\n")
 	for i, rawLine := range lines {
@@ -207,7 +212,7 @@ func resolveDerivedConditionOneLiners(content string) string {
 		if m == nil {
 			continue
 		}
-		lines[i] = m[1] + " " + m[2] + ";"
+		lines[i] = "capability " + m[1] + " " + m[2] + ";"
 	}
 	return strings.Join(lines, "\n")
 }

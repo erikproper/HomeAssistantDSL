@@ -8,7 +8,9 @@
  * "-would_define <entity_id>") checks whether a given entity_id would be defined/assumed by
  * this DSL without generating anything (would_define.go), or (with
  * "-derived_migration_candidates") reports real battery_alert migration candidates for
- * plans/derived-capability-mechanism.md's rollout (derived_migration_helper.go).
+ * plans/derived-capability-mechanism.md's rollout (derived_migration_helper.go), or (with
+ * "-bootstrap_stable_ids <mapping.json>") runs PROJECT.md item 7's one-time stable-id bootstrap
+ * (bootstrap_stable_ids.go).
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
@@ -34,11 +36,12 @@ func main() {
 
 	wouldDefine := flag.String("would_define", "", "check whether the given HA entity_id would be defined/assumed by this DSL, without generating any output")
 	derivedMigrationCandidates := flag.Bool("derived_migration_candidates", false, "report real battery_alert migration candidates (plans/derived-capability-mechanism.md), without generating any output or editing any file")
+	bootstrapStableIDs := flag.String("bootstrap_stable_ids", "", "PROJECT.md item 7's one-time stable-id bootstrap: assign \"as <id>;\" to every live discovery capability from the given {entity_id: unique_id} registry mapping JSON file, run once per house")
 	flag.Parse()
 
 	args := flag.Args()
 	if len(args) != 1 || !strings.HasSuffix(args[0], ".def") {
-		fmt.Fprintf(os.Stderr, "usage: homeassistant [-would_define <entity_id>] [-derived_migration_candidates] <path/to/Main.def>\n")
+		fmt.Fprintf(os.Stderr, "usage: homeassistant [-would_define <entity_id>] [-derived_migration_candidates] [-bootstrap_stable_ids <mapping.json>] <path/to/Main.def>\n")
 		os.Exit(1)
 	}
 
@@ -56,6 +59,14 @@ func main() {
 
 	if *derivedMigrationCandidates {
 		if err := runBatteryAlertMigrationReport(root, args[0]); err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if *bootstrapStableIDs != "" {
+		if err := runBootstrapStableIDs(root, args[0], *bootstrapStableIDs); err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}

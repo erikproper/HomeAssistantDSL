@@ -36,12 +36,25 @@ func TestApplyProxiedBinarySensorPayloadNoopForOtherDomains(t *testing.T) {
 // findAvailabilityEntry returns the "availability" list entry whose "topic" equals topic, or nil
 // if none does -- shared test helper for the hassbridge/import availability tests, whose entry
 // ordering (buildAvailabilityFields, discovery.go) isn't itself something tests should assert on.
-// Accepts body["availability"] in either of the two shapes it can have in a test: the native
-// []map[string]interface{} buildAvailabilityFields itself produces (a body built and inspected
-// directly, no JSON round-trip), or the []interface{} json.Unmarshal always produces (a body read
-// back off a fakeClient's published bytes).
+// Accepts body["availability"] in any of the three shapes it can have in a test: the native
+// []TAvailabilityEntry buildAvailabilityFields itself produces (a body built and inspected
+// directly, no JSON round-trip, since 2026-10-06's commandline-sharing refactor), the older
+// []map[string]interface{} shape (kept for any caller still building one by hand), or the
+// []interface{} json.Unmarshal always produces (a body read back off a fakeClient's published
+// bytes).
 func findAvailabilityEntry(body map[string]interface{}, topic string) map[string]interface{} {
 	switch entries := body["availability"].(type) {
+	case []TAvailabilityEntry:
+		for _, entry := range entries {
+			if entry.Topic == topic {
+				return map[string]interface{}{
+					"topic":                 entry.Topic,
+					"value_template":        entry.ValueTemplate,
+					"payload_available":     entry.PayloadAvailable,
+					"payload_not_available": entry.PayloadNotAvailable,
+				}
+			}
+		}
 	case []map[string]interface{}:
 		for _, entry := range entries {
 			if entry["topic"] == topic {
@@ -99,9 +112,9 @@ func TestBuildAvailabilityFieldsAndsMultipleNodeTopics(t *testing.T) {
 	if body["availability_mode"] != "all" {
 		t.Fatalf("availability_mode = %v, want \"all\"", body["availability_mode"])
 	}
-	entries, ok := body["availability"].([]map[string]interface{})
+	entries, ok := body["availability"].([]TAvailabilityEntry)
 	if !ok {
-		t.Fatalf("availability = %v, want []map[string]interface{}", body["availability"])
+		t.Fatalf("availability = %v, want []TAvailabilityEntry", body["availability"])
 	}
 	// 1 (own state) + 2 (the two non-empty node topics) -- the empty "" node topic must be skipped.
 	if len(entries) != 3 {

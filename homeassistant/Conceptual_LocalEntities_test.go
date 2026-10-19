@@ -55,9 +55,9 @@ func TestLocalDeviceNodeOverrideEndToEnd(t *testing.T) {
 
 	miniDSL := `conceptual layer with:
   space social:entrance as area with:
-    device appliance.front_door_ring as front_door with:
-      entity camera.social:ring from camera.core;
-      entity binary_sensor.infrastructural:node from binary_sensor.node;
+    device appliance.front_door_ring with:
+      entity camera.social:front_door/ring from camera.core;
+      entity binary_sensor.infrastructural:front_door/node from binary_sensor.node;
     end;
   end;
 end;`
@@ -137,8 +137,8 @@ func TestLocalCapabilityNoCollectExcludesFromSpaceMediaByName(t *testing.T) {
 
 	miniDSL := `conceptual layer with:
   space social:office as area with:
-    device appliance.tv_office as tv with:
-      entity media_player.social: from media_player.core with no_collect;
+    device appliance.tv_office with:
+      entity media_player.social:tv from media_player.core with no_collect;
     end;
   end;
 end;`
@@ -190,9 +190,9 @@ func TestLocalDeviceCapabilityFallsThroughToPureLogicalOverlay(t *testing.T) {
 	}
 
 	miniDSL := `conceptual layer with:
-  device appliance.front_door_ring as front_door with:
-    entity sensor.infrastructural:level from sensor.level;
-    entity sensor.infrastructural:battery_alert from sensor.battery_alert;
+  device appliance.front_door_ring with:
+    entity sensor.infrastructural:front_door/level from sensor.level;
+    entity sensor.infrastructural:front_door/battery_alert from sensor.battery_alert;
   end;
 end;`
 

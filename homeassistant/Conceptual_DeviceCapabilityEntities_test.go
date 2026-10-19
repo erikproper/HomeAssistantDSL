@@ -115,42 +115,6 @@ func TestExpandForDeviceBareEntityLineNoCollectSuffix(t *testing.T) {
 	}
 }
 
-// TestExpandForDeviceBareEntityLineDoubleColonForm is the regression test for a real bug found
-// live 2026-09-19 (Vienna's daylight entity): combining this shorthand with the "sphere::path"
-// empty-leaf-override form (hasDeviceLeafOverride, Conceptual_DeviceEntities.go) used to
-// infer capability ":daylight" (deviceSpecLeafPath only strips up to the FIRST colon, leaving the
-// second one attached), which could never match a real Physical.def capability -- the correct
-// inferred capability is "daylight", with the original spec's own "::" passed through unchanged
-// so naming resolution still applies the empty-leaf override.
-func TestExpandForDeviceBareEntityLineDoubleColonForm(t *testing.T) {
-	got, ok := expandForDeviceBareEntityLine("entity binary_sensor.social::daylight;", "environment.sun")
-	if !ok {
-		t.Fatalf("expected the bare-entity line to match")
-	}
-	want := "entity binary_sensor.social::daylight from environment.sun daylight;"
-	if got != want {
-		t.Errorf("expandForDeviceBareEntityLine = %q, want %q", got, want)
-	}
-}
-
-// TestExpandForDeviceBareEntityLineExplicitLeafOverrideForm is the regression test for the
-// 2026-09-21 case (environment.weather's own "pressure" capability): combining this shorthand with
-// the "sphere:leaf:path" explicit-replacement-leaf form (hasDeviceLeafOverride,
-// Conceptual_DeviceEntities.go) must infer capability "pressure", not the leftover
-// "terrace:pressure" (deviceSpecLeafPath only strips up to the FIRST colon, leaving the second
-// colon-separated segment attached) -- mirrors TestExpandForDeviceBareEntityLineDoubleColonForm's
-// own reasoning for the sibling double-colon form.
-func TestExpandForDeviceBareEntityLineExplicitLeafOverrideForm(t *testing.T) {
-	got, ok := expandForDeviceBareEntityLine("entity sensor.social:terrace:pressure;", "environment.weather")
-	if !ok {
-		t.Fatalf("expected the bare-entity line to match")
-	}
-	want := "entity sensor.social:terrace:pressure from environment.weather pressure;"
-	if got != want {
-		t.Errorf("expandForDeviceBareEntityLine = %q, want %q", got, want)
-	}
-}
-
 // TestExpandForDeviceBareEntityLineRejectsEmptyPath covers a spec with no explicit path at all
 // (e.g. "switch.social:", relying entirely on deviceNamePath injection) -- there is nothing to
 // infer a capability from, so this shorthand must not match; the caller still needs the explicit
@@ -177,7 +141,7 @@ func TestExpandForDeviceBareEntityLineRejectsFromLine(t *testing.T) {
 // PROJECT.md unification plan 2026-09-01) registers identically to writing the device id out on
 // every line.
 func TestForDeviceBlockRegistersSameAsExplicitDeviceIDLines(t *testing.T) {
-	const miniDSL = `device hass.laserjet as laserjet with:
+	const miniDSL = `device hass.laserjet with:
   entity sensor.status   from sensor.status;
   entity sensor.cardrige from sensor.cardrige;
 end;`
@@ -212,7 +176,7 @@ end;`
 // to writing out "entity <spec> from <capability>;" explicitly, through the real dispatch
 // pipeline (not just the textual expansion unit tests above).
 func TestForDeviceBlockBareEntityShorthandRegistersSameAsExplicitFromLines(t *testing.T) {
-	const miniDSL = `device hass.laserjet as laserjet with:
+	const miniDSL = `device hass.laserjet with:
   entity sensor.status;
   entity sensor.cardrige from sensor.cardrige;
 end;`
@@ -251,7 +215,7 @@ end;`
 // capability) and explicitly-named attributes identically to what "with: all entities;" used to
 // bulk-imply, without needing that flag at all.
 func TestForDeviceBlockRegistersHostsCapabilities(t *testing.T) {
-	const miniDSL = `device host.xanadu as xanadu with:
+	const miniDSL = `device host.xanadu with:
   entity binary_sensor.infrastructural:xanadu/node     from binary_sensor.node;
   entity sensor.infrastructural:xanadu/cpu/load        from sensor.cpu/load;
   entity sensor.infrastructural:xanadu/cpu/temperature from sensor.cpu/temperature;
@@ -284,7 +248,7 @@ end;`
 // of the device's integration type's materialization is rejected with a clear message, not
 // silently accepted or matched against the wrong thing.
 func TestHostCapabilityEntityLinkRejectsUnknownAttribute(t *testing.T) {
-	const miniDSL = `device host.xanadu as xanadu with:
+	const miniDSL = `device host.xanadu with:
   entity sensor.infrastructural:xanadu/bogus from bogus;
 end;`
 
@@ -309,7 +273,7 @@ end;`
 // instead of rejecting it, populating link.NodeEntityID/NodeDeviceClass/NodeIcon exactly like
 // autoMaterializePhysicalCapability's own synthetic path already did).
 func TestHostCapabilityEntityLinkResolvesNode(t *testing.T) {
-	const miniDSL = `device host.xanadu as xanadu with:
+	const miniDSL = `device host.xanadu with:
   entity binary_sensor.infrastructural:xanadu/node from binary_sensor.node;
 end;`
 
@@ -431,7 +395,7 @@ func TestLogicalAbsorbResolvesHostsNodeWithNoPriorPositioning(t *testing.T) {
 // the same order-independence the hassbridge/import branches already have.
 func TestHostCapabilityEntityLinkDefersWithoutPriorPositioning(t *testing.T) {
 	const miniDSL = `entity sensor.infrastructural:xanadu/cpu/load from host.xanadu sensor.cpu/load;
-device host.xanadu as xanadu with:
+device host.xanadu with:
 end;`
 
 	hostDevicesByID := map[string]THostDevice{
@@ -465,7 +429,7 @@ end;`
 // underlying discovery gateway.
 func TestAbsorbedHassBridgeDeviceKeepsOwnPhysicalPositioning(t *testing.T) {
 	const miniDSL = `space social:shower_room with:
-  device appliance.washing_machine as washing_machine with:
+  device appliance.washing_machine with:
     entity binary_sensor.infrastructural:washing_machine/node from binary_sensor.node;
     entity sensor.status from sensor.status;
     entity switch.social: from switch.core;
@@ -552,7 +516,7 @@ end;`
 // on a miss.
 func TestDiscoveryDeviceKeepsOwnPhysicalPositioningWhenGainingLogicalCapabilities(t *testing.T) {
 	const miniDSL = `space social:terrace with:
-  device sensors.terrace_motion as signify_motion with:
+  device sensors.terrace_motion with:
     entity binary_sensor.physical:motion from binary_sensor.core;
     entity sensor.physical:illuminance from sensor.illuminance;
     entity input_number.social:sunny_threshold from input_number.sunny_threshold;
@@ -607,61 +571,12 @@ end;`
 		t.Errorf("expected the ordinary discovery \"motion\" capability to still resolve, got %+v", admin.DiscoveryEntityLinks)
 	}
 
-	rec, found := findEntityRecordByName(admin, "binary_sensor.social/terrace/signify_motion/sunny")
+	rec, found := findEntityRecordByName(admin, "binary_sensor.social/terrace/sunny")
 	if !found {
-		t.Fatalf("no entity record registered for binary_sensor.social/terrace/signify_motion/sunny")
+		t.Fatalf("no entity record registered for binary_sensor.social/terrace/sunny")
 	}
 	if rec.ConditionExpr == "" {
 		t.Fatalf("ConditionExpr is empty, want a rendered expression referencing both illuminance and sunny_threshold")
-	}
-}
-
-// TestDeviceCapabilityStripsEntityOwnTrailingDomainSegment is the regression test for the real
-// Vienna "hallway_light_main" case (2026-09-24): a device's "as social:main infrastructural:main/light"
-// pairs with "entity light.social:light;" (the no-rename shorthand, implicitly matching the
-// device's own "light" capability) -- the entity's own declared path "light" combines with the
-// device's own "social:main" leaf to give "main/light" first, and must THEN be stripped of its own
-// trailing "light" (matching the entity's domain) at the very end, giving plain "main" -- confirmed
-// with the user: "it must be possible to use entity light.social:light with the clear intuition
-// that... at the end the light at the end is stripped again." Distinct from
-// TestGenerateHassBridgeEntityReportingAutomationsWritesAttributesFile's own
-// "vacuum.physical:vacuum" case, which must NOT be stripped (no device leaf of its own at all).
-func TestDeviceCapabilityStripsEntityOwnTrailingDomainSegment(t *testing.T) {
-	const miniDSL = `space social:apartment with:
-  space social:hallway as area with:
-    device light.hallway_light_main as social:main infrastructural:main/light with:
-      entity binary_sensor.infrastructural:node;
-      entity light.social:light;
-    end;
-  end;
-end;`
-
-	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
-		"light.hallway_light_main": {
-			DeviceID:    "light.hallway_light_main",
-			Identifiers: []string{"zigbee2mqtt_0x04cd15fffe4a6043"},
-			Capabilities: map[string]TDiscoveryCapability{
-				"light": {Domain: "light", Leaf: "0x04cd15fffe4a6043_light_zigbee2mqtt"},
-			},
-		},
-	}
-
-	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-	admin := result.Administration
-
-	if _, ok := admin.DiscoveryEntityLinks["light.social_apartment_hallway_main"]; !ok {
-		keys := make([]string, 0, len(admin.DiscoveryEntityLinks))
-		for k := range admin.DiscoveryEntityLinks {
-			keys = append(keys, k)
-		}
-		t.Errorf("expected DiscoveryEntityLinks[%q] to exist, got keys %v", "light.social_apartment_hallway_main", keys)
-	}
-	if _, ok := admin.DiscoveryEntityLinks["light.social_apartment_hallway_main_light"]; ok {
-		t.Errorf("light.social_apartment_hallway_main_light should NOT exist -- the trailing domain-matching segment must be stripped")
 	}
 }
 
@@ -674,7 +589,7 @@ end;`
 // a capability "ll/mm" over a bare "mm" when the SAME device happens to declare both (see
 // TestValidateNoOverlappingCapabilitySuffixes for why that dual-declaration itself is rejected).
 func TestNoRenameShorthandMatchesLongestCapabilitySuffix(t *testing.T) {
-	const miniDSL = `device sensors.hallway_aqara_windoor as door with:
+	const miniDSL = `device sensors.hallway_aqara_windoor with:
   entity binary_sensor.social: from core;
   entity sensor.infrastructural:aqara/battery_level;
   entity sensor.physical:aqara/humidity;
@@ -699,8 +614,8 @@ end;`
 	admin := result.Administration
 
 	for label, entityID := range map[string]string{
-		"battery_level": "sensor.infrastructural_door_aqara_battery_level",
-		"humidity":      "sensor.physical_door_aqara_humidity",
+		"battery_level": "sensor.infrastructural_aqara_battery_level",
+		"humidity":      "sensor.physical_aqara_humidity",
 	} {
 		if _, ok := admin.DiscoveryEntityLinks[entityID]; !ok {
 			keys := make([]string, 0, len(admin.DiscoveryEntityLinks))
@@ -729,8 +644,49 @@ func TestNoRenameShorthandDoesNotMatchPartialSegment(t *testing.T) {
 	}
 }
 
+// TestDeferredCapabilityLinkResolvesAgainstItsOwnDeclaredSpace is the regression test for
+// PROJECT.md item 6's real bug, found live 2026-09-07: Vienna's "entity
+// switch.social:picture_frame from host.frame slideshow;", positioned inside a nested space
+// but BEFORE host.frame's own "device ... from host.frame;" positioning appeared later in the same
+// file, was deferred (registerDeviceCapabilityEntityLink's own retry-after-full-parse mechanism,
+// parser.go's pendingCapabilityLinks) and then, on retry, resolved against whatever
+// administration.SpacePath happened to be AFTER the whole file was read (back at "root", both
+// spaces closed) instead of the space the reference line actually sat in -- producing
+// "switch.social_picture_frame" instead of the wanted
+// "switch.social_apartment_living_room_picture_frame". Fixed by snapshotting
+// administration.SpacePath into pendingCapabilityLink at defer time and restoring it around each
+// retry call (parser.go).
+func TestDeferredCapabilityLinkResolvesAgainstItsOwnDeclaredSpace(t *testing.T) {
+	const dsl = `space social:apartment with:
+  space social:living_room with:
+    entity switch.social:picture_frame from hass.frame switch.slideshow;
+  end;
+end;
+device hass.frame with:
+end;`
+
+	hassBridgeDevicesByID := map[string]THassBridgeDevice{
+		"hass.frame": {DeviceID: "hass.frame", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{
+			"node":      {Domain: "binary_sensor", Sources: map[string]string{"protocols-server-2": "sensor.frame is available"}},
+			"slideshow": {Domain: "switch", Sources: map[string]string{"protocols-server-2": "switch.frame_slideshow"}},
+		}},
+	}
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", nil, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	link := result.Administration.DeviceConceptualLinks["hass.frame"]
+	slideshow, ok := link.AttributeEntityIDs["slideshow"]
+	if !ok || slideshow.EntityID != "switch.social_apartment_living_room_picture_frame" {
+		t.Errorf("slideshow (deferred capability link) = %+v, ok=%v, want EntityID switch.social_apartment_living_room_picture_frame", slideshow, ok)
+	}
+}
+
 func TestForDeviceBlockWarnsOnUnrecognisedLineAndKeepsParsing(t *testing.T) {
-	const miniDSL = `device hass.laserjet as laserjet with:
+	const miniDSL = `device hass.laserjet with:
   this is not a valid line;
   entity sensor.status from sensor.status;
 end;`

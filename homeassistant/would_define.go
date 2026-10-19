@@ -63,7 +63,7 @@ func runWouldDefineCheck(cwd, defPath, entityID string) (found bool, err error) 
 	sharedDefinitionDir := filepath.Clean(filepath.Join(definitionDir, "..", "..", "Shared", "Definitions"))
 	label := filepath.Base(cwd)
 
-	admin, err := parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label)
+	admin, err := parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label, false)
 	if err != nil {
 		return false, err
 	}

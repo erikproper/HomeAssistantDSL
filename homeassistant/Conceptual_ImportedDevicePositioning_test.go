@@ -11,18 +11,13 @@ import (
 // merged "device <spec> from <device-id> with: entity ... from <capability>; ...; end;"
 // construct already used for native hassbridge devices must also work, unmodified, for a
 // "hassbridge"-form import -- Spaces.def never needs to know or care which integration kind a
-// device-id resolves against (the user's own explicit design confirmation, 2026-08-30). Also
-// exercises PROJECT.md item 5's "device declaration acts like a space" sugar: the capability specs
-// below deliberately omit the device's own leaf path ("netatmo/") -- this is the exact real-world
-// example item 5 itself was written against (Vienna's shower_room Netatmo device) -- and still
-// resolve to the same entity ids the old, fully-spelled-out "sensor.physical:netatmo/temperature"
-// form produced.
+// device-id resolves against (the user's own explicit design confirmation, 2026-08-30).
 func TestImportedDevicePositioningEndToEnd(t *testing.T) {
 	const miniDSL = `space social:shower_room with:
-  device hass.vienna_shower_room as netatmo with:
-    entity binary_sensor.infrastructural:node from binary_sensor.node;
-    entity sensor.physical:temperature from sensor.temperature;
-    entity sensor.physical:co2         from sensor.co2;
+  device hass.vienna_shower_room with:
+    entity binary_sensor.infrastructural:netatmo/node from binary_sensor.node;
+    entity sensor.physical:netatmo/temperature from sensor.temperature;
+    entity sensor.physical:netatmo/co2         from sensor.co2;
   end;
 end;`
 
@@ -75,9 +70,9 @@ end;`
 // falls through to its real physical-kind branch, exactly as if it had no Logical.def entry.
 func TestImportedDevicePositioningStillAutoRegistersNodeWhenLogicalDependencyOnlyShares(t *testing.T) {
 	const miniDSL = `space social:shower_room with:
-  device hass.vienna_shower_room as netatmo with:
-    entity binary_sensor.infrastructural:node from binary_sensor.node;
-    entity sensor.physical:temperature from sensor.temperature;
+  device hass.vienna_shower_room with:
+    entity binary_sensor.infrastructural:netatmo/node from binary_sensor.node;
+    entity sensor.physical:netatmo/temperature from sensor.temperature;
   end;
 end;`
 
@@ -120,8 +115,8 @@ end;`
 func TestImportedDevicePositioningInheritsEnclosingAreaFromNestedSpace(t *testing.T) {
 	const miniDSL = `space social:terrace as area with:
   space social:front with:
-    device hass.vienna_shower_room as netatmo with:
-      entity sensor.physical:temperature from sensor.temperature;
+    device hass.vienna_shower_room with:
+      entity sensor.physical:netatmo/temperature from sensor.temperature;
     end;
   end;
 end;`

@@ -28,13 +28,13 @@ func TestCollectHassBridgeDevicesByIDMergesRoamingInstances(t *testing.T) {
 
   integration home_assistant main with:
     device hass.eriks_iphone roaming import with:
-      sensor.battery_level sensor.eriks_iphone_15_pro_battery_level;
+      capability sensor.battery_level sensor.eriks_iphone_15_pro_battery_level;
     end;
   end;
 
   integration home_assistant protocols-server-2 with:
     device hass.eriks_iphone roaming import with:
-      sensor.battery_level sensor.eriks_iphone_15_pro_battery_level;
+      capability sensor.battery_level sensor.eriks_iphone_15_pro_battery_level;
     end;
   end;
 end;
@@ -72,13 +72,13 @@ func TestCollectHassBridgeDevicesByIDMergesRoamingInstancesWithoutInstallation(t
 
   integration home_assistant main with:
     device hass.eriks_iphone roaming import with:
-      sensor.battery_level sensor.eriks_iphone_15_pro_battery_level;
+      capability sensor.battery_level sensor.eriks_iphone_15_pro_battery_level;
     end;
   end;
 
   integration home_assistant protocols-server-2 with:
     device hass.eriks_iphone roaming import with:
-      sensor.battery_level sensor.eriks_iphone_15_pro_battery_level;
+      capability sensor.battery_level sensor.eriks_iphone_15_pro_battery_level;
     end;
   end;
 end;
@@ -113,13 +113,13 @@ func TestCollectHassBridgeDevicesByIDWarnsOnNonRoamingDuplicate(t *testing.T) {
 
   integration home_assistant main with:
     device hass.oops with:
-      sensor.status sensor.one;
+      capability sensor.status sensor.one;
     end;
   end;
 
   integration home_assistant protocols-server-2 with:
     device hass.oops with:
-      sensor.status sensor.two;
+      capability sensor.status sensor.two;
     end;
   end;
 end;
@@ -144,7 +144,7 @@ func TestCollectHassBridgeDevicesByIDParsesCapabilities(t *testing.T) {
 
   integration home_assistant protocols-server-2 with:
     device hass.laserjet with:
-      sensor.status sensor.hewlett_packard_hp_laserjet_professional_p1102w;
+      capability sensor.status sensor.hewlett_packard_hp_laserjet_professional_p1102w;
     end;
   end;
 end;
@@ -178,8 +178,8 @@ func TestCollectHassBridgeDevicesByIDParsesDerivedCapability(t *testing.T) {
 
   integration home_assistant protocols-server-2 with:
     device hass.roomba with:
-      sensor.battery_level sensor.roomba_battery_level;
-      derived binary_sensor.battery_alert from sensor.battery_level via "( $ | int(0) < 20 )";
+      capability sensor.battery_level sensor.roomba_battery_level;
+      derived capability binary_sensor.battery_alert from sensor.battery_level via "( $ | int(0) < 20 )";
     end;
   end;
 end;
@@ -216,7 +216,7 @@ func TestCollectHassBridgeDevicesByIDParsesExportKeyword(t *testing.T) {
 
   integration home_assistant protocols-server-2 with:
     device hass.discovered_vienna_terrace_2 export with:
-      sensor.humidity sensor.vienna_terrace_humidity;
+      capability sensor.humidity sensor.vienna_terrace_humidity;
     end;
   end;
 end;
@@ -249,7 +249,7 @@ func TestCollectHassBridgeDevicesByIDParsesRoamingAndImportKeywords(t *testing.T
 
   integration home_assistant protocols-server-2 with:
     device hass.eriks_iphone roaming import with:
-      sensor.battery_level sensor.eriks_iphone_battery_level;
+      capability sensor.battery_level sensor.eriks_iphone_battery_level;
     end;
   end;
 end;
@@ -282,7 +282,7 @@ func TestCollectHassBridgeDevicesByIDWarnsWhenBothExportAndRoamingDeclared(t *te
 
   integration home_assistant protocols-server-2 with:
     device hass.eriks_iphone export roaming with:
-      sensor.battery_level sensor.eriks_iphone_battery_level;
+      capability sensor.battery_level sensor.eriks_iphone_battery_level;
     end;
   end;
 end;
@@ -315,7 +315,7 @@ func TestCollectHassBridgeDevicesByIDWarnsWhenImportDeclaredWithoutInstallation(
 
   integration home_assistant protocols-server-2 with:
     device hass.eriks_iphone roaming import with:
-      sensor.battery_level sensor.eriks_iphone_battery_level;
+      capability sensor.battery_level sensor.eriks_iphone_battery_level;
     end;
   end;
 end;
@@ -510,12 +510,12 @@ func TestCollectHassBridgeDevicesByIDWarnsOnDeviceOutsideIntegrationBlock(t *tes
 
   integration home_assistant protocols-server-2 with:
     device hass.laserjet with:
-      sensor.status sensor.hewlett_packard_hp_laserjet_professional_p1102w;
+      capability sensor.status sensor.hewlett_packard_hp_laserjet_professional_p1102w;
     end;
   end;
 
   device hass.office_garden with:
-    binary_sensor.node binary_sensor.office_garden_connectivity;
+    capability binary_sensor.node binary_sensor.office_garden_connectivity;
   end;
 end;
 `)
@@ -554,7 +554,7 @@ func TestCollectHassBridgeDevicesByIDParsesIsAvailableCapability(t *testing.T) {
 
   integration home_assistant main with:
     device host.junglinster with:
-      binary_sensor.node sensor.processor_use is available;
+      capability binary_sensor.node sensor.processor_use is available;
     end;
   end;
 end;
@@ -578,7 +578,7 @@ func TestCollectHassBridgeDevicesByIDWarnsOnUnknownInstance(t *testing.T) {
 	definitionDir := writePhysicalDef(t, `physical layer with:
   integration home_assistant protocols-server-2 with:
     device hass.laserjet with:
-      sensor.status sensor.hewlett_packard_hp_laserjet_professional_p1102w;
+      capability sensor.status sensor.hewlett_packard_hp_laserjet_professional_p1102w;
     end;
   end;
 end;
@@ -614,7 +614,7 @@ func TestCollectHassBridgeDevicesByIDReportsCorrectLineNumber(t *testing.T) {
 
   integration home_assistant protocols-server-2 with:
     device hass.laserjet with:
-      sensor.status sensor.hewlett_packard_hp_laserjet_professional_p1102w;
+      capability sensor.status sensor.hewlett_packard_hp_laserjet_professional_p1102w;
     end;
   end;
 end;

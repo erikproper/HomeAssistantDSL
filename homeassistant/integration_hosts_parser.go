@@ -34,9 +34,14 @@ func parseHostsIntegrationBody(bodyLines []string) ([]THostDevice, []string) {
 	withDevicePattern := regexp.MustCompile(`^device\s+(\S+)\s+(\S+)\s+(\S+)\s+with:\s*$`)
 	// Group 1 is the capability name, optionally "<group>/<leaf>" (e.g. "cpu/load") -- see
 	// splitCapabilityName (integration_hosts_storage.go). Group 2 (optional) is a literal
-	// string prefix -- see THostDevice.CapabilityLiteralPrefixes -- e.g. `sw_version: "Home
-	// Assistant Operating System " update.x!installed_version;`.
-	capabilityPattern := regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*(?:/[A-Za-z_][A-Za-z0-9_]*)?):\s*(?:"([^"]*)"\s+)?(\S+)\s*;\s*$`)
+	// string prefix -- see THostDevice.CapabilityLiteralPrefixes -- e.g. `capability sw_version:
+	// "Home Assistant Operating System " update.x!installed_version;`. Requires the explicit
+	// "capability" keyword (PROJECT.md item 11b, 2026-10-11) -- see discoveryCapabilityPattern's
+	// own doc comment for the general rationale; no real occurrence of this pattern exists in
+	// either house's current Physical.def (every real "hosts" device declares nothing beyond a
+	// constant attribute or "ignore other capabilities;"), so this change has zero real-file
+	// impact, but the grammar stays consistent either way.
+	capabilityPattern := regexp.MustCompile(`^capability\s+([A-Za-z_][A-Za-z0-9_]*(?:/[A-Za-z_][A-Za-z0-9_]*)?):\s*(?:"([^"]*)"\s+)?(\S+)\s*;\s*$`)
 	// Constant device attribute lines are distinguished from capability lines purely by shape:
 	// a quoted string value (optionally followed by "forced"), vs. capabilityPattern's bare
 	// entity-id-shaped token. E.g. `model: "Cool raspi";` or `hw_version: "1928930" forced;`.

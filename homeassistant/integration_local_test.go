@@ -21,9 +21,9 @@ import (
 
 func TestParseLocalIntegrationBodyBareAndAvailabilityCapabilities(t *testing.T) {
 	devices, warnings := parseLocalIntegrationBody(strings.Split(`device appliance.front_door_ring with:
-  binary_sensor.node camera.core is available;
-  camera.core;
-  binary_sensor.ding;
+  capability binary_sensor.node camera.core is available;
+  capability camera.core;
+  capability binary_sensor.ding;
 end;`, "\n"))
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
@@ -52,7 +52,7 @@ end;`, "\n"))
 // declaring exactly one capability -- e.g. a bare "camera.core;" shape, collapsing what would
 // otherwise need a full "with: ... end;" block for one line.
 func TestParseLocalIntegrationBodyDeviceOneLiner(t *testing.T) {
-	devices, warnings := parseLocalIntegrationBody(strings.Split(`device appliance.one_shot with camera.core;`, "\n"))
+	devices, warnings := parseLocalIntegrationBody(strings.Split(`device appliance.one_shot with capability camera.core;`, "\n"))
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
@@ -70,7 +70,7 @@ func TestParseLocalIntegrationBodyDeviceOneLiner(t *testing.T) {
 // (a non-domain-qualified "is available" sibling) -- still warns, and (matching the block form's
 // own parity) the device is still positioned, just with no capability for the bad line.
 func TestParseLocalIntegrationBodyDeviceOneLinerRejectsBadContent(t *testing.T) {
-	devices, warnings := parseLocalIntegrationBody(strings.Split(`device appliance.one_shot with binary_sensor.node core is available;`, "\n"))
+	devices, warnings := parseLocalIntegrationBody(strings.Split(`device appliance.one_shot with capability binary_sensor.node core is available;`, "\n"))
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "isn't domain-qualified") {
 		t.Fatalf("warnings = %v, want exactly one \"isn't domain-qualified\" warning", warnings)
 	}
@@ -87,8 +87,8 @@ func TestParseLocalIntegrationBodyDeviceOneLinerRejectsBadContent(t *testing.T) 
 // one-line form, no no_play_input refinement.
 func TestParseLocalIntegrationBodyMediaSwitchOneLiner(t *testing.T) {
 	devices, warnings := parseLocalIntegrationBody(strings.Split(`device appliance.tv_living_room with:
-  media_player.core;
-  switch.media media_player.social_house_living_room_tv;
+  capability media_player.core;
+  capability switch.media media_player.social_house_living_room_tv;
 end;`, "\n"))
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
@@ -108,7 +108,7 @@ end;`, "\n"))
 // instead of the full "with: no_play_input \"Y\"; end;" block.
 func TestParseLocalIntegrationBodyMediaSwitchWithNoPlayInputOneLiner(t *testing.T) {
 	devices, warnings := parseLocalIntegrationBody(strings.Split(`device appliance.sonos_playbar_livingroom with:
-  switch.media media_player.social_house_living_room_sonos with no_play_input "TV";
+  capability switch.media media_player.social_house_living_room_sonos with no_play_input "TV";
 end;`, "\n"))
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
@@ -244,7 +244,7 @@ func TestRegisterLocalMediaSwitchCapabilityRejectsUnsupportedCoercion(t *testing
 // be domain-qualified, not a bare label.
 func TestParseLocalIntegrationBodyRejectsNonDomainQualifiedSibling(t *testing.T) {
 	_, warnings := parseLocalIntegrationBody(strings.Split(`device appliance.front_door_ring with:
-  binary_sensor.node core is available;
+  capability binary_sensor.node core is available;
 end;`, "\n"))
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "isn't domain-qualified") {
 		t.Fatalf("expected exactly one \"isn't domain-qualified\" warning, got: %v", warnings)
@@ -255,10 +255,10 @@ func TestCollectLocalDevicesByIDWarnsOnDuplicateDevice(t *testing.T) {
 	definitionDir := writePhysicalDef(t, `physical layer with:
   integration local with:
     device appliance.front_door_ring with:
-      camera.core;
+      capability camera.core;
     end;
     device appliance.front_door_ring with:
-      camera.core;
+      capability camera.core;
     end;
   end;
 end;
@@ -284,9 +284,9 @@ func TestCollectLocalDevicesByIDResolvesJinjaDerivedCapability(t *testing.T) {
 	physicalDef := `physical layer with:
   integration local with:
     device appliance.front_door_ring with:
-      camera.core;
-      sensor.battery_level;
-      derived binary_sensor.battery_alert from sensor.battery_level via jinja ${int_less_then}(20);
+      capability camera.core;
+      capability sensor.battery_level;
+      derived capability binary_sensor.battery_alert from sensor.battery_level via jinja ${int_less_then}(20);
     end;
   end;
 end;

@@ -55,6 +55,15 @@ type TPhysicalGenerationContext struct {
 	// of "import"/"hosts"/"home_assistant" block order in Physical.def.
 	ImportedDevices []TImportedDevice
 
+	// HostDevicesByID is every "hosts" integration device, keyed by DeviceID (collectHostsDevicesByID),
+	// set right after it's collected in generatePhysicalIntegrationOutputs -- same "pre-collected,
+	// mutated onto ctx after construction" convention as ImportedDevices above. Needed by
+	// generateCommandlineIntegrationOutputs to resolve a commandline device's own "dependency on
+	// <id>;" declaration (2026-10-07, PROJECT.md "Migration & improvements": commandline is a
+	// physical-layer integration, so this dependency belongs declared at the physical layer
+	// directly, not via a separate Logical.def entry) into that target's own node topic.
+	HostDevicesByID map[string]THostDevice
+
 	// DiscoveryExistenceAggregate memoizes fetchDiscoveryExistenceAggregate's own result for the
 	// lifetime of a single generate run -- checkDiscoveryKnownNotToExistErrors and
 	// generateDiscoverySuggestions (mqtt_discovery_existence.go) each independently need discovery

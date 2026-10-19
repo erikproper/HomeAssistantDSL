@@ -32,12 +32,12 @@ func frameCommandlineDevicesByID() map[string]TCommandlineDevice {
 // TestCommandlineCapabilityEntityLinkResolvesOnDualKindDevice is the regression test for a real
 // case found live 2026-09-06: host.frame is declared BOTH as a "hosts" cpu device (ping/cpu) AND a
 // "commandline" device (the picture-frame switch), sharing one DeviceID. Positioning it once via
-// the hosts branch ("device host.frame as frame with entity binary_sensor...node;")
-// must still let a SEPARATE "entity switch.social:picture_frame from host.frame slideshow;" line
-// resolve the commandline capability, reusing the SAME DeviceConceptualLink rather than needing its
-// own positioning statement.
+// the hosts branch ("device host.frame with entity binary_sensor...node;") must still let a
+// SEPARATE "entity switch.social:picture_frame from host.frame slideshow;" line resolve the
+// commandline capability, reusing the SAME DeviceConceptualLink rather than needing its own
+// positioning statement.
 func TestCommandlineCapabilityEntityLinkResolvesOnDualKindDevice(t *testing.T) {
-	const miniDSL = `device host.frame as apartment/living_room/rack/frame with entity binary_sensor.infrastructural:apartment/living_room/rack/frame/node from binary_sensor.node;
+	const miniDSL = `device host.frame with entity binary_sensor.infrastructural:apartment/living_room/rack/frame/node from binary_sensor.node;
 entity switch.social:apartment/living_room/picture_frame from host.frame switch.slideshow;`
 
 	hostDevicesByID := map[string]THostDevice{
@@ -77,7 +77,7 @@ entity switch.social:apartment/living_room/picture_frame from host.frame switch.
 // coordinator will actually publish it (discoverycommandline.go); a mismatch would produce a
 // reference to an entity that will never actually exist under that domain.
 func TestCommandlineCapabilityEntityLinkRejectsDomainMismatch(t *testing.T) {
-	const miniDSL = `device host.frame as apartment/living_room/rack/frame with:
+	const miniDSL = `device host.frame with:
 end;
 entity binary_sensor.social:apartment/living_room/picture_frame from host.frame switch.slideshow;`
 

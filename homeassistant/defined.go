@@ -233,7 +233,7 @@ func joinWrappedStatementContinuations(content string) string {
 	out := make([]string, 0, len(lines))
 	for i := 0; i < len(lines); i++ {
 		line := strings.TrimRight(lines[i], " ")
-		if isCommentOrBlankLine(line) || lineEndsStatement(line) {
+		if isCommentOrBlankLine(line) || lineIsCompleteStatement(line) {
 			out = append(out, lines[i])
 			continue
 		}
@@ -245,13 +245,43 @@ func joinWrappedStatementContinuations(content string) string {
 			}
 			i++
 			joined += " " + cont
-			if lineEndsStatement(joined) {
+			if lineIsCompleteStatement(joined) {
 				break
 			}
 		}
 		out = append(out, joined)
 	}
 	return strings.Join(out, "\n")
+}
+
+// lineIsCompleteStatement reports whether line (or an already-partially-joined multi-line
+// accumulation) is a complete statement that must NOT be joined with any further following
+// line. The general rule is "ends with a genuine terminator (';'/':'), outside any quoted
+// string" (lineEndsStatement) -- EXCEPT a "when"/"if" rule clause (2026-10-15 correction: no
+// longer ";"-terminated, Pascal-style -- the clause ends wherever the next clause's own keyword,
+// "if"/"then", begins, not at a written ";"), which is complete as soon as it stops dangling on
+// a trailing "or"/"and" connective, the only two connectives such a clause ever uses. Shared by
+// this file's own universal whitespace-normalisation pass and parser.go's own rule-body
+// line-joiner (ruleBodyLineNeedsContinuation) -- both need to agree on where a "when"/"if"
+// clause ends, since the first already runs on every .def file before the second ever sees a
+// line (normalizeDefinitionWhitespace's own doc comment).
+func lineIsCompleteStatement(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if strings.HasPrefix(trimmed, "when ") || strings.HasPrefix(trimmed, "if ") {
+		return !endsWithChainConnective(trimmed)
+	}
+	return lineEndsStatement(line)
+}
+
+// endsWithChainConnective reports whether line's last whitespace-separated word is "or" or
+// "and".
+func endsWithChainConnective(line string) bool {
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return false
+	}
+	last := fields[len(fields)-1]
+	return last == "or" || last == "and"
 }
 
 // isCommentOrBlankLine reports whether line, once leading whitespace is trimmed, is either a
@@ -667,6 +697,16 @@ func forcedElementsGroup(cur *TLineCursor, hadColon bool, element func(*TLineCur
 // recursively. This is what makes nested "with:"/"end;" pairs (e.g. a per-device
 // capability block inside an "integration hosts with:" block) not close the outer group
 // early, without an explicit depth counter: the recursion IS the depth tracking.
+//
+// "else:" is special-cased to NOT open its own nested group: a rule body's own "then if
+// <entity-ref> is <state>: ...; else: ...; end;" branching action (rule_parser.go,
+// parser.go's parseIfActionBlock) is a single flat construct sharing ONE closing "end;"
+// between its "then if ...:" header and "else:" marker, not two independently-nested
+// blocks -- real bug found live 2026-10-13, migrating Junglinster's sarah_bedroom cover
+// rules: without this, "else:" was mistaken for its own opener, demanding a THIRD "end;"
+// that doesn't exist, starving the enclosing "rule ...:"/"conceptual layer with:" blocks of
+// their own closing "end;" and failing the whole file with a misleading "missing its
+// closing end;" error anchored at the outermost block.
 func genericBodyElement(body *[]string, lineNos *[]int) func(cur *TLineCursor) bool {
 	var element func(cur *TLineCursor) bool
 	element = func(cur *TLineCursor) bool {
@@ -677,7 +717,7 @@ func genericBodyElement(body *[]string, lineNos *[]int) func(cur *TLineCursor) b
 		lineNo := cur.ThisLineNumber()
 		*body = append(*body, cur.Advance())
 		*lineNos = append(*lineNos, lineNo)
-		if strings.HasSuffix(line, ":") {
+		if line != "else:" && strings.HasSuffix(line, ":") {
 			return forceElementsSequence(cur, element, body, lineNos)
 		}
 		return true

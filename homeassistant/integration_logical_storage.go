@@ -28,7 +28,13 @@
  * condition and a standalone "<media-player-entity> [with: no_play_input ...;];" switch coercion,
  * were retired 2026-10-05 once both were fully superseded -- the first by the "enabled by"/
  * "dependency on" sugar below, the second by Physical.def's own "local"-kind switch.media
- * capability -- confirmed zero remaining usages in either house before removal.)
+ * capability -- confirmed zero remaining usages in either house before removal. That "enabled by"/
+ * device-level "delay_off" sugar was itself retired 2026-10-11, PROJECT.md item 11a: it silently
+ * replaced a device's own real Physical.def "node" condition instead of ANDing onto it whenever the
+ * device also declared "enabled by" -- fixed by making every such device spell out its own
+ * absorbed "switch.enabler" capability plus an explicit "derived binary_sensor.node with: ...;
+ * end;" block directly, the same style already used by every hand-written case in both houses, then
+ * deleting the sugar entirely once nothing used it any more.)
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
@@ -49,22 +55,26 @@ type TLogicalCapability struct {
 	Domain string
 	// AbsorbedFromDeviceID/AbsorbedFromCapability (2026-09-18, the "absorb" operation --
 	// memory/project_logical_layer_device_combining.md, deferred since 2026-08-22 until
-	// Zigbee2MQTT migration was underway) are set together, from one "<domain>.<label>:
-	// <bare-capability>;" line inside a TLogicalDevice's own "capabilities from <device-id>: ...
-	// end;" block. Mutually exclusive with the defined/derived shapes below: this capability's
-	// value isn't computed by THIS device at all, it's another (absorbed) device's own named
-	// capability, resolved via THAT device's normal registration path
+	// Zigbee2MQTT migration was underway) are set together, from one "capability <domain>.<label>:
+	// <bare-capability>;" line inside a TLogicalDevice's own "absorb from <device-id>: ... end;"
+	// block (renamed from "capabilities from", PROJECT.md item 11b, 2026-10-11, to match this
+	// mechanism's own internal name). Mutually exclusive with the defined/derived shapes below:
+	// this capability's value isn't computed by THIS device at all, it's another (absorbed)
+	// device's own named capability, resolved via THAT device's normal registration path
 	// (registerLogicalAbsorbedCapability, Conceptual_LogicalEntities.go, delegates straight to
 	// registerDeviceCapabilityEntityLinkAllowingHidden targeting AbsorbedFromDeviceID) but
 	// attributed to and positioned under THIS device's own leaf/naming. An absorbed device's own
 	// switch acting as an enabler of the HOST device's overall availability (e.g.
-	// appliance.washing_machine's own plug) is expressed via the "enabled by"/"dependency on"
-	// device-level sugar instead (logical_enabler_dependency_sugar.go) -- a dedicated absorb-block
-	// keyword never existed for this.
+	// appliance.washing_machine's own plug) is just an ordinary absorbed "capability
+	// switch.enabler <capability>;" line, paired with an explicit "derived capability
+	// binary_sensor.node with: condition ... or jinja \"$[switch.enabler] == 'off'\"; end;" block
+	// declared alongside it -- PROJECT.md item 11a, 2026-10-11: an earlier "enabled by"/device-level
+	// "delay_off" sugar used to synthesize both of these automatically, removed once both houses'
+	// real Logical.def spelled every such device out explicitly instead.
 	AbsorbedFromDeviceID   string
 	AbsorbedFromCapability string
 	// IsDefinedInputNumber/DefinedMinimum/DefinedMaximum/DefinedStep/DefinedIcon/DefinedUnits
-	// (2026-09-18) are set together, from a "defined <domain>.<label> with: minimum <val>; maximum
+	// (2026-09-18) are set together, from a "defined capability <domain>.<label> with: minimum <val>; maximum
 	// <val>; step <val>; icon <val>; units <val>; end;" block -- declares an HA input_number HELPER
 	// entity (a pure, user-adjustable value with no device/MQTT backing at all), reusing the exact
 	// same TEntityRecord.InputNumberMin/Max/Step/Unit/Icon fields the plain Conceptual-layer
@@ -79,14 +89,14 @@ type TLogicalCapability struct {
 	DefinedIcon          string
 	DefinedUnits         string
 	// IsDerivedCondition/DerivedCondition/DerivedDeviceClass/DelayOn/DelayOff (2026-09-18, tree
-	// shape since 2026-09-24) are set together, from a "derived <domain>.<label> with: condition
+	// shape since 2026-09-24) are set together, from a "derived capability <domain>.<label> with: condition
 	// <bool-expr>; device_class <val>; delay_on <time>; delay_off <time>; end;" block -- a
 	// MULTI-SOURCE boolean condition (and/or/not/parens over bare sibling refs and "jinja ... {
 	// ... }" sub-clauses, logical_condition_expr.go). DerivedCondition's leaves are unresolved raw
 	// tokens (sibling capability labels, or literal "domain.path[!attribute]" entity references);
 	// each is resolved by resolveLogicalSiblingSourceEntityID (Conceptual_LogicalEntities.go) --
 	// deliberately kind-agnostic: a sibling may be an ordinary "defined" capability, or one absorbed
-	// via "capabilities from ...;" (registerLogicalAbsorbedCapability records a LogicalEntityLinks
+	// via "absorb from ...;" (registerLogicalAbsorbedCapability records a LogicalEntityLinks
 	// entry under THIS device's own id/label specifically so this lookup sees it too, per the
 	// user's own explicit design: this resolution must see the COMPLETE logical device). Same-device
 	// only for now -- no "from <device-id>" qualifier per reference yet, on-demand discipline (see
@@ -125,53 +135,36 @@ type TLogicalSwitchedByFact struct {
 	SourceDeviceID string // the referenced sibling device's own DSL device-id (e.g. "switches.house_server_room_fuse_box_zwave_048")
 }
 
-// TLogicalEnabledByFact holds a device-level "<domain>.<label> enabled by <domain>.<label>
-// from <device-id>;" annotation (2026-09-28) -- the fuller, LHS-validated generalization that
-// REPLACES the plain "enabler <device-id>;" shorthand outright (confirmed with the user: not kept
-// alongside it). At most one per device (there is only ever one "node" capability to build), so a
-// pointer field on TLogicalDevice, not a map like TLogicalSwitchedByFact's own per-capability
-// shape (which genuinely combines several DIFFERENT capabilities across two devices; this
-// annotation only ever refines ONE thing -- the device's own liveness self-check).
-type TLogicalEnabledByFact struct {
-	OwnDomain      string // the LHS capability's own domain (e.g. "media_player") -- must match a capability ALREADY declared on this device at the physical layer (validated at resolution time via the normal same-device sibling-ref lookup, not a separate pre-check)
-	OwnLabel       string // the LHS capability's own bare label (e.g. "core")
-	SourceDomain   string // the enabler switch's own capability domain (e.g. "switch")
-	SourceLabel    string // the enabler switch's own capability label (e.g. "core")
-	SourceDeviceID string // the enabler switch's own DSL device-id (e.g. "switch.house_living_room_tv")
-}
-
 // TLogicalDevice is one "device <id> with: ... end;" declaration inside Logical.def's "logical
 // layer with: ... end;" block (integration_logical_parser.go).
 type TLogicalDevice struct {
 	DeviceID     string
 	DependsOn    []string // other device ids (any kind, including another logical-only id)
 	Capabilities map[string]TLogicalCapability
-	// EnabledBy (2026-09-28) is this device's own "<domain>.<label> enabled by <domain>.<label>
-	// from <device-id>;" fact, if declared -- sugar for the recurring "absorb the enabler switch's
-	// own capability as switch.enabler, then let the enabler being 'off' stand in for this device's
-	// own unavailability" pattern (a deliberately powered-down TV/appliance is not a fault), same
-	// spirit as the OLD plain "enabler <device-id>;" line this REPLACES, but with the base
-	// self-check built from the named LHS capability's own "is available" state instead of the
-	// whole device's "physical <id>" liveness -- more precise when a device has several capabilities
-	// and only ONE of them is what actually signals "the appliance is on". Desugared by
-	// applyLogicalEnablerDependencySugar (logical_enabler_dependency_sugar.go) into the SAME
-	// Capabilities["enabler"]/Capabilities["node"] entries the old hand-written longhand already
-	// produced -- see that function's own doc comment for the full desugaring. nil means none
-	// declared.
-	EnabledBy *TLogicalEnabledByFact
 	// SwitchedBy (2026-09-27) holds every "<domain>.<label> is switched by <domain>.<label> from
 	// <device-id>;" fact this device declares, keyed by the annotated capability's OWN bare label
 	// (e.g. "core") -- see TLogicalSwitchedByFact's own doc comment.
 	SwitchedBy map[string]TLogicalSwitchedByFact
-	// NodeDelayOff (2026-09-28) is this device's own top-level "delay_off <time>;" line, if declared
-	// -- carried into the "enabler"/"enabled by" sugar's own synthesized "node" derived-condition
-	// capability (applyLogicalEnablerDependencySugar), matching what a hand-written "derived
-	// binary_sensor.node with: ... delay_off <time>; end;" block could already express. Added for
-	// Vienna's own appliance.tv (a real, deployed 1-minute debounce before the TV's own liveness
-	// flips off) -- without this field, migrating a device using delay_off to the sugar would
-	// silently drop that debounce, a real behavioural regression, not a cosmetic one. "" means none
-	// declared (the sugar's own synthesized node capability then has no delay).
-	NodeDelayOff string
+
+	// Colocated (2026-10-07) is every "colocated <device-id> as <leaf>;" line this device
+	// declares -- repeatable, each naming an otherwise-independently-positioned device (one with
+	// no conceptual location of its own, e.g. a bare relay switch that just happens to physically
+	// sit at this device's own location) that should be auto-positioned at THIS device's own
+	// resolved conceptual position, with "/<leaf>" appended (leaf always explicit, never
+	// auto-derived -- confirmed against the user's own real Vienna edit, "colocated
+	// switch.living_room_tv as switch;"). The concrete trigger: switch.living_room_tv (a Z-Wave
+	// relay controlling Vienna's TV's power) has no conceptual position of its own, but obviously
+	// lives everywhere appliance.living_room_tv (the TV device it switches) lives --
+	// applyColocatedPositioning (device_friendly_name.go) resolves this, generator-side, once
+	// Conceptual.def parsing completes; see that function's own doc comment for the full mechanics.
+	Colocated []TLogicalColocatedFact
+}
+
+// TLogicalColocatedFact is one "colocated <device-id> as <leaf>;" line -- see
+// TLogicalDevice.Colocated's own doc comment.
+type TLogicalColocatedFact struct {
+	DeviceID   string
+	LeafSuffix string
 }
 
 // resolveTransitiveDependencies walks deviceID's own DependsOn edges (and, transitively, every

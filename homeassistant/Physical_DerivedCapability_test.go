@@ -14,8 +14,8 @@ import (
 // new parser construct.
 func TestResolveDerivedConditionOneLiners(t *testing.T) {
 	content := "identifiers \"somfy_front\";\n" +
-		"derived binary_sensor.node with condition cover.living_room_front is available;\n" +
-		"cover.cover cover.living_room_front;\n"
+		"derived capability binary_sensor.node with condition cover.living_room_front is available;\n" +
+		"capability cover.cover cover.living_room_front;\n"
 
 	got := resolveDerivedConditionOneLiners(content)
 	gotLines := strings.Split(got, "\n")
@@ -23,7 +23,7 @@ func TestResolveDerivedConditionOneLiners(t *testing.T) {
 	if len(gotLines) != len(wantLines) {
 		t.Fatalf("got %d lines, want %d (line count must never change)", len(gotLines), len(wantLines))
 	}
-	wantRewritten := "binary_sensor.node cover.living_room_front is available;"
+	wantRewritten := "capability binary_sensor.node cover.living_room_front is available;"
 	if gotLines[1] != wantRewritten {
 		t.Errorf("rewritten line = %q, want %q", gotLines[1], wantRewritten)
 	}
@@ -36,7 +36,7 @@ func TestResolveDerivedConditionOneLiners(t *testing.T) {
 // on content that never uses the new wording -- both houses' Physical.def, pre-sweep, must
 // regenerate byte-identical once this function is wired into every entry point.
 func TestResolveDerivedConditionOneLinersLeavesOrdinaryLinesUntouched(t *testing.T) {
-	content := "binary_sensor.node cover.living_room_front is available;\ncover.cover cover.living_room_front;"
+	content := "capability binary_sensor.node cover.living_room_front is available;\ncapability cover.cover cover.living_room_front;"
 	got := resolveDerivedConditionOneLiners(content)
 	if got != content {
 		t.Errorf("got %q, want content left byte-identical", got)
@@ -46,7 +46,7 @@ func TestResolveDerivedConditionOneLinersLeavesOrdinaryLinesUntouched(t *testing
 // TestParseDerivedCapabilityLine is a focused unit test for plans/derived-capability-mechanism.md
 // Phase 2's grammar: "derived DDD.NNN from EEE.MMM via TTT;".
 func TestParseDerivedCapabilityLine(t *testing.T) {
-	decl, ok := parseDerivedCapabilityLine(`derived binary_sensor.battery_alert from sensor.battery_level via "( $ | int(0) < 20 )";`)
+	decl, ok := parseDerivedCapabilityLine(`derived capability binary_sensor.battery_alert from sensor.battery_level via "( $ | int(0) < 20 )";`)
 	if !ok {
 		t.Fatalf("expected a match")
 	}
@@ -122,8 +122,8 @@ func TestResolveJinjaTemplateCallsInDerivedLines(t *testing.T) {
 		"int_less_then": {Params: []string{"i"}, Template: "'on' if (($ | int(0)) < ${i}) else 'off'"},
 	}
 	content := "identifiers \"zigbee2mqtt_0x00158d0003d4e964\";\n" +
-		"sensor.battery_level 0x00158d0003d4e964_battery_zigbee2mqtt;\n" +
-		"derived binary_sensor.battery_alert from sensor.battery_level via jinja ${int_less_then}(10);\n"
+		"capability sensor.battery_level 0x00158d0003d4e964_battery_zigbee2mqtt;\n" +
+		"derived capability binary_sensor.battery_alert from sensor.battery_level via jinja ${int_less_then}(10);\n"
 
 	got, warnings := resolveJinjaTemplateCallsInDerivedLines(content, jinjaTemplates)
 	if len(warnings) != 0 {
@@ -134,7 +134,7 @@ func TestResolveJinjaTemplateCallsInDerivedLines(t *testing.T) {
 	if len(gotLines) != len(wantLines) {
 		t.Fatalf("got %d lines, want %d (line count must never change)", len(gotLines), len(wantLines))
 	}
-	wantDerivedLine := `derived binary_sensor.battery_alert from sensor.battery_level via "'on' if (($ | int(0)) < 10) else 'off'";`
+	wantDerivedLine := `derived capability binary_sensor.battery_alert from sensor.battery_level via "'on' if (($ | int(0)) < 10) else 'off'";`
 	if gotLines[2] != wantDerivedLine {
 		t.Errorf("rewritten line = %q, want %q", gotLines[2], wantDerivedLine)
 	}
@@ -155,7 +155,7 @@ func TestResolveJinjaTemplateCallsInDerivedLines(t *testing.T) {
 // template name is reported, and the offending line is left unrewritten (so it falls through to
 // parseDerivedCapabilityLine's own "unrecognised line" warning too, rather than silently vanishing).
 func TestResolveJinjaTemplateCallsInDerivedLinesWarnsOnUndeclaredTemplate(t *testing.T) {
-	content := `derived binary_sensor.battery_alert from sensor.battery_level via jinja ${no_such_template}(10);`
+	content := `derived capability binary_sensor.battery_alert from sensor.battery_level via jinja ${no_such_template}(10);`
 	got, warnings := resolveJinjaTemplateCallsInDerivedLines(content, map[string]TJinjaTemplateDefinition{})
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "no_such_template") {
 		t.Fatalf("warnings = %v, want exactly one mentioning \"no_such_template\"", warnings)
@@ -171,7 +171,7 @@ func TestResolveJinjaTemplateCallsInDerivedLinesWarnsOnArgumentCountMismatch(t *
 	jinjaTemplates := map[string]TJinjaTemplateDefinition{
 		"adjust_float_value": {Params: []string{"a", "s"}, Template: "(($ | float(0)) + ${a}) * ${s}"},
 	}
-	content := `derived sensor.pressure from sensor.pressure_raw via jinja ${adjust_float_value}(20);`
+	content := `derived capability sensor.pressure from sensor.pressure_raw via jinja ${adjust_float_value}(20);`
 	_, warnings := resolveJinjaTemplateCallsInDerivedLines(content, jinjaTemplates)
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "adjust_float_value") {
 		t.Fatalf("warnings = %v, want exactly one mentioning \"adjust_float_value\"", warnings)
@@ -188,8 +188,8 @@ func TestCollectDiscoveryGatewaysByIDResolvesJinjaDerivedCapability(t *testing.T
   integration discovery with:
     device discovery.hallway_aqara_windoor with:
       identifiers "zigbee2mqtt_0x00158d0003d4e964";
-      sensor.battery_level 0x00158d0003d4e964_battery_zigbee2mqtt;
-      derived binary_sensor.battery_alert from sensor.battery_level via jinja ${int_less_then}(10);
+      capability sensor.battery_level 0x00158d0003d4e964_battery_zigbee2mqtt;
+      derived capability binary_sensor.battery_alert from sensor.battery_level via jinja ${int_less_then}(10);
     end;
   end;
 end;

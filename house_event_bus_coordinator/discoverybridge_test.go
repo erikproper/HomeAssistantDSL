@@ -181,6 +181,33 @@ func TestBuildRelayedDiscoveryConfig(t *testing.T) {
 	}
 }
 
+// TestBuildRelayedDiscoveryConfigPrefersStableID covers PROJECT.md item 7 (memory/project_stable_
+// entity_identity_design.md): a link.StableID, once set, drives both the unique_id and the
+// discovery topic -- NOT relayedDiscoveryUniqueID(gatewayID, leaf) -- so a device-ID rename
+// (gatewayID changing) doesn't change either, even though the raw payload's own UniqueID is
+// unchanged. Uses a deliberately "wrong" gatewayID (as if the device had just been renamed) to
+// prove the computed fallback is never consulted when StableID is present.
+func TestBuildRelayedDiscoveryConfigPrefersStableID(t *testing.T) {
+	payload, err := decodeDiscoveryPayload([]byte(realEMSESPBoilerOutdoortempPayload))
+	if err != nil {
+		t.Fatalf("decodeDiscoveryPayload error: %v", err)
+	}
+	raw := rawPayloadFixture(t, realEMSESPBoilerOutdoortempPayload)
+
+	link := TDiscoveryEntityLink{StableID: "frozen_stable_id"}
+	topic, body, ok := buildRelayedDiscoveryConfig("sensor.social_garage_door_temperature", "discovery.ems_esp_renamed", raw, payload, link, testPrefix, "test", "sensor", false)
+	if !ok {
+		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
+	}
+	wantTopic := "homeassistant/sensor/coordinator/frozen_stable_id/config"
+	if topic != wantTopic {
+		t.Errorf("topic = %q, want %q (StableID, not the gatewayID+leaf computation)", topic, wantTopic)
+	}
+	if body["unique_id"] != "frozen_stable_id" {
+		t.Errorf("unique_id = %v, want %q", body["unique_id"], "frozen_stable_id")
+	}
+}
+
 // TestWrapMQTTValueTemplate proves the "+20" adjustment example from a "derived ... from <hidden
 // raw leaf> via ...;" capability folds correctly around the gateway's own native extraction, and
 // guards it on the raw key's own presence -- see wrapMQTTValueTemplate's own doc comment for the

@@ -8,7 +8,7 @@ import (
 func TestParseImportIntegrationBody(t *testing.T) {
 	devices, warnings := parseImportIntegrationBody([]string{
 		"device import.remote_macbook from junglinster host.eriks-macbook-pro-2 with:",
-		"  sensor.load;",
+		"  capability sensor.load;",
 		"end;",
 		"",
 		"# a comment",
@@ -34,7 +34,7 @@ func TestParseImportIntegrationBody(t *testing.T) {
 func TestParseImportIntegrationBodyShorthandRemoteDeviceID(t *testing.T) {
 	devices, warnings := parseImportIntegrationBody([]string{
 		"device node.vienna_livingroom from junglinster with:",
-		"  sensor.temperature;",
+		"  capability sensor.temperature;",
 		"end;",
 	})
 	if len(warnings) != 0 {
@@ -70,8 +70,8 @@ func TestParseImportIntegrationBodyWarnsOnMalformedLine(t *testing.T) {
 func TestParseImportIntegrationBodyMultipleCapabilities(t *testing.T) {
 	devices, warnings := parseImportIntegrationBody([]string{
 		"device import.vienna_terrace from junglinster hass.vienna_terrace with:",
-		"  sensor.temperature;",
-		"  sensor.humidity;",
+		"  capability sensor.temperature;",
+		"  capability sensor.humidity;",
 		"end;",
 	})
 	if len(warnings) != 0 {
@@ -97,8 +97,8 @@ func TestParseImportIntegrationBodyMultipleCapabilities(t *testing.T) {
 func TestParseImportIntegrationBodyShorthandCapability(t *testing.T) {
 	devices, warnings := parseImportIntegrationBody([]string{
 		"device import.vienna_livingroom from junglinster hass.vienna_livingroom with:",
-		"  binary_sensor.node;",
-		"  sensor.co2;",
+		"  capability binary_sensor.node;",
+		"  capability sensor.co2;",
 		"end;",
 	})
 	if len(warnings) != 0 {
@@ -125,8 +125,8 @@ func TestParseImportIntegrationBodyShorthandCapability(t *testing.T) {
 func TestParseImportIntegrationBodyAllowsSlashInCapabilityName(t *testing.T) {
 	devices, warnings := parseImportIntegrationBody([]string{
 		"device import.pro-1 from junglinster host.pro-1 with:",
-		"  sensor.cpu/load;",
-		"  sensor.cpu/temperature;",
+		"  capability sensor.cpu/load;",
+		"  capability sensor.cpu/temperature;",
 		"end;",
 	})
 	if len(warnings) != 0 {
@@ -149,12 +149,12 @@ func TestCollectImportedDevicesAcrossMultipleBlocks(t *testing.T) {
 		{Name: "hosts", BodyLines: []string{"device host.x x cpu;"}},
 		{Name: "import", BodyLines: []string{
 			"device import.a from junglinster host.a with:",
-			"  sensor.load;",
+			"  capability sensor.load;",
 			"end;",
 		}},
 		{Name: "import", BodyLines: []string{
 			"device import.vienna_terrace from junglinster hass.vienna_terrace with:",
-			"  sensor.temperature;",
+			"  capability sensor.temperature;",
 			"end;",
 		}},
 	}
@@ -176,8 +176,8 @@ func TestCollectImportedDevicesAcrossMultipleBlocks(t *testing.T) {
 func TestParseImportIntegrationBodyRejectsDerivedCapability(t *testing.T) {
 	devices, warnings := parseImportIntegrationBody([]string{
 		"device import.vienna_terrace from junglinster hass.vienna_terrace with:",
-		"  sensor.battery_level;",
-		`  derived binary_sensor.battery_alert from sensor.battery_level via "( $ | int(0) < 20 )";`,
+		"  capability sensor.battery_level;",
+		`  derived capability binary_sensor.battery_alert from sensor.battery_level via "( $ | int(0) < 20 )";`,
 		"end;",
 	})
 	if len(warnings) != 1 {
@@ -203,7 +203,7 @@ func TestParseImportIntegrationBodyRejectsDerivedCapability(t *testing.T) {
 func TestParseImportIntegrationBodyRejectsConstantAttribute(t *testing.T) {
 	devices, warnings := parseImportIntegrationBody([]string{
 		"device import.vienna_livingroom from junglinster node.vienna_livingroom with:",
-		"  sensor.co2;",
+		"  capability sensor.co2;",
 		`  manufacturer: "Nabu Casa" forced;`,
 		"end;",
 	})

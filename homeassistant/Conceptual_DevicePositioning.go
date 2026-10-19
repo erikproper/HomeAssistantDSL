@@ -4,34 +4,32 @@
  * Package:   Main
  * Component: ConceptualDevicePositioning
  *
- * Parses and registers the conceptual layer's "device <device-id> [as <leaf-path>] with: ...;
- * end;" construct (2026-09-24 redesign -- see PROJECT.md item 11's own note for the full
- * rationale) -- the only way to position a device. Replaces three earlier, separately-keyworded
- * shapes ("device <spec> from <device-id>;", "device <spec> from <device-id> with: ...; end;",
- * "device from <device-id> with: ...; end;") with one: the device-id comes first (no more "from"),
- * "as <leaf-path>" is a direct stand-in for the old <spec> argument's own path half, and is itself
- * optional. Also new: a "with <entity-statement>;" one-liner sugar for the common single-capability
- * case, skipping the "end;" wrapper.
+ * Parses and registers the conceptual layer's "device <device-id> with: ...; end;" construct (the
+ * only way to position a device), plus a "with <entity-statement>;" one-liner sugar for the common
+ * single-capability case, skipping the "end;" wrapper.
  *
- * A device has no sphere of its own (confirmed with the user 2026-09-24: spheres are an ENTITY
- * concept -- a device's "as" clause used to accept an optional "<sphere>:" prefix, defaulting to
- * infrastructural when omitted, but that was never more than an artifact of feeding decl.Spec
- * through the same normalizeEntityFullName("device."+spec, ...) machinery an entity reference
- * uses; nothing downstream ever needed a REAL, non-default sphere there). "as <sphere>:<leaf-path>"
- * is now rejected outright (registerDevicePositioning's own strings.Contains(decl.Spec, ":")
- * check) -- no dual-syntax transition, same discipline as every other grammar retirement in this
- * codebase. deviceIdentity.Sphere still exists internally (normalizeEntityFullName's own "device"
- * taxonomy default, SphereOf["device"] == "infrastructural") purely because DeviceIdentityOwner's
- * collision key and registerHostDeviceIdentity's own signature still carry a TEntityIdentity, but
- * it's now a constant, never author-controlled, and never shown in a device's own display text
- * (deviceDisplayName takes no sphere argument at all any more, Conceptual_DeviceEntities.go).
+ * PROJECT.md item 10 (2026-10-11): the construct used to also accept an optional "as <leaf-path>"
+ * clause (and, via it, an optional "<sphere1>:<path1> <sphere2>:<path2> ..." multi-sphere form),
+ * letting the DSL author give a device its own compound leaf. Once both real houses' Conceptual.def
+ * no longer used it at all, the clause was dropped from the grammar outright -- the regexes below no
+ * longer capture anything past "with"/"with:", so "as" is no longer valid syntax here. decl.Spec
+ * itself stays (not removed) purely because applyColocatedPositioning (device_friendly_name.go)
+ * still feeds it a COMPUTED leaf for a "colocated" Logical.def target -- never author-written text,
+ * always a bare path with no sphere prefix at all, so registerDevicePositioning's own sphere-prefix
+ * validation/multi-sphere resolution (which only ever existed for the "as" grammar) was removed
+ * alongside it. deviceIdentity.Sphere still exists internally (normalizeEntityFullName's own
+ * "device" taxonomy default, SphereOf["device"] == "infrastructural") purely because
+ * DeviceIdentityOwner's collision key and registerHostDeviceIdentity's own signature still carry a
+ * TEntityIdentity, but it's now a constant, never author-controlled, and never shown in a device's
+ * own display text (deviceDisplayName takes no sphere argument at all any more,
+ * Conceptual_DeviceEntities.go).
  *
  * The SAME device-id may appear in as many of these blocks as needed, in as many spaces as needed,
  * with no first/subsequent distinction in the grammar -- this is now the norm (a Z-Wave module
  * contributing entities to two different rooms plus its own infrastructural identity is a real,
  * common case, not a rare one). Registration is register-once-merge-repeatedly: the FIRST occurrence
  * of a device-id establishes its shared conceptual identity (DisplayName/ConstantAttributes/
- * suggested_area, using THAT occurrence's own "as" leaf, if any); every later occurrence just merges
+ * suggested_area, from THAT occurrence's own enclosing space); every later occurrence just merges
  * its own entities into the same DeviceConceptualLinks[id].AttributeEntityIDs map, exactly like the
  * old "device from <id> with:" reuse form already did. There is no more "already positioned,
  * ignoring duplicate" guard for this construct -- a real double-declaration mistake is already
@@ -75,42 +73,98 @@ import (
 	"strings"
 )
 
-// TDevicePositioningDeclaration is one parsed "device <device-id> [as <leaf-path>] with:" header
-// (block or one-liner form).
+// TDevicePositioningDeclaration is one parsed "device <device-id> with:" header (block or
+// one-liner form).
 type TDevicePositioningDeclaration struct {
 	DeviceID string
-	// Spec is the "as" clause's own text, verbatim -- "" if "as" was omitted entirely. A bare leaf
-	// path only, no "<sphere>:" prefix (registerDevicePositioning rejects one outright, a device
-	// has no sphere of its own). Fed directly into the same normalizeEntityFullName("device."+Spec,
-	// ...) machinery the old <spec> argument always used; an empty Spec resolves to an empty
-	// leaf/path, same as a device with no compound name ever had.
+	// Spec is a bare leaf path for this device's own identity, "" when there is none. The DSL
+	// grammar itself no longer has any way to author a non-empty Spec (PROJECT.md item 10,
+	// 2026-10-11: the "device <id> as <leaf> with:" clause was removed outright once both real
+	// houses' Conceptual.def no longer used it) -- the only remaining source is
+	// applyColocatedPositioning (device_friendly_name.go), which positions a "colocated"
+	// Logical.def target under a COMPUTED leaf (the anchor's own leaf + the fact's own suffix),
+	// not author-written text. Fed directly into the same normalizeEntityFullName("device."+Spec,
+	// ...) machinery an entity reference uses; an empty Spec resolves to an empty leaf/path, same
+	// as a device with no compound name at all.
 	Spec string
 }
 
-// deviceWithBlockHeaderPattern is "device <device-id> [as <leaf-path>] with:" -- a block header,
-// parser.go's main loop tracks "currently inside this block, for which device-id/deviceNamePath".
-// Group 2 is non-greedy and captures EVERYTHING between "as" and the trailing "with:" as one
-// string, not just one token -- the multi-sphere "as <sphere1>:<path1> <sphere2>:<path2> ..." form
-// (2026-09-24, see deviceSpecLeafPath's own doc comment) is several space-separated tokens.
-var deviceWithBlockHeaderPattern = regexp.MustCompile(`^device\s+(\S+)(?:\s+as\s+(.+?))?\s+with:$`)
+// TDevicePositioningOccurrence is one recorded "device <id> [as ...] with:" occurrence --
+// administration.DevicePositioningOccurrences's own element type. SpacePath is a defensive COPY of
+// administration.SpacePath at the moment this occurrence was seen (the live slice is mutated by
+// every later OpenSpace/CloseSpace as parsing continues, so the occurrence must not alias it).
+// DeviceNamePath is decl.Spec run through deviceSpecLeafPath -- the exact same value parser.go
+// itself threads into every one of this block's own body-line entity dispatches (forDeviceNamePath/
+// oneLinerDeviceNamePath) -- so replaying an implied "node" registration against this occurrence
+// resolves to precisely the same position a manually-written "node" entity would have.
+type TDevicePositioningOccurrence struct {
+	SpacePath      []string
+	DeviceNamePath string
+}
 
-// extractDeviceWithBlockHeader recognises a "device <device-id> [as <leaf-path>] with:" block
-// header.
+// deviceWithBlockHeaderPattern is "device <device-id> with:" -- a block header, parser.go's main
+// loop tracks "currently inside this block, for which device-id".
+var deviceWithBlockHeaderPattern = regexp.MustCompile(`^device\s+(\S+)\s+with:$`)
+
+// extractDeviceWithBlockHeader recognises a "device <device-id> with:" block header.
 func extractDeviceWithBlockHeader(line string) (*TDevicePositioningDeclaration, bool) {
 	matches := deviceWithBlockHeaderPattern.FindStringSubmatch(line)
 	if matches == nil {
 		return nil, false
 	}
-	return &TDevicePositioningDeclaration{DeviceID: matches[1], Spec: matches[2]}, true
+	return &TDevicePositioningDeclaration{DeviceID: matches[1]}, true
 }
 
-// deviceWithOneLinerPattern is "device <device-id> [as <leaf-path>] with <entity-statement>;" --
-// sugar for a single-capability block, skipping the "end;" wrapper. <entity-statement> is captured
-// whole (group 3) and handed to the same bare "entity <spec> [with no_collect];"
+// deviceAtLeafWithBlockHeaderPattern is "device <device-id> at <leaf> with:" (2026-10-15) -- a
+// NARROWLY new, separate mechanism from the "device <id> as <leaf> with:" grammar removed
+// outright 2026-10-11 (PROJECT.md item 10): that one implicitly folded its leaf into EVERY
+// entity line in the block with an explicit sphere-path, with no way to opt out line by line --
+// exactly the blanket behaviour the user had just finished removing. This one is opt-in per
+// line, via "::" (expandDeviceAtLeafDoubleColon, parser.go) -- a plain single ":" spec inside
+// such a block is completely untouched, only an explicit "::" folds in <leaf>. Motivating case:
+// a device-level "trigger <name> when <capability> is '<value>';" declaration
+// (Conceptual_NamedTriggerEntities.go) implies a hidden raw entity with no author-given local
+// path at all -- <leaf> is what that hidden entity's own path uses, matching whatever the
+// pre-existing live entity's own path already was, so migrating a device to "trigger" form
+// doesn't change the HA entity_id this generator's own files reference.
+var deviceAtLeafWithBlockHeaderPattern = regexp.MustCompile(`^device\s+(\S+)\s+at\s+(\S+)\s+with:$`)
+
+// extractDeviceAtLeafWithBlockHeader recognises a "device <device-id> at <leaf> with:" block
+// header, returning the device id and the leaf separately (deviceAtLeafWithBlockHeaderPattern's
+// own doc comment).
+func extractDeviceAtLeafWithBlockHeader(line string) (deviceID, leaf string, ok bool) {
+	matches := deviceAtLeafWithBlockHeaderPattern.FindStringSubmatch(line)
+	if matches == nil {
+		return "", "", false
+	}
+	return matches[1], matches[2], true
+}
+
+// expandDeviceAtLeafDoubleColon folds atLeaf into line's FIRST "::" occurrence, leaving every
+// other colon (including a line with no "::" at all) completely untouched -- the opt-in
+// distinction deviceAtLeafWithBlockHeaderPattern's own doc comment describes. "X::Y" becomes
+// "X:<leaf>/Y"; "X::;" (nothing between "::" and the statement's own trailing punctuation)
+// becomes "X:<leaf>;", not "X:<leaf>/;" -- no stray trailing slash.
+func expandDeviceAtLeafDoubleColon(line, atLeaf string) string {
+	idx := strings.Index(line, "::")
+	if idx < 0 {
+		return line
+	}
+	before := line[:idx+1] // up to and including the FIRST ':' of the pair
+	after := line[idx+2:]
+	if after == "" || after[0] == ';' || after[0] == ' ' {
+		return before + atLeaf + after
+	}
+	return before + atLeaf + "/" + after
+}
+
+// deviceWithOneLinerPattern is "device <device-id> with <entity-statement>;" -- sugar for a
+// single-capability block, skipping the "end;" wrapper. <entity-statement> is captured whole
+// (group 2) and handed to the same bare "entity <spec> [with no_collect];"
 // (forDeviceBareEntityPattern) / "entity <spec> from <capability> [with no_collect];"
 // (forDeviceShorthandPattern) expansion a block's own body line already goes through --
 // Conceptual_DeviceCapabilityEntities.go, unchanged.
-var deviceWithOneLinerPattern = regexp.MustCompile(`^device\s+(\S+)(?:\s+as\s+(.+?))?\s+with\s+(entity\s+.+;)$`)
+var deviceWithOneLinerPattern = regexp.MustCompile(`^device\s+(\S+)\s+with\s+(entity\s+.+;)$`)
 
 // extractDeviceWithOneLiner recognises the one-liner form, returning the positioning declaration
 // plus the single embedded entity statement text (still ending in ";").
@@ -119,7 +173,7 @@ func extractDeviceWithOneLiner(line string) (*TDevicePositioningDeclaration, str
 	if matches == nil {
 		return nil, "", false
 	}
-	return &TDevicePositioningDeclaration{DeviceID: matches[1], Spec: matches[2]}, matches[3], true
+	return &TDevicePositioningDeclaration{DeviceID: matches[1]}, matches[2], true
 }
 
 // registerDevicePositioning resolves decl into administration.DeviceConceptualLinks[decl.DeviceID]:
@@ -132,6 +186,15 @@ func extractDeviceWithOneLiner(line string) (*TDevicePositioningDeclaration, str
 // thread it through this block's own body-line dispatch -- deviceSpecLeafPath("") is "", the "no
 // compound name" case).
 func registerDevicePositioning(administration *TAdministrationState, decl TDevicePositioningDeclaration, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hostDevicesByID map[string]THostDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, commandlineDevicesByID map[string]TCommandlineDevice, localDevicesByID map[string]TLocalDevice, logicalDevicesByID map[string]TLogicalDevice, entitiesPath string, lineNum int) []string {
+	// Recorded for EVERY occurrence, including a later merge below -- this is a count of how many
+	// different spaces decl.DeviceID is positioned in, which applyImpliedNodePositioning
+	// (device_friendly_name.go, PROJECT.md item 8) needs regardless of the identity-level
+	// register-once guard right below.
+	administration.DevicePositioningOccurrences[decl.DeviceID] = append(administration.DevicePositioningOccurrences[decl.DeviceID], TDevicePositioningOccurrence{
+		SpacePath:      append([]string{}, administration.SpacePath...),
+		DeviceNamePath: deviceSpecLeafPath(decl.Spec),
+	})
+
 	// Already established (by an earlier occurrence, anywhere in the file) -- pure re-entry, this
 	// block's own entities are registered by the ordinary per-line dispatch, nothing more to do here.
 	if _, already := administration.DeviceConceptualLinks[decl.DeviceID]; already {
@@ -140,46 +203,21 @@ func registerDevicePositioning(administration *TAdministrationState, decl TDevic
 
 	provenance := fmt.Sprintf("%s:%d → device %s as %q", filepath.Base(entitiesPath), lineNum, decl.DeviceID, decl.Spec)
 
-	// A device has no sphere of its own (confirmed with the user 2026-09-24: entities have spheres,
-	// devices don't) -- a SINGLE lone "as infrastructural:<leaf-path>" is still rejected outright
-	// (redundant: the bare "as <leaf-path>" form already means exactly that), same no-dual-syntax
-	// discipline as every other grammar retirement in this codebase. But a device's LEAF can
-	// legitimately differ PER SPHERE (2026-09-24, a later, different reason than the one above --
-	// see isMultiSphereDeviceNamePath's own doc comment): "as <sphere1>:<path1> <sphere2>:<path2>
-	// ..." (2+ tokens, or a single token naming a sphere other than "infrastructural") IS accepted.
-	for _, tok := range strings.Fields(decl.Spec) {
-		colonIdx := strings.Index(tok, ":")
-		if colonIdx < 0 {
-			continue
-		}
-		sphere := tok[:colonIdx]
-		if !isKnownSphere(sphere) {
-			return []string{fmt.Sprintf("%s: malformed \"as\" clause -- %q names an unknown sphere (must be infrastructural/social/physical)", provenance, tok)}
-		}
-	}
-	if !isMultiSphereDeviceNamePath(decl.Spec) && strings.Contains(decl.Spec, ":") {
-		return []string{fmt.Sprintf("%s: \"as\" no longer accepts a sphere prefix on its own (a device has no sphere of its own) -- use a bare leaf path, e.g. \"as %s\", or pair it with another sphere's own entry if the leaf genuinely differs per sphere", provenance, strings.SplitN(decl.Spec, ":", 2)[1])}
-	}
-
 	// "infrastructural:" is re-inserted here, internally, purely to route through
 	// normalizeEntityFullName's own well-tested EXPLICIT-sphere branch -- a colon-less
 	// "device.<leaf-with-slashes>" (e.g. "device.radiator/aqara_thermostat", every compound leaf)
 	// is textually indistinguishable from isExtensionalEntityReference's "already-resolved
 	// domain.sphere/path" shape, and was being misdetected as one, returned verbatim with no
 	// sphere-defaulting AND no space-context folding at all -- a real bug found live 2026-09-24
-	// migrating both houses off the sphere-prefixed "as" grammar (silently flagged dozens of
-	// same-leaf-different-room devices, e.g. every "radiator/aqara_thermostat", as colliding
-	// identities, and would have collapsed their own "node" entities onto the same name too).
-	// For a multi-sphere spec, the device's own IDENTITY (DisplayName/suggested_area/collision key)
-	// is always the "infrastructural" entry (falling back to whichever entry was written first) --
-	// resolveDeviceNamePathForSphere does exactly this resolution, and is a no-op for the ordinary
-	// single-leaf case. Resolved from decl.Spec directly (not deviceSpecLeafPath's OWN output) --
-	// normalizeEntityFullName's own absolute-path detection needs a leading '/' preserved when
-	// present (e.g. "as /smarty"), which deviceSpecLeafPath deliberately trims for DISPLAY purposes
-	// only (a second real bug found live 2026-09-24 fixing the one above: feeding the ALREADY-
-	// trimmed leaf in here lost that marker, silently folding the enclosing space's own context
-	// into an "absolute" device's identity when it shouldn't be).
-	identityLeaf := resolveDeviceNamePathForSphere(decl.Spec, "infrastructural")
+	// (silently flagged dozens of same-leaf-different-room devices, e.g. every
+	// "radiator/aqara_thermostat", as colliding identities, and would have collapsed their own
+	// "node" entities onto the same name too). decl.Spec is used directly (not deviceSpecLeafPath's
+	// OWN output) -- normalizeEntityFullName's own absolute-path detection needs a leading '/'
+	// preserved when present (e.g. a colocated target's own computed leaf), which deviceSpecLeafPath
+	// deliberately trims for DISPLAY purposes only (a second real bug found live 2026-09-24 fixing
+	// the one above: feeding the ALREADY-trimmed leaf in here lost that marker, silently folding the
+	// enclosing space's own context into an "absolute" device's identity when it shouldn't be).
+	identityLeaf := decl.Spec
 	deviceSpecForIdentity := identityLeaf
 	if deviceSpecForIdentity != "" {
 		deviceSpecForIdentity = "infrastructural:" + deviceSpecForIdentity

@@ -452,7 +452,10 @@ func buildRelayedDiscoveryConfig(entityID, gatewayID string, rawPayload map[stri
 	}
 	domain := entityID[:dotIdx]
 	objectID := entityID[dotIdx+1:]
-	stableID := relayedDiscoveryUniqueID(gatewayID, payload.UniqueID)
+	stableID := link.StableID
+	if stableID == "" {
+		stableID = relayedDiscoveryUniqueID(gatewayID, payload.UniqueID)
+	}
 
 	body = make(map[string]interface{}, len(rawPayload)+4)
 	for k, v := range rawPayload {

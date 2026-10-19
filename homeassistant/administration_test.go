@@ -73,7 +73,7 @@ func captureStdout(t *testing.T, fn func()) string {
 // pipeline would otherwise notice, since each space's own EntityRecordSeenBySpace tracking is scoped
 // per-space and would see two entirely distinct entity names.
 func TestDeviceSourceEntityWarnsOnCrossSpaceConceptualReuse(t *testing.T) {
-	const miniDSL = `device hass.laserjet as laserjet with:
+	const miniDSL = `device hass.laserjet with:
 end;
 space social:living_room with:
   entity sensor.social:living_room/battery as sensor.laserjet_battery from hass.laserjet;
@@ -106,7 +106,7 @@ end;`
 // capabilities of the same device, positioned under two different entities in two different spaces,
 // is exactly the legitimate case item 0b's rule must never flag.
 func TestDeviceSourceEntityNoWarningForDistinctSources(t *testing.T) {
-	const miniDSL = `device hass.laserjet as laserjet with:
+	const miniDSL = `device hass.laserjet with:
 end;
 space social:living_room with:
   entity sensor.social:living_room/battery as sensor.laserjet_battery from hass.laserjet;
@@ -130,6 +130,67 @@ end;`
 
 	if strings.Contains(output, "already used as a different conceptual entity") {
 		t.Fatalf("expected no cross-space reuse warning for two distinct sources, got: %q", output)
+	}
+}
+
+// TestRegisterDiscoveryImpliedEntityWarnsOnDuplicateConceptualLine is the regression test for a
+// real, live, previously-silent case found on Junglinster: utility.fritz_box's own Conceptual.def
+// block declares "entity sensor.infrastructural:gb_received;" (and, separately, "...gb_sent;")
+// TWICE, verbatim -- almost certainly a copy-paste accident. RegisterDiscoveryImpliedEntity's own
+// idempotency guard (administration.go) used to treat any repeat registration of the same entity
+// name as a harmless re-touch of the device's own capability -- the SAME tolerance that
+// legitimately covers a capability resolved once directly and once as a side effect of an absorb/
+// condition reference elsewhere -- so the second registration never even reached
+// EntityRecordsBySpace: neither AppendEntityRecord's own same-space duplicate warning nor
+// validateNoDuplicateFinalEntityIDs ever saw it. Must now warn, naming both real source lines.
+func TestRegisterDiscoveryImpliedEntityWarnsOnDuplicateConceptualLine(t *testing.T) {
+	const miniDSL = `device host.xanadu with:
+  entity sensor.infrastructural:xanadu/cpu/load        from sensor.cpu/load;
+  entity sensor.infrastructural:xanadu/cpu/temperature from sensor.cpu/temperature;
+  entity sensor.infrastructural:xanadu/cpu/load        from sensor.cpu/load;
+end;`
+
+	hostDevicesByID := map[string]THostDevice{
+		"host.xanadu": {DeviceID: "host.xanadu", HostName: "xanadu", IntegrationType: "cpu"},
+	}
+
+	var report strings.Builder
+	output := captureStderr(t, func() {
+		_, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "declared twice in Conceptual.def") || !strings.Contains(output, "load") {
+		t.Fatalf("expected a duplicate-conceptual-line warning naming the repeated capability, got: %q", output)
+	}
+}
+
+// TestRegisterDiscoveryImpliedEntityNoWarningWithoutDuplicateLine is the companion guard test:
+// TestForDeviceBlockRegistersHostsCapabilities' own fixture, with no repeated line at all, must
+// never trip the new duplicate-conceptual-line warning -- confirming the fix is scoped to a real
+// second SOURCE LINE, not to every capability a host device declares.
+func TestRegisterDiscoveryImpliedEntityNoWarningWithoutDuplicateLine(t *testing.T) {
+	const miniDSL = `device host.xanadu with:
+  entity sensor.infrastructural:xanadu/cpu/load        from sensor.cpu/load;
+  entity sensor.infrastructural:xanadu/cpu/temperature from sensor.cpu/temperature;
+end;`
+
+	hostDevicesByID := map[string]THostDevice{
+		"host.xanadu": {DeviceID: "host.xanadu", HostName: "xanadu", IntegrationType: "cpu"},
+	}
+
+	var report strings.Builder
+	output := captureStderr(t, func() {
+		_, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+	})
+
+	if strings.Contains(output, "declared twice in Conceptual.def") {
+		t.Fatalf("expected no duplicate-conceptual-line warning for two distinct capabilities, got: %q", output)
 	}
 }
 

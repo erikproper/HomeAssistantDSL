@@ -60,26 +60,17 @@ var logicalDeviceOneLinerPattern = regexp.MustCompile(`^device\s+(\S+)\s+with\s+
 // until those two forms are actually built (see this file's own header comment).
 var logicalDependencyOnPattern = regexp.MustCompile(`^dependency\s+on\s+(\S+)\s*;\s*$`)
 
+// logicalColocatedPattern is "colocated <device-id> as <leaf>;" (2026-10-07) -- repeatable. <leaf>
+// is mandatory (always written explicitly, never auto-derived from <device-id>'s own domain
+// prefix -- confirmed against the user's own real Vienna edit, "colocated switch.living_room_tv
+// as switch;", before this was built). See TLogicalDevice.Colocated's own doc comment for the full
+// semantics.
+var logicalColocatedPattern = regexp.MustCompile(`^colocated\s+(\S+)\s+as\s+(\S+)\s*;\s*$`)
+
 // logicalSwitchedByPattern matches a device-level "<domain>.<label> is switched by
 // <domain>.<label> from <device-id>;" line (2026-09-27, the "switched_device" migration -- see
 // TLogicalSwitchedByFact's own doc comment and logical_switched_by.go's header comment).
 var logicalSwitchedByPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+is\s+switched\s+by\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+from\s+(\S+)\s*;\s*$`)
-
-// logicalEnabledByPattern matches a device-level "<domain>.<label> enabled by <domain>.<label>
-// from <device-id>;" line (2026-09-28) -- the fuller, LHS-validated generalization that REPLACES
-// the old plain "enabler <device-id>;" shorthand outright (confirmed with the user, not kept
-// alongside it -- appliance.tv_living_room's own live site migrated to this form in the same
-// round). Reads "enabled by" (no "is") -- trimmed the same day, the user's own call: it reads
-// better directly after "with:" than "is enabled by" does -- see TLogicalEnabledByFact's own doc
-// comment for the full semantics.
-var logicalEnabledByPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+enabled\s+by\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+from\s+(\S+)\s*;\s*$`)
-
-// logicalDeviceDelayOffPattern matches a device-level "delay_off <time>;" line (2026-09-28) --
-// carried into the "enabler"/"enabled by" sugar's own synthesized "node" capability
-// (TLogicalDevice.NodeDelayOff's own doc comment) so a device needing a debounce (e.g. Vienna's own
-// appliance.tv) doesn't have to fall back to the full hand-written "derived binary_sensor.node
-// with: ... end;" longhand just to keep it.
-var logicalDeviceDelayOffPattern = regexp.MustCompile(`^delay_off\s+(\S+)\s*;\s*$`)
 
 // logicalDeviceBodyStatements is the SHARED (2026-09-28, the generic with-clause dispatcher,
 // with_clause.go) list of every recognised single-statement form for a device's own "with: ...
@@ -92,19 +83,6 @@ var logicalDeviceDelayOffPattern = regexp.MustCompile(`^delay_off\s+(\S+)\s*;\s*
 // than assigning a single property, a genuinely different shape.
 var logicalDeviceBodyStatements = []TWithClauseStatement[TLogicalDevice]{
 	{
-		Pattern: logicalEnabledByPattern,
-		Apply: func(dev TLogicalDevice, m []string) TLogicalDevice {
-			dev.EnabledBy = &TLogicalEnabledByFact{
-				OwnDomain:      m[1],
-				OwnLabel:       m[2],
-				SourceDomain:   m[3],
-				SourceLabel:    m[4],
-				SourceDeviceID: m[5],
-			}
-			return dev
-		},
-	},
-	{
 		Pattern: logicalSwitchedByPattern,
 		Apply: func(dev TLogicalDevice, m []string) TLogicalDevice {
 			if dev.SwitchedBy == nil {
@@ -116,13 +94,6 @@ var logicalDeviceBodyStatements = []TWithClauseStatement[TLogicalDevice]{
 				SourceLabel:    m[4],
 				SourceDeviceID: m[5],
 			}
-			return dev
-		},
-	},
-	{
-		Pattern: logicalDeviceDelayOffPattern,
-		Apply: func(dev TLogicalDevice, m []string) TLogicalDevice {
-			dev.NodeDelayOff = m[1]
 			return dev
 		},
 	},
@@ -141,35 +112,55 @@ var logicalDeviceBodyStatements = []TWithClauseStatement[TLogicalDevice]{
 // (normalizeEntityFullName/namingSpacePath) -- confirmed harmless everywhere the old colon form
 // was purely vestigial (Vienna's vacuum device block had it trailing an already-complete path for
 // no semantic reason at all, silently absorbed by the path-trimming logic). The old
-// "domain.label: value;" form is no longer accepted at all.
-var logicalCapabilityPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+(.+?)\s*;\s*$`)
+// "domain.label: value;" form is no longer accepted at all. Requires the explicit "capability"
+// keyword (PROJECT.md item 11b, 2026-10-11) -- see discoveryCapabilityPattern's own doc comment
+// for the general rationale.
+var logicalCapabilityPattern = regexp.MustCompile(`^capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+(.+?)\s*;\s*$`)
 
-// logicalAbsorbBlockPattern opens a device's own "capabilities from <device-id>: ... end;" block
+// logicalAbsorbBlockPattern opens a device's own "absorb from <device-id>: ... end;" block
 // (2026-09-18, the "absorb" operation -- memory/project_logical_layer_device_combining.md) -- the
 // one nested block inside a "device <id> with: ... end;" declaration today, alongside the defined/
-// derived block-openers below. Body lines are "<domain>.<label>: <bare-capability>;"
+// derived block-openers below. Body lines are "capability <domain>.<label>: <bare-capability>;"
 // (logicalCapabilityPattern's own shape reused verbatim -- same "<domain>.<label>: <value>;" text
 // shape, just interpreted differently: the RHS is a bare capability reference on <device-id>, not a
-// literal entity_id). No "enabler" line here -- an absorbed device's own switch acting as an
-// enabler of the HOST device's overall availability is expressed via the device-level "enabled
-// by"/"dependency on" sugar instead (see TLogicalCapability.AbsorbedFromDeviceID's own doc comment
-// for why).
-var logicalAbsorbBlockPattern = regexp.MustCompile(`^capabilities\s+from\s+(\S+):\s*$`)
+// literal entity_id). An absorbed device's own switch acting as an enabler of the HOST device's
+// overall availability is just an ordinary absorbed "capability switch.enabler <capability>;" line
+// here, paired with an explicit "derived capability binary_sensor.node with: condition ... or jinja
+// \"$[switch.enabler] == 'off'\"; end;" block declared alongside it (see
+// TLogicalCapability.AbsorbedFromDeviceID's own doc comment for why) -- PROJECT.md item 11a,
+// 2026-10-11: the "enabled by"/device-level "delay_off" sugar that used to synthesize both of
+// these automatically was removed once both houses' real Logical.def spelled every such device out
+// explicitly instead (logical_enabler_dependency_sugar.go, now deleted).
+//
+// Renamed from "capabilities from" (PROJECT.md item 11b, 2026-10-11, both houses rewritten
+// wholesale and verified byte-identical on regenerate) -- "absorb" is this mechanism's own
+// already-established internal name everywhere else in the codebase (TLogicalCapability.
+// AbsorbedFromDeviceID/AbsorbedFromCapability, this file's own doc comments calling it "the
+// absorb operation"), and avoids colliding in spirit with the UNRELATED, pre-existing "with
+// no_collect" Conceptual.def modifier (a different layer, different meaning) the way a
+// "collect from" rename would have.
+var logicalAbsorbBlockPattern = regexp.MustCompile(`^absorb\s+from\s+(\S+):\s*$`)
 
 // logicalAbsorbBareCapabilityPattern is a shorthand for the absorb block's own
-// "<domain>.<label>: <bare-capability>;" line (2026-09-19): "<domain>.<label>;" with no ":<value>"
-// at all, when the absorbed device's own capability name is IDENTICAL to <label> -- e.g.
-// "switch.core;" instead of "switch.core: switch.core;". A rename (label differs from the
-// absorbed device's own capability name) still requires the explicit ":<value>" form; this
-// pattern doesn't match a line that has one, so there's no ambiguity between the two shapes.
-var logicalAbsorbBareCapabilityPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s*;\s*$`)
+// "capability <domain>.<label>: <bare-capability>;" line (2026-09-19): "capability
+// <domain>.<label>;" with no ":<value>" at all, when the absorbed device's own capability name is
+// IDENTICAL to <label> -- e.g. "capability switch.core;" instead of "capability switch.core:
+// switch.core;". A rename (label differs from the absorbed device's own capability name) still
+// requires the explicit ":<value>" form; this pattern doesn't match a line that has one, so
+// there's no ambiguity between the two shapes. Requires the explicit "capability" keyword
+// (PROJECT.md item 11b, 2026-10-11) -- see discoveryCapabilityPattern's own doc comment for the
+// general rationale.
+var logicalAbsorbBareCapabilityPattern = regexp.MustCompile(`^capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s*;\s*$`)
 
-// logicalDefinedBlockPattern opens a device's own "defined <domain>.<label> with: minimum <val>;
-// maximum <val>; step <val>; icon <val>; units <val>; end;" block (2026-09-18) -- declares an HA
-// input_number HELPER entity (see TLogicalCapability.IsDefinedInputNumber's own doc comment). A
-// THIRD kind of nested block inside "device <id> with: ... end;", alongside a capability's own
-// "with:" block and an absorb block, never nested inside either.
-var logicalDefinedBlockPattern = regexp.MustCompile(`^defined\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+with:\s*$`)
+// logicalDefinedBlockPattern opens a device's own "defined capability <domain>.<label> with:
+// minimum <val>; maximum <val>; step <val>; icon <val>; units <val>; end;" block (2026-09-18) --
+// declares an HA input_number HELPER entity (see TLogicalCapability.IsDefinedInputNumber's own
+// doc comment). A THIRD kind of nested block inside "device <id> with: ... end;", alongside a
+// capability's own "with:" block and an absorb block, never nested inside either. The explicit
+// "capability" keyword (PROJECT.md item 11b, 2026-10-11) goes right after "defined" -- the whole
+// line already declares a new capability, no less than a bare one-liner does, so it gets the same
+// keyword, just inserted after the leading structural word instead of at the very front.
+var logicalDefinedBlockPattern = regexp.MustCompile(`^defined\s+capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+with:\s*$`)
 
 // logicalDefinedFieldStatements is logicalCapabilityBodyStatements' own sibling (with_clause.go's
 // shared dispatcher, 2026-09-27) for a "defined <domain>.<label> with: ... end;" block's five body
@@ -202,15 +193,20 @@ var logicalDefinedFieldStatements = []TWithClauseStatement[TLogicalCapability]{
 }
 
 // logicalDefinedOneLinerPattern is logicalDefinedBlockPattern's own single-statement shorthand,
-// matching every other with-clause consumer's own block/one-liner pair.
-var logicalDefinedOneLinerPattern = regexp.MustCompile(`^defined\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+with\s+(.+?)\s*;\s*$`)
+// matching every other with-clause consumer's own block/one-liner pair. Same "capability" keyword
+// placement as the block form (PROJECT.md item 11b, 2026-10-11) -- no real usage in either house
+// today, but kept consistent regardless.
+var logicalDefinedOneLinerPattern = regexp.MustCompile(`^defined\s+capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+with\s+(.+?)\s*;\s*$`)
 
-// logicalDerivedBlockPattern opens a device's own "derived <domain>.<label> with: condition
-// <bool-expr>; device_class <val>; delay_on <time>; delay_off <time>; end;" (or "value <atom>;"
-// for a non-"binary_sensor" domain) block (2026-09-18, grammar redesigned 2026-09-24) -- see
-// TLogicalCapability.IsDerivedCondition/IsDerivedValue's own doc comment. A FOURTH kind of nested
-// block inside "device <id> with: ... end;".
-var logicalDerivedBlockPattern = regexp.MustCompile(`^derived\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+with:\s*$`)
+// logicalDerivedBlockPattern opens a device's own "derived capability <domain>.<label> with:
+// condition <bool-expr>; device_class <val>; delay_on <time>; delay_off <time>; end;" (or "value
+// <atom>;" for a non-"binary_sensor" domain) block (2026-09-18, grammar redesigned 2026-09-24) --
+// see TLogicalCapability.IsDerivedCondition/IsDerivedValue's own doc comment. A FOURTH kind of
+// nested block inside "device <id> with: ... end;". The explicit "capability" keyword (PROJECT.md
+// item 11b, 2026-10-11) goes right after "derived", mirroring logicalDefinedBlockPattern's own
+// placement and Physical.def's identical "derived capability ... from ... via ...;"/"derived
+// capability ... with condition ...;" one-liner forms (Physical_DerivedCapability.go).
+var logicalDerivedBlockPattern = regexp.MustCompile(`^derived\s+capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+with:\s*$`)
 
 // logicalDerivedFieldPattern matches one of a "derived" block's OWN non-"condition"/"value" body
 // lines -- device_class/delay_on/delay_off, any subset, any order.
@@ -403,7 +399,7 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 				}
 				continue
 			}
-			warnings = append(warnings, fmt.Sprintf("Logical.def: unrecognised line inside device %q's \"capabilities from %q\" block (body line %d): %q", current.DeviceID, currentAbsorbDeviceID, lineIdx+1, line))
+			warnings = append(warnings, fmt.Sprintf("Logical.def: unrecognised line inside device %q's \"absorb from %q\" block (body line %d): %q", current.DeviceID, currentAbsorbDeviceID, lineIdx+1, line))
 			continue
 		}
 
@@ -415,6 +411,10 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 			}
 			if matches := logicalDependencyOnPattern.FindStringSubmatch(line); matches != nil {
 				current.DependsOn = append(current.DependsOn, matches[1])
+				continue
+			}
+			if matches := logicalColocatedPattern.FindStringSubmatch(line); matches != nil {
+				current.Colocated = append(current.Colocated, TLogicalColocatedFact{DeviceID: matches[1], LeafSuffix: matches[2]})
 				continue
 			}
 			if updated, ok := ApplyWithClauseBodyLine(current, line, logicalDeviceBodyStatements); ok {
@@ -468,12 +468,15 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 			switch {
 			case logicalDependencyOnPattern.MatchString(body):
 				dev.DependsOn = append(dev.DependsOn, logicalDependencyOnPattern.FindStringSubmatch(body)[1])
+			case logicalColocatedPattern.MatchString(body):
+				m := logicalColocatedPattern.FindStringSubmatch(body)
+				dev.Colocated = append(dev.Colocated, TLogicalColocatedFact{DeviceID: m[1], LeafSuffix: m[2]})
 			default:
 				if updated, ok := ApplyWithClauseBodyLine(dev, body, logicalDeviceBodyStatements); ok {
 					dev = updated
 					break
 				}
-				warnings = append(warnings, fmt.Sprintf("Logical.def: device %q's one-line \"with %s\" body isn't a recognised single-statement form -- only \"dependency on <id>;\", \"<domain>.<label> enabled by ...;\", \"<domain>.<label> is switched by ...;\", or \"delay_off <time>;\" may be shortened this way (body line %d)", deviceID, body, lineIdx+1))
+				warnings = append(warnings, fmt.Sprintf("Logical.def: device %q's one-line \"with %s\" body isn't a recognised single-statement form -- only \"dependency on <id>;\", \"colocated <id> as <leaf>;\", or \"<domain>.<label> is switched by ...;\" may be shortened this way (body line %d)", deviceID, body, lineIdx+1))
 				continue
 			}
 			devices = append(devices, dev)

@@ -6,21 +6,6 @@ import (
 )
 
 func TestExtractDeviceWithBlockHeader(t *testing.T) {
-	decl, ok := extractDeviceWithBlockHeader("device host.xanadu as xanadu with:")
-	if !ok {
-		t.Fatalf("expected the header to match")
-	}
-	if decl.Spec != "xanadu" || decl.DeviceID != "host.xanadu" {
-		t.Fatalf("got %+v", decl)
-	}
-	if _, ok := extractDeviceWithBlockHeader("device host.xanadu as xanadu;"); ok {
-		t.Errorf("expected no match for a line with no \"with:\" at all")
-	}
-}
-
-// TestExtractDeviceWithBlockHeaderNoAs confirms "as" is optional -- Spec is empty, matching a
-// device positioned with no compound name of its own.
-func TestExtractDeviceWithBlockHeaderNoAs(t *testing.T) {
 	decl, ok := extractDeviceWithBlockHeader("device switches.server_room_zwave_054 with:")
 	if !ok {
 		t.Fatalf("expected the header to match")
@@ -28,26 +13,13 @@ func TestExtractDeviceWithBlockHeaderNoAs(t *testing.T) {
 	if decl.Spec != "" || decl.DeviceID != "switches.server_room_zwave_054" {
 		t.Fatalf("got %+v, want empty Spec and the bare device-id", decl)
 	}
+	if _, ok := extractDeviceWithBlockHeader("device switches.server_room_zwave_054;"); ok {
+		t.Errorf("expected no match for a line with no \"with:\" at all")
+	}
 }
 
-// TestExtractDeviceWithOneLiner covers the "with <entity-statement>;" sugar (2026-09-24), including
-// the compound "as" leaf path from the user's own real example (node 67's own infrastructural
-// identity).
+// TestExtractDeviceWithOneLiner covers the shortest real example from the user's own request.
 func TestExtractDeviceWithOneLiner(t *testing.T) {
-	decl, entity, ok := extractDeviceWithOneLiner("device switches.garage_fuse_cabinet_zwave_067 as fuse_cabinet/zwave/067 with entity binary_sensor.infrastructural:node;")
-	if !ok {
-		t.Fatalf("expected the one-liner to match")
-	}
-	if decl.DeviceID != "switches.garage_fuse_cabinet_zwave_067" || decl.Spec != "fuse_cabinet/zwave/067" {
-		t.Fatalf("got decl=%+v", decl)
-	}
-	if entity != "entity binary_sensor.infrastructural:node;" {
-		t.Errorf("entity = %q, want the embedded entity statement verbatim", entity)
-	}
-}
-
-// TestExtractDeviceWithOneLinerNoAs covers the shortest real example from the user's own request.
-func TestExtractDeviceWithOneLinerNoAs(t *testing.T) {
 	decl, entity, ok := extractDeviceWithOneLiner("device switches.garage_fuse_cabinet_zwave_067 with entity binary_sensor.infrastructural:fuse_cabinet/zwave/067/node;")
 	if !ok {
 		t.Fatalf("expected the one-liner to match")
@@ -65,13 +37,13 @@ func TestExtractDeviceWithOneLinerNoAs(t *testing.T) {
 
 // TestRegisterDevicePositioningIsIdempotentAcrossThreeOccurrences is the core regression test for
 // the 2026-09-24 register-once-merge-repeatedly redesign: the SAME device-id positioned via THREE
-// separate "device <id> [as ...] with:" blocks (two contributing entities in different spaces, one
+// separate "device <id> with:" blocks (two contributing entities in different spaces, one
 // establishing the device's own infrastructural identity) -- mirroring the real Z-Wave node
 // 54/55 shape this session's own migrations needed. No "already positioned" warning, and the FIRST
-// occurrence's own "as" leaf (not the later ones') determines DisplayName.
+// occurrence's own space (not the later ones') determines DisplayName.
 func TestRegisterDevicePositioningIsIdempotentAcrossThreeOccurrences(t *testing.T) {
 	const dsl = `space social:front as area with:
-  device switches.zwave_054 as ring with:
+  device switches.zwave_054 with:
     entity switch.social:main from switch.core_1;
   end;
 end;
@@ -82,7 +54,7 @@ space social:rear with:
   end;
 end;
 
-device switches.zwave_054 as fuse_cabinet/zwave/054 with entity binary_sensor.infrastructural:node;`
+device switches.zwave_054 with entity binary_sensor.infrastructural:node;`
 
 	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
 		"switches.zwave_054": {
@@ -110,10 +82,10 @@ device switches.zwave_054 as fuse_cabinet/zwave/054 with entity binary_sensor.in
 	if !ok {
 		t.Fatalf("expected a DeviceConceptualLinks entry for switches.zwave_054")
 	}
-	// DisplayName comes from the FIRST occurrence's own "as ring" (space "front", "as area"), not
-	// the third occurrence's "as fuse_cabinet/zwave/054".
-	if link.DisplayName != "front/ring" {
-		t.Errorf("DisplayName = %q, want %q (from the FIRST occurrence only)", link.DisplayName, "front/ring")
+	// DisplayName comes from the FIRST occurrence's own space ("front", "as area"), not the later
+	// ones -- fixUpDisplayNameFromNode's own node-derived re-fix only applies to a SINGLE occurrence.
+	if link.DisplayName != "front" {
+		t.Errorf("DisplayName = %q, want %q (from the FIRST occurrence only)", link.DisplayName, "front")
 	}
 	// Discovery-kind capabilities never populate DeviceConceptualLinks.AttributeEntityIDs (that's a
 	// hosts/hassbridge/import-only mechanism, see TestDiscoveryDeviceKeepsOwnPhysicalPositioningWhenGainingLogicalCapabilities's
@@ -121,9 +93,9 @@ device switches.zwave_054 as fuse_cabinet/zwave/054 with entity binary_sensor.in
 	// entity_id. Confirm all three blocks' own capabilities resolved against the SAME gateway
 	// device, which is what "register-once-merge-repeatedly" actually needs to guarantee here.
 	wantLeafByGatewayEntity := map[string]string{
-		"switch.social_front_ring_main":                             "054-37-1-currentValue",
-		"switch.social_rear_rear":                                   "054-37-2-currentValue",
-		"binary_sensor.infrastructural_fuse_cabinet_zwave_054_node": "054-37-1-currentValue",
+		"switch.social_front_main":           "054-37-1-currentValue",
+		"switch.social_rear_rear":            "054-37-2-currentValue",
+		"binary_sensor.infrastructural_node": "054-37-1-currentValue",
 	}
 	for entityID, wantLeaf := range wantLeafByGatewayEntity {
 		discLink, ok := admin.DiscoveryEntityLinks[entityID]
@@ -145,17 +117,17 @@ device switches.zwave_054 as fuse_cabinet/zwave/054 with entity binary_sensor.in
 
 // TestRegisterDevicePositioningOrderIndependent mirrors the pre-2026-09-24
 // TestDeviceFromOnlyBlockIsOrderIndependent: declaration order within the file must never matter,
-// including when the block carrying the device's own "as" leaf comes LAST.
+// including when the block carrying the device's own "node" reference comes LAST.
 func TestRegisterDevicePositioningOrderIndependent(t *testing.T) {
 	const dsl = `device hass.multiswitch with:
-  entity light.social::carport from light.core_1;
+  entity light.social:carport from light.core_1;
 end;
 
 device hass.multiswitch with:
-  entity light.social::main from light.core_2;
+  entity light.social:main from light.core_2;
 end;
 
-device hass.multiswitch as multiswitch with entity binary_sensor.infrastructural:node;`
+device hass.multiswitch with entity binary_sensor.infrastructural:node;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.multiswitch": {DeviceID: "hass.multiswitch", Instances: []string{"main"}, Capabilities: map[string]THassBridgeCapability{
@@ -177,7 +149,7 @@ device hass.multiswitch as multiswitch with entity binary_sensor.infrastructural
 	}
 	for _, want := range []string{"core_1", "core_2", "node"} {
 		if _, ok := link.AttributeEntityIDs[want]; !ok {
-			t.Errorf("AttributeEntityIDs missing %q -- a block before the \"as\"-carrying one never resolved", want)
+			t.Errorf("AttributeEntityIDs missing %q -- a block before the \"node\"-carrying one never resolved", want)
 		}
 	}
 }
@@ -186,7 +158,7 @@ device hass.multiswitch as multiswitch with entity binary_sensor.infrastructural
 // found live 2026-09-10: a "commandline" integration device with no sibling "hosts"/"home_assistant"
 // device sharing its DeviceID had no way to ever get positioned at all.
 func TestRegisterDevicePositioningForStandaloneCommandlineDevice(t *testing.T) {
-	const dsl = `device appliance.picture_frame as picture_frame with:
+	const dsl = `device appliance.picture_frame with:
   entity switch.social:picture_frame from switch.slideshow;
 end;`
 
@@ -227,10 +199,10 @@ end;`
 // separate "device ... with entity ...;" one-liner, for a "hosts" device -- including "node"
 // itself, now an explicit reference like any other capability (2026-09-24).
 func TestDeviceWithBlockMatchesTwoStatementFormForHosts(t *testing.T) {
-	const separateLinesDSL = `device host.xanadu as xanadu with entity binary_sensor.infrastructural:node;
+	const separateLinesDSL = `device host.xanadu with entity binary_sensor.infrastructural:node;
 entity sensor.infrastructural:xanadu/cpu/load        from host.xanadu sensor.load;
 entity sensor.infrastructural:xanadu/cpu/temperature from host.xanadu sensor.temperature;`
-	const mergedDSL = `device host.xanadu as xanadu with:
+	const mergedDSL = `device host.xanadu with:
   entity binary_sensor.infrastructural:node;
   entity sensor.infrastructural:xanadu/cpu/load        from load;
   entity sensor.infrastructural:xanadu/cpu/temperature from temperature;
@@ -337,16 +309,17 @@ func TestRegisterDevicePositioningExplicitSuggestedAreaWinsOverEnclosingArea(t *
 
 // TestRegisterDevicePositioningWarnsOnEntityCollisionBetweenTwoDeviceIDs is the regression test for
 // a real bug found live 2026-09-24 (Junglinster): "node.laserjet" and "utility.laserjet" -- two
-// entirely different device ids -- were both positioned "as laserjet", silently producing two
-// colliding "node" entities with no warning at all. Originally fixed with a position-level check
-// (DeviceIdentityOwner) that hard-rejected any two devices sharing a position outright; that turned
-// out to be a real false positive (2026-09-25, Vienna: two Aqara sensors legitimately "weaving" onto
-// the same conceptual position with no actual entity overlap) and was replaced with this precise,
-// entity-level check in RegisterDiscoveryImpliedEntity -- sharing a position is fine, only an actual
-// colliding final entity_id is warned about, and the warning names that entity plus both devices.
+// entirely different device ids -- were both positioned at the SAME bare conceptual position,
+// silently producing two colliding "node" entities with no warning at all. Originally fixed with a
+// position-level check (DeviceIdentityOwner) that hard-rejected any two devices sharing a position
+// outright; that turned out to be a real false positive (2026-09-25, Vienna: two Aqara sensors
+// legitimately "weaving" onto the same conceptual position with no actual entity overlap) and was
+// replaced with this precise, entity-level check in RegisterDiscoveryImpliedEntity -- sharing a
+// position is fine, only an actual colliding final entity_id is warned about, and the warning
+// names that entity plus both devices.
 func TestRegisterDevicePositioningWarnsOnEntityCollisionBetweenTwoDeviceIDs(t *testing.T) {
-	const dsl = `device node.laserjet as laserjet with entity binary_sensor.infrastructural:node;
-device utility.laserjet as laserjet with entity binary_sensor.infrastructural:node;`
+	const dsl = `device node.laserjet with entity binary_sensor.infrastructural:node;
+device utility.laserjet with entity binary_sensor.infrastructural:node;`
 
 	hostDevicesByID := map[string]THostDevice{
 		"node.laserjet": {DeviceID: "node.laserjet", HostName: "laserjet", IntegrationType: "ping"},
@@ -366,7 +339,7 @@ device utility.laserjet as laserjet with entity binary_sensor.infrastructural:no
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	if !strings.Contains(stderr, `entity`) || !strings.Contains(stderr, `"node.laserjet"`) || !strings.Contains(stderr, `"utility.laserjet"`) || !strings.Contains(stderr, "laserjet/node") {
+	if !strings.Contains(stderr, `entity`) || !strings.Contains(stderr, `"node.laserjet"`) || !strings.Contains(stderr, `"utility.laserjet"`) || !strings.Contains(stderr, "infrastructural/node") {
 		t.Errorf("expected a warning naming the actual colliding entity and both devices, got stderr: %s", stderr)
 	}
 	// Weaving two devices onto the same position is legal on its own -- BOTH still get their own
@@ -389,84 +362,4 @@ func TestRegisterDevicePositioningUnknownDeviceWarns(t *testing.T) {
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "hass.ghost") {
 		t.Fatalf("warnings = %v, want exactly one naming the unknown device", warnings)
 	}
-}
-
-// TestRegisterDevicePositioningRejectsLoneInfrastructuralSpherePrefix is the regression test for
-// the 2026-09-24 grammar restriction: a SINGLE "as infrastructural:<leaf>" clause is redundant (a
-// device has no sphere of its own in the single-sphere case) and must be rejected, forcing the bare
-// "as <leaf>" form instead -- distinct from the multi-sphere form (tested below), which IS accepted.
-func TestRegisterDevicePositioningRejectsLoneInfrastructuralSpherePrefix(t *testing.T) {
-	administration := newAdministrationState()
-	hostDevicesByID := map[string]THostDevice{"host.x": {DeviceID: "host.x", HostName: "x", IntegrationType: "cpu"}}
-	decl := TDevicePositioningDeclaration{Spec: "infrastructural:x", DeviceID: "host.x"}
-
-	warnings := registerDevicePositioning(administration, decl, nil, hostDevicesByID, nil, nil, nil, nil, nil, "test.def", 1)
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "no longer accepts a sphere prefix on its own") {
-		t.Fatalf("warnings = %v, want exactly one rejecting the lone infrastructural prefix", warnings)
-	}
-}
-
-// TestRegisterDevicePositioningMultiSphereLeafPerEntitySphere covers the 2026-09-24 multi-sphere
-// "as" clause (isMultiSphereDeviceNamePath/resolveDeviceNamePathForSphere,
-// Conceptual_DeviceEntities.go): a device's own leaf can differ PER ENTITY SPHERE, motivated by the
-// real "frient" precedent -- a brand-qualifying suffix useful for "infrastructural" grouping but
-// irrelevant (and undesirable) in a "physical"/"social" reading's own name. A discovery-kind device
-// (the real-world case) with "as physical:front infrastructural:front/frient": the physical-sphere
-// "motion"/"illuminance" capabilities must resolve under the plain "front" leaf, while the
-// infrastructural-sphere "battery_level" capability keeps the full "front/frient" leaf.
-func TestRegisterDevicePositioningMultiSphereLeafPerEntitySphere(t *testing.T) {
-	const miniDSL = `space social:terrace with:
-  device sensors.terrace_frient as physical:front infrastructural:front/frient with:
-    entity binary_sensor.physical:motion from binary_sensor.core;
-    entity sensor.physical:illuminance from sensor.illuminance;
-    entity sensor.infrastructural:battery_level from sensor.battery_level;
-  end;
-end;`
-
-	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
-		"sensors.terrace_frient": {
-			DeviceID:    "sensors.terrace_frient",
-			Identifiers: []string{"zigbee2mqtt_0xdeadbeef"},
-			Capabilities: map[string]TDiscoveryCapability{
-				"core":          {Domain: "binary_sensor", Leaf: "0xdeadbeef_occupancy_zigbee2mqtt"},
-				"illuminance":   {Domain: "sensor", Leaf: "0xdeadbeef_illuminance_zigbee2mqtt"},
-				"battery_level": {Domain: "sensor", Leaf: "0xdeadbeef_battery_zigbee2mqtt"},
-			},
-		},
-	}
-
-	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-	admin := result.Administration
-
-	for label, wantEntityID := range map[string]string{
-		"motion":        "binary_sensor.physical_terrace_front_motion",
-		"illuminance":   "sensor.physical_terrace_front_illuminance",
-		"battery_level": "sensor.infrastructural_terrace_front_frient_battery_level",
-	} {
-		if _, ok := admin.DiscoveryEntityLinks[wantEntityID]; !ok {
-			t.Errorf("%s: expected DiscoveryEntityLinks[%q] to exist, got keys %v", label, wantEntityID, discoveryEntityLinkKeys(admin))
-		}
-	}
-
-	// The device's own identity (DisplayName/collision key) must come from the "infrastructural"
-	// entry, not the "physical" one.
-	link, ok := admin.DeviceConceptualLinks["sensors.terrace_frient"]
-	if !ok {
-		t.Fatalf("expected DeviceConceptualLinks[sensors.terrace_frient] to be populated")
-	}
-	if link.DisplayName != "terrace/front/frient" {
-		t.Errorf("DisplayName = %q, want %q", link.DisplayName, "terrace/front/frient")
-	}
-}
-
-func discoveryEntityLinkKeys(admin *TAdministrationState) []string {
-	keys := make([]string, 0, len(admin.DiscoveryEntityLinks))
-	for k := range admin.DiscoveryEntityLinks {
-		keys = append(keys, k)
-	}
-	return keys
 }

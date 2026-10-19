@@ -139,16 +139,15 @@ var forDeviceBareEntityPattern = regexp.MustCompile(`^entity\s+(\S+?)(?:\s+with\
 //
 // Only the LAST ":"-separated segment of the leaf path is used as the inferred capability
 // (2026-09-19 fix, generalised 2026-09-21): deviceSpecLeafPath only ever strips up to the FIRST
-// colon, so a spec using either "sphere::path" (empty leaf-override, hasDeviceLeafOverride,
-// Conceptual_DeviceEntities.go) -- e.g. "binary_sensor.social::daylight" -- or "sphere:leaf:path"
-// (explicit replacement leaf) -- e.g. "sensor.social:terrace:pressure" -- would otherwise infer a
-// capability name still carrying the leftover colon-separated segment(s) (":daylight" or
-// "terrace:pressure"), which can never match a real Physical.def/Logical.def capability name (a
-// bare label, never colon- or slash-containing). The reconstructed "entity <spec> from ...;" line
-// still passes the ORIGINAL spec (with its colons intact) through unchanged, so the naming
-// resolution itself is unaffected -- only the inferred capability name needed the fix. Real bugs
-// found live: 2026-09-19 (Vienna's daylight entity, double-colon form), 2026-09-21
-// (environment.weather's pressure capability, explicit-leaf-override form).
+// colon, so a multi-segment colon path (normalizeEntityFullName's general "every remaining colon
+// becomes a '/' separator" sugar, expander.go) -- e.g. "sensor.social:terrace:pressure", meaning
+// path "terrace/pressure" -- would otherwise infer a capability name still carrying the leftover
+// colon-separated segment ("terrace:pressure"), which can never match a real Physical.def/
+// Logical.def capability name (a bare label, never colon- or slash-containing). The reconstructed
+// "entity <spec> from ...;" line still passes the ORIGINAL spec (with its colons intact) through
+// unchanged, so the naming resolution itself is unaffected -- only the inferred capability name
+// needed the fix. Real bugs found live: 2026-09-19 (Vienna's daylight entity), 2026-09-21
+// (environment.weather's pressure capability).
 func expandForDeviceBareEntityLine(line, deviceID string) (string, bool) {
 	matches := forDeviceBareEntityPattern.FindStringSubmatch(line)
 	if matches == nil {
@@ -242,6 +241,16 @@ func deviceHasCapability(capName, deviceID string, discoveryGatewaysByID map[str
 		}
 	}
 	if device, ok := commandlineDevicesByID[deviceID]; ok {
+		// "node" mirrors the "hosts" branch's own exact exception above: a commandline device's
+		// node is LWT-based, synthesized by the coordinator (house_event_bus_coordinator/
+		// discoverycommandline.go's own unconditional "_commandline_node" entity), never a literal
+		// Physical.def-declared Capabilities map entry (2026-10-12, PROJECT.md item 11c: giving
+		// commandline devices a real, positionable "node" capability, replacing the Logical.def-only
+		// "derived capability binary_sensor.node with: condition node.X; end;" indirection that used
+		// to merely borrow another device's own node position instead of exposing this one).
+		if capName == "node" {
+			return true
+		}
 		if _, ok := device.Capabilities[capName]; ok {
 			return true
 		}
@@ -293,6 +302,11 @@ func lookupCapabilityDomain(capName, deviceID string, discoveryGatewaysByID map[
 		}
 	}
 	if device, ok := commandlineDevicesByID[deviceID]; ok {
+		// "node" mirrors the "hosts" branch's own mat.NodeDomain special case above -- see
+		// deviceHasCapability's identical commandline "node" case for the full rationale.
+		if capName == "node" {
+			return "binary_sensor", true
+		}
 		if cap, ok := device.Capabilities[capName]; ok {
 			return cap.Kind, true
 		}
@@ -384,6 +398,19 @@ func registerDeviceCapabilityEntityLinkAllowingHidden(administration *TAdministr
 		return warnings, deferred
 	}
 
+	// Record the device's own "node" positioning uniformly, regardless of which of Core's several
+	// branches actually handled it (see TAdministrationState.DeviceNodeEntityID's own doc comment
+	// for why this single choke point, not each branch's own storage shape, is the only reliable
+	// place to do this). fullName is recomputed the exact same way every one of those branches
+	// already computes it internally (resolveDeviceEntityFullName(decl.LocalSpec,
+	// administration.SpacePath, deviceNamePath) -> toHomeAssistantEntityID), so this always agrees
+	// with whatever entity_id Core itself just registered.
+	if bareName == "node" {
+		if entityID := toHomeAssistantEntityID(resolveDeviceEntityFullName(decl.LocalSpec, administration.SpacePath, deviceNamePath)); entityID != "" {
+			administration.DeviceNodeEntityID[decl.DeviceID] = entityID
+		}
+	}
+
 	extraWarnings, extraDeferred := maybeRegisterSwitchedByRelation(administration, decl, bareName, deviceNamePath, logicalDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, hostDevicesByID, localDevicesByID, finalAttempt, entitiesPath, lineNum)
 	return append(warnings, extraWarnings...), extraDeferred
 }
@@ -464,7 +491,24 @@ func registerDeviceCapabilityEntityLinkAllowingHiddenCore(administration *TAdmin
 	// other branch) is required for that dual-kind case to keep working for its own non-commandline
 	// capabilities (e.g. "load"/"temperature").
 	if device, found := commandlineDevicesByID[decl.DeviceID]; found {
-		if capability, capFound := device.Capabilities[bareName]; capFound {
+		// "node" (2026-10-12, PROJECT.md item 11c): synthetic, never a literal Capabilities map
+		// entry -- see deviceHasCapability's commandline "node" case for why (mirrors the "hosts"
+		// branch's own identical treatment of its ping-based node, just above in this same
+		// dispatcher). Kind is hardcoded "binary_sensor" since that's the only domain the
+		// coordinator's own auto-published "_commandline_node" entity (discoverycommandline.go) is
+		// ever published as.
+		//
+		// Skipped when this SAME DeviceID is ALSO a "hosts"-kind device
+		// (TestCommandlineCapabilityEntityLinkResolvesOnDualKindDevice's own real precedent, e.g.
+		// host.frame sharing one id across both kinds): the hosts branch below already owns "node"
+		// for that id (its ping check, a semantically different and longer-standing liveness
+		// signal than this device's own LWT) -- falling through here lets it keep winning, exactly
+		// as it did before this synthetic case existed.
+		if bareName == "node" {
+			if _, alsoHost := hostDevicesByID[decl.DeviceID]; !alsoHost {
+				return registerCommandlineCapabilityEntityLink(administration, decl.LocalSpec, decl.DeviceID, "node", TCommandlineCapability{Kind: "binary_sensor"}, provenance, finalAttempt, deviceNamePath)
+			}
+		} else if capability, capFound := device.Capabilities[bareName]; capFound {
 			return registerCommandlineCapabilityEntityLink(administration, decl.LocalSpec, decl.DeviceID, bareName, capability, provenance, finalAttempt, deviceNamePath)
 		}
 	}
@@ -696,38 +740,25 @@ func registerHostCapabilityEntityLink(administration *TAdministrationState, devi
 		return []string{fmt.Sprintf("%s: device %q has no \"device %s [as ...] with: ...;\" positioning yet -- add one (any space) before referencing one of its entities directly", provenance, deviceID, deviceID)}, true
 	}
 
-	// Real bug found live 2026-10-04, migrating server.xanadu/server.backups (the first-ever absorb
-	// of a hosts-kind device's own attribute into a DIFFERENT logical device): this used to trust
-	// link.HostIdentity unconditionally -- correct ONLY when deviceID's own link was established by
-	// ITS OWN direct Conceptual.def positioning (registerHostDeviceIdentity, always sphere
-	// "infrastructural"). For an absorb block's recursive delegate call
-	// (registerLogicalAbsorbedCapability), deviceID is the ABSORBED SOURCE device, which may never
-	// be directly positioned at all -- hasLink can still be true because
-	// autoMaterializePhysicalCapability's own "node" branch (Conceptual_LogicalEntities.go) lazily
-	// created a zero-value link and stamped its OWN synthetic "physical/<device-id>" shadow identity
-	// onto HostIdentity, as a side effect of this SAME source device's bare "node.X" liveness being
-	// referenced elsewhere (e.g. Logical.def's own hand-written "node" condition). Blindly reusing
-	// that shadow identity here produced a wrong, shadow-named entity (e.g.
-	// "sensor.physical_node_backups_cpu_load" instead of the real
-	// "sensor.infrastructural_house_storage_room_backups_cpu_load"), silently duplicated into the
-	// room-level temperature aggregate besides (that aggregate deliberately excludes sphere
-	// "infrastructural" node/cpu sensors, but has no reason to know about "physical" shadows too).
-	// Fixed: only trust link.HostIdentity when it's a genuine direct positioning (sphere
-	// "infrastructural"); otherwise build the identity fresh from deviceNamePath/SpacePath instead --
-	// the exact same formula registerDevicePositioning uses for a device's own identity, correctly
-	// reflecting the ABSORBING device's own position here (per registerLogicalAbsorbedCapability's
-	// own doc comment: "the resulting entity is positioned/named as part of the HOST device").
-	deviceIdentity := link.HostIdentity
-	if deviceIdentity.Sphere != "infrastructural" {
-		deviceSpecForIdentity := deviceNamePath
-		if deviceSpecForIdentity != "" {
-			deviceSpecForIdentity = "infrastructural:" + deviceSpecForIdentity
-		}
-		deviceIdentity = extractEntityIdentity(normalizeEntityFullName("device."+deviceSpecForIdentity, administration.SpacePath))
+	// Resolved the exact same way the "node" branch above already does -- fold localSpec through
+	// the general, "as"-independent mechanism every other entity kind uses, rather than through a
+	// device-identity reconstruction keyed off the device header's own raw "as <leaf>" text. This
+	// also sidesteps a real, now-moot bug (found live 2026-10-04, migrating server.xanadu/
+	// server.backups): the OLD version trusted link.HostIdentity, correct ONLY for a device's own
+	// DIRECT positioning, and had to specially reconstruct identity from deviceNamePath/SpacePath
+	// for an "absorb" block's recursive delegate call (deviceID being the ABSORBED SOURCE device,
+	// which may never be directly positioned at all) to avoid producing a wrong, shadow-named
+	// entity. localSpec/deviceNamePath are already the correct, contextually-resolved values for
+	// WHICHEVER device's block this entity line actually lives under (absorbing or direct) --
+	// confirmed by the "node" branch's own unconditional use of them succeeding in that exact same
+	// absorb scenario, with no special-casing of its own at all.
+	fullName := resolveDeviceEntityFullName(localSpec, administration.SpacePath, deviceNamePath)
+	if identity := extractEntityIdentity(fullName); identity.Domain == "" {
+		return []string{fmt.Sprintf("%s: could not resolve a domain from %q; skipping", provenance, localSpec)}, false
 	}
 
 	spaceName := administration.CurrentSpaceName()
-	registerHostAttributeEntity(administration, mat, device, deviceIdentity, spaceName, provenance, link, bareName)
+	registerHostAttributeEntity(administration, mat, device, fullName, spaceName, provenance, link, bareName)
 	administration.DeviceConceptualLinks[deviceID] = link
 	return nil, false
 }

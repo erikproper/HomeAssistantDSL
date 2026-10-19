@@ -50,8 +50,10 @@ var localWithDeviceOneLinerPattern = regexp.MustCompile(`^device\s+(\S+)\s+with\
 // localCapabilityPattern matches "<domain>.<label>;" (bare) or "<domain>.<label> <rest>;" (the
 // "is available" shape, <rest> checked against localAvailabilitySiblingPattern below) -- same
 // two-group-plus-greedy-rest shape as discoveryCapabilityPattern, except <rest> is optional here
-// (a bare capability has nothing after its own "<domain>.<label>").
-var localCapabilityPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)(?:\s+(.+?))?\s*;\s*$`)
+// (a bare capability has nothing after its own "<domain>.<label>"). Requires the explicit
+// "capability" keyword (PROJECT.md item 11b, 2026-10-11) -- see discoveryCapabilityPattern's own
+// doc comment for the general rationale.
+var localCapabilityPattern = regexp.MustCompile(`^capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)(?:\s+(.+?))?\s*;\s*$`)
 
 // localAvailabilitySuffix mirrors discoveryAvailabilitySuffix exactly.
 const localAvailabilitySuffix = " is available"
@@ -87,7 +89,10 @@ var localMediaSwitchCapabilityStatements = []TWithClauseStatement[TLocalCapabili
 // localCapabilityWithOneLinerPattern is localCapabilityWithPattern's own single-statement
 // shorthand -- "switch.<label> <media-player-entity> with <single-statement>;" instead of
 // "switch.<label> <media-player-entity> with: <single-statement>; end;".
-var localCapabilityWithOneLinerPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s+with\s+(.+?)\s*;\s*$`)
+// Requires the explicit "capability" keyword at the very front (PROJECT.md item 11b, 2026-10-11)
+// -- same rationale as integration_hassbridge_parser.go's own identical capabilityWithOneLinerPattern
+// change.
+var localCapabilityWithOneLinerPattern = regexp.MustCompile(`^capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s+with\s+(.+?)\s*;\s*$`)
 
 // applyLocalCapabilityLine applies ONE "<domain>.<label>;"/"<domain>.<label> ... is available;"/
 // "<domain>.<label> <media-player-entity>;" line (localCapabilityPattern's own shape) to dev,

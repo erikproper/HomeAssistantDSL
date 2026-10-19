@@ -495,6 +495,27 @@ func TestExpectedDiscoveryBridgeTopicsUsesGatewayAndLeaf(t *testing.T) {
 	}
 }
 
+// TestExpectedDiscoveryBridgeTopicsPrefersStableID covers PROJECT.md item 7: a link.StableID
+// must win over the Gateway+Leaf computation here too, or a stable-ID'd entity's real topic
+// would never appear in this function's own "expected" set, and the orphan-cleanup pass
+// (watchForOrphanedDiscoveryTopics) would wrongly retire it as unexpected.
+func TestExpectedDiscoveryBridgeTopicsPrefersStableID(t *testing.T) {
+	discoveryFile := TDiscoveryFile{
+		EntityLinks: map[string]TDiscoveryEntityLink{
+			"sensor.social_garage_door_temperature": {Gateway: "discovery.ems_esp_renamed", Leaf: "boiler_outdoortemp", StableID: "frozen_stable_id"},
+		},
+	}
+	got := expectedDiscoveryBridgeTopics(discoveryFile, testPrefix)
+	want := "homeassistant/sensor/coordinator/frozen_stable_id/config"
+	if !got[want] {
+		t.Fatalf("got %v, want a set containing %q (the frozen StableID, not the renamed gateway's own computation)", got, want)
+	}
+	notWant := "homeassistant/sensor/coordinator/discovery_ems_esp_renamed_boiler_outdoortemp/config"
+	if got[notWant] {
+		t.Errorf("got %v, should NOT contain %q (the computed-from-gateway topic, since StableID is set)", got, notWant)
+	}
+}
+
 // --- watchForOrphanedDiscoveryTopics ---
 
 func withShortSettleWindow(t *testing.T) {

@@ -105,7 +105,8 @@ func TestBuildCommandlineDiscoveryConfigsNodeSwitchAndButton(t *testing.T) {
 		switchPayload.CommandTopic != "commandline/frame/slideshow/set" ||
 		switchPayload.PayloadOn != "1" || switchPayload.PayloadOff != "0" ||
 		switchPayload.StateOn != "1" || switchPayload.StateOff != "0" ||
-		switchPayload.AvailabilityTopic != "commandline/frame/node/state" {
+		switchPayload.AvailabilityMode != "all" ||
+		len(switchPayload.Availability) != 1 || switchPayload.Availability[0].Topic != "commandline/frame/node/state" {
 		t.Errorf("switch payload = %+v, unexpected shape (must match check_slideshow's existing 0/1 convention verbatim)", switchPayload)
 	}
 
@@ -119,7 +120,8 @@ func TestBuildCommandlineDiscoveryConfigsNodeSwitchAndButton(t *testing.T) {
 		t.Fatalf("button payload has wrong type: %T", buttonCfg.Payload)
 	}
 	if buttonPayload.CommandTopic != "commandline/frame/reboot/press" || buttonPayload.PayloadPress != "PRESS" ||
-		buttonPayload.AvailabilityTopic != "commandline/frame/node/state" {
+		buttonPayload.AvailabilityMode != "all" ||
+		len(buttonPayload.Availability) != 1 || buttonPayload.Availability[0].Topic != "commandline/frame/node/state" {
 		t.Errorf("button payload = %+v, unexpected shape", buttonPayload)
 	}
 }
@@ -144,8 +146,8 @@ func TestBuildCommandlineDiscoveryConfigsSensorHasNoCommandTopic(t *testing.T) {
 	if payload.StateTopic != "commandline/frame/uptime/state" {
 		t.Errorf("StateTopic = %q, want %q", payload.StateTopic, "commandline/frame/uptime/state")
 	}
-	if payload.AvailabilityTopic != "commandline/frame/node/state" {
-		t.Errorf("AvailabilityTopic = %q, want the device's node topic", payload.AvailabilityTopic)
+	if len(payload.Availability) != 1 || payload.Availability[0].Topic != "commandline/frame/node/state" {
+		t.Errorf("Availability = %+v, want one entry for the device's node topic", payload.Availability)
 	}
 }
 

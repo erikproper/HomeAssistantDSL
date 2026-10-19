@@ -92,7 +92,7 @@ func TestHassBridgeEntityCommandTopicFor(t *testing.T) {
 
 func TestGenerateHassBridgeEntityCommandAutomationsOneFilePerCommand(t *testing.T) {
 	const miniDSL = `space social:apartment with:
-  device hass.protocols_server_2 as roomba with:
+  device hass.protocols_server_2 with:
   end;
   entity vacuum.social:roomba from hass.protocols_server_2 vacuum.roomba;
 end;`
@@ -138,7 +138,7 @@ end;`
 // all -- read-only domains must stay entirely unaffected by this mechanism.
 func TestGenerateHassBridgeEntityCommandAutomationsSkipsReadOnlyDomain(t *testing.T) {
 	const miniDSL = `space social:david_bedroom with:
-  device hass.davids_bedroom as netatmo with:
+  device hass.davids_bedroom with:
   end;
   entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;
 end;`

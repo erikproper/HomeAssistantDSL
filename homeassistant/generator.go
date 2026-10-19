@@ -87,7 +87,11 @@ func runGenerationFromDefFile(cwd, defPath string) error {
 // so a caller that only needs the resulting entity registry (e.g. runWouldDefineCheck,
 // would_define.go) can get it without the side effects (output directory wiped/rewritten, live
 // presence-check HTTP calls) the rest of generateFromPaths performs.
-func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label string) (*TAdministrationState, error) {
+// writeBack, when true, allows autoAssignDiscoveryStableIDs (PROJECT.md item 7) to rewrite
+// Physical.def with freshly-assigned stable ids -- true only from the real generation pipeline
+// (generateFromPaths); false from every read-only diagnostic caller (would_define.go,
+// derived_migration_helper.go), both explicitly documented as never editing any file.
+func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label string, writeBack bool) (*TAdministrationState, error) {
 	fmt.Printf("%s: reading configuration...\n", label)
 
 	sharedSettingsBytes, _ := os.ReadFile(filepath.Join(sharedDefinitionDir, "Settings.def"))
@@ -121,14 +125,6 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 	for _, w := range logicalWarnings {
 		fmt.Printf("[logical] %s\n", w)
 	}
-	isHassbridgeOrImport := func(deviceID string) bool {
-		_, isHassBridge := hassBridgeDevicesByID[deviceID]
-		_, isImported := importedDevicesByID[deviceID]
-		return isHassBridge || isImported
-	}
-	for _, w := range applyLogicalEnablerDependencySugar(logicalByID, isHassbridgeOrImport, loadJinjaTemplateDefinitions(definitionDir)) {
-		fmt.Printf("[logical] %s\n", w)
-	}
 
 	commandlineDevicesByID, commandlineDeviceWarnings := collectCommandlineDevicesByID(definitionDir)
 	for _, w := range commandlineDeviceWarnings {
@@ -146,6 +142,10 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 
 	for _, w := range validateNodeCapabilityRequired(hassBridgeDevicesByID, importedDevicesByID) {
 		fmt.Printf("[physical] %s\n", w)
+	}
+
+	for _, w := range validateLogicalNodeCapabilityRequired(logicalByID, hostDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, localDevicesByID) {
+		fmt.Printf("[logical] %s\n", w)
 	}
 
 	for _, w := range validateHassBridgeAvailabilitySources(hassBridgeDevicesByID) {
@@ -205,12 +205,55 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 	for _, w := range validateNoDuplicateFinalEntityIDs(admin) {
 		fmt.Printf("[conceptual] %s\n", w)
 	}
+
+	for _, w := range applyColocatedPositioning(admin, logicalByID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, entitiesPath) {
+		fmt.Printf("[conceptual] %s\n", w)
+	}
+
+	triggerLogicalOwnNodeCapabilities(admin, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalByID, entitiesPath)
+
+	// Must run AFTER triggerLogicalOwnNodeCapabilities, not before: a device whose own "node" is
+	// still unresolved at THIS point might still get a distinguishing leaf from it moments later
+	// (deriveDeviceOwnLeafFromSiblings), which would resolve what looked like a real collision
+	// here into two perfectly distinct positions. Real false positive found live: Junglinster's
+	// appliance.picture_frame/buttons.house_living_room_living_table_tap, both positioned at the
+	// same bare space with no "as" leaf of their own, warned about as a share-position collision
+	// even though triggerLogicalOwnNodeCapabilities goes on to give them "picture_frame" and
+	// "table/tap" respectively, with zero actual collision in the generated output.
+	for _, w := range findSharedDevicePositions(admin, discoveryGatewaysByID) {
+		fmt.Printf("[conceptual] %s\n", w)
+	}
+
+	fixUpDisplayNameFromNode(admin, discoveryGatewaysByID)
+
+	// A hard abort only for the real generation run (writeBack=true, generateFromPaths's own
+	// caller) -- every other caller of this shared parse (would_define.go, bootstrap_stable_ids.go,
+	// flatten_conceptual_positions.go, backfill_explicit_node_positioning.go, writeBack=false) is
+	// read-only analysis/migration tooling that must still be able to PARSE a currently-imperfect
+	// Conceptual.def in order to go FIX it -- real case found live: backfill_explicit_node_
+	// positioning.go's own parseAdministrationFromPaths call failed outright on the very devices it
+	// was about to backfill, since at that point in its own run they genuinely have no node yet.
+	if w := validateDevicesHaveFriendlyNames(admin, discoveryGatewaysByID); len(w) > 0 {
+		if writeBack {
+			return nil, fmt.Errorf("%s", strings.Join(w, "\n"))
+		}
+		for _, warning := range w {
+			fmt.Printf("[conceptual] %s\n", warning)
+		}
+	}
+
+	if writeBack {
+		for _, w := range autoAssignDiscoveryStableIDs(definitionDir, discoveryGatewaysByID, admin) {
+			fmt.Printf("[physical] %s\n", w)
+		}
+	}
+
 	return admin, nil
 }
 
 // generateFromPaths contains the full generation pipeline given resolved directory paths.
 func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutputDir, label string) (*TAdministrationState, error) {
-	admin, err := parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label)
+	admin, err := parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label, true)
 	if err != nil {
 		return nil, err
 	}
@@ -2354,7 +2397,7 @@ func generateCoverBinarySensors(outputDir string, admin *TAdministrationState) e
 		if err := writeYAMLFile(filepath.Join(dir, acID+".yaml"), buildConditionBinarySensorYAML(acID, acDisplay, acState, "", "", "")); err != nil {
 			return err
 		}
-		if err := writeYAMLFile(filepath.Join(customDir, acID+".yaml"), buildCustomizationYAML(acID, acDisplay, "mdi:dots-vertical-circle")); err != nil {
+		if err := writeYAMLFile(filepath.Join(customDir, acID+".yaml"), buildCustomizationYAML(acID, acDisplay, "mdi:home-export-outline")); err != nil {
 			return err
 		}
 
@@ -2697,7 +2740,7 @@ func generateAutomations(outputDir string, admin *TAdministrationState) error {
 	if err := generateFollowsAutomations(outputDir, admin); err != nil {
 		return err
 	}
-	if err := generateWhenRuleAutomations(outputDir, admin); err != nil {
+	if err := generateRuleAutomations(outputDir, admin); err != nil {
 		return err
 	}
 	if err := generateSwitchedDeviceAutomations(outputDir, admin); err != nil {
@@ -3904,37 +3947,486 @@ func generateFollowsAutomations(outputDir string, admin *TAdministrationState) e
 	return nil
 }
 
-// --- when-rule automations ---
+// --- rule automations ---
 
-// generateWhenRuleAutomations writes one automation per TWhenRule, named directly off the rule's
-// own explicit "rule <spec>" Name (2026-09-29, replacing the earlier trigger/action-derived
+// generateRuleAutomations writes one automation per TRule, named directly off the rule's own
+// explicit "rule <spec>" Name (2026-09-29, replacing the earlier trigger/action-derived
 // "<eventPath>/when/turns_.../then/turn_..." shape -- that derivation stops being mechanically
 // possible once a rule can have several triggers/conditions/actions, which is exactly why the
-// name became mandatory; see TWhenRule's own doc comment). One automation per rule, unlike
-// follows' two: a when-rule's own trigger state and action state are independently chosen by the
-// DSL author (e.g. removing_smell's own rule only ever needs the "turns on" direction), not
-// automatically paired on/off like follows always is. The output sphere/directory now comes from
-// the rule's own Name (its first "/"-segment) rather than the event entity's sphere -- the rule
-// has its own identity now, independent of which entity happens to trigger it.
-func generateWhenRuleAutomations(outputDir string, admin *TAdministrationState) error {
-	for _, rule := range admin.WhenRules {
-		eventID := toHomeAssistantEntityID(rule.EventEntity)
-		actionID := toHomeAssistantEntityID(rule.ActionEntity)
-		actionDomain := rule.ActionEntity[:strings.Index(rule.ActionEntity, ".")]
-
+// name became mandatory; see TRule's own doc comment). The output sphere/directory comes from
+// the rule's own Name (its first "/"-segment) rather than the trigger entity's sphere -- the rule
+// has its own identity, independent of which entity happens to trigger it.
+//
+// A rule shaped exactly like PROJECT.md item 13 Phase 1's own scope (one state-transition
+// trigger, no conditions, one bare "turn" action) still goes through buildStateTriggerAutomationYAML
+// unchanged -- byte-identical to what Phase 1 already verified and (for Junglinster's
+// done_removing_smells) already deployed, rather than switching to buildRuleAutomationYAML's
+// richer-but-differently-shaped YAML for a rule that never needed the richness in the first
+// place. Every other shape uses buildRuleAutomationYAML (Phase 2).
+func generateRuleAutomations(outputDir string, admin *TAdministrationState) error {
+	for _, rule := range admin.Rules {
 		sphere := rule.Name
 		if slashIdx := strings.Index(sphere, "/"); slashIdx >= 0 {
 			sphere = sphere[:slashIdx]
 		}
-
 		automationID := strings.ReplaceAll(rule.Name, "/", "_")
 
-		content := buildStateTriggerAutomationYAML(rule.Name, automationID, eventID, rule.EventState, actionDomain, actionID, rule.ActionState)
+		var content string
+		if isPhase1ShapedRule(rule) {
+			trigger := rule.Triggers[0]
+			action := rule.Actions[0]
+			eventID := toHomeAssistantEntityID(trigger.EntitySpec)
+			actionID := toHomeAssistantEntityID(action.EntitySpec)
+			actionDomain := action.EntitySpec[:strings.Index(action.EntitySpec, ".")]
+			content = buildStateTriggerAutomationYAML(rule.Name, automationID, eventID, trigger.State, actionDomain, actionID, action.State)
+		} else {
+			content = buildRuleAutomationYAML(rule, automationID, admin.NamedTriggers)
+		}
+
 		if err := writeAutomationFile(outputDir, sphere, automationID, content); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// isPhase1ShapedRule reports whether rule needs nothing beyond what the old ad hoc TWhenRule
+// construct already covered: exactly one state-transition trigger (no "for" duration), no "if"
+// clause, and exactly one bare "turn" action (no data fields).
+func isPhase1ShapedRule(rule TRule) bool {
+	if len(rule.Triggers) != 1 || rule.Condition != nil || len(rule.Actions) != 1 {
+		return false
+	}
+	trigger := rule.Triggers[0]
+	action := rule.Actions[0]
+	return trigger.Kind == "state" && trigger.State != "" && trigger.For == "" &&
+		action.Verb == "turn" && len(action.Data) == 0
+}
+
+// buildRuleAutomationYAML builds the complete automation YAML for one TRule: multiple triggers,
+// an optional "if" clause (a full and/or/not boolean expression, PROJECT.md item 13's own
+// "when"/"if"/"then" phrase), and multiple ordered actions (including "if"'s own recursive
+// then/else branches and bare "delay" steps). namedTriggers is admin.NamedTriggers, needed to
+// expand a "named_trigger" kind trigger (renderRuleTriggerYAML's own doc comment).
+func buildRuleAutomationYAML(rule TRule, automationID string, namedTriggers map[string][]TNamedTriggerSource) string {
+	var sb strings.Builder
+	sb.WriteString(generatorHeader)
+	sb.WriteString("- alias: " + rule.Name + "\n")
+	sb.WriteString("  id: automation." + automationID + "\n")
+	sb.WriteString("  initial_state: True\n")
+	sb.WriteString("  mode: queued\n")
+
+	needsSourceIDs, implied := namedTriggerSourceCondition(rule.Triggers, namedTriggers)
+
+	sb.WriteString("  trigger:\n")
+	sourceIndex := 0
+	for _, trigger := range rule.Triggers {
+		renderRuleTriggerYAML(&sb, trigger, namedTriggers, needsSourceIDs, &sourceIndex)
+	}
+
+	condition := rule.Condition
+	if implied != nil {
+		if condition == nil {
+			condition = implied
+		} else {
+			condition = &TRuleCondition{Kind: "and", Operands: []TRuleCondition{*condition, *implied}}
+		}
+	}
+	if condition != nil {
+		renderRuleConditionTopLevel(&sb, *condition)
+	}
+
+	sb.WriteString("  action:\n")
+	for _, action := range rule.Actions {
+		renderRuleActionYAML(&sb, "  ", action)
+	}
+
+	return sb.String()
+}
+
+// namedTriggerSourceID returns the per-(trigger,source) id this generator assigns when
+// per-source "id"-scoped conditions are needed (namedTriggerSourceCondition's own doc comment) --
+// shared by that function and renderRuleTriggerYAML so both agree on the same ids without
+// either having to pass the other a lookup table. Index is the running count across ALL
+// named_trigger sources seen so far in iteration order (trigger list order, then
+// namedTriggers[trigger.Name] order) -- both call sites iterate identically, so index N always
+// means the same source in both places.
+func namedTriggerSourceID(index int) string {
+	return fmt.Sprintf("nt%d", index)
+}
+
+// namedTriggerSourceCondition computes the gating condition implied by a rule's own named
+// triggers' device-level "and if trigger.<attr> is '<value>'[in [...]];" declarations (Step 2,
+// 2026-10-15; extended 2026-10-19 after a real regression found live in Vienna: SEVERAL
+// DIFFERENT devices commonly feed the SAME named trigger -- e.g. four different Moes/door
+// buttons all feeding "bedroom/main/light/toggle" -- and each may need its OWN, DIFFERENT
+// button-number filter. A single shared condition can't express that: HA's automation template
+// context (trigger.to_state) only ever reflects whichever ONE entity's trigger actually fired,
+// so a condition checking "attribute == X" is either right for every contributing device or
+// wrong for some of them, never scoped per-device on its own.
+//
+// Returns (false, nil) if no source has any attr condition at all -- the common case, no
+// implied condition, unchanged from before this extension existed.
+//
+// Returns (false, cond) when every source that HAS an attr condition agrees on exactly one
+// (attr, valueset) pair AND no source is missing one -- preserves the exact single
+// shared-condition shape already proven live on the Signify dimmer (one device, several trigger
+// declarations, all agreeing), with no per-source "id" machinery at all.
+//
+// Otherwise returns (true, cond): the caller (buildRuleAutomationYAML) must have
+// renderRuleTriggerYAML emit namedTriggerSourceID(i) as that trigger entry's own "id", in the
+// same iteration order this function uses -- cond is an OR, across all sources, of "trigger.id
+// == this source's id" alone (a source with no attr condition: always true once it's the one
+// that fired, no further restriction) AND-ed with its own attr check (a source that has one).
+func namedTriggerSourceCondition(triggers []TRuleTrigger, namedTriggers map[string][]TNamedTriggerSource) (bool, *TRuleCondition) {
+	type sourceRef struct {
+		index  int
+		source TNamedTriggerSource
+	}
+	var refs []sourceRef
+	for _, trigger := range triggers {
+		if trigger.Kind != "named_trigger" {
+			return false, nil
+		}
+		for _, source := range namedTriggers[trigger.Name] {
+			refs = append(refs, sourceRef{index: len(refs), source: source})
+		}
+	}
+	if len(refs) == 0 {
+		return false, nil
+	}
+
+	anyAttr, allAgree := false, true
+	var sharedAttr string
+	var sharedValues []string
+	for _, ref := range refs {
+		if ref.source.TriggerAttr == "" {
+			allAgree = false
+			continue
+		}
+		anyAttr = true
+		if sharedAttr == "" {
+			sharedAttr, sharedValues = ref.source.TriggerAttr, ref.source.TriggerAttrValues
+			continue
+		}
+		if ref.source.TriggerAttr != sharedAttr || !stringSlicesEqual(ref.source.TriggerAttrValues, sharedValues) {
+			allAgree = false
+		}
+	}
+	if !anyAttr {
+		return false, nil
+	}
+	if allAgree {
+		return false, attrValueCondition(sharedAttr, sharedValues)
+	}
+
+	var operands []TRuleCondition
+	for _, ref := range refs {
+		idCond := TRuleCondition{Kind: "trigger_id", Value: namedTriggerSourceID(ref.index)}
+		if ref.source.TriggerAttr == "" {
+			operands = append(operands, idCond)
+			continue
+		}
+		operands = append(operands, TRuleCondition{Kind: "and", Operands: []TRuleCondition{idCond, *attrValueCondition(ref.source.TriggerAttr, ref.source.TriggerAttrValues)}})
+	}
+	return true, &TRuleCondition{Kind: "or", Operands: operands}
+}
+
+// attrValueCondition builds a single-value "template" condition, or an "or" of one per value
+// when there's more than one -- reuses the existing and/or/template machinery rather than
+// teaching the "template" kind its own second, list-shaped rendering.
+func attrValueCondition(attr string, values []string) *TRuleCondition {
+	if len(values) == 1 {
+		return &TRuleCondition{Kind: "template", TriggerAttr: attr, Value: values[0]}
+	}
+	operands := make([]TRuleCondition, len(values))
+	for i, v := range values {
+		operands[i] = TRuleCondition{Kind: "template", TriggerAttr: attr, Value: v}
+	}
+	return &TRuleCondition{Kind: "or", Operands: operands}
+}
+
+// stringSlicesEqual reports whether a and b hold the same values in the same order.
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// renderRuleTriggerYAML writes one trigger list item. "event" kind matches the exact schema real
+// Zigbee/moes button automations already use live (confirmed against both houses' pulled
+// /config/automations.yaml, PROJECT.md item 13's own survey) -- entity-domain event-received,
+// not a "platform: event" built-in HA trigger. "state" kind keeps the older "platform: state"
+// shape buildStateTriggerAutomationYAML already uses, for consistency with follows'/Phase 1's
+// own already-deployed output.
+func renderRuleTriggerYAML(sb *strings.Builder, trigger TRuleTrigger, namedTriggers map[string][]TNamedTriggerSource, needsSourceIDs bool, sourceIndex *int) {
+	switch trigger.Kind {
+	case "named_trigger":
+		// Expands into one event.received trigger per contributing device (checks.go's own
+		// RunPostParseChecks already warned if there are none) -- each device's own EventTypes
+		// rendered as that one trigger entry's own event_type list, same as a single device
+		// matching several raw values directly would. Exactly what a hand-written multi-clause
+		// "when A is X or B is Y or ...;" chain already renders today, just sourced from
+		// NamedTriggers (device-level "trigger ...;" declarations) instead of rule.Triggers.
+		// needsSourceIDs/sourceIndex (2026-10-19): when namedTriggerSourceCondition decided
+		// several sources disagree on their own embedded button-attribute condition, each
+		// trigger entry needs its own "id" so the generated condition can scope to exactly the
+		// one that fired -- namedTriggerSourceID's own doc comment explains why both this
+		// function and that one agree on the same id for the same source without passing each
+		// other a lookup table (identical iteration order).
+		for _, source := range namedTriggers[trigger.Name] {
+			sb.WriteString("  - trigger: event.received\n")
+			if needsSourceIDs {
+				sb.WriteString("    id: '" + namedTriggerSourceID(*sourceIndex) + "'\n")
+			}
+			*sourceIndex++
+			sb.WriteString("    target:\n")
+			sb.WriteString("      entity_id:\n")
+			sb.WriteString("      - " + source.EntityID + "\n")
+			sb.WriteString("    options:\n")
+			sb.WriteString("      event_type:\n")
+			for _, eventType := range source.EventTypes {
+				sb.WriteString("      - '" + eventType + "'\n")
+			}
+		}
+	case "event":
+		entityID := toHomeAssistantEntityID(trigger.EntitySpec)
+		sb.WriteString("  - trigger: event.received\n")
+		sb.WriteString("    target:\n")
+		sb.WriteString("      entity_id:\n")
+		sb.WriteString("      - " + entityID + "\n")
+		sb.WriteString("    options:\n")
+		sb.WriteString("      event_type:\n")
+		// Single-quoted: YAML 1.1's "Norway problem" parses a bare on/off/yes/no/y/n/true/false
+		// as a boolean, not a string -- a real bug found live 2026-10-14, Vienna's IKEA shortcut
+		// buttons (event_type "on"): the unquoted value matched against the trigger's own
+		// event_type as a boolean, which can never equal the real string Zigbee2MQTT reports, so
+		// the automation silently never fired despite the MQTT message arriving correctly. Every
+		// other string literal this generator writes into automation YAML (trigger.State,
+		// cond.State, the "time" trigger's own EventType two cases below) already quotes for
+		// exactly this reason; this was the one spot that didn't.
+		sb.WriteString("      - '" + trigger.EventType + "'\n")
+	case "time":
+		sb.WriteString("  - platform: time\n")
+		sb.WriteString("    at: '" + trigger.EventType + "'\n")
+	case "time_pattern":
+		sb.WriteString("  - platform: time_pattern\n")
+		sb.WriteString("    minutes: '/1'\n")
+	default: // "state"
+		entityID := toHomeAssistantEntityID(trigger.EntitySpec)
+		sb.WriteString("  - platform: state\n")
+		sb.WriteString("    entity_id: " + entityID + "\n")
+		if trigger.State != "" {
+			sb.WriteString("    to: '" + trigger.State + "'\n")
+		}
+		if trigger.For != "" {
+			hours, minutes, seconds := splitRuleDuration(trigger.For)
+			sb.WriteString("    for:\n")
+			sb.WriteString("      hours: " + hours + "\n")
+			sb.WriteString("      minutes: " + minutes + "\n")
+			sb.WriteString("      seconds: " + seconds + "\n")
+		}
+	}
+}
+
+// renderRuleConditionTopLevel writes the rule's own "condition:" key and its value. A top-level
+// plain "and" renders as a flat list of its own operands -- matching HA's own implicit-AND
+// convention for a bare condition list (and this generator's pre-existing output shape, from
+// before the "if" clause allowed real and/or/not composition, for the common "several ANDed
+// checks" case) -- rather than wrapping in a nested "condition: and" node, which only a
+// top-level "or"/"not" (or a nested "and" several levels down) actually needs.
+func renderRuleConditionTopLevel(sb *strings.Builder, cond TRuleCondition) {
+	sb.WriteString("  condition:\n")
+	if cond.Kind == "and" {
+		for _, operand := range cond.Operands {
+			renderRuleConditionYAML(sb, "  ", operand)
+		}
+		return
+	}
+	renderRuleConditionYAML(sb, "  ", cond)
+}
+
+// renderRuleConditionYAML writes one condition list item at indent -- a leaf (state/template/
+// time) or a nested "and"/"or"/"not" node with its own "conditions:" list.
+func renderRuleConditionYAML(sb *strings.Builder, indent string, cond TRuleCondition) {
+	switch cond.Kind {
+	case "and", "or", "not":
+		sb.WriteString(indent + "- condition: " + cond.Kind + "\n")
+		sb.WriteString(indent + "  conditions:\n")
+		for _, operand := range cond.Operands {
+			renderRuleConditionYAML(sb, indent+"  ", operand)
+		}
+	case "template":
+		sb.WriteString(indent + "- condition: template\n")
+		sb.WriteString(indent + "  value_template: '{{ trigger.to_state.attributes." + cond.TriggerAttr + " == " + jinjaQuotedLiteral(cond.Value) + " }}'\n")
+	case "trigger_id":
+		// Scopes a per-source condition (namedTriggerSourceCondition's own doc comment) to
+		// exactly the trigger entry that actually fired -- renderRuleTriggerYAML must emit the
+		// matching "id: '<value>'" on that same trigger entry, or this never matches anything.
+		sb.WriteString(indent + "- condition: template\n")
+		sb.WriteString(indent + "  value_template: '{{ trigger.id == " + jinjaQuotedLiteral(cond.Value) + " }}'\n")
+	case "time":
+		sb.WriteString(indent + "- condition: time\n")
+		if cond.After != "" {
+			sb.WriteString(indent + "  after: '" + cond.After + "'\n")
+		}
+		if cond.Before != "" {
+			sb.WriteString(indent + "  before: '" + cond.Before + "'\n")
+		}
+		if len(cond.Weekdays) > 0 {
+			sb.WriteString(indent + "  weekday:\n")
+			for _, day := range cond.Weekdays {
+				sb.WriteString(indent + "  - " + day + "\n")
+			}
+		}
+	default: // "state"
+		entityID := toHomeAssistantEntityID(cond.EntitySpec)
+		sb.WriteString(indent + "- condition: state\n")
+		sb.WriteString(indent + "  entity_id: " + entityID + "\n")
+		sb.WriteString(indent + "  state: '" + cond.State + "'\n")
+		if cond.For != "" {
+			hours, minutes, seconds := splitRuleDuration(cond.For)
+			sb.WriteString(indent + "  for:\n")
+			sb.WriteString(indent + "    hours: " + hours + "\n")
+			sb.WriteString(indent + "    minutes: " + minutes + "\n")
+			sb.WriteString(indent + "    seconds: " + seconds + "\n")
+		}
+	}
+}
+
+// renderRuleActionYAML writes one action list item at indent, recursing (at indent+"  ") for an
+// "if" action's own ThenActions/ElseActions.
+func renderRuleActionYAML(sb *strings.Builder, indent string, action TRuleAction) {
+	if action.Verb == "if" {
+		condEntityID := toHomeAssistantEntityID(action.CondEntitySpec)
+		sb.WriteString(indent + "- if:\n")
+		sb.WriteString(indent + "  - condition: state\n")
+		sb.WriteString(indent + "    entity_id: " + condEntityID + "\n")
+		sb.WriteString(indent + "    state: '" + action.CondState + "'\n")
+		sb.WriteString(indent + "  then:\n")
+		for _, sub := range action.ThenActions {
+			renderRuleActionYAML(sb, indent+"  ", sub)
+		}
+		if len(action.ElseActions) > 0 {
+			sb.WriteString(indent + "  else:\n")
+			for _, sub := range action.ElseActions {
+				renderRuleActionYAML(sb, indent+"  ", sub)
+			}
+		}
+		return
+	}
+
+	if action.Verb == "delay" {
+		hours, minutes, seconds := splitRuleDuration(action.Duration)
+		sb.WriteString(indent + "- delay:\n")
+		sb.WriteString(indent + "    hours: " + hours + "\n")
+		sb.WriteString(indent + "    minutes: " + minutes + "\n")
+		sb.WriteString(indent + "    seconds: " + seconds + "\n")
+		return
+	}
+
+	entityID := toHomeAssistantEntityID(action.EntitySpec)
+	domain := ""
+	if dotIdx := strings.Index(action.EntitySpec, "."); dotIdx >= 0 {
+		domain = action.EntitySpec[:dotIdx]
+	}
+
+	switch action.Verb {
+	case "turn":
+		sb.WriteString(indent + "- service: " + domain + ".turn_" + action.State + "\n")
+		if len(action.Data) > 0 {
+			sb.WriteString(indent + "  data:\n")
+			for _, field := range action.Data {
+				sb.WriteString(indent + "    " + field.Name + ": " + renderRuleValue(field.Value, field.IsJinja) + "\n")
+			}
+		}
+		sb.WriteString(indent + "  entity_id: " + entityID + "\n")
+	case "toggle":
+		sb.WriteString(indent + "- service: " + domain + ".toggle\n")
+		if len(action.Data) > 0 {
+			sb.WriteString(indent + "  data:\n")
+			for _, field := range action.Data {
+				sb.WriteString(indent + "    " + field.Name + ": " + renderRuleValue(field.Value, field.IsJinja) + "\n")
+			}
+		}
+		sb.WriteString(indent + "  entity_id: " + entityID + "\n")
+	case "press":
+		sb.WriteString(indent + "- service: button.press\n")
+		sb.WriteString(indent + "  entity_id: " + entityID + "\n")
+	case "stop":
+		sb.WriteString(indent + "- service: cover.stop_cover\n")
+		sb.WriteString(indent + "  entity_id: " + entityID + "\n")
+	case "close":
+		sb.WriteString(indent + "- service: cover.close_cover\n")
+		sb.WriteString(indent + "  entity_id: " + entityID + "\n")
+	case "open":
+		sb.WriteString(indent + "- service: cover.open_cover\n")
+		sb.WriteString(indent + "  entity_id: " + entityID + "\n")
+	case "set":
+		// "set" is cover-position-specific -- the only real case among the manual automations
+		// being migrated (PROJECT.md item 13's own survey); not a general cross-domain verb.
+		sb.WriteString(indent + "- service: cover.set_cover_position\n")
+		sb.WriteString(indent + "  data:\n")
+		sb.WriteString(indent + "    position: " + renderRuleValue(action.Value, action.ValueIsJinja) + "\n")
+		sb.WriteString(indent + "  entity_id: " + entityID + "\n")
+	case "start":
+		sb.WriteString(indent + "- service: " + domain + ".start\n")
+		sb.WriteString(indent + "  entity_id: " + entityID + "\n")
+	case "pause":
+		sb.WriteString(indent + "- service: " + domain + ".pause\n")
+		sb.WriteString(indent + "  entity_id: " + entityID + "\n")
+	case "return_to_base":
+		sb.WriteString(indent + "- service: vacuum.return_to_base\n")
+		sb.WriteString(indent + "  entity_id: " + entityID + "\n")
+	}
+}
+
+// renderRuleValue renders a data-field/set value for YAML: a Jinja value becomes a single-quoted
+// "{{ ... }}" template; a plain value is emitted bare if it parses as a number, single-quoted
+// otherwise.
+func renderRuleValue(value string, isJinja bool) string {
+	if isJinja {
+		// The whole "{{ ... }}" expression is itself wrapped in a single-quoted YAML
+		// scalar, so any single quote the Jinja author wrote inside it (e.g.
+		// "states('number.foo')") must be doubled for YAML's own escaping -- real bug
+		// found live 2026-10-13, deploying Junglinster's sarah_bedroom cover/close rule:
+		// the unescaped quote broke the YAML block mapping and put the whole house's HA
+		// core into recovery mode. jinjaQuotedLiteral (below) already does this doubling
+		// for a different call site (a literal string value inside a template
+		// condition) -- this is the same YAML-level rule applied to raw jinja pass-through
+		// text instead.
+		return "'{{ " + strings.ReplaceAll(value, "'", "''") + " }}'"
+	}
+	if _, err := strconv.ParseFloat(value, 64); err == nil {
+		return value
+	}
+	return "'" + value + "'"
+}
+
+// jinjaQuotedLiteral renders a literal value as a Jinja string literal, doubled-single-quoted --
+// Jinja itself uses single quotes for strings, and YAML's own single-quote escaping (one '
+// becomes two ”) applies on top since the whole value_template is itself a single-quoted YAML
+// scalar (e.g. the real "trigger.to_state.attributes.button == 'on'" case becomes
+// "... == ”on” ..." once YAML-escaped).
+func jinjaQuotedLiteral(value string) string {
+	return "''" + value + "''"
+}
+
+// splitRuleDuration splits a TRuleTrigger.For/TRuleAction.Duration "HH:MM:SS" string into its
+// three fields, for a YAML "for:"/"delay:" block. Malformed input (should never happen -- the
+// parser's own Duration grammar rule guarantees the shape) falls back to all-zero.
+func splitRuleDuration(duration string) (hours, minutes, seconds string) {
+	parts := strings.Split(duration, ":")
+	if len(parts) != 3 {
+		return "0", "0", "0"
+	}
+	return parts[0], parts[1], parts[2]
 }
 
 // --- switched_device entities ---
@@ -4235,12 +4727,20 @@ func generateTimerLimitsAutomations(outputDir string, admin *TAdministrationStat
 // --- switch-controlled heating: input_booleans, scripts, automations ---
 
 func generateSwitchControlledHeatingContent(outputDir string, admin *TAdministrationState) error {
-	// Collect all spaces that have a switch.physical/.../heating entity.
+	// Collect all spaces that have a heating switch entity -- sphere-agnostic (confirmed with the
+	// user 2026-10-07, the same fix as heatingCapableSpaces/administration.go): detection is
+	// triggered purely by the "heating" path tail, not a specific sphere. heatingSwitchEntityIDs
+	// remembers each context path's own REAL switch entity_id (whichever sphere it's actually
+	// positioned under) -- a real bug found live generating Junglinster's own output: this used to
+	// hardcode "switch.physical_<context>_heating" below regardless of the switch's own real
+	// sphere, which silently pointed every switch.turn_on/turn_off automation at a NON-EXISTENT
+	// entity once a heating switch was repositioned to "social".
 	seen := map[string]bool{}
 	var contextPaths []string
+	heatingSwitchEntityIDs := map[string]string{}
 	for _, spaceName := range admin.SpaceOrder {
 		for _, rec := range admin.EntityRecordsBySpace[spaceName] {
-			if rec.Identity.Domain != "switch" || rec.Identity.Sphere != "physical" {
+			if rec.Identity.Domain != "switch" {
 				continue
 			}
 			p := rec.Identity.Path
@@ -4254,6 +4754,7 @@ func generateSwitchControlledHeatingContent(outputDir string, admin *TAdministra
 			if !seen[cp] {
 				seen[cp] = true
 				contextPaths = append(contextPaths, cp)
+				heatingSwitchEntityIDs[cp] = toHomeAssistantEntityID(rec.Name)
 			}
 		}
 	}
@@ -4311,7 +4812,7 @@ func generateSwitchControlledHeatingContent(outputDir string, admin *TAdministra
 		heatingModeDesiredID := "input_boolean." + socialUnder + "_heating_mode_desired"
 		heatingModeTargetID := "input_boolean." + physUnder + "_heating_mode_target"
 		heatingModePresetLeakageID := "input_boolean." + physUnder + "_heating_mode_preset_for_leakage"
-		heatingSwitch := "switch." + physUnder + "_heating"
+		heatingSwitch := heatingSwitchEntityIDs[cp]
 
 		// --- Binary sensor mirrors ---
 		// Both mirrors live under "social", even though heating_mode_target mirrors the

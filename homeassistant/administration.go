@@ -17,6 +17,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -46,7 +47,7 @@ type TAdministrationState struct {
 	// provenance) that pair was registered under via RegisterDiscoveryImpliedEntity. A second,
 	// DIFFERENT entity name for the same source pair (possibly in a different space) means the same
 	// device capability was positioned twice at the conceptual layer, which item 0b's rule forbids.
-	ConceptualUseBySource map[string]TConceptualSourceUse
+	ConceptualUseBySource   map[string]TConceptualSourceUse
 	ExternalEntitiesBySpace map[string][]string
 	SpaceDepthByName        map[string]int
 	SpaceOffByName          map[string][]string // Entities/aggregations to turn off
@@ -67,8 +68,17 @@ type TAdministrationState struct {
 	FollowsRelations        []TFollowsRelation
 	SwitchedDeviceRelations []TSwitchedDeviceRelation
 	TimerLimitsRelations    []TTimerLimitsRelation
-	WhenRules               []TWhenRule
-	WhenRuleNamesSeen       map[string]bool // every resolved TWhenRule.Name seen so far, to warn on a repeat
+	Rules                   []TRule
+	RuleNamesSeen           map[string]bool                  // every resolved TRule.Name seen so far, to warn on a repeat
+	NamedTriggers           map[string][]TNamedTriggerSource // see NamedTriggers' own doc comment above
+	// NamedTriggerEntityIDByDeviceCapability remembers, per "<deviceID>!<bareCapability>", the
+	// entity_id already resolved for it by an EARLIER "trigger ...;" line -- a real bug found
+	// live 2026-10-15 migrating Vienna's hallway_door_moes device: TWO "trigger" lines sharing
+	// the SAME device+capability (one per raw value they each match) must resolve to the SAME
+	// underlying entity, not be registered twice (registerDeviceCapabilityEntityLink's own
+	// "declared twice" duplicate-capability check, correct for a genuine copy-paste mistake,
+	// fires incorrectly otherwise).
+	NamedTriggerEntityIDByDeviceCapability map[string]string
 
 	// "definition as <type> ...;" relations for entity bodies that generate their own content
 	// (as opposed to switched_device/timer-limits above, which describe cross-entity behaviour).
@@ -87,7 +97,7 @@ type TAdministrationState struct {
 	SpaceHasExplicitOn  map[string]bool
 	SpaceHasExplicitOff map[string]bool
 
-	// Per-space no-motion light-off delay in minutes, set by "lights_motion_guarded with delay N".
+	// Per-space no-motion light-off delay in minutes, set by "lights motion guarded with delay N".
 	// Defaults to 15 when absent.
 	SpaceNoMotionDelayByName map[string]int
 
@@ -112,6 +122,30 @@ type TAdministrationState struct {
 	// links registered against it (Conceptual_DeviceCapabilityEntities.go) in Conceptual.def. Read
 	// by generateCoordinatorDevicesFile to enrich coordinator/devices.yaml.
 	DeviceConceptualLinks map[string]TDeviceConceptualLink
+
+	// Device id -> one entry per "device <id> [as ...] with:" header/one-liner occurrence
+	// registerDevicePositioning sees in Conceptual.def, recorded REGARDLESS of whether that
+	// occurrence is the first to establish DeviceConceptualLinks or a later merge (a device may
+	// legitimately be positioned in several spaces, see that file's own "register-once-merge-
+	// repeatedly" header comment). Read by applyImpliedNodePositioning (device_friendly_name.go,
+	// PROJECT.md item 8): a device occurring exactly once with no manually-positioned "node"
+	// capability gets one auto-implied here (unambiguous -- there's only one space it could mean);
+	// a device occurring more than once is a real conflict and gets a warning instead.
+	DevicePositioningOccurrences map[string][]TDevicePositioningOccurrence
+
+	// Device id -> the resolved HA entity_id of its own "node" capability positioning, however it
+	// was actually positioned under the hood -- a raw discovery leaf, a "derived ... with condition
+	// ... is available;" discovery capability, a Logical.def "node" override
+	// (dispatchLogicalCapability), or hosts/import/commandline/local's own ordinary
+	// AttributeEntityIDs["node"] link. Recorded at the ONE choke point every kind's "node"
+	// capability dispatch already funnels through (registerDeviceCapabilityEntityLinkAllowingHidden,
+	// Conceptual_DeviceCapabilityEntities.go) rather than re-deriving, per lookup, which of several
+	// different internal storage shapes a given kind happens to use for it -- a real bug found live
+	// 2026-10-06 (device_friendly_name.go's first two versions both missed the discovery-level
+	// "derived ... is available" shape specifically, silently flagging dozens of genuinely-positioned
+	// devices as unpositioned and then re-registering a SECOND, colliding "node" entity for them).
+	// Read by resolveDeviceFriendlyName (device_friendly_name.go, PROJECT.md item 8).
+	DeviceNodeEntityID map[string]string
 
 	// EntityNameOwnerBySpace maps a space name to (final entity_id -> sourceKey, "<device-id>!
 	// <capability>") for whichever device/capability FIRST registered that entity_id via
@@ -310,6 +344,12 @@ type TDiscoveryEntityLink struct {
 	// state and the command sent on turn_on/turn_off -- see that field's own doc comment for the
 	// motivating case (a normally-closed relay).
 	Invert bool
+
+	// StableID (2026-10-05), copied from the originating TDiscoveryCapability.AssignedID -- a
+	// frozen "as <id>;" the coordinator must prefer over its own computed gatewayID+leaf identity
+	// (relayedDiscoveryUniqueID, house_event_bus_coordinator/discoverybridge.go) once assigned.
+	// Empty means not yet assigned -- the coordinator falls back to its existing computation.
+	StableID string
 }
 
 // TDeviceConceptualLink records, for one Physical.def device id, the conceptual-layer HA
@@ -405,43 +445,153 @@ type TFollowsRelation struct {
 	Leader    string // fully qualified DSL entity name, e.g. "light.social/house/corridor/main"
 }
 
-// TWhenRule records a "rule <spec> when <event-entity> turns on|off then turn <action-entity>
-// on|off;" space-level directive (2026-09-29) -- the first, deliberately minimal cut of a general
-// event-trigger/action automation-rule construct. Only a single bare EVENT_CONDITION atom (a
-// state-transition trigger) and a single ACTION (a domain turn_on/turn_off call) are supported so
-// far: no "if <gate-condition>" clause, no and/or/not composition of multiple EVENT_CONDITIONs, no
-// "<event> received" atoms, no multi-action "then: ...; end;" block -- none of the two real sites
-// this was built for (Junglinster's removing_smell fan timer, corb's simplified "follows") need
-// any of that yet, and the user's own framing explicitly deferred it ("Later, when we are finished
-// migrating conceptual.def"). Extend this struct (and the parser/generator alongside it) once a
-// real site needs more, rather than building the fuller grammar speculatively now.
+// TRuleTrigger is one "when ...;" statement inside a rule body: a state-transition trigger
+// ("when <entity-ref> turns on|off [for <duration>];"), an event-received trigger ("when
+// <entity-ref> is <event-type>;"), a time-of-day/time_pattern trigger ("when time is
+// <HH:MM[:SS]>;"/"when every minute;"), or a named-trigger reference ("when [a] <name> is
+// triggered;", 2026-10-15 -- see NamedTriggers' own doc comment). EntitySpec is already fully
+// resolved (normalizeEntityFullName, applied once right after parsing, exactly like
+// FollowsRelations/TimerLimitsRelations/SwitchedDeviceRelations above all already do) -- not the
+// raw spec text the parser itself produced.
+type TRuleTrigger struct {
+	Kind       string // "state", "event", "time", "time_pattern", or "named_trigger"
+	EntitySpec string
+	State      string // "state" kind only: the state EntitySpec must transition TO ("on"/"off"/...)
+	EventType  string // "event"/"time" kind only: the event_type/time-of-day value to match
+	For        string // "state" kind only: an optional "for <duration>" suffix, "" if absent
+	Name       string // "named_trigger" kind only: the bare "sphere:path" name (NamedTriggers key)
+}
+
+// TNamedTriggerSource is one device's own contribution to a named trigger (NamedTriggers) --
+// "trigger <name> when <capability> is '<value>'[, or in ['<value>', ...]];" inside a "device
+// ... with:" block (Conceptual.def). EntityID is the real HA entity_id the capability resolved
+// to (same resolution path as an "entity ... from <capability>;" line); EventTypes holds one or
+// more raw event_type values that, on THIS entity, mean the named trigger fired.
+type TNamedTriggerSource struct {
+	EntityID   string
+	EventTypes []string
+	// TriggerAttr/TriggerAttrValues (2026-10-15, Step 2; list-value extended 2026-10-19) are ""/nil
+	// unless this source's own "trigger ...;" line carried an embedded "and if trigger.<attr> is
+	// '<value>'[in [...]]" suffix (the Signify dimmer's press/hold + button-direction case: a
+	// single physical event covers several logically distinct named triggers, told apart only by
+	// the firing event's own attribute, not by a different raw event_type). Folded into the
+	// generated automation's own gating condition at generation time
+	// (namedTriggerSourceCondition, generator.go) -- when every contributing source agrees on
+	// exactly one (attr, valueset) pair, that's the same template-condition shape a rule's own
+	// top-level "if trigger.<attr> is \"...\";" clause already renders; when sources DISAGREE
+	// (the real 2026-10-19 Vienna case: several different Moes devices feeding one named trigger,
+	// each needing its OWN button-number filter), an "id"-scoped OR of per-source conditions is
+	// generated instead -- namedTriggerSourceCondition's own doc comment.
+	TriggerAttr       string
+	TriggerAttrValues []string
+}
+
+// NamedTriggers (TAdministrationState) maps a bare "sphere:path" trigger name to every device
+// that declared it (2026-10-15, PROJECT.md's device-level trigger-abstraction step: a rule's own
+// "when" clause should never see a raw, device-level protocol code like "2_single" -- that
+// belongs in the device declaration, not the rule). Multiple devices may declare the SAME name;
+// the generator ORs all of them together into one HA automation trigger list (generateRuleAutomations)
+// -- exactly what a hand-written multi-clause "when A is X or B is Y or ...;" chain already
+// renders today, just sourced from device declarations instead of rule text.
+
+// TRuleCondition is one "condition ...;" statement inside a rule body -- either a plain state
+// check ("<entity-ref> is <state>"), a template check against the firing trigger's own context
+// ("trigger.<attr> is \"<value>\"", the Hue-dimmer button-attribute real case), or a time-window
+// check ("time [after <t>] [before <t>]") -- or an "and"/"or"/"not" composition over sub-nodes
+// (Operands), mirroring HA's own nested condition YAML shape directly ("condition: and/or/not" +
+// "conditions: [...]"). A rule has at most one top-level TRuleCondition (TRule.Condition, nil if
+// absent) -- PROJECT.md item 13's own structural rule (2026-10-13): a rule allows at most one
+// "condition" clause, full stop; multiple conditions that need to combine do so INSIDE that one
+// clause via "and"/"or"/"not" and parenthesised grouping, exactly like any other boolean
+// expression, not via a second top-level "condition" statement or a separate block construct.
+type TRuleCondition struct {
+	Kind        string   // "state", "template", "time", "and", "or", or "not"
+	EntitySpec  string   // "state" kind only
+	State       string   // "state" kind only
+	For         string   // "state" kind only: "HH:MM:SS"-style duration, "" if absent
+	TriggerAttr string   // "template" kind only: the trigger.<attr> name
+	Value       string   // "template" kind only: the literal value compared against
+	After       string   // "time" kind only: "HH:MM[:SS]", "" if absent
+	Before      string   // "time" kind only: "HH:MM[:SS]", "" if absent
+	Weekdays    []string // "time" kind only: e.g. "sat", "sun", "" if absent -- at least one of
+	// After/Before/Weekdays is always set for a valid "time" condition
+
+	Operands []TRuleCondition // "and"/"or" kind only (2+ operands), "not" kind only (exactly 1)
+}
+
+// TRuleDataField is one "with <field> <value>"/", <field> <value>" clause on a "turn" action.
+// Value is a literal (number/word) unless IsJinja, in which case it's raw Jinja template text --
+// the "jinja \"...\"" pass-through convention Logical.def's own "defined"/"derived" capabilities
+// already use (Physical_DerivedCapability.go), reused verbatim here rather than inventing a
+// second templating mechanism.
+type TRuleDataField struct {
+	Name    string
+	Value   string
+	IsJinja bool
+}
+
+// TRuleAction is one action statement inside a rule body's "then ...;" list -- a tagged union
+// (Verb) over the shapes the real manual automations being migrated actually use:
+//   - "turn":   "then turn <entity-ref> on|off [with <field> <value>[, <field> <value>]*];"
+//   - "toggle": "then toggle <entity-ref>;"
+//   - "press":  "then press <entity-ref>;"
+//   - "stop":   "then stop <entity-ref>;"
+//   - "set":    "then set <entity-ref> to <value>|jinja \"...\";"
+//   - "delay":  "then delay <duration>;"
+//   - "if":     "then if <entity-ref> is <state>: <action>...; else: <action>...; end;"
 //
-// The leading "rule <spec>;" name (2026-09-29, added the same day the bare "when ...;" form
-// first shipped, once the user pointed out a derived-from-trigger/action name stops being
-// mechanically possible the moment a rule can have several triggers/conditions/actions -- the
-// explicit name is what a future multi-clause rule body will still be able to hang its own
-// automation identity off of). <spec> resolves exactly like a domain-less entity leaf
-// (normalizeEntityFullName's own "sphere:path" branch, e.g. "social:done_removing_smells" inside
-// "space social:wc" resolves to "social/house/wc/done_removing_smells") -- reused as-is, not a new
-// resolution mechanism. Two rules resolving to the same Name is a hard warning (WhenRuleNamesSeen),
-// since Name is what the generated automation's own alias/id is built from.
+// EntitySpec is already fully resolved for every kind except "delay" (which targets no entity)
+// and "if" (whose own CondEntitySpec is resolved instead).
+type TRuleAction struct {
+	Verb       string
+	EntitySpec string
+	State      string           // "turn" only: "on"/"off"
+	Data       []TRuleDataField // "turn" only
+
+	Value        string // "set" only
+	ValueIsJinja bool   // "set" only
+
+	Duration string // "delay" only
+
+	CondEntitySpec string        // "if" only
+	CondState      string        // "if" only
+	ThenActions    []TRuleAction // "if" only
+	ElseActions    []TRuleAction // "if" only
+}
+
+// TRule records a "rule <spec> with: <when-statement>; <then-statement>; end;" space-level
+// directive (PROJECT.md item 13, 2026-10-12), parsed via a real three-layer CDL1-style parser
+// (rule_character_stream.go/rule_tokeniser.go/rule_parser.go) -- replacing the earlier
+// 2026-09-29 one-liner TWhenRule, which supported exactly the same single-trigger/single-action
+// shape but via ad hoc line/strings.Fields matching (`feedback_no_new_regexp_parsers`'s own
+// flagged debt). Phase 1 of item 13 is a pure engine swap at this exact scope; Phase 2 extends
+// Triggers/Actions to the richer multi-trigger/condition/multi-action grammar the real manual
+// automations being migrated actually need.
+//
+// The leading "rule <spec> with:" name (mandatory since 2026-09-29, once a derived-from-trigger/
+// action name stopped being mechanically possible the moment a rule could have several triggers/
+// conditions/actions) resolves exactly like a domain-less entity leaf (normalizeEntityFullName's
+// own "sphere:path" branch, e.g. "social:done_removing_smells" inside "space social:wc" resolves
+// to "social/house/wc/done_removing_smells") -- reused as-is, not a new resolution mechanism. Two
+// rules resolving to the same Name is a hard warning (RuleNamesSeen), since Name is what the
+// generated automation's own alias/id is built from.
 //
 // "follows <follower> <leader>;" (TFollowsRelation) is conceptually just permanent sugar for
-// exactly two TWhenRule-shaped statements (leader turns on -> follower on; leader turns off ->
+// exactly two TRule-shaped statements (leader turns on -> follower on; leader turns off ->
 // follower off) -- confirmed with the user, who used this equivalence to justify collapsing a
 // switched-by device's own two "follows" lines (one per underlying entity) down to one. Follows
 // keeps its OWN dedicated relation type and generator (unchanged output, unchanged automation
-// entity_ids on an already-live device) rather than being rerouted through WhenRules internally --
-// but generateFollowsAutomations and generateWhenRuleAutomations share their actual per-automation
-// YAML-building code (buildStateTriggerAutomationYAML) precisely to make that "sugar for" relation
-// real at the implementation level, not just a comment.
-type TWhenRule struct {
-	SpaceName    string
-	Name         string // resolved "sphere/path" rule name, e.g. "social/house/wc/done_removing_smells"
-	EventEntity  string // fully qualified DSL entity name whose state change is the trigger
-	EventState   string // "on" or "off" -- the state EventEntity must transition TO
-	ActionEntity string // fully qualified DSL entity name the action targets
-	ActionState  string // "on" or "off" -- turn_on or turn_off is called on ActionEntity
+// entity_ids on an already-live device) rather than being rerouted through Rules internally --
+// but generateFollowsAutomations and generateRuleAutomations share their actual per-automation
+// YAML-building code (buildStateTriggerAutomationYAML, for the single-trigger/single-action case)
+// precisely to make that "sugar for" relation real at the implementation level, not just a
+// comment.
+type TRule struct {
+	SpaceName string
+	Name      string // resolved "sphere/path" rule name, e.g. "social/house/wc/done_removing_smells"
+	Triggers  []TRuleTrigger
+	Condition *TRuleCondition // at most one "if <expr>;" clause, nil if absent
+	Actions   []TRuleAction
 }
 
 // TSwitchedDeviceRelation records a "definition as switched_device <device> <main>" entity directive.
@@ -490,6 +640,24 @@ type TEntityIdentity struct {
 	Domain string
 	Sphere string
 	Path   string
+}
+
+// friendlyEntityName (PROJECT.md item 8, 2026-10-06) is the MQTT discovery "name" field's own
+// value for a positioned entity -- the user's own explicit rule: start with the sphere, include
+// the entire path, exactly as already resolved into identity (no new computation; identity is
+// already stored on every TEntityRecord at registration time). Deliberately NOT the entity_id's
+// own underscore-joined form -- slashes read as a real hierarchy, matching how a device's own
+// conceptual position already reads everywhere else in this DSL's own source text.
+//
+// One known, deliberate gap: identity.Path already has stripEntityOwnTrailingDomainSegment's own
+// stripping applied (Conceptual_DeviceEntities.go) before this ever sees it -- an explicit
+// "entity light.social:main/light;" resolves to Path "main", not "main/light", so this returns
+// "social/house/.../main", not "social/house/.../main/light". No real Physical.def/Conceptual.def
+// in either house uses that explicit-redundant-tail form yet (PROJECT.md item 16's own future
+// direction) -- recomputing the un-stripped form would need a second resolution pass through
+// every registration call site, out of scope here.
+func friendlyEntityName(identity TEntityIdentity) string {
+	return identity.Sphere + "/" + identity.Path
 }
 
 type TEntityRecord struct {
@@ -557,38 +725,42 @@ type TConceptualSourceUse struct {
 
 func newAdministrationState() *TAdministrationState {
 	state := &TAdministrationState{
-		SpacePath:                    []string{},
-		OpenBlocks:                   []string{},
-		AreaStack:                    []string{},
-		PendingEntityCollections:     []TPendingEntityCollection{},
-		SpaceOrder:                   []string{},
-		SpaceKindByName:              map[string]string{"root": SpaceKindRegular},
-		EntitiesBySpace:              map[string][]string{},
-		EntityRecordsBySpace:         map[string][]TEntityRecord{},
-		EntityRecordSeenBySpace:      map[string]map[string]string{},
-		ExternalEntitiesBySpace:      map[string][]string{},
-		SpaceDepthByName:             map[string]int{},
-		SpaceOffByName:               map[string][]string{},
-		SpaceOnByName:                map[string][]string{},
-		SpaceOnExplicitByName:        map[string][]string{},
-		SpaceLightsByName:            map[string][]string{},
-		SpaceMediaByName:             map[string][]string{},
-		SpaceLightOffByName:          map[string][]string{},
-		HeatingLeaksByName:           map[string][]string{},
-		SpaceHasExplicitOn:           map[string]bool{},
-		SpaceHasExplicitOff:          map[string]bool{},
-		SpaceNoMotionDelayByName:     map[string]int{},
-		SpaceMembersByName:           map[string][]string{},
-		SpaceMemberEntitiesByName:    map[string][]string{},
-		SpaceSwitchOnByName:          map[string][]string{},
-		NodeRepresentativeByEntityID: map[string]string{},
-		DeviceConceptualLinks:        map[string]TDeviceConceptualLink{},
-		EntityNameOwnerBySpace:       map[string]map[string]string{},
-		DiscoveryEntityLinks:         map[string]TDiscoveryEntityLink{},
-		DependsOnAvailabilityTopics:  map[string][]string{},
-		LogicalEntityLinks:           map[string]TLogicalEntityLink{},
-		ConceptualUseBySource:        map[string]TConceptualSourceUse{},
-		WhenRuleNamesSeen:            map[string]bool{},
+		SpacePath:                              []string{},
+		OpenBlocks:                             []string{},
+		AreaStack:                              []string{},
+		PendingEntityCollections:               []TPendingEntityCollection{},
+		SpaceOrder:                             []string{},
+		SpaceKindByName:                        map[string]string{"root": SpaceKindRegular},
+		EntitiesBySpace:                        map[string][]string{},
+		EntityRecordsBySpace:                   map[string][]TEntityRecord{},
+		EntityRecordSeenBySpace:                map[string]map[string]string{},
+		ExternalEntitiesBySpace:                map[string][]string{},
+		SpaceDepthByName:                       map[string]int{},
+		SpaceOffByName:                         map[string][]string{},
+		SpaceOnByName:                          map[string][]string{},
+		SpaceOnExplicitByName:                  map[string][]string{},
+		SpaceLightsByName:                      map[string][]string{},
+		SpaceMediaByName:                       map[string][]string{},
+		SpaceLightOffByName:                    map[string][]string{},
+		HeatingLeaksByName:                     map[string][]string{},
+		SpaceHasExplicitOn:                     map[string]bool{},
+		SpaceHasExplicitOff:                    map[string]bool{},
+		SpaceNoMotionDelayByName:               map[string]int{},
+		SpaceMembersByName:                     map[string][]string{},
+		SpaceMemberEntitiesByName:              map[string][]string{},
+		SpaceSwitchOnByName:                    map[string][]string{},
+		NodeRepresentativeByEntityID:           map[string]string{},
+		DeviceConceptualLinks:                  map[string]TDeviceConceptualLink{},
+		DevicePositioningOccurrences:           map[string][]TDevicePositioningOccurrence{},
+		DeviceNodeEntityID:                     map[string]string{},
+		EntityNameOwnerBySpace:                 map[string]map[string]string{},
+		DiscoveryEntityLinks:                   map[string]TDiscoveryEntityLink{},
+		DependsOnAvailabilityTopics:            map[string][]string{},
+		LogicalEntityLinks:                     map[string]TLogicalEntityLink{},
+		ConceptualUseBySource:                  map[string]TConceptualSourceUse{},
+		RuleNamesSeen:                          map[string]bool{},
+		NamedTriggers:                          map[string][]TNamedTriggerSource{},
+		NamedTriggerEntityIDByDeviceCapability: map[string]string{},
 	}
 
 	state.EnsureSpaceRegistered(nil, SpaceKindRegular)
@@ -666,6 +838,31 @@ func provenanceLabel(p string) string {
 	return p
 }
 
+// conceptualSourceLine extracts the real source line number from a provenance string built as
+// "<file>:<lineNum> → ...;" (every Conceptual-layer construction site's own format, REGARDLESS of
+// the entitiesPath string a given caller happens to use -- the real generator always passes
+// "Conceptual.def", a test fixture may pass something else, e.g. "test.def") -- returns (0, false)
+// for anything that isn't shaped that way, or whose own lineNum is "0" (no real line to compare at
+// all, e.g. an implied-node post-pass or a condition-tree's own cross-device reference). Used by
+// RegisterDiscoveryImpliedEntity to tell a genuine duplicate "entity <spec>;" line (two DIFFERENT
+// real line numbers) apart from a device capability's own legitimate second resolution path
+// (synthetic, or the same line twice).
+func conceptualSourceLine(provenance string) (int, bool) {
+	_, rest, ok := strings.Cut(provenance, ":")
+	if !ok {
+		return 0, false
+	}
+	numStr, _, ok := strings.Cut(rest, " ")
+	if !ok {
+		return 0, false
+	}
+	n, err := strconv.Atoi(numStr)
+	if err != nil || n == 0 {
+		return 0, false
+	}
+	return n, true
+}
+
 func (state *TAdministrationState) RegisterEntityClosure(pending TPendingEntityCollection) {
 	// Only store the plain entity name (strip any annotation like line numbers)
 	plainName := pending.Entry
@@ -694,18 +891,13 @@ func (state *TAdministrationState) OpenSpace(spaceKind, spaceName string, isArea
 		if colonIdx := strings.Index(spaceName, ":"); colonIdx > 0 {
 			enclosing := formatNestedSpaceName(state.SpacePath)
 			sphere := spaceName[:colonIdx]
-			// The leaf half is taken directly (spaceName[colonIdx+1:]), NOT via
-			// deviceSpecLeafPath(spaceName) -- that helper's own "multi-sphere" verbatim-preserving
-			// branch (isMultiSphereDeviceNamePath) is designed for a DEVICE's own "as" clause, where
-			// a single non-"infrastructural" sphere token is deliberately a distinct shape (see
-			// Conceptual_DevicePositioning.go's own header comment). A SPACE's own "sphere:leaf" spec
-			// has no such special case -- it's always exactly one ordinary sphere:leaf pair -- so
-			// reusing that device-shaped heuristic here was a real bug: for any "as area" space whose
-			// sphere isn't "infrastructural" (i.e. nearly all of them, "social" being the overwhelming
-			// common case), deviceSpecLeafPath returned the WHOLE spec verbatim, colon and all (e.g.
-			// "social:kitchen"), which spaceAreaDisplayName then concatenated straight into the area
-			// name -- confirmed live, 2026-09-28: Junglinster's own kitchen netatmo device got
-			// suggested_area "social/house/social:kitchen" instead of "social/house/kitchen".
+			// The leaf half is taken directly (spaceName[colonIdx+1:]) rather than via
+			// deviceSpecLeafPath(spaceName) -- a historical bug (confirmed live 2026-09-28: Junglinster's
+			// own kitchen netatmo device got suggested_area "social/house/social:kitchen" instead of
+			// "social/house/kitchen") came from a now-removed device-leaf heuristic that helper used to
+			// carry; deviceSpecLeafPath is a plain colon-strip today and would give the same answer, but
+			// this stays explicit since a SPACE's own "sphere:leaf" spec is always exactly one ordinary
+			// sphere:leaf pair regardless of what deviceSpecLeafPath does for device specs.
 			areaName = spaceAreaDisplayName(enclosing, sphere, spaceName[colonIdx+1:])
 		}
 	}
@@ -1024,9 +1216,15 @@ func (state *TAdministrationState) registerDerivedBinarySensorAggregate(spaceNam
 var heatingPresetNames = []string{"around", "away", "day", "night"}
 
 // heatingCapableSpaces returns, keyed by "social/"-stripped physical path, every DSL space that
-// contains a climate entity and/or a physical heating switch (switch.physical:.../heating). A
-// space with a climate entity qualifies for the full temperature/preset entity set; a space with
-// only a heating switch qualifies for the shared leakage/enable control entities.
+// contains a climate entity and/or a heating switch (any switch entity whose own path ends in
+// "heating", regardless of sphere -- confirmed with the user 2026-10-07: this detection is sphere-
+// agnostic by design, triggered purely by the "heating" tail, not a specific sphere. Previously
+// hardcoded to Sphere == "physical" only, which silently dropped the ENTIRE leakage/mode-preset
+// subsystem below for any heating switch repositioned to a different sphere -- a real regression
+// found live generating Junglinster's own output after renaming 4 heating switches'
+// "switch.physical:heating" to "switch.social:heating"). A space with a climate entity qualifies
+// for the full temperature/preset entity set; a space with only a heating switch qualifies for the
+// shared leakage/enable control entities.
 func heatingCapableSpaces(state *TAdministrationState) (climateSpaces map[string]bool, switchSpaces map[string]bool) {
 	climateSpaces = map[string]bool{}
 	switchSpaces = map[string]bool{}
@@ -1036,7 +1234,7 @@ func heatingCapableSpaces(state *TAdministrationState) (climateSpaces map[string
 			if rec.Identity.Domain == "climate" {
 				climateSpaces[physPath] = true
 			}
-			if rec.Identity.Domain == "switch" && rec.Identity.Sphere == "physical" {
+			if rec.Identity.Domain == "switch" {
 				p := rec.Identity.Path
 				if strings.HasSuffix(p, "/heating") || p == "heating" {
 					switchSpaces[physPath] = true
@@ -1107,9 +1305,28 @@ func (state *TAdministrationState) deriveEntityIfAbsent(spaceName, entityName, p
 func (state *TAdministrationState) RegisterDiscoveryImpliedEntity(spaceName, entityName, provenance, sourceKey string, noCollect bool) {
 	if sourceKey != "" {
 		if existing, seen := state.ConceptualUseBySource[sourceKey]; seen {
-			if existing.EntityName != entityName {
+			switch {
+			case existing.EntityName != entityName:
 				fmt.Fprintf(os.Stderr, "[WARNING] Device capability %q already used as a different conceptual entity\n  first:  %s (%s)\n  second: %s (%s)\n",
 					sourceKey, existing.EntityName, provenanceLabel(existing.Provenance), entityName, provenanceLabel(provenance))
+			default:
+				// Same entity, same source -- normally just the device's own capability being
+				// re-touched from a second, LEGITIMATE path (e.g. resolved once directly, once as a
+				// side effect of an absorb/condition reference elsewhere), which must stay silent.
+				// But when BOTH registrations trace back to a REAL, DIFFERENT Conceptual.def line
+				// number, that's not a second path at all -- it's the exact same "entity <spec>;"
+				// line typed twice within one device's own block, almost always a copy-paste
+				// accident. Real case found live: Junglinster's utility.fritz_box, whose own
+				// "entity sensor.infrastructural:gb_received;"/"...gb_sent;" lines each appear
+				// twice verbatim -- previously silent, since this function's own idempotency check
+				// (below) exists precisely to tolerate the legitimate re-touch case and can't tell
+				// the two apart without comparing real source line numbers specifically.
+				if firstLine, ok1 := conceptualSourceLine(existing.Provenance); ok1 {
+					if secondLine, ok2 := conceptualSourceLine(provenance); ok2 && secondLine != firstLine {
+						fmt.Fprintf(os.Stderr, "[WARNING] Device capability %q is declared twice in Conceptual.def, at lines %d and %d -- likely a copy-paste duplicate; remove one of them\n  first:  %s\n  second: %s\n",
+							sourceKey, firstLine, secondLine, provenanceLabel(existing.Provenance), provenanceLabel(provenance))
+					}
+				}
 			}
 		} else {
 			state.ConceptualUseBySource[sourceKey] = TConceptualSourceUse{EntityName: entityName, Provenance: provenance}
@@ -1244,7 +1461,7 @@ func (state *TAdministrationState) DeriveImpliedHeatingEntities() {
 
 	if len(allEntityRecordsByDomain(state, "cover")) > 0 {
 		state.deriveTimeWindowDatetimePair("coverage_workday", "coverage_holiday")
-		state.deriveInputBoolean("root", "input_boolean.social/covers/auto_control", "mdi:dots-vertical", "implied: cover control")
+		state.deriveInputBoolean("root", "input_boolean.social/covers/auto_control", "mdi:window-shutter-auto", "implied: cover control")
 	}
 
 	if len(allEntityRecordsByDomain(state, "vacuum")) > 0 {

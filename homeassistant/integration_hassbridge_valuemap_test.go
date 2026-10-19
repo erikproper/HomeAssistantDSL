@@ -80,7 +80,7 @@ func TestParseHassBridgeIntegrationBodyIgnoreOtherCapabilities(t *testing.T) {
 	body := []string{
 		"device utility.fritz_box with:",
 		"  ignore other capabilities;",
-		"  button.fritz_os button.fritz_box_7590_ax_firmware_update;",
+		"  capability button.fritz_os button.fritz_box_7590_ax_firmware_update;",
 		"end;",
 	}
 

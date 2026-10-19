@@ -102,6 +102,9 @@ func generateDiscoveryIntegrationOutputs(bodyLines []string, ctx TPhysicalGenera
 			sb.WriteString("  " + id + ":\n")
 			sb.WriteString("    gateway: " + link.GatewayDeviceID + "\n")
 			sb.WriteString("    leaf: " + link.Leaf + "\n")
+			if link.StableID != "" {
+				sb.WriteString("    stable_id: " + link.StableID + "\n")
+			}
 			if link.SourceDomain != "" {
 				sb.WriteString("    source_domain: " + link.SourceDomain + "\n")
 			}

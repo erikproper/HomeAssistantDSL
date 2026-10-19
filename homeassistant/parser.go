@@ -112,18 +112,100 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 	// end;" form (Conceptual_DeviceCapabilityEntities.go / Conceptual_DevicePositioning.go); a flat
 	// state flag, not a stack -- nesting isn't supported, there's no use case for it.
 	forDeviceID := ""
-	// forDeviceNamePath mirrors forDeviceID: the positioned device's own leaf path
-	// (deviceSpecLeafPath of the with-block header's own spec, e.g. "netatmo"), set only while
-	// inside the block -- PROJECT.md item 5, "device declaration acts like a space". Passed to
-	// registerDeviceCapabilityEntityLink below so a capability line inside the block can write
-	// "sensor.physical:co2" instead of repeating "sensor.physical:netatmo/co2"; see
-	// registerDeviceSourceEntityLink's doc comment (Conceptual_DeviceSourceEntities.go) for why this
-	// is a separate value from administration.SpacePath rather than pushed onto it.
+	// forDeviceNamePath mirrors forDeviceID: the positioned device's own leaf path, set only while
+	// inside the block -- PROJECT.md item 5, "device declaration acts like a space". Always ""
+	// from THIS source since PROJECT.md item 10 (2026-10-11) dropped the "device <id> as <leaf>
+	// with:" clause from the grammar outright -- the header can no longer author a non-empty leaf
+	// at all. Threaded through unchanged (rather than deleted) because registerDeviceCapabilityEntityLink
+	// and its own downstream chain still take a deviceNamePath parameter for a genuinely different,
+	// still-live purpose: device_friendly_name.go's applyColocatedPositioning/
+	// triggerLogicalOwnNodeCapabilities feed it a COMPUTED leaf (never author-written) for a
+	// colocated Logical.def target or a sibling-derived "node" leaf.
 	forDeviceNamePath := ""
+
+	// forDeviceAtLeaf is "" unless the current device block was opened via the NEW (2026-10-15)
+	// "device <id> at <leaf> with:" header -- deliberately SEPARATE from forDeviceNamePath above
+	// (not reusing namingSpacePath's own blanket fold, which applies to every explicit-sphere-path
+	// line unconditionally): this leaf only ever folds into a line that opts in via "::"
+	// (expandDeviceAtLeafDoubleColon, below), and is also what a "trigger ...;" line's own hidden
+	// entity uses as its local path instead of deriving one from the device id
+	// (Conceptual_NamedTriggerEntities.go's own doc comment).
+	forDeviceAtLeaf := ""
+
+	// currentRule is nil outside a "rule <spec> with: ...; end;" body -- a flat state flag, same
+	// convention as forDeviceID immediately above (no nesting support, no use case for it). Each
+	// "when"/"then" statement line inside is parsed by the real three-layer CDL1-style parser
+	// (rule_character_stream.go/rule_tokeniser.go/rule_parser.go, PROJECT.md item 13) rather than
+	// more ad hoc line matching -- see TRule's own doc comment for why. currentRuleClauses tracks
+	// how many of each top-level clause currentRule has seen so far, reset every time a new rule
+	// opens -- see ruleClauseTracker's own doc comment for the exactly-one/at-most-one/exactly-one
+	// shape this enforces (confirmed with the user 2026-10-13).
+	var currentRule *TRule
+	var currentRuleClauses ruleClauseTracker
 
 	for i := 0; i < len(entityLines); i++ {
 		trimmed := strings.TrimSpace(entityLines[i])
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		if currentRule != nil {
+			// Join wrapped continuation lines (ruleBodyLineNeedsContinuation, below) before any of
+			// the checks below run, so a "when <clause> or\n <clause>" inline-OR trigger chain
+			// (2026-10-13) can span multiple physical lines.
+			for ruleBodyLineNeedsContinuation(trimmed) && i+1 < len(entityLines) {
+				next := strings.TrimSpace(entityLines[i+1])
+				if next == "" || strings.HasPrefix(next, "#") {
+					break
+				}
+				i++
+				trimmed += " " + next
+			}
+			if trimmed == EndToken+StatementEndToken {
+				if administration.RuleNamesSeen[currentRule.Name] {
+					fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: rule %q is declared more than once -- each \"rule <spec> with: ...;\" must resolve to a unique name\n", currentRule.Name)
+				}
+				currentRuleClauses.checkComplete(currentRule.Name)
+				administration.RuleNamesSeen[currentRule.Name] = true
+				administration.Rules = append(administration.Rules, *currentRule)
+				currentRule = nil
+				continue
+			}
+			// "then if <entity-ref> is <state>:" is a multi-line sub-block (PROJECT.md item 13
+			// Phase 2) -- the outer scanner's own job is only to find its own matching "end;"
+			// (same convention as every other "... with:"/"end;" block boundary in this
+			// function), not to parse its content; the real grammar work happens in
+			// rule_parser.go via TRuleParser.ActionStatement, called once per line inside.
+			if strings.HasPrefix(trimmed, "then if ") && strings.HasSuffix(trimmed, ":") {
+				action, newI := parseIfActionBlock(administration, currentRule, entityLines, i, trimmed)
+				i = newI
+				if action != nil && currentRuleClauses.claimThen(currentRule.Name) {
+					currentRule.Actions = append(currentRule.Actions, *action)
+				}
+				continue
+			}
+			// "then:" is a multi-action block (2026-10-13) -- several actions without repeating
+			// "then" once per line, closed by "end;". Bare action lines inside (no leading
+			// "then") reuse TRuleParser.ActionStatement directly, same as "then if"'s own
+			// branches just above.
+			if trimmed == "then:" {
+				actions, newI := parseThenBlock(administration, currentRule, entityLines, i)
+				i = newI
+				if currentRuleClauses.claimThen(currentRule.Name) {
+					currentRule.Actions = append(currentRule.Actions, actions...)
+				}
+				continue
+			}
+			parseRuleStatementLine(administration, currentRule, trimmed, &currentRuleClauses)
+			continue
+		}
+
+		if ruleName, ok := strings.CutSuffix(strings.TrimPrefix(trimmed, "rule "), " with:"); ok && strings.HasPrefix(trimmed, "rule ") {
+			currentRule = &TRule{
+				SpaceName: administration.CurrentSpaceName(),
+				Name:      normalizeEntityFullName(strings.TrimSpace(ruleName), administration.SpacePath),
+			}
+			currentRuleClauses = ruleClauseTracker{}
 			continue
 		}
 
@@ -132,6 +214,17 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			if trimmed == EndToken+StatementEndToken {
 				forDeviceID = ""
 				forDeviceNamePath = ""
+				forDeviceAtLeaf = ""
+				continue
+			}
+			if forDeviceAtLeaf != "" {
+				trimmed = expandDeviceAtLeafDoubleColon(trimmed, forDeviceAtLeaf)
+			}
+			if triggerDecl, ok := extractNamedTriggerDeclaration(trimmed); ok {
+				warnings := registerNamedTrigger(administration, *triggerDecl, forDeviceID, forDeviceAtLeaf, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, sourceLine(i))
+				for _, w := range warnings {
+					fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
+				}
 				continue
 			}
 			expanded, ok := expandForDeviceShorthandLine(trimmed, forDeviceID)
@@ -147,6 +240,16 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 				continue
 			}
 			trimmed = expanded
+		} else if deviceID, atLeaf, ok := extractDeviceAtLeafWithBlockHeader(trimmed); ok {
+			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
+			warnings := registerDevicePositioning(administration, TDevicePositioningDeclaration{DeviceID: deviceID}, discoveryGatewaysByID, hostDevicesByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, sourceLine(i))
+			for _, w := range warnings {
+				fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
+			}
+			forDeviceID = deviceID
+			forDeviceNamePath = ""
+			forDeviceAtLeaf = atLeaf
+			continue
 		} else if withBlockDecl, ok := extractDeviceWithBlockHeader(trimmed); ok {
 			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
 			warnings := registerDevicePositioning(administration, *withBlockDecl, discoveryGatewaysByID, hostDevicesByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, sourceLine(i))
@@ -154,7 +257,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 				fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
 			}
 			forDeviceID = withBlockDecl.DeviceID
-			forDeviceNamePath = deviceSpecLeafPath(withBlockDecl.Spec)
+			forDeviceNamePath = ""
 			continue
 		}
 
@@ -164,7 +267,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			for _, w := range warnings {
 				fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
 			}
-			oneLinerDeviceNamePath := deviceSpecLeafPath(oneLinerDecl.Spec)
+			oneLinerDeviceNamePath := "" // the grammar can no longer author a non-empty leaf here either -- see forDeviceNamePath's own doc comment above
 			oneLinerCapabilityIsInferred := false
 			expanded, expandOK := expandForDeviceShorthandLine(embeddedEntity, oneLinerDecl.DeviceID)
 			if !expandOK {
@@ -592,22 +695,23 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			continue
 		}
 
-		// Handle "lights_motion_guarded [with delay N];" — auto-registers a no_motion/ignore input_boolean
-		// for the current space, which is then picked up by generateNoMotionAutomations.
-		if strings.HasPrefix(trimmed, "lights_motion_guarded") {
+		// Handle "lights motion guarded [with delay N];" — auto-registers a no_motion/ignore
+		// input_boolean for the current space, which is then picked up by
+		// generateNoMotionAutomations.
+		if strings.HasPrefix(trimmed, "lights motion guarded") {
 			spaceName := administration.CurrentSpaceName()
 			entityName := "input_boolean." + spaceName + "/no_motion/ignore"
 			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
 			administration.RegisterEntityClosure(TPendingEntityCollection{
 				SpaceName: spaceName,
-				Entry:     entityName + " (lights_motion_guarded)",
+				Entry:     entityName + " (lights motion guarded)",
 				Record: TEntityRecord{
 					Name:                  entityName,
 					Identity:              extractEntityIdentity(entityName),
 					NoCollect:             true,
 					HasDefinitionOrImport: true,
 					InputBooleanIcon:      "mdi:motion-sensor-off",
-					Provenance:            "lights_motion_guarded:" + spaceName,
+					Provenance:            "lights motion guarded:" + spaceName,
 				},
 				HasExternalRef: false,
 			})
@@ -663,64 +767,13 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			continue
 		}
 
-		// Handle "rule <spec> when <event-entity> turns on|off then turn <action-entity> on|off;"
-		// (2026-09-29) -- records a TWhenRule. See TWhenRule's own doc comment for the deliberately
-		// minimal scope of this first cut (single bare event atom, no "if" gate clause, no
-		// composition, no multi-action block -- none of that is needed by either real site this was
-		// built for) and for why the leading "rule <spec>" name is mandatory (a future multi-clause
-		// rule body can't mechanically derive a name from its own trigger/action any more). <spec>
-		// resolves exactly like a domain-less entity leaf (normalizeEntityFullName's own
-		// "sphere:path" branch) -- reused as-is, not a new mechanism. Malformed input is silently
-		// skipped, matching "follows"/"limits" immediately above -- this construct is new but
-		// structurally identical to them, so it follows their own local precedent rather than
-		// introducing a general warnings path this function doesn't otherwise have; the one
-		// exception is a duplicate rule Name, which IS warned about (see WhenRuleNamesSeen's own
-		// doc comment) since a silent collision would silently overwrite one rule's own generated
-		// automation with another's.
-		if strings.HasPrefix(trimmed, "rule ") {
-			spaceName := administration.CurrentSpaceName()
-			body := strings.TrimPrefix(trimmed, "rule ")
-			whenIdx := strings.Index(body, " when ")
-			if whenIdx > 0 {
-				nameSpec := strings.TrimSpace(body[:whenIdx])
-				content := strings.TrimSuffix(strings.TrimSpace(body[whenIdx+len(" when "):]), ";")
-				thenIdx := strings.Index(content, " then ")
-				if thenIdx > 0 {
-					eventFields := strings.Fields(content[:thenIdx])
-					actionFields := strings.Fields(content[thenIdx+len(" then "):])
-					if nameSpec != "" && len(eventFields) == 3 && eventFields[1] == "turns" &&
-						(eventFields[2] == "on" || eventFields[2] == "off") &&
-						len(actionFields) == 3 && actionFields[0] == "turn" &&
-						(actionFields[2] == "on" || actionFields[2] == "off") {
-						eventEntity := normalizeEntityFullName(eventFields[0], administration.SpacePath)
-						actionEntity := normalizeEntityFullName(actionFields[1], administration.SpacePath)
-						ruleName := normalizeEntityFullName(nameSpec, administration.SpacePath)
-						if !strings.ContainsAny(eventEntity+actionEntity+ruleName, "$:{}[]*") {
-							if administration.WhenRuleNamesSeen[ruleName] {
-								fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: rule %q is declared more than once -- each \"rule <spec> when ...;\" must resolve to a unique name\n", ruleName)
-							}
-							administration.WhenRuleNamesSeen[ruleName] = true
-							administration.WhenRules = append(administration.WhenRules, TWhenRule{
-								SpaceName:    spaceName,
-								Name:         ruleName,
-								EventEntity:  eventEntity,
-								EventState:   eventFields[2],
-								ActionEntity: actionEntity,
-								ActionState:  actionFields[2],
-							})
-						}
-					}
-				}
-			}
-			continue
-		}
-
-		// A bare "when ...;" with no leading "rule <spec>" is the RETIRED form (2026-09-29,
-		// same day it first shipped) -- warn with the exact fix rather than silently dropping the
-		// rule, matching this codebase's own established practice for a just-retired keyword
-		// (e.g. "enabler <id>;" -> "... enabled by ...;").
-		if strings.HasPrefix(trimmed, "when ") {
-			fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: bare \"when ...;\" is retired -- prefix it with a rule name, e.g. \"rule <sphere:leaf> when ...;\"\n")
+		// A bare "when ...;"/"then ...;" outside any "rule <spec> with: ...; end;" block (handled
+		// above, right after currentRule's own nil check) means the author forgot the wrapper --
+		// warn with the exact fix rather than silently dropping the statement, matching this
+		// codebase's own established practice for a construct that only makes sense inside its own
+		// block (e.g. a bare "enabler <id>;" -> "... enabled by ...;" retirement warning).
+		if strings.HasPrefix(trimmed, "when ") || strings.HasPrefix(trimmed, "then ") {
+			fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: %q outside a \"rule <spec> with: ...; end;\" block -- see PROJECT.md item 13\n", trimmed)
 			continue
 		}
 
@@ -864,4 +917,225 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 		ValidInvocations: validInvocations,
 		TypeErrors:       typeErrors,
 	}, nil
+}
+
+// ruleBodyLineNeedsContinuation reports whether a rule-body line is still incomplete and needs
+// the next physical line appended -- delegates to lineIsCompleteStatement (defined.go), which
+// this file's own universal whitespace-normalisation pass (normalizeDefinitionWhitespace) already
+// uses to join a "when"/"if" clause's own continuation lines BEFORE this function ever sees a
+// line; this is the second, independent pass over the (already mostly-joined) rule-body lines
+// that handles "then:"/"then if ...:" multi-line blocks and "end;" -- both passes must agree on
+// where a "when"/"if" clause ends, or one undoes the other's correct join.
+func ruleBodyLineNeedsContinuation(trimmed string) bool {
+	return !lineIsCompleteStatement(trimmed)
+}
+
+// parseRuleStatementLine parses one line of a "rule <spec> with: ...; end;" body (a "when
+// <entity-ref> turns on|off;" trigger or a "then turn <entity-ref> on|off;" action) via the real
+// three-layer CDL1-style parser (rule_character_stream.go/rule_tokeniser.go/rule_parser.go) and
+// appends the result to rule. EntitySpec is resolved to a fully-qualified entity name here
+// (normalizeEntityFullName), exactly like every other Conceptual.def relation construct resolves
+// its own entity references at parse time (FollowsRelations/TimerLimitsRelations/
+// SwitchedDeviceRelations) -- not deferred to generation time. Any parse failure is reported via
+// the parser's own accumulated warnings; the line is otherwise skipped, matching "follows"/
+// "limits"' own local precedent of silently skipping malformed input elsewhere in this function.
+func parseRuleStatementLine(administration *TAdministrationState, rule *TRule, line string, clauses *ruleClauseTracker) {
+	p := newRuleParser(line, rule.Name)
+
+	var triggers []TRuleTrigger
+	if p.WhenStatement(&triggers) {
+		if clauses.claimWhen(rule.Name) {
+			for i := range triggers {
+				triggers[i].EntitySpec = normalizeEntityFullName(triggers[i].EntitySpec, administration.SpacePath)
+				if triggers[i].Kind == "named_trigger" {
+					// Space-relative, same as EntitySpec above -- see registerNamedTrigger's own
+					// doc comment (Conceptual_NamedTriggerEntities.go) for why a named trigger's
+					// Name is resolved, not taken literally.
+					triggers[i].Name = normalizeEntityFullName(triggers[i].Name, administration.SpacePath)
+				}
+			}
+			rule.Triggers = append(rule.Triggers, triggers...)
+		}
+		return
+	}
+
+	var cond TRuleCondition
+	if p.IfStatement(&cond) {
+		if clauses.claimCondition(rule.Name) {
+			resolveConditionEntitySpecs(administration, &cond)
+			rule.Condition = &cond
+		}
+		return
+	}
+
+	var action TRuleAction
+	if p.ThenStatement(&action) {
+		if clauses.claimThen(rule.Name) {
+			resolveActionEntitySpec(administration, &action)
+			rule.Actions = append(rule.Actions, action)
+		}
+		return
+	}
+
+	for _, w := range p.Warnings {
+		fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: %s\n", w)
+	}
+	fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: rule %q: unrecognised statement %q\n", rule.Name, line)
+}
+
+// resolveConditionEntitySpecs resolves every "state"-kind leaf's EntitySpec in a TRuleCondition
+// tree in place, recursing into "and"/"or"/"not" Operands -- a condition can nest arbitrarily
+// deep, unlike a trigger or action.
+func resolveConditionEntitySpecs(administration *TAdministrationState, cond *TRuleCondition) {
+	if cond.Kind == "state" {
+		cond.EntitySpec = normalizeEntityFullName(cond.EntitySpec, administration.SpacePath)
+	}
+	for i := range cond.Operands {
+		resolveConditionEntitySpecs(administration, &cond.Operands[i])
+	}
+}
+
+// ruleClauseTracker enforces PROJECT.md item 13's own structural rule for a rule body
+// (2026-10-13, confirmed with the user): exactly one "when" clause, at most one "if" clause,
+// exactly one "then" clause (which may itself be a single action, a "then: ...; end;" block, or
+// a "then if ...: ...; end;" branching action -- any one of those satisfies the one "then" slot).
+// Reset fresh each time a new "rule <spec> with:" block opens.
+type ruleClauseTracker struct {
+	seenWhen, seenCondition, seenThen bool
+}
+
+// claimWhen reports whether this is the rule's first "when" clause, warning and returning false
+// otherwise (the caller discards what it just parsed rather than appending it).
+func (c *ruleClauseTracker) claimWhen(ruleName string) bool {
+	if c.seenWhen {
+		fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: rule %q: exactly one \"when\" clause is allowed per rule -- ignoring this extra one\n", ruleName)
+		return false
+	}
+	c.seenWhen = true
+	return true
+}
+
+// claimCondition reports whether this is the rule's first "if" clause, warning and returning
+// false otherwise.
+func (c *ruleClauseTracker) claimCondition(ruleName string) bool {
+	if c.seenCondition {
+		fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: rule %q: at most one \"if\" clause is allowed per rule -- combine conditions with and/or/not instead of repeating \"if\"; ignoring this extra one\n", ruleName)
+		return false
+	}
+	c.seenCondition = true
+	return true
+}
+
+// claimThen reports whether this is the rule's first "then" clause, warning and returning false
+// otherwise.
+func (c *ruleClauseTracker) claimThen(ruleName string) bool {
+	if c.seenThen {
+		fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: rule %q: exactly one \"then\" clause is allowed per rule -- use \"then: ...; end;\" for multiple actions instead of repeating \"then\"; ignoring this extra one\n", ruleName)
+		return false
+	}
+	c.seenThen = true
+	return true
+}
+
+// checkComplete warns if the rule closed ("end;") without ever seeing its required "when"/"then"
+// clause -- "if" is optional (at most one), so its absence is never warned about.
+func (c *ruleClauseTracker) checkComplete(ruleName string) {
+	if !c.seenWhen {
+		fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: rule %q: requires exactly one \"when\" clause, found none\n", ruleName)
+	}
+	if !c.seenThen {
+		fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: rule %q: requires exactly one \"then\" clause, found none\n", ruleName)
+	}
+}
+
+// resolveActionEntitySpec resolves action.EntitySpec in place via normalizeEntityFullName --
+// a no-op for "delay" (EntitySpec is already "", and normalizeEntityFullName's own early-return
+// guard leaves an empty spec unchanged).
+func resolveActionEntitySpec(administration *TAdministrationState, action *TRuleAction) {
+	action.EntitySpec = normalizeEntityFullName(action.EntitySpec, administration.SpacePath)
+}
+
+// parseIfActionBlock parses a "then if <entity-ref> is <state>: <action>...; [else:
+// <action>...;] end;" multi-line action block (PROJECT.md item 13 Phase 2's "if" action verb),
+// starting at entityLines[headerIdx] == header (already confirmed by the caller to start with
+// "then if " and end with ":"). Returns the parsed action (nil if the header itself failed to
+// parse) and the index of the block's own "end;" line, so the caller's own loop index naturally
+// advances past it on its next i++.
+func parseIfActionBlock(administration *TAdministrationState, rule *TRule, entityLines []string, headerIdx int, header string) (*TRuleAction, int) {
+	headerParser := newRuleParser(strings.TrimSuffix(header, ":"), rule.Name)
+	var action TRuleAction
+	headerOK := headerParser.IfActionHeader(&action)
+	for _, w := range headerParser.Warnings {
+		fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: %s\n", w)
+	}
+	if headerOK {
+		action.CondEntitySpec = normalizeEntityFullName(action.CondEntitySpec, administration.SpacePath)
+	}
+
+	inElse := false
+	i := headerIdx + 1
+	for ; i < len(entityLines); i++ {
+		line := strings.TrimSpace(entityLines[i])
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if line == EndToken+StatementEndToken {
+			break
+		}
+		if line == "else:" {
+			inElse = true
+			continue
+		}
+		branchParser := newRuleParser(line, rule.Name)
+		var branchAction TRuleAction
+		if branchParser.ActionStatement(&branchAction) {
+			resolveActionEntitySpec(administration, &branchAction)
+			if inElse {
+				action.ElseActions = append(action.ElseActions, branchAction)
+			} else {
+				action.ThenActions = append(action.ThenActions, branchAction)
+			}
+			continue
+		}
+		for _, w := range branchParser.Warnings {
+			fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: %s\n", w)
+		}
+		fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: rule %q: unrecognised statement %q\n", rule.Name, line)
+	}
+
+	if !headerOK {
+		return nil, i
+	}
+	return &action, i
+}
+
+// parseThenBlock parses a "then: <action>; <action>; ...; end;" multi-action block (PROJECT.md
+// item 13, 2026-10-13), starting right after entityLines[headerIdx] == "then:". Each line inside
+// is a bare action statement (TRuleParser.ActionStatement, no leading "then" -- same grammar "if"
+// actions' own then/else branches already reuse). Returns the index of the block's own "end;"
+// line, so the caller's own loop index naturally advances past it.
+func parseThenBlock(administration *TAdministrationState, rule *TRule, entityLines []string, headerIdx int) ([]TRuleAction, int) {
+	var actions []TRuleAction
+	i := headerIdx + 1
+	for ; i < len(entityLines); i++ {
+		line := strings.TrimSpace(entityLines[i])
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if line == EndToken+StatementEndToken {
+			break
+		}
+		actionParser := newRuleParser(line, rule.Name)
+		var action TRuleAction
+		if actionParser.ActionStatement(&action) {
+			resolveActionEntitySpec(administration, &action)
+			actions = append(actions, action)
+			continue
+		}
+		for _, w := range actionParser.Warnings {
+			fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: %s\n", w)
+		}
+		fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: rule %q: unrecognised statement %q\n", rule.Name, line)
+	}
+	return actions, i
 }

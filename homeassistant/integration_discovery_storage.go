@@ -103,6 +103,17 @@ type TDiscoveryCapability struct {
 	// turn_on/turn_off), no separate template/wrapper entity needed. Replaces the older Conceptual.def
 	// "definition as flipped <source>;" two-entity pattern for a genuinely raw, undeclared source.
 	Inverted bool
+
+	// AssignedID (2026-10-05, PROJECT.md item 7's stable coordinator<->HA entity identity design,
+	// memory/project_stable_entity_identity_design.md) is a plain raw-leaf capability's own frozen
+	// "as <id>;" suffix, once assigned never recomputed regardless of later Leaf/DeviceID changes
+	// -- see relayedDiscoveryUniqueID's own doc comment (house_event_bus_coordinator/
+	// discoverybridge.go) for why gatewayID+leaf alone isn't stable across a device rename or
+	// hardware swap. Empty means not yet assigned (either genuinely new, or this house hasn't
+	// been bootstrapped yet). Only meaningful on a plain raw-leaf capability (Leaf != "") -- the
+	// parser warns if written on an AvailabilityOf/DerivedFromCapability line, since neither of
+	// those ever flows through relayedDiscoveryUniqueID.
+	AssignedID string
 }
 
 // TDiscoveryGatewayDevice is one "device <id> with: ... end;" declaration inside "integration

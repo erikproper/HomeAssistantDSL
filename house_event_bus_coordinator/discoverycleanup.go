@@ -239,9 +239,12 @@ func expectedCloudHostsPayloads(devicesFile TDevicesFile, ownInstallation string
 
 // expectedDiscoveryBridgeTopics computes every discovery topic this run's discovery.yaml entity
 // links imply -- the topic depends only on gatewayID+leaf (relayedDiscoveryUniqueID,
-// discoverybridge.go), both known statically, so no live gateway payload is needed to know which
-// topics to expect (only to fill their bodies in later -- so, unlike expectedHostsPayloads, this
-// can only report topic existence, not expected content).
+// discoverybridge.go), or on link.StableID when set (2026-10-05, PROJECT.md item 7), both known
+// statically, so no live gateway payload is needed to know which topics to expect (only to fill
+// their bodies in later -- so, unlike expectedHostsPayloads, this can only report topic
+// existence, not expected content). Must use the SAME preference buildRelayedDiscoveryConfig
+// does, or a stable-ID'd entity's real topic would never match this function's own "expected" set
+// and the cleanup pass would wrongly retire it as orphaned.
 func expectedDiscoveryBridgeTopics(discoveryFile TDiscoveryFile, prefix string) map[string]bool {
 	expected := map[string]bool{}
 	for entityID, link := range discoveryFile.EntityLinks {
@@ -250,7 +253,11 @@ func expectedDiscoveryBridgeTopics(discoveryFile TDiscoveryFile, prefix string) 
 			continue
 		}
 		domain := entityID[:dotIdx]
-		expected[discoveryTopic(prefix, domain, relayedDiscoveryUniqueID(link.Gateway, link.Leaf))] = true
+		stableID := link.StableID
+		if stableID == "" {
+			stableID = relayedDiscoveryUniqueID(link.Gateway, link.Leaf)
+		}
+		expected[discoveryTopic(prefix, domain, stableID)] = true
 	}
 	return expected
 }

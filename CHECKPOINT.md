@@ -1,124 +1,112 @@
 # Checkpoint — Home Assistant DSL Generator + Coordinator
 
-**Frozen:** 2026-09-29 (mid-session, ahead of a possible `/clear`)
+**Frozen:** 2026-10-19 (machine handover — this Mac is going in for service; the new machine
+picks up from here, reading only what's synced via Nextcloud).
 **Status:** both Go modules (`homeassistant` generator, `house_event_bus_coordinator`) build/vet/
-test clean. Both houses (Vienna, Junglinster) regenerate clean. **Coordinator is deployed and live
-on both houses' protocols-server-1 as of this session**, carrying today's two coordinator-side name
-fixes (see below). The generator-side whitespace/continuation-join fix is built, tested, and
-regenerates clean on both houses, but **has not been deployed** (no `.def`/generated-YAML change
-resulted from it on either house, so there's nothing new to push — see below for why).
+test clean. Vienna's p-s-1 (Pi4) has been fully migrated from Fedora to Ubuntu and is live
+(containers, coordinator, smtpproxy, Samba, off-box backups all verified). Vienna's own rule
+migration (named-trigger abstraction) is deployed live — including a same-day regression fix
+(Moes buttons) — but **full live verification of that fix is NOT done yet**, see below.
+Junglinster's Conceptual.def is untouched by any of this session's rule-migration work.
 
-This file is a short pointer, not a duplicate. The full, extremely detailed build log for
-everything below (and for the whole multi-week Junglinster migration this session is deep inside)
-lives in the plan file: **`/Users/erikproper/.claude/plans/splendid-zooming-lighthouse.md`** — read
-that first for real continuation, this file only orients you to where things stand *right now* and
-what's still open.
+This file is a short pointer, not a duplicate. Durable project-level detail lives in
+`PROJECT.md` (open TODOs), `README.md`'s Operational notes (incident write-ups), and
+`claude-notes/memory/` (this session's Claude memory, copied out of `~/.claude` so it survives
+a machine switch — that directory is local to a machine, not Nextcloud-synced).
 
-**Git note**: both Go modules and both houses' `Definitions/` repos currently carry a large
-uncommitted changeset (this whole session's work, plus earlier accumulated work never committed).
-Don't assume a clean git state, and don't discard any of it — `git status`/`git diff` are the
-authoritative record of what's changed; nothing here has been committed yet.
+**Git note**: a large uncommitted changeset (83 files as of this freeze) spans both Go modules —
+this whole multi-day session's work, never committed. Don't assume a clean git state, and don't
+discard any of it — `git status`/`git diff` are the authoritative record of what's changed.
 
 ---
 
-## What landed THIS session (2026-09-29), in order
+## What's genuinely IN FLIGHT (needs picking up, not just background context)
 
-1. **Hassbridge/discovery-relay MQTT "name" field bug — found, fixed, deployed, live-verified.**
-   Two entities (`cover.social_house_kitchen`, `switch.social_house_kitchen_workplace_furnace`)
-   showed garbled doubled `friendly_name`s (e.g. "house/kitchen house/kitchen/cover"). Root cause:
-   neither `discoverybridge.go`'s `buildRelayedDiscoveryConfig` (raw Zigbee2MQTT/EMS-ESP relay) nor
-   `discoveryhassbridge.go`'s `buildHassBridgeEntityDiscoveryBody` (hassbridge relay) used the
-   `Name *string`-nil-means-"device name alone" pattern `TBinarySensorDiscoveryPayload` already
-   established (discovery.go) — both wrote a non-null "name" HA then combined with device.name.
-   Fixed in both files: a new `soleGatewayCapability` distinction (raw relay — null only when the
-   gateway relays exactly one capability, otherwise the gateway's own native per-entity label is
-   left untouched, since many gateways — Aqara multi-sensors, EMS-ESP — genuinely relay several
-   capabilities from one device) and a DisplaySuffix-empty→null / DisplaySuffix-non-empty→suffix-
-   alone fix (hassbridge). 4 new/updated tests, both modules green. **Deployed to both houses'
-   coordinators and confirmed live.**
-2. **Two live registry collisions found and fixed** (same class hit repeatedly all session — a
-   stale/orphaned registry entry squatting a clean entity_id, forcing the real one to `_2`):
-   - Furnace switch: an old, non-tombstoned template-platform orphan (from before this session's
-     `inverted` mechanism replaced the old two-entity "flipped" wrapper) — deleted, `_2` renamed.
-   - **Kitchen corridor's `corb` light** (`light.social_house_corridor_corb`) — found live TODAY,
-     reported by the user ("z2m agrees it IS available" while HA showed unavailable/restored). Root
-     cause: an old *raw* native Zigbee2MQTT registration (predating corb's 2026-09-28 migration to
-     the coordinator relay) never got cleaned up at the time, leaving the real relayed entity stuck
-     at `_2`. Fixed via the established registry-surgery playbook (backup, `ha core stop`, remove
-     orphan + rename `_2`→clean, `ha core start`, verified live: now reports `on`/`off` correctly).
-     **Confirmed this was a pre-existing gap from 2026-09-28's own deploy verification (which
-     checked 3 other devices but missed corb), not caused by anything this session did.**
-3. **DSL parser fix: a wrapped one-liner "with" clause is now joined back into one logical line**
-   (`defined.go`, `joinWrappedStatementContinuations` + `normalizeDefinitionWhitespace`). Real bug:
-   an editor auto-wrapped `device X with <statement>;` right after the bare word "with" (Junglinster
-   Conceptual.def:517), which neither the block-header nor one-liner regex recognised — the
-   device's positioning silently vanished from any *future* regeneration (the live-deployed entity
-   from before the wrap kept working, which is why nothing looked broken in HA). Fixed narrowly: a
-   line ending in the standalone word "with" (not "with:") gets joined, single-space, to whatever
-   follows, until a real terminator (`;`/`:`) or a blank line. **Real regression caught before
-   shipping**: the first version didn't exempt comment lines, and a `# ... with` comment two lines
-   above a real `device ... with:` block header swallowed that header into itself, breaking the
-   block (Physical.def's aqara_magnet device, 5 "unrecognised line" warnings) — fixed by excluding
-   comment lines from ever triggering or being swallowed by the join. Both houses regenerate clean
-   with zero warnings now. **Confirmed NOT a live bug** — byte-diffed clean against the currently-
-   deployed state on Junglinster (the one affected line was already correctly deployed back on
-   2026-09-28, before whatever edit wrapped it — so nothing to redeploy).
-4. Investigated and **ruled out** a suspected gap: `light.social_house_kitchen_main`/
-   `light.social_house_wc_main` (node 057's two endpoints) looked "missing" because I searched the
-   wrong output tree (`hass/`, for YAML-template entities) — they're discovery-kind (MQTT relay)
-   entities, correctly present in `coordinator/discovery.yaml`, confirmed live and matching the
-   registry exactly. No bug; my own investigation mistake, corrected.
-5. **Coordinator deployed to both houses** (Junglinster + Vienna protocols-server-1), carrying item
-   1's fix. Verified via `systemctl is-active coordinator` + fresh binary timestamp on both.
+1. **Moes button fix — deployed, NOT fully verified.** Real regression found live 2026-10-19:
+   every Moes multi-gang button in Vienna stopped working after the 2026-10-15/18 named-trigger
+   rule migration. Root cause: the coordinator's own pre-existing discovery-layer
+   `state_value_template` normalizes a multi-gang button's raw action (`1_single`) into
+   `event_type: "single"` + a separate `button: "1"` attribute — the migrated rules had copied
+   the old RAW values straight into the new construct, so they could never match. Fixed by
+   extending the trigger declaration's embedded attr-condition to accept a list of values
+   (`and if trigger.<attr> is in [...]`), and a new `namedTriggerSourceCondition`
+   (`generator.go`, replacing `namedTriggerImpliedCondition`) that per-source "id"-scopes the
+   condition when several different devices feed the same named trigger with DIFFERING
+   button-number requirements — falls back to the original simple shared-condition shape when
+   sources agree, so the Signify dimmer's already-proven output stays byte-identical (full test
+   suite + a new dedicated regression test both pass). 43 `Conceptual.def` lines rewritten,
+   `./generate` + `./deploy` both run clean, user's **first manual test confirmed working** —
+   but they went to sleep before testing the rest. **Next session: confirm the fix across ALL
+   affected rules** (full list: see README.md's Operational notes entry, same incident, for the
+   complete rundown of which rules/devices are affected).
+2. **This `claude-notes/` transfer itself, in progress.** Triggered by this Mac going in for
+   service. Once this checkpoint and `MACHINE.md` are both written and reviewed, the transfer
+   is done — nothing to resume there unless something was missed (see the transfer's own report
+   for what was/wasn't found).
+3. **Vienna's old Fedora SSD**: migration off it is fully done and verified (see
+   `claude-notes/memory/project_vienna_ps1_fedora_to_ubuntu_migration_done_2026_10_18.md`), but
+   the disk itself still needs reformatting + the music collection copying onto it (user's own
+   task, using a separate Ubuntu Mac — ext4 isn't natively writable from macOS). Not yet done as
+   of this freeze. Destined for Junglinster's p-s-1 as its music disk, target: this coming
+   Friday.
 
-## Immediate next steps queued
+## Queued but not started
 
-1. **Update the plan file** (`splendid-zooming-lighthouse.md`) with everything in this checkpoint —
-   not yet done as of this freeze (the plan file's own last entry is 2026-09-28).
-2. Resume **Phase 3** of the plan: a genuine line-by-line read of Junglinster's Conceptual.def from
-   the "#### HERE" marker (~line 391) onward — not a keyword grep, per this session's own lesson
-   about missing the old flat "has_state" macro shape that way once already.
-3. `timer.social:removing_smell` (`definition as timer "00:03:00"; limits ... fan.social: off on;`)
-   — flagged by the user as the likely next migration target, explicitly needing its own planning
-   pass before starting (not begun).
-4. PROJECT.md lines ~13-19 (surfaced via an IDE selection, not yet actioned): a note about "turn
-   XXX" switcher on/off ordering and a possible `follows` simplification into two when-if-then
-   rules for the `corb`-style switched-light case. Relevance to current work unconfirmed.
-5. The plan's own still-open items: 7 of 13 with-clause consumers left unmigrated (deliberately
-   deferred, low priority); Phase 1's two cross-checks were already closed out; Phase 4 (PROJECT.md's
-   backlog) waits behind Phase 3.
+- **PROJECT.md item 17**: maybe apply the same X-server systemd supervision
+  (`xinit-slideshow.service`, `Restart=always`) to Junglinster's own picture frame that Vienna's
+  frame got 2026-10-19 — not yet even confirmed Junglinster's frame shows the same symptom.
+- **Vienna's shower_room door_moes family** — turned out to already be migrated (a 2026-10-18
+  note claiming otherwise was wrong, corrected in PROJECT.md).
+- A fresh grep sweep of the rest of Vienna's Conceptual.def for any other remaining raw
+  event-code `when` clauses the earlier migration batches might have missed.
+- Junglinster's Conceptual.def: zero rules migrated to the named-trigger construct — entirely
+  separate, not started. Given Vienna's OWN Moes devices all had the latent normalization bug,
+  check whether Junglinster has Moes-style multi-gang buttons before migrating there, and build
+  the trigger declarations with the normalized `event_type` + `button`-attribute form from the
+  start.
+- Certbot/Let's Encrypt renewal duty still needs moving from Vienna's retired Fedora box
+  (`certbot-renew.timer`) to the new Ubuntu one before the current cert expires 2026-12-06.
+- Items 48/49 in PROJECT.md (template-entity stable-id gap; named-trigger-as-a-real-HA-event-
+  entity + discovery-vs-templating reflection) — both still just ideas, nothing designed.
 
-## Key files (unchanged from before, still accurate)
+## Key files (generator-side work touched this session)
 
 | File | Role |
 |------|------|
-| `homeassistant/generator.go` | Bulk of YAML generation steps |
-| `homeassistant/administration.go` | Runtime state; space/entity registry; derived aggregate derivation |
-| `homeassistant/parser.go` | Single-pass parser |
-| `homeassistant/expander.go` | Macro expansion; `normalizeEntityFullName`; entity identity |
-| `homeassistant/defined.go` | Installation/instance resolution; `toHomeAssistantEntityID`; **new: `normalizeDefinitionWhitespace`/`joinWrappedStatementContinuations`** |
-| `homeassistant/Conceptual_Device*.go` | The various "position/reference a device's entity" DSL constructs |
-| `homeassistant/integration_logical_*.go` | Logical-layer `enabled by`/`is switched by`/`dependency on` mechanisms |
-| `homeassistant/logical_enabler_dependency_sugar.go` | `enabled by`/`dependency on` desugaring |
-| `homeassistant/logical_switched_by.go` | `is switched by` desugaring |
-| `house_event_bus_coordinator/discoverybridge.go` | Raw Zigbee2MQTT/EMS-ESP discovery relay; **today's `soleGatewayCapability`/name fix** |
-| `house_event_bus_coordinator/discoveryhassbridge.go` | Hassbridge (remote-HA) relay; **today's DisplaySuffix/name fix** |
-| `house_event_bus_coordinator/discovery.go` | `TBinarySensorDiscoveryPayload`/`TSensorDiscoveryPayload` — the original `Name *string`-null pattern both of today's fixes now match |
+| `homeassistant/generator.go` | Bulk of YAML generation; **`namedTriggerSourceCondition`/`attrValueCondition`/`namedTriggerSourceID` (2026-10-19, replaces `namedTriggerImpliedCondition`)** |
+| `homeassistant/administration.go` | Runtime state; `TNamedTriggerSource` (**`TriggerAttrValues []string`, 2026-10-19, was a single string**) |
+| `homeassistant/Conceptual_NamedTriggerEntities.go` | Device-level `trigger ...;` construct; **attr-condition suffix now accepts a bracketed list too (2026-10-19)** |
+| `homeassistant/Conceptual_NamedTriggerEntities_test.go` | **New test: `TestNamedTriggerDisagreeingSourcesGetPerSourceScopedConditions`** |
+| `homeassistant/rule_parser.go` | Rule grammar incl. `when trigger.<name> is triggered` |
+| `house_event_bus_coordinator/` | Unchanged this session — the Moes bug was purely a generator/`.def` mismatch with this module's OWN pre-existing (unchanged) discovery normalization |
 
 ## Commands
 
 ```bash
 cd homeassistant && go build ./... && go vet ./... && go test ./...              # generator module
-cd house_event_bus_coordinator && go build ./... && go vet ./... && go test ./...  # coordinator module
 go install .                                                                      # ALWAYS before trusting a real ./generate run (from homeassistant/)
-cd /Users/erikproper/SmartLiving/Junglinster && ./generate                       # real regenerate, real house
-cd /Users/erikproper/SmartLiving/Vienna && ./generate                           # real regenerate, real house
+cd /Users/erikproper/SmartLiving/Vienna && ./generate && diff -rq hass/vienna <snapshot>  # real regenerate, real house -- diff before deploying
+cd /Users/erikproper/SmartLiving/Vienna && ./deploy                               # sources deploy.d/01..05 in order
 ```
 
-Deploy (both houses): `./deploy` sources `deploy.d/01..05` in order; `04_deploy.coordinator`
-routinely exceeds a foreground timeout — run it in background and verify via
-`systemctl is-active coordinator` + `/usr/local/bin/coordinator` timestamp on protocols-server-1
-(port 1970 SSH, `erikp` user). HA Core restart/stop for registry surgery:
-`SUPERVISOR_TOKEN=$(cat /run/s6/container_environment/SUPERVISOR_TOKEN) ha core start|stop|restart`
-(port 1967 SSH, `hassio` user — that user's own `sudo -n` works for `/config/.storage/*` edits,
-plain `cp` does not).
+SSH access, sudo conventions, and absolute paths this project's scripts depend on: see
+`claude-notes/MACHINE.md` (written alongside this file, same transfer).
+
+## Machine-handover transfer, 2026-10-19: what's missing and why
+
+`claude-notes/` (this file's sibling) carries everything from `~/.claude` that this project's
+own docs/memory reference, copied out because `~/.claude` itself is local to a machine, not
+Nextcloud-synced. Checked every `[[...]]` link and `project_*`/`feedback_*` mention across
+`PROJECT.md`, `README.md`, `Architecture.md`, and this file — all resolved to a real file now
+under `claude-notes/memory/`, none missing.
+
+Two things referenced but genuinely absent, not renamed or merged:
+- `~/.claude/plans/derived-capability-mechanism.md` and `~/.claude/plans/via-device-inference.md`
+  — both referenced from memory/PROJECT.md as the design plan for now-FINISHED work (the
+  "derived" capability mechanism; `via_device`, PROJECT.md's own words: "finished, formerly item
+  3"). Likely cleaned up once that work completed, while the corresponding memory files
+  (`claude-notes/memory/project_derived_capability_mechanism.md`, present) kept the durable
+  summary. Only `binary-weaving-iverson.md` and `splendid-zooming-lighthouse.md` actually exist
+  in `~/.claude/plans/` and were copied to `claude-notes/plans/`.
+- `~/.claude/CLAUDE.md` (user-level instructions) doesn't exist on the old machine at all —
+  nothing to copy, `claude-notes/user-CLAUDE.md` was never created.

@@ -80,8 +80,9 @@ var importHeaderPattern = regexp.MustCompile(`^device\s+(\S+)\s+from\s+(\S+)\s+(
 var importHeaderShorthandPattern = regexp.MustCompile(`^device\s+(\S+)\s+from\s+(\S+)\s+with:\s*$`)
 
 // importCapabilityPattern matches "<domain>.<capability>;" -- see this file's own header comment
-// for the full rationale.
-var importCapabilityPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s*;\s*$`)
+// for the full rationale. Requires the explicit "capability" keyword (PROJECT.md item 11b,
+// 2026-10-11) -- see discoveryCapabilityPattern's own doc comment for the general rationale.
+var importCapabilityPattern = regexp.MustCompile(`^capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s*;\s*$`)
 
 // importConstantAttributeShapePattern recognizes the same "<name>: "<value>" [forced];" shape
 // integration_hosts_parser.go/integration_hassbridge_parser.go's own constantAttributePattern

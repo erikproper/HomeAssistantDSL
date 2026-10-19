@@ -228,16 +228,23 @@ func resolveConstantAttribute(name string, dsl map[string]TConceptualConstant, l
 // empty in practice since a device_class like "connectivity" already gives HA a sensible default
 // icon on its own, but the field exists for whenever a "defaults: for ...;" rule does set one.
 type TBinarySensorDiscoveryPayload struct {
-	UniqueID        string           `json:"unique_id"`
-	DefaultEntityID string           `json:"default_entity_id"`
-	Name            *string          `json:"name"`
-	StateTopic      string           `json:"state_topic"`
-	PayloadOn       string           `json:"payload_on"`
-	PayloadOff      string           `json:"payload_off"`
-	DeviceClass     string           `json:"device_class,omitempty"`
-	Icon            string           `json:"icon,omitempty"`
-	Device          TDiscoveryDevice `json:"device"`
-	Origin          TDiscoveryOrigin `json:"origin"`
+	UniqueID        string  `json:"unique_id"`
+	DefaultEntityID string  `json:"default_entity_id"`
+	Name            *string `json:"name"`
+	StateTopic      string  `json:"state_topic"`
+	PayloadOn       string  `json:"payload_on"`
+	PayloadOff      string  `json:"payload_off"`
+	DeviceClass     string  `json:"device_class,omitempty"`
+	Icon            string  `json:"icon,omitempty"`
+	// Availability/AvailabilityMode (2026-10-06, commandline's own "dependency on" support --
+	// mirrors buildAvailabilityFields' identical fields, see TAvailabilityEntry's own doc comment)
+	// additionally AND in another device's own liveness -- omitted entirely (via omitempty) for
+	// every caller that has nothing extra to AND in, which is every caller except commandline's own
+	// node entity.
+	Availability     []TAvailabilityEntry `json:"availability,omitempty"`
+	AvailabilityMode string               `json:"availability_mode,omitempty"`
+	Device           TDiscoveryDevice     `json:"device"`
+	Origin           TDiscoveryOrigin     `json:"origin"`
 }
 
 // TSensorDiscoveryPayload is the HA MQTT Discovery config for one of a device's variable
@@ -251,20 +258,25 @@ type TBinarySensorDiscoveryPayload struct {
 // from the attribute's TConceptualAttribute -- hardwired per integration type
 // (THostsAttributeSpec), not guessed.
 type TSensorDiscoveryPayload struct {
-	UniqueID            string           `json:"unique_id"`
-	DefaultEntityID     string           `json:"default_entity_id"`
-	Name                string           `json:"name"`
-	StateTopic          string           `json:"state_topic"`
-	ValueTemplate       string           `json:"value_template"`
-	AvailabilityTopic   string           `json:"availability_topic,omitempty"`
-	PayloadAvailable    string           `json:"payload_available,omitempty"`
-	PayloadNotAvailable string           `json:"payload_not_available,omitempty"`
-	DeviceClass         string           `json:"device_class,omitempty"`
-	UnitOfMeasurement   string           `json:"unit_of_measurement,omitempty"`
-	StateClass          string           `json:"state_class,omitempty"`
-	Icon                string           `json:"icon,omitempty"`
-	Device              TDiscoveryDevice `json:"device"`
-	Origin              TDiscoveryOrigin `json:"origin"`
+	UniqueID            string `json:"unique_id"`
+	DefaultEntityID     string `json:"default_entity_id"`
+	Name                string `json:"name"`
+	StateTopic          string `json:"state_topic"`
+	ValueTemplate       string `json:"value_template"`
+	AvailabilityTopic   string `json:"availability_topic,omitempty"`
+	PayloadAvailable    string `json:"payload_available,omitempty"`
+	PayloadNotAvailable string `json:"payload_not_available,omitempty"`
+	// Availability/AvailabilityMode: see TBinarySensorDiscoveryPayload's identical fields' own doc
+	// comment -- mutually exclusive with AvailabilityTopic/PayloadAvailable/PayloadNotAvailable
+	// above (a caller sets one pair or the other, never both).
+	Availability      []TAvailabilityEntry `json:"availability,omitempty"`
+	AvailabilityMode  string               `json:"availability_mode,omitempty"`
+	DeviceClass       string               `json:"device_class,omitempty"`
+	UnitOfMeasurement string               `json:"unit_of_measurement,omitempty"`
+	StateClass        string               `json:"state_class,omitempty"`
+	Icon              string               `json:"icon,omitempty"`
+	Device            TDiscoveryDevice     `json:"device"`
+	Origin            TDiscoveryOrigin     `json:"origin"`
 }
 
 // TDiscoveryConfig bundles one discovery config topic with its (not-yet-serialised) payload.
@@ -325,6 +337,58 @@ func availabilityTopicFor(nodeStateTopic, capability string) string {
 	return nodeStateTopic
 }
 
+// TAvailabilityEntry is one entry of HA MQTT discovery's "availability" list -- a single extra
+// factor ANDed (availability_mode "all") into an entity's own availability, each with its own
+// topic/value_template/payload pair since a node topic's and a proxied entity's own state topic
+// use different raw payload conventions (see nodeAvailabilityEntries' own doc comment). Shared
+// between buildAvailabilityFields' map-based body (hassbridge/import, body["availability"] = these,
+// json.Marshal serialises a []TAvailabilityEntry identically whether reached through a
+// map[string]interface{} or a typed struct field) and the commandline integration's own typed
+// discovery payload structs (TBinarySensorDiscoveryPayload/TSensorDiscoveryPayload/
+// TCommandlineSwitchDiscoveryPayload/TCommandlineButtonDiscoveryPayload) -- one shape, two
+// different places it gets attached.
+type TAvailabilityEntry struct {
+	Topic               string `json:"topic"`
+	ValueTemplate       string `json:"value_template"`
+	PayloadAvailable    string `json:"payload_available"`
+	PayloadNotAvailable string `json:"payload_not_available"`
+}
+
+// nodeAvailabilityEntries builds one TAvailabilityEntry per non-empty nodeTopic -- a device's own
+// connectivity signal, or (PROJECT.md's logical-layer work) another device's own connectivity
+// signal this one was declared to "depend on" (Logical.def "dependency on <other-id>;", resolved
+// generator-side, already flattened across the full transitive dependency chain -- the coordinator
+// never walks that graph itself, it just ANDs whatever flat topic list it's handed). Empty strings
+// are skipped, so a caller can pass its own possibly-"" node topic (already gated via
+// availabilityTopicFor -- "" for the node capability itself, or a device with no declared node
+// capability) straight through without an extra branch at the call site.
+//
+// value_template normalises BOTH conventions a node topic can carry, rather than assuming one --
+// a hassbridge-kind node relays a real HA entity's own lowercase mqttStateOn/Off
+// (applyProxiedBinarySensorPayload), but a hosts-kind (or commandline-kind, 2026-10-06) node topic
+// publishes the coordinator's own mqttBoolPayloadTrue/False (discovery.go's
+// TBinarySensorDiscoveryPayload{PayloadOn: mqttBoolPayloadTrue, ...}, unconditional for every hosts/
+// commandline device). Shared by the hassbridge entity-availability path, the cross-house import
+// path (an import can wrap EITHER kind, kind-agnostic since 2026-09-05, so hardcoding one literal
+// here silently broke availability for an imported hosts-kind device's own node topic specifically
+// -- real bug found live 2026-09-08), AND commandline's own "dependency on" support -- a
+// hosts-kind dependency is the only kind resolved today, always "true"/"false".
+func nodeAvailabilityEntries(nodeTopics ...string) []TAvailabilityEntry {
+	var entries []TAvailabilityEntry
+	for _, nodeTopic := range nodeTopics {
+		if nodeTopic == "" {
+			continue
+		}
+		entries = append(entries, TAvailabilityEntry{
+			Topic:               nodeTopic,
+			ValueTemplate:       fmt.Sprintf("{{ '%s' if value in ['%s', '%s'] else '%s' }}", mqttStateOn, mqttStateOn, mqttBoolPayloadTrue, mqttStateOff),
+			PayloadAvailable:    mqttStateOn,
+			PayloadNotAvailable: mqttStateOff,
+		})
+	}
+	return entries
+}
+
 // buildAvailabilityFields sets body's HA MQTT discovery "availability"/"availability_mode"
 // fields for an entity proxying a real, independently-fallible upstream HA entity (hassbridge and
 // import kinds -- not used by hosts, whose self-reported values are tied to the same liveness as
@@ -351,37 +415,14 @@ func availabilityTopicFor(nodeStateTopic, capability string) string {
 // integration runs on (e.g. protocols-server-2 itself) -- is intentionally not built here; that's
 // a separate, later step per the user's own explicit sequencing.
 func buildAvailabilityFields(body map[string]interface{}, stateTopic string, nodeTopics ...string) {
-	entries := []map[string]interface{}{
+	entries := append([]TAvailabilityEntry{
 		{
-			"topic":                 stateTopic,
-			"value_template":        fmt.Sprintf("{{ '%s' if value == '%s' else '%s' }}", mqttStateUnavailable, mqttStateUnavailable, mqttStateAvailable),
-			"payload_available":     mqttStateAvailable,
-			"payload_not_available": mqttStateUnavailable,
+			Topic:               stateTopic,
+			ValueTemplate:       fmt.Sprintf("{{ '%s' if value == '%s' else '%s' }}", mqttStateUnavailable, mqttStateUnavailable, mqttStateAvailable),
+			PayloadAvailable:    mqttStateAvailable,
+			PayloadNotAvailable: mqttStateUnavailable,
 		},
-	}
-	for _, nodeTopic := range nodeTopics {
-		if nodeTopic == "" {
-			continue
-		}
-		// value_template normalises BOTH conventions a node topic can carry, rather than assuming
-		// one -- a hassbridge-kind node relays a real HA entity's own lowercase mqttStateOn/Off
-		// (applyProxiedBinarySensorPayload), but a hosts-kind node topic publishes the coordinator's
-		// own mqttBoolPayloadTrue/False (discovery.go's TBinarySensorDiscoveryPayload{PayloadOn:
-		// mqttBoolPayloadTrue, ...}, unconditional for every hosts device). This function is shared
-		// by both the hassbridge entity-availability path AND the cross-house import path -- and an
-		// import can wrap EITHER kind (kind-agnostic since 2026-09-05), so hardcoding one literal
-		// here silently broke availability for an imported hosts-kind device's own node topic
-		// specifically (real bug found live 2026-09-08: an imported host's cpu/load sensor showed
-		// unavailable forever, since its own node topic's "true"/"false" never matched a hardcoded
-		// "on"/"off" check). The same normalisation applies uniformly to every "dependency on" topic
-		// too -- a hosts-kind dependency is the only kind resolved today, always "true"/"false".
-		entries = append(entries, map[string]interface{}{
-			"topic":                 nodeTopic,
-			"value_template":        fmt.Sprintf("{{ '%s' if value in ['%s', '%s'] else '%s' }}", mqttStateOn, mqttStateOn, mqttBoolPayloadTrue, mqttStateOff),
-			"payload_available":     mqttStateOn,
-			"payload_not_available": mqttStateOff,
-		})
-	}
+	}, nodeAvailabilityEntries(nodeTopics...)...)
 	body["availability"] = entries
 	body["availability_mode"] = "all"
 }
