@@ -58,6 +58,9 @@ note; some operations there need the HA Supervisor CLI (`ha ...`) rather than pl
 - `mosquitto_pub`/`mosquitto_sub` (used by `./deploy`'s `PublishMetaReload` and by live
   debugging this session) ARE from Homebrew (`/opt/homebrew/bin/mosquitto_pub`) — a plain
   `brew install mosquitto` covers it.
+- **PyYAML** for the system `python3` (Apple's Command Line Tools Python 3.9): `python3 -m pip
+  install --user pyyaml` (installed 2026-10-21 on the new MacBook Pro, `pro1`) -- Claude's own ad hoc
+  analysis scripts read the generated `coordinator/*.yaml` files with it.
 - This Mac also has MacPorts (`/opt/local/bin`), XQuartz (`/opt/X11/bin`), and MacTeX
   (`/Library/TeX/texbin`) on `PATH` — confirmed NOT needed for anything in this project's own
   generate/deploy/build pipeline; general personal-machine tooling, not reproduced here.

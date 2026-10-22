@@ -206,7 +206,20 @@ var logicalDefinedOneLinerPattern = regexp.MustCompile(`^defined\s+capability\s+
 // item 11b, 2026-10-11) goes right after "derived", mirroring logicalDefinedBlockPattern's own
 // placement and Physical.def's identical "derived capability ... from ... via ...;"/"derived
 // capability ... with condition ...;" one-liner forms (Physical_DerivedCapability.go).
-var logicalDerivedBlockPattern = regexp.MustCompile(`^derived\s+capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+with:\s*$`)
+var logicalDerivedBlockPattern = regexp.MustCompile(`^derived\s+capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_.]*))?\s+with:\s*$`)
+
+// logicalDerivedOneLinerPattern is logicalDerivedBlockPattern's own single-statement shorthand
+// (2026-10-21): "derived capability <domain>.<label> [as <id>] with condition <bool-expr>;" (or
+// "with value <atom>;") -- the same shape Physical.def's own derived one-liner already has, for the
+// common case of a block holding nothing but its "condition"/"value". The frozen "as <id>"
+// (PROJECT.md item 48) comes before "with", as in the block form. The "condition"/"value" may also
+// start on the next line, and the expression may continue on following lines, exactly as inside
+// the block form. Groups: domain, label, ID, body (empty when "with" ends the line).
+var logicalDerivedOneLinerPattern = regexp.MustCompile(`^derived\s+capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_.]*))?\s+with(?:\s+(.*))?$`)
+
+// logicalAssignedIDSuffixPattern is an absorbed capability's own trailing frozen "as <id>;"
+// (PROJECT.md item 48).
+var logicalAssignedIDSuffixPattern = regexp.MustCompile(`\s+as\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;\s*$`)
 
 // logicalDerivedFieldPattern matches one of a "derived" block's OWN non-"condition"/"value" body
 // lines -- device_class/delay_on/delay_off, any subset, any order.
@@ -264,8 +277,29 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 	var currentDefinedCap TLogicalCapability
 	var currentDerivedLabel, currentDerivedDomain string
 	var currentDerivedCondition, currentDerivedValue *TConditionExpr
-	var currentDerivedDeviceClass, currentDerivedDelayOn, currentDerivedDelayOff string
+	var currentDerivedDeviceClass, currentDerivedDelayOn, currentDerivedDelayOff, currentDerivedAssignedID string
 	var derivedExprKind, derivedExprBuffer string
+	// derivedOneLiner marks a derived capability opened by its one-liner form: it has no "end;" of
+	// its own, so it is finished the moment its expression closes.
+	derivedOneLiner := false
+
+	// finishDerived stores the derived capability being parsed, at its "end;" (block form) or as
+	// soon as its expression closes (one-liner form).
+	finishDerived := func() {
+		current.Capabilities[currentDerivedLabel] = TLogicalCapability{
+			Domain:             currentDerivedDomain,
+			IsDerivedCondition: currentDerivedCondition != nil,
+			DerivedCondition:   currentDerivedCondition,
+			IsDerivedValue:     currentDerivedValue != nil,
+			DerivedValue:       currentDerivedValue,
+			DerivedDeviceClass: currentDerivedDeviceClass,
+			DelayOn:            currentDerivedDelayOn,
+			DelayOff:           currentDerivedDelayOff,
+			AssignedID:         currentDerivedAssignedID,
+		}
+		inDerived = false
+		derivedOneLiner = false
+	}
 
 	// tryCloseDerivedExpr checks whether derivedExprBuffer now contains a complete, balanced
 	// "condition"/"value" expression (a top-level ";") -- if so, hands the raw text to
@@ -307,27 +341,30 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 		}
 
 		if inDerivedExpr {
+			if derivedExprKind == "" {
+				// A one-liner whose "with" ended its first line: this line opens the body.
+				kind, expr, _ := strings.Cut(line, " ")
+				if kind != "condition" && kind != "value" {
+					warnings = append(warnings, fmt.Sprintf("Logical.def: device %q's %q derived capability one-line \"with %s\" body isn't a \"condition <expr>;\" or \"value <expr>;\" -- use the \"with: ... end;\" block form for anything else (body line %d)", current.DeviceID, currentDerivedLabel, line, lineIdx+1))
+					inDerived, inDerivedExpr, derivedOneLiner = false, false, false
+					continue
+				}
+				derivedExprKind, line = kind, expr
+			}
 			if derivedExprBuffer != "" {
 				derivedExprBuffer += " "
 			}
 			derivedExprBuffer += line
 			tryCloseDerivedExpr(lineIdx)
+			if !inDerivedExpr && derivedOneLiner {
+				finishDerived()
+			}
 			continue
 		}
 
 		if inDerived {
 			if line == "end;" {
-				current.Capabilities[currentDerivedLabel] = TLogicalCapability{
-					Domain:             currentDerivedDomain,
-					IsDerivedCondition: currentDerivedCondition != nil,
-					DerivedCondition:   currentDerivedCondition,
-					IsDerivedValue:     currentDerivedValue != nil,
-					DerivedValue:       currentDerivedValue,
-					DerivedDeviceClass: currentDerivedDeviceClass,
-					DelayOn:            currentDerivedDelayOn,
-					DelayOff:           currentDerivedDelayOff,
-				}
-				inDerived = false
+				finishDerived()
 				continue
 			}
 			// "condition"/"value" may open either inline ("condition <expr>;", possibly still
@@ -383,11 +420,20 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 				inAbsorb = false
 				continue
 			}
+			// An absorbed capability's own frozen "as <id>" (PROJECT.md item 48) -- needed when the
+			// source capability is ALSO positioned directly, giving two entities that each need
+			// their own universal ID.
+			absorbedID := ""
+			if m := logicalAssignedIDSuffixPattern.FindStringSubmatch(line); m != nil {
+				absorbedID = m[1]
+				line = line[:len(line)-len(m[0])] + ";"
+			}
 			if matches := logicalAbsorbBareCapabilityPattern.FindStringSubmatch(line); matches != nil {
 				current.Capabilities[matches[2]] = TLogicalCapability{
 					Domain:                 matches[1],
 					AbsorbedFromDeviceID:   currentAbsorbDeviceID,
 					AbsorbedFromCapability: matches[2],
+					AssignedID:             absorbedID,
 				}
 				continue
 			}
@@ -396,6 +442,7 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 					Domain:                 matches[1],
 					AbsorbedFromDeviceID:   currentAbsorbDeviceID,
 					AbsorbedFromCapability: bareCapabilityName(matches[3]),
+					AssignedID:             absorbedID,
 				}
 				continue
 			}
@@ -445,11 +492,32 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 			if matches := logicalDerivedBlockPattern.FindStringSubmatch(line); matches != nil {
 				currentDerivedDomain = matches[1]
 				currentDerivedLabel = matches[2]
+				currentDerivedAssignedID = matches[3]
 				currentDerivedCondition, currentDerivedValue = nil, nil
 				currentDerivedDeviceClass, currentDerivedDelayOn, currentDerivedDelayOff = "", "", ""
 				inDerived = true
 				inDerivedExpr = false
 				derivedExprBuffer, derivedExprKind = "", ""
+				continue
+			}
+			if matches := logicalDerivedOneLinerPattern.FindStringSubmatch(line); matches != nil {
+				body := strings.TrimSpace(matches[4])
+				kind, expr, _ := strings.Cut(body, " ")
+				if kind != "condition" && kind != "value" && body != "" {
+					warnings = append(warnings, fmt.Sprintf("Logical.def: device %q's %q derived capability one-line \"with %s\" body isn't a \"condition <expr>;\" or \"value <expr>;\" -- use the \"with: ... end;\" block form for anything else (body line %d)", current.DeviceID, matches[2], body, lineIdx+1))
+					continue
+				}
+				currentDerivedDomain = matches[1]
+				currentDerivedLabel = matches[2]
+				currentDerivedCondition, currentDerivedValue = nil, nil
+				currentDerivedDeviceClass, currentDerivedDelayOn, currentDerivedDelayOff = "", "", ""
+				currentDerivedAssignedID = matches[3]
+				inDerived, inDerivedExpr, derivedOneLiner = true, true, true
+				derivedExprKind, derivedExprBuffer = kind, expr
+				tryCloseDerivedExpr(lineIdx)
+				if !inDerivedExpr {
+					finishDerived()
+				}
 				continue
 			}
 			warnings = append(warnings, fmt.Sprintf("Logical.def: unrecognised line inside device %q (body line %d): %q", current.DeviceID, lineIdx+1, line))

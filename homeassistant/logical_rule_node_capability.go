@@ -75,6 +75,9 @@ func validateLogicalNodeCapabilityRequired(
 		if _, hasNode := device.Capabilities["node"]; hasNode {
 			continue
 		}
+		if onlyDerivesEvents(device) {
+			continue
+		}
 		if _, ok := hostDevicesByID[id]; ok {
 			continue
 		}
@@ -97,4 +100,16 @@ func validateLogicalNodeCapabilityRequired(
 	}
 
 	return warnings
+}
+
+// onlyDerivesEvents reports whether every capability of device is a derived "event" (PROJECT.md
+// item 49) -- a request such as a light toggle, raised by other devices. It has no state of its own,
+// so nothing to be available or not: Rule 1's "node" doesn't apply.
+func onlyDerivesEvents(device TLogicalDevice) bool {
+	for _, capability := range device.Capabilities {
+		if capability.Domain != "event" || !capability.IsDerivedCondition {
+			return false
+		}
+	}
+	return true
 }

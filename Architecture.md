@@ -418,6 +418,19 @@ fix, not a no-op refactor, confirmed healthy against live state after redeploy/r
 PROJECT.md item 11b, 2026-10-11 -- see this file's own note on that item, just below the
 "dependency on" writeup, for why.)
 
+(A derived capability holding nothing but its `condition`/`value` may also be written as a
+one-liner, `derived capability binary_sensor.node with condition <expr>;` — 2026-10-21, the same
+shape Physical.def's own derived one-liner has.)
+
+**Frozen universal IDs (PROJECT.md item 48, 2026-10-21).** Every derived capability, in Physical.def
+or Logical.def, carries its universal ID: `derived capability … as <id>;` (one-liner) or `derived
+capability … as <id> with:` (block). It is the `unique_id` of the template entity generated from
+it. The generator writes it itself the first time it sees the capability: its entity_id at that
+moment, which is exactly the unique_id it had before IDs were frozen, so freezing changed nothing
+in Home Assistant. It is never recomputed, so renaming the entity or the capability keeps the same
+Home Assistant registry entry (and its history). A capability feeding more than one entity (e.g.
+positioned directly and also absorbed by a logical device) gets no ID; generate reports it.
+
 **Every capability-declaring line, in every Physical.def/Logical.def integration kind, now
 carries an explicit `capability` keyword (PROJECT.md item 11b, 2026-10-11).** Before this, a
 capability was declared bare -- `media_player.core;`, `sensor.battery_level 0x...;`, `derived

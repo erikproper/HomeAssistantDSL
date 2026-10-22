@@ -15,6 +15,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -66,23 +67,14 @@ end;`
 		t.Fatalf("Triggers = %+v, want one named_trigger on social:main/light/toggle_request", rule.Triggers)
 	}
 
-	outDir := t.TempDir()
-	if err := generateRuleAutomations(outDir, result.Administration); err != nil {
-		t.Fatalf("generateRuleAutomations: %v", err)
-	}
-	matches, _ := filepath.Glob(filepath.Join(outDir, "automation", "*", "automation.*.yaml"))
-	if len(matches) != 1 {
-		t.Fatalf("got %d automation files, want 1: %v", len(matches), matches)
-	}
-	content, _ := os.ReadFile(matches[0])
-	got := string(content)
+	_, got := generateNamedTriggerFiles(t, result.Administration)
 	for _, want := range []string{
 		"  - trigger: event.received\n",
 		"      entity_id:\n      - event.physical_wc_test_button_1\n",
 		"      event_type:\n      - '2_single'\n",
 	} {
 		if !strings.Contains(got, want) {
-			t.Errorf("generated automation missing %q, got:\n%s", want, got)
+			t.Errorf("generated event entity missing %q, got:\n%s", want, got)
 		}
 	}
 }
@@ -129,16 +121,7 @@ end;`
 		t.Fatalf("got %d NamedTriggers sources, want 2: %+v", len(sources), sources)
 	}
 
-	outDir := t.TempDir()
-	if err := generateRuleAutomations(outDir, result.Administration); err != nil {
-		t.Fatalf("generateRuleAutomations: %v", err)
-	}
-	matches, _ := filepath.Glob(filepath.Join(outDir, "automation", "*", "automation.*.yaml"))
-	if len(matches) != 1 {
-		t.Fatalf("got %d automation files, want 1: %v", len(matches), matches)
-	}
-	content, _ := os.ReadFile(matches[0])
-	got := string(content)
+	_, got := generateNamedTriggerFiles(t, result.Administration)
 	if strings.Count(got, "trigger: event.received") != 2 {
 		t.Errorf("want 2 event.received trigger entries (one OR'd per device), got:\n%s", got)
 	}
@@ -149,9 +132,45 @@ end;`
 		"      - '2_single'\n",
 	} {
 		if !strings.Contains(got, want) {
-			t.Errorf("generated automation missing %q, got:\n%s", want, got)
+			t.Errorf("generated event entity missing %q, got:\n%s", want, got)
 		}
 	}
+}
+
+// generateNamedTriggerFiles runs the named-trigger event and automation steps for a parse
+// with exactly one rule and one named trigger, returning (automation, event entity) YAML -- and
+// checks the automation listens to just that event entity's own "raised" event (PROJECT.md item
+// 49: the device expansion and gating now live in the event entity).
+func generateNamedTriggerFiles(t *testing.T, admin *TAdministrationState) (string, string) {
+	t.Helper()
+	outDir := t.TempDir()
+	if err := generateNamedTriggerEvents(outDir, admin); err != nil {
+		t.Fatalf("generateNamedTriggerEvents: %v", err)
+	}
+	if err := generateRuleAutomations(outDir, admin); err != nil {
+		t.Fatalf("generateRuleAutomations: %v", err)
+	}
+	read := func(pattern string) (string, string) {
+		matches, _ := filepath.Glob(filepath.Join(outDir, pattern))
+		if len(matches) != 1 {
+			t.Fatalf("got %d files for %s, want 1: %v", len(matches), pattern, matches)
+		}
+		content, _ := os.ReadFile(matches[0])
+		return filepath.Base(matches[0]), string(content)
+	}
+	_, automation := read(filepath.Join("automation", "*", "automation.*.yaml"))
+	eventFile, event := read(filepath.Join("entities", "template", "event", "*", "event.*.yaml"))
+	eventID := strings.TrimSuffix(eventFile, ".yaml")
+	want := "  - trigger: event.received\n    target:\n      entity_id:\n      - " + eventID + "\n    options:\n      event_type:\n      - 'raised'\n"
+	if !strings.Contains(automation, want) || strings.Count(automation, "trigger: event.received") != 1 {
+		t.Errorf("automation should trigger on %s's 'raised' only, got:\n%s", eventID, automation)
+	}
+	for _, want := range []string{"event:\n- name: ", "  unique_id: " + eventID + "\n", "  event_type: raised\n", "  event_types: \"{{ ['raised'] }}\"\n"} {
+		if !strings.Contains(event, want) {
+			t.Errorf("event entity missing %q, got:\n%s", want, event)
+		}
+	}
+	return automation, event
 }
 
 // TestNamedTriggerUndeclaredWarns confirms a rule referencing a named trigger that no device
@@ -303,25 +322,25 @@ end;`
 		t.Errorf("sources[0].EventTypes = %+v, want [press hold]", sources[0].EventTypes)
 	}
 
-	outDir := t.TempDir()
-	if err := generateRuleAutomations(outDir, result.Administration); err != nil {
-		t.Fatalf("generateRuleAutomations: %v", err)
-	}
-	matches, _ := filepath.Glob(filepath.Join(outDir, "automation", "*", "automation.*.yaml"))
-	if len(matches) != 1 {
-		t.Fatalf("got %d automation files, want 1: %v", len(matches), matches)
-	}
-	content, _ := os.ReadFile(matches[0])
-	got := string(content)
+	automation, got := generateNamedTriggerFiles(t, result.Administration)
 	for _, want := range []string{
-		"  condition:\n  - condition: template\n",
+		"conditions:\n  - condition: template\n",
 		"value_template: '{{ trigger.to_state.attributes.button == ''down'' }}'\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated event entity missing %q, got:\n%s", want, got)
+		}
+	}
+	for _, want := range []string{
 		"  - service: light.turn_on\n",
 		"    data:\n      brightness_step_pct: -10\n",
 	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("generated automation missing %q, got:\n%s", want, got)
+		if !strings.Contains(automation, want) {
+			t.Errorf("generated automation missing %q, got:\n%s", want, automation)
 		}
+	}
+	if strings.Contains(automation, "condition:") {
+		t.Errorf("the attr gate belongs in the event entity, not the automation, got:\n%s", automation)
 	}
 }
 
@@ -372,16 +391,7 @@ end;`
 		t.Fatalf("got %d NamedTriggers sources, want 2: %+v", len(sources), sources)
 	}
 
-	outDir := t.TempDir()
-	if err := generateRuleAutomations(outDir, result.Administration); err != nil {
-		t.Fatalf("generateRuleAutomations: %v", err)
-	}
-	matches, _ := filepath.Glob(filepath.Join(outDir, "automation", "*", "automation.*.yaml"))
-	if len(matches) != 1 {
-		t.Fatalf("got %d automation files, want 1: %v", len(matches), matches)
-	}
-	content, _ := os.ReadFile(matches[0])
-	got := string(content)
+	_, got := generateNamedTriggerFiles(t, result.Administration)
 	for _, want := range []string{
 		"    id: 'nt0'\n",
 		"    id: 'nt1'\n",
@@ -392,7 +402,7 @@ end;`
 		"value_template: '{{ trigger.to_state.attributes.button == ''3'' }}'\n",
 	} {
 		if !strings.Contains(got, want) {
-			t.Errorf("generated automation missing %q, got:\n%s", want, got)
+			t.Errorf("generated event entity missing %q, got:\n%s", want, got)
 		}
 	}
 	// Both sources matched on the SAME raw event_type ('single') -- the per-source id/attr
@@ -459,5 +469,61 @@ end;`
 	rule := result.Administration.Rules[0]
 	if len(rule.Actions) != 1 || len(rule.Actions[0].Data) != 1 || rule.Actions[0].Data[0].Name != "brightness_pct" || rule.Actions[0].Data[0].Value != "70" {
 		t.Fatalf("Actions = %+v, want one turn-on with brightness_pct 70", rule.Actions)
+	}
+}
+
+// TestNormalizeAggregatedTrigger covers the 2026-10-21 notation: both the one-liner and the block
+// form rewrite into the original "trigger <name> when <expr>;" declarations, one per clause.
+func TestNormalizeAggregatedTrigger(t *testing.T) {
+	identity := func(line string) string { return line }
+
+	got, newI, warnings, ok := normalizeAggregatedTrigger(nil, 0, "aggregated trigger.social:main/light/toggle with trigger event.pressed is 'single' and if trigger.button is '2';", identity)
+	want := []string{"trigger social:main/light/toggle when event.pressed is 'single' and if trigger.button is '2';"}
+	if !ok || newI != 0 || len(warnings) != 0 || !reflect.DeepEqual(got, want) {
+		t.Errorf("one-liner: got (%q, %d, %v, %v), want (%q, 0, none, true)", got, newI, warnings, ok, want)
+	}
+
+	block := []string{
+		"aggregated trigger.social:main/light/toggle with:",
+		"  trigger event.pressed is 'single' and if trigger.button is '2';",
+		"  # a comment",
+		"  trigger event.pressed is 'double';",
+		"  something else;",
+		"end;",
+		"entity light.social:main;",
+	}
+	got, newI, warnings, ok = normalizeAggregatedTrigger(block, 0, block[0], identity)
+	want = []string{
+		"trigger social:main/light/toggle when event.pressed is 'single' and if trigger.button is '2';",
+		"trigger social:main/light/toggle when event.pressed is 'double';",
+	}
+	if !ok || newI != 5 || len(warnings) != 1 || !reflect.DeepEqual(got, want) {
+		t.Errorf("block: got (%q, %d, %v, %v), want (%q, 5, one warning, true)", got, newI, warnings, ok, want)
+	}
+	for _, declaration := range got {
+		if _, parses := extractNamedTriggerDeclaration(declaration); !parses {
+			t.Errorf("normalized declaration %q not understood by extractNamedTriggerDeclaration", declaration)
+		}
+	}
+
+	if _, _, _, ok := normalizeAggregatedTrigger(nil, 0, "trigger social:x when event.pressed is 'single';", identity); ok {
+		t.Errorf("the original form must be left to extractNamedTriggerDeclaration itself")
+	}
+}
+
+// TestNormalizeAggregatedEvent covers the 2026-10-22 notation "aggregated event.<name> is raised
+// when <expr>;" (and its block form): same declarations as the "aggregated trigger." notation.
+func TestNormalizeAggregatedEvent(t *testing.T) {
+	identity := func(line string) string { return line }
+	got, _, _, ok := normalizeAggregatedTrigger(nil, 0, "aggregated event.social:light/main/toggle is raised when event.pressed is 'single' and if trigger.button is '1';", identity)
+	want := []string{"trigger social:light/main/toggle when event.pressed is 'single' and if trigger.button is '1';"}
+	if !ok || !reflect.DeepEqual(got, want) {
+		t.Errorf("one-liner: got (%q, %v), want %q", got, ok, want)
+	}
+	block := []string{"aggregated event.social:light/main/toggle is raised when:", "  event.pressed is 'single';", "  event.pressed is 'double';", "end;"}
+	got, newI, warnings, ok := normalizeAggregatedTrigger(block, 0, block[0], identity)
+	want = []string{"trigger social:light/main/toggle when event.pressed is 'single';", "trigger social:light/main/toggle when event.pressed is 'double';"}
+	if !ok || newI != 3 || len(warnings) != 0 || !reflect.DeepEqual(got, want) {
+		t.Errorf("block: got (%q, %d, %v, %v), want %q", got, newI, warnings, ok, want)
 	}
 }

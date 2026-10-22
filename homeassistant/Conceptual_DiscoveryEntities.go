@@ -279,6 +279,7 @@ func registerDiscoveryAvailabilityEntityLink(administration *TAdministrationStat
 	deviceClass, _, _, icon := resolveCapabilityDefaults(administration.CapabilityDefaults, identity.Domain, identity.Path)
 	administration.AppendEntityRecord(spaceName, TEntityRecord{
 		Name:              fullName,
+		SourceKey:         "physical:" + decl.GatewayDeviceID + "!" + decl.Leaf,
 		Identity:          identity,
 		Provenance:        provenance,
 		ConditionSources:  sources,
@@ -358,6 +359,7 @@ func registerDiscoveryDerivedEntityLink(administration *TAdministrationState, de
 	deviceClass, _, _, icon := resolveCapabilityDefaults(administration.CapabilityDefaults, identity.Domain, identity.Path)
 	administration.AppendEntityRecord(spaceName, TEntityRecord{
 		Name:              fullName,
+		SourceKey:         "physical:" + decl.GatewayDeviceID + "!" + decl.Leaf,
 		Identity:          identity,
 		Provenance:        provenance,
 		ConditionSources:  []string{siblingEntityID},

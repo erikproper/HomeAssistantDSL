@@ -335,6 +335,15 @@ func (p *TRuleParser) EntityAnchoredClause(trigger *TRuleTrigger) bool {
 // different level: a named trigger IS a derived trigger, built from the conjunction of every
 // device's own "trigger <name> when ...;" declaration for that name.
 func resolveNamedTriggerReference(trigger *TRuleTrigger, p *TRuleParser) bool {
+	// "event.<name> is raised" (2026-10-22) is the same reference in the notation matching the
+	// declaration "aggregated event.<name> is raised when ...;" (Conceptual_NamedTriggerEntities.go).
+	if name, isEvent := strings.CutPrefix(trigger.EntitySpec, "event."); isEvent && trigger.Kind == "event" && trigger.EventType == "raised" {
+		trigger.Kind = "named_trigger"
+		trigger.EntitySpec = ""
+		trigger.EventType = ""
+		trigger.Name = name
+		return true
+	}
 	name, ok := strings.CutPrefix(trigger.EntitySpec, "trigger.")
 	if !ok {
 		return true

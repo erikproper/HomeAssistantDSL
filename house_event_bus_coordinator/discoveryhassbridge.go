@@ -67,6 +67,10 @@ type THassBridgeCapability struct {
 	// its own doc comment), never computed here: this coordinator has no knowledge of Spaces.def
 	// positioning at all, only of whatever this file already says.
 	DisplaySuffix string `yaml:"display_suffix"`
+	// StableID is the capability's frozen universal ID (PROJECT.md item 48, Physical.def's
+	// "capability ... as <id>;"): its unique_id, and with it its discovery topic, so a rename of
+	// the local entity keeps the same HA registry entry. "" falls back to the name-based formula.
+	StableID string `yaml:"stable_id"`
 	// Commands/DiscoveryExtra (added 2026-09-09) are fully resolved by the generator, off this
 	// capability's own domain (homeassistant/hassbridge_commands.go's domainCommands/
 	// domainDiscoveryExtras) -- this coordinator never learns a domain name or an HA service
@@ -265,7 +269,10 @@ func buildHassBridgeDeviceBlock(deviceID string, device THassBridgeDevice, live 
 // and expectedHassBridgeTopics, so the two can't drift apart on what topic a given capability's
 // discovery config belongs at. Keyed by the local entity_id -- always a clean, space-free HA
 // entity_id, unlike the source specification (which may be compound, e.g. "sensor.x is available").
-func hassBridgeUniqueID(localEntity string) string {
+func hassBridgeUniqueID(localEntity, stableID string) string {
+	if stableID != "" {
+		return stableID
+	}
 	return "hassbridge_" + strings.ReplaceAll(localEntity, ".", "_")
 }
 
@@ -307,13 +314,13 @@ func hassBridgeEntityCommandTopicFor(instance, localEntity, name string, command
 	return base
 }
 
-func hassBridgeDiscoveryTopic(localEntity, prefix string) (topic string, ok bool) {
+func hassBridgeDiscoveryTopic(localEntity, stableID, prefix string) (topic string, ok bool) {
 	dotIdx := strings.Index(localEntity, ".")
 	if dotIdx < 0 {
 		return "", false
 	}
 	domain := localEntity[:dotIdx]
-	return discoveryTopic(prefix, domain, hassBridgeUniqueID(localEntity)), true
+	return discoveryTopic(prefix, domain, hassBridgeUniqueID(localEntity, stableID)), true
 }
 
 // exportStableID is the cloud-side stable identity for one exported capability --
@@ -565,12 +572,28 @@ func expectedHassBridgeTopics(bridgeFile THassBridgeFile, prefix string) map[str
 	expected := map[string]bool{}
 	for _, device := range bridgeFile.Devices {
 		for _, cap := range device.Capabilities {
-			if topic, ok := hassBridgeDiscoveryTopic(cap.LocalEntity, prefix); ok {
+			if topic, ok := hassBridgeDiscoveryTopic(cap.LocalEntity, cap.StableID, prefix); ok {
 				expected[topic] = true
 			}
 		}
 	}
 	return expected
+}
+
+// hassBridgeAcceptsInstance reports whether a bridge message whose instance segment is instance
+// may speak for device: one of its own declared instances, or -- for a self-importing ("import")
+// device only -- the synthetic ownInstallation segment subscribeHassBridgeSelfImport relays a
+// roaming sibling's traffic onto. Anything else is a retained leftover of an instance that no
+// longer exists. Real incident, 2026-10-21 (Junglinster): 184 retained bridge states under
+// "protocols-server-2" survived ha2mqtt's move/rename to protocols-server-1 on 2026-10-15; every
+// coordinator start then saw each entity under BOTH the dead and the live instance, flipping its
+// discovery state_topic between the two (~300 retire+republish cycles per restart) and leaving
+// whichever entity happened to be processed last pointed at the frozen dead topic.
+func hassBridgeAcceptsInstance(device THassBridgeDevice, instance, ownInstallation string) bool {
+	if containsString(device.Instances, instance) {
+		return true
+	}
+	return device.SelfImportFrom != "" && instance == ownInstallation
 }
 
 // containsString reports whether want appears anywhere in list.
@@ -729,12 +752,17 @@ func subscribeHassBridge(client, cloudClient mqtt.Client, ownInstallation string
 			return
 		}
 
-		topic, ok := hassBridgeDiscoveryTopic(localEntity, conceptualPrefix)
+		topic, ok := hassBridgeDiscoveryTopic(localEntity, found.StableID, conceptualPrefix)
 		if !ok {
 			return
 		}
 
 		device := bridgeFile.Devices[found.DeviceID]
+		// An empty payload is a retained message being cleared, not a report -- republishing
+		// discovery for it would point state_topic at a topic that no longer holds anything.
+		if len(msg.Payload()) == 0 || !hassBridgeAcceptsInstance(device, parts[1], ownInstallation) {
+			return
+		}
 		viaDeviceID := ""
 		liveUnit, liveDeviceClass, liveIcon := "", "", ""
 		if existenceTracker != nil {
@@ -745,7 +773,7 @@ func subscribeHassBridge(client, cloudClient mqtt.Client, ownInstallation string
 		}
 		devBlock := buildHassBridgeDeviceBlock(found.DeviceID, device, store.Snapshot(found.DeviceID), viaDeviceID)
 		availabilityTopics := hassBridgeAvailabilityTopics(device, found.Capability)
-		body := buildHassBridgeEntityDiscoveryBody(hassBridgeUniqueID(localEntity), localEntity, found, msg.Topic(), hassBridgeEntityAttributesTopic(parts[1], localEntity), devBlock, availabilityTopics, liveUnit, liveDeviceClass, liveIcon, parts[1], true, ownInstallation)
+		body := buildHassBridgeEntityDiscoveryBody(hassBridgeUniqueID(localEntity, found.StableID), localEntity, found, msg.Topic(), hassBridgeEntityAttributesTopic(parts[1], localEntity), devBlock, availabilityTopics, liveUnit, liveDeviceClass, liveIcon, parts[1], true, ownInstallation)
 		data, err := json.Marshal(body)
 		if err != nil {
 			fmt.Printf("[hass-bridge] marshalling discovery payload for %s: %v\n", localEntity, err)
@@ -839,7 +867,7 @@ func republishHassBridgeDeviceCapabilities(client, cloudClient mqtt.Client, ownI
 	}
 	devBlock := buildHassBridgeDeviceBlock(deviceID, device, store.Snapshot(deviceID), viaDeviceID)
 	for capability, cap := range device.Capabilities {
-		topic, ok := hassBridgeDiscoveryTopic(cap.LocalEntity, conceptualPrefix)
+		topic, ok := hassBridgeDiscoveryTopic(cap.LocalEntity, cap.StableID, conceptualPrefix)
 		if !ok {
 			continue
 		}
@@ -851,7 +879,7 @@ func republishHassBridgeDeviceCapabilities(client, cloudClient mqtt.Client, ownI
 				liveUnit, liveDeviceClass, liveIcon = existenceTracker.LiveTyping(hassBridgeDefaultInstance(device), source)
 			}
 		}
-		body := buildHassBridgeEntityDiscoveryBody(hassBridgeUniqueID(cap.LocalEntity), cap.LocalEntity, found, hassBridgeEntityStateTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), hassBridgeEntityAttributesTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), devBlock, availabilityTopics, liveUnit, liveDeviceClass, liveIcon, hassBridgeDefaultInstance(device), true, ownInstallation)
+		body := buildHassBridgeEntityDiscoveryBody(hassBridgeUniqueID(cap.LocalEntity, cap.StableID), cap.LocalEntity, found, hassBridgeEntityStateTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), hassBridgeEntityAttributesTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), devBlock, availabilityTopics, liveUnit, liveDeviceClass, liveIcon, hassBridgeDefaultInstance(device), true, ownInstallation)
 		data, err := json.Marshal(body)
 		if err != nil {
 			fmt.Printf("[hass-bridge] marshalling discovery payload for %s: %v\n", cap.LocalEntity, err)
@@ -900,7 +928,7 @@ func subscribeHassBridgeDeviceInfo(client, cloudClient mqtt.Client, ownInstallat
 		}
 		deviceID := parts[4]
 		device, known := bridgeFile.Devices[deviceID]
-		if !known {
+		if !known || len(msg.Payload()) == 0 || !hassBridgeAcceptsInstance(device, parts[1], ownInstallation) {
 			return
 		}
 

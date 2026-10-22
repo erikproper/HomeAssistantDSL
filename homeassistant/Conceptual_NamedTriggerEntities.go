@@ -93,6 +93,62 @@ func extractNamedTriggerDeclaration(line string) (*TNamedTriggerDeclaration, boo
 	return nil, false
 }
 
+// aggregatedTriggerOneLinerPattern and aggregatedTriggerBlockPattern match the 2026-10-21 notation
+// of a named trigger, "aggregated trigger.<name> with trigger <expr>;" and its block form
+// "aggregated trigger.<name> with: trigger <expr>; ... end;". "aggregated" signals that a named
+// trigger is not an entity defined at one location, but a notion aggregated over every device
+// declaring it; "trigger.<name>" is also exactly how a rule's own "when" clause refers to it.
+var aggregatedTriggerOneLinerPattern = regexp.MustCompile(`^aggregated\s+trigger\.(\S+)\s+with\s+trigger\s+(.+)$`)
+var aggregatedTriggerBlockPattern = regexp.MustCompile(`^aggregated\s+trigger\.(\S+)\s+with:$`)
+
+// aggregatedEventOneLinerPattern and aggregatedEventBlockPattern are the 2026-10-22 notation,
+// "aggregated event.<name> is raised when <expr>;" and its block form "aggregated event.<name> is
+// raised when: <expr>; ... end;" -- naming the event the trigger stands for (PROJECT.md item 49:
+// eventually a real HA event entity). A rule refers to it as "when event.<name> is raised".
+var aggregatedEventOneLinerPattern = regexp.MustCompile(`^aggregated\s+event\.(\S+)\s+is\s+raised\s+when\s+(.+)$`)
+var aggregatedEventBlockPattern = regexp.MustCompile(`^aggregated\s+event\.(\S+)\s+is\s+raised\s+when:$`)
+
+// normalizeAggregatedTrigger rewrites an "aggregated trigger.<name> ..." declaration starting at
+// lines[i] (one-liner or block) into the equivalent original "trigger <name> when <expr>;" lines
+// extractNamedTriggerDeclaration understands, one per "trigger" clause, returning them and the
+// index of the last line consumed (the block's own "end;"). expand is applied to every block body
+// line, as the caller already did to lines[i] itself (a device's "at <leaf>" "::" expansion).
+// ok is false when lines[i] isn't such a declaration. A block without its "end;", or with a body
+// line that isn't a "trigger <expr>;" clause, is reported in warnings.
+func normalizeAggregatedTrigger(lines []string, i int, trimmed string, expand func(string) string) (declarations []string, newI int, warnings []string, ok bool) {
+	if m := aggregatedTriggerOneLinerPattern.FindStringSubmatch(trimmed); m != nil {
+		return []string{"trigger " + m[1] + " when " + m[2]}, i, nil, true
+	}
+	if m := aggregatedEventOneLinerPattern.FindStringSubmatch(trimmed); m != nil {
+		return []string{"trigger " + m[1] + " when " + m[2]}, i, nil, true
+	}
+	// Block body lines: "trigger <expr>;" in the "aggregated trigger.<name> with:" form, a bare
+	// "<expr>;" in the "aggregated event.<name> is raised when:" form.
+	m, bodyPrefix := aggregatedTriggerBlockPattern.FindStringSubmatch(trimmed), "trigger "
+	if m == nil {
+		m, bodyPrefix = aggregatedEventBlockPattern.FindStringSubmatch(trimmed), ""
+	}
+	if m == nil {
+		return nil, i, nil, false
+	}
+	for j := i + 1; j < len(lines); j++ {
+		line := expand(strings.TrimSpace(lines[j]))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if line == EndToken+StatementEndToken {
+			return declarations, j, warnings, true
+		}
+		if expr, isTrigger := strings.CutPrefix(line, bodyPrefix); isTrigger {
+			declarations = append(declarations, "trigger "+m[1]+" when "+expr)
+			continue
+		}
+		warnings = append(warnings, fmt.Sprintf("inside the \"aggregated ... %s\" block, expected \"%s<expr>;\", got %q; ignored", m[1], bodyPrefix, line))
+	}
+	warnings = append(warnings, fmt.Sprintf("the \"aggregated ... %s\" block has no closing \"end;\"", m[1]))
+	return declarations, len(lines) - 1, warnings, true
+}
+
 // namedTriggerAttrValues extracts the attr-condition's own value(s) from a match against either
 // top-level pattern (both share namedTriggerAttrSuffixPattern's group layout): m[5] for the
 // single-value alternative, m[6] for the bracketed-list one. nil if the whole attr suffix is

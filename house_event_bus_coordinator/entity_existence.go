@@ -325,6 +325,7 @@ func (t *TEntityExistenceTracker) Seed(bridgeFile THassBridgeFile) {
 		deviceIDs = append(deviceIDs, deviceID)
 	}
 	sort.Strings(deviceIDs)
+	claimants := seedClaimants(bridgeFile, deviceIDs)
 	for _, deviceID := range deviceIDs {
 		device := bridgeFile.Devices[deviceID]
 		// Each instance seeds its OWN declared source entity, never a shared one -- a roaming
@@ -347,6 +348,8 @@ func (t *TEntityExistenceTracker) Seed(bridgeFile THassBridgeFile) {
 				}
 				entity := bareEntityFromSource(source)
 				declared[instance][entity] = true
+				owner := sharedEntityOwner(t.entries[instance], claimants[instance], entity)
+				shared := len(claimants[instance][entity]) > 1
 				if existing, seen := t.entries[instance][entity]; seen {
 					// The currently-declared owner always wins over whatever was persisted before,
 					// full stop -- Physical.def is always the naming authority, not the coordinator
@@ -379,11 +382,13 @@ func (t *TEntityExistenceTracker) Seed(bridgeFile THassBridgeFile) {
 					// used to also clear RemoteDeviceID, meaning every coordinator restart after a
 					// rename re-forced a fresh wait even on the SECOND and later restarts, not just
 					// the first one following the rename itself).
-					if existing.DeviceID != deviceID {
-						fmt.Printf("[existence] %s: %s was grouped under %q, correcting to its currently-declared device %q\n", instance, entity, existing.DeviceID, deviceID)
-						existing.DeviceID = deviceID
+					if existing.DeviceID != owner {
+						fmt.Printf("[existence] %s: %s was grouped under %q, correcting to its currently-declared device %q\n", instance, entity, existing.DeviceID, owner)
+						existing.DeviceID = owner
 					}
-					if existing.RemoteDeviceID != "" {
+					// A shared entity says nothing about which DSL device its remote device as a
+					// whole belongs to -- only an entity a single device declares does.
+					if existing.RemoteDeviceID != "" && !shared {
 						if remoteDeviceIDToDevice[instance] == nil {
 							remoteDeviceIDToDevice[instance] = map[string]string{}
 						}
@@ -392,7 +397,7 @@ func (t *TEntityExistenceTracker) Seed(bridgeFile THassBridgeFile) {
 					continue
 				}
 				t.entries[instance][entity] = &TEntityExistenceEntry{
-					DeviceID: deviceID,
+					DeviceID: owner,
 					Status:   StatusNotKnownToExist,
 				}
 				t.order[instance] = append(t.order[instance], entity)
@@ -413,7 +418,13 @@ func (t *TEntityExistenceTracker) Seed(bridgeFile THassBridgeFile) {
 			continue
 		}
 		for entity, entry := range entities {
-			if entry.RemoteDeviceID == "" {
+			// Declared entities were already given their owner above -- this pass is for undeclared
+			// siblings only. Real incident, 2026-10-21 (Junglinster): without this check it re-grouped
+			// every declared entity of the Vienna bedroom Netatmo module under
+			// sensors.netatmo_livingroom (the device that also claims the module's shared
+			// connectivity entity), so each existence reply for a bedroom entity stored the module's
+			// model as the living room's device info, flipping all 7 of its discovery configs.
+			if entry.RemoteDeviceID == "" || declared[instance][entity] {
 				continue
 			}
 			if target, ok := byRemote[entry.RemoteDeviceID]; ok && entry.DeviceID != target {
@@ -462,6 +473,67 @@ func (t *TEntityExistenceTracker) Seed(bridgeFile THassBridgeFile) {
 	}
 
 	t.persist()
+}
+
+// seedClaimants lists, per instance and source entity, every device declaring that entity as one
+// of its capabilities' source -- in deviceIDs' (sorted) order, each device at most once (one device
+// may use the same entity for several capabilities, e.g. "node" as "X is available" plus X itself).
+// More than one claimant means a deliberately shared entity (see Seed's own doc comment).
+func seedClaimants(bridgeFile THassBridgeFile, deviceIDs []string) map[string]map[string][]string {
+	claimants := map[string]map[string][]string{}
+	for _, deviceID := range deviceIDs {
+		device := bridgeFile.Devices[deviceID]
+		for _, instance := range device.Instances {
+			for _, cap := range device.Capabilities {
+				source, declaredHere := cap.SourceEntities[instance]
+				if source == "" || !declaredHere {
+					continue
+				}
+				entity := bareEntityFromSource(source)
+				if claimants[instance] == nil {
+					claimants[instance] = map[string][]string{}
+				}
+				if !containsString(claimants[instance][entity], deviceID) {
+					claimants[instance][entity] = append(claimants[instance][entity], deviceID)
+				}
+			}
+		}
+	}
+	return claimants
+}
+
+// sharedEntityOwner picks which of entity's claimants (seedClaimants, one instance's slice) owns it
+// in the tracker. A single claimant always does. For a shared entity, the owner is the claimant
+// whose OTHER, unshared declared entities come from the same remote device as entity itself -- the
+// device that really is that remote device (for the Vienna Netatmo case: the bedroom module's
+// connectivity entity belongs to sensors.netatmo_bedroom, not to sensors.netatmo_livingroom, which
+// only borrows it as its own "node"). Owning matters: existence replies for an entity feed its
+// owner's live device info (subscribeExistenceReply), so a borrower would keep receiving the
+// lender's manufacturer/model. Falls back to the last claimant in sorted order (Seed's earlier,
+// merely-deterministic rule) when the remote device ids aren't known yet (first-ever inquiry) or
+// don't single anyone out; if several claimants match, the last of them wins, likewise.
+func sharedEntityOwner(byEntity map[string]*TEntityExistenceEntry, claimants map[string][]string, entity string) string {
+	devices := claimants[entity]
+	owner := devices[len(devices)-1]
+	if len(devices) < 2 {
+		return owner
+	}
+	entry, tracked := byEntity[entity]
+	if !tracked || entry.RemoteDeviceID == "" {
+		return owner
+	}
+	for _, deviceID := range devices {
+		for other, otherClaimants := range claimants {
+			if other == entity || len(otherClaimants) != 1 || otherClaimants[0] != deviceID {
+				continue
+			}
+			if otherEntry, ok := byEntity[other]; ok && otherEntry.RemoteDeviceID == entry.RemoteDeviceID {
+				owner = deviceID
+				break
+			}
+		}
+	}
+	return owner
 }
 
 // SeedMainEntities registers every declared "bare" main-instance entity (kind-5, PROJECT.md item 1,

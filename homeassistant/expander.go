@@ -20,6 +20,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -115,6 +116,43 @@ func parseSpaceCollectionItems(itemsStr string) []string {
 	}
 	parts := strings.Fields(itemsStr)
 	return parts
+}
+
+// spaceListDirectiveKeywords are the space-level directives taking a list of items.
+var spaceListDirectiveKeywords = []string{"space off", "space on", "light on", "light off", "heating leak"}
+
+// normalizeSpaceListDirective gives every space list directive the same generic shape (2026-10-21):
+//
+//	<keyword> <item>;                            one item, no colon
+//	<keyword>: <item> ...;                       the original form, still accepted as is
+//	<keyword>:  <item>; ...  <item>; end;        a block, one or more items per line
+//
+// Both newer forms are rewritten into the original one, returning it and the index of the last
+// line consumed (the block's "end;"); ok is false for any other line, including the original form
+// itself, which needs no rewriting.
+func normalizeSpaceListDirective(lines []string, i int, trimmed, entitiesPath string, sourceLine func(int) int) (normalized string, newI int, ok bool) {
+	for _, keyword := range spaceListDirectiveKeywords {
+		if items, isOneItem := strings.CutPrefix(trimmed, keyword+" "); isOneItem {
+			return keyword + ": " + strings.TrimSpace(items), i, true
+		}
+		if trimmed != keyword+":" {
+			continue
+		}
+		var items []string
+		for j := i + 1; j < len(lines); j++ {
+			line := strings.TrimSpace(lines[j])
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			if line == EndToken+StatementEndToken {
+				return keyword + ": " + strings.Join(items, " ") + StatementEndToken, j, true
+			}
+			items = append(items, strings.TrimSpace(strings.TrimSuffix(line, StatementEndToken)))
+		}
+		fmt.Fprintf(os.Stderr, "[WARNING] %s line %d: %q block has no closing \"end;\"; ignored\n", entitiesPath, sourceLine(i), keyword+":")
+		return "", len(lines) - 1, true
+	}
+	return "", i, false
 }
 
 type TEntityDeclaration struct {

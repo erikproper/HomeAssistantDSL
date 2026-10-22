@@ -96,6 +96,10 @@ type TImportedCapability struct {
 	Domain                string `yaml:"domain"`
 	DerivedFromCapability string `yaml:"derived_from"`
 	DerivedViaTemplate    string `yaml:"derived_via"`
+	// StableID is the capability's frozen universal ID (PROJECT.md item 48, Physical.def's
+	// "capability ... as <id>;"), its unique_id -- "" until assigned, falling back to the
+	// name-based importedUniqueID formula.
+	StableID string `yaml:"stable_id"`
 }
 
 // TImportedDevice is one declared import from coordinator/imported.yaml.
@@ -153,7 +157,12 @@ func loadImportedFile(path string) (TImportedFile, error) {
 // capability's already-resolved LocalEntity -- shared by expectedImportedTopics and
 // subscribeImportedDevices' own handler so the two can never drift apart on naming, same
 // discipline hassBridgeUniqueID/hassBridgeDiscoveryTopic already follow for the export side.
-func importedUniqueID(localEntity string) string {
+// stableID, the capability's frozen universal ID (PROJECT.md item 48), wins when set: the
+// unique_id -- and with it the discovery topic -- then survives a rename of the local entity.
+func importedUniqueID(localEntity, stableID string) string {
+	if stableID != "" {
+		return stableID
+	}
 	return "imported_" + strings.ReplaceAll(localEntity, ".", "_")
 }
 
@@ -177,7 +186,7 @@ func expectedImportedTopics(importFile TImportedFile, prefix string) map[string]
 				continue
 			}
 			domain := cap.LocalEntity[:dotIdx]
-			expected[discoveryTopic(prefix, domain, importedUniqueID(cap.LocalEntity))] = true
+			expected[discoveryTopic(prefix, domain, importedUniqueID(cap.LocalEntity, cap.StableID))] = true
 		}
 	}
 	return expected
@@ -249,6 +258,7 @@ type importCapabilityMatch struct {
 	LocalDeviceID string
 	Capability    string
 	LocalEntity   string
+	StableID      string
 	DisplayName   string
 	// SuggestedArea is TImportedDevice.ConstantAttributes' own "suggested_area" value, if declared
 	// -- see TImportedDevice's own doc comment for why this is the one constant attribute an
@@ -289,7 +299,7 @@ func matchImportedCapabilityByStableID(importFile TImportedFile, remoteInstallat
 			if exportStableID(device.RemoteInstallation, device.RemoteDeviceID, capability) != stableID {
 				continue
 			}
-			return importCapabilityMatch{LocalDeviceID: localDeviceID, Capability: capability, LocalEntity: cap.LocalEntity, DisplayName: device.DisplayName, SuggestedArea: device.ConstantAttributes["suggested_area"].Value}, true
+			return importCapabilityMatch{LocalDeviceID: localDeviceID, Capability: capability, LocalEntity: cap.LocalEntity, StableID: cap.StableID, DisplayName: device.DisplayName, SuggestedArea: device.ConstantAttributes["suggested_area"].Value}, true
 		}
 	}
 	return importCapabilityMatch{}, false
@@ -421,7 +431,7 @@ func buildImportedDiscoveryBody(match importCapabilityMatch, payload importedDis
 		}
 	}
 	body := map[string]interface{}{
-		"unique_id":         importedUniqueID(match.LocalEntity),
+		"unique_id":         importedUniqueID(match.LocalEntity, match.StableID),
 		"default_entity_id": match.LocalEntity,
 		"name":              deviceName + "/" + match.Capability,
 		"state_topic":       stateTopic,
@@ -529,7 +539,7 @@ func buildDerivedImportedDiscoveryBody(localDeviceID string, device TImportedDev
 		deviceBlock["suggested_area"] = area
 	}
 	body := map[string]interface{}{
-		"unique_id":         importedUniqueID(cap.LocalEntity),
+		"unique_id":         importedUniqueID(cap.LocalEntity, cap.StableID),
 		"default_entity_id": cap.LocalEntity,
 		"name":              deviceName + "/" + capability,
 		"state_topic":       baseTopic,
@@ -565,7 +575,7 @@ func publishDerivedImportedDiscovery(client mqtt.Client, importFile TImportedFil
 			if dotIdx < 0 {
 				continue
 			}
-			topic := discoveryTopic(conceptualPrefix, cap.LocalEntity[:dotIdx], importedUniqueID(cap.LocalEntity))
+			topic := discoveryTopic(conceptualPrefix, cap.LocalEntity[:dotIdx], importedUniqueID(cap.LocalEntity, cap.StableID))
 			data, err := json.Marshal(body)
 			if err != nil {
 				return fmt.Errorf("marshalling derived import discovery payload for %s: %w", cap.LocalEntity, err)
@@ -736,7 +746,7 @@ func subscribeImportedDevices(mainClient, cloudClient mqtt.Client, ownInstallati
 			if dotIdx < 0 {
 				return
 			}
-			topic := discoveryTopic(conceptualPrefix, match.LocalEntity[:dotIdx], importedUniqueID(match.LocalEntity))
+			topic := discoveryTopic(conceptualPrefix, match.LocalEntity[:dotIdx], importedUniqueID(match.LocalEntity, match.StableID))
 			data, err := json.Marshal(body)
 			if err != nil {
 				fmt.Printf("[discovery-import] marshalling %s: %v\n", match.LocalEntity, err)

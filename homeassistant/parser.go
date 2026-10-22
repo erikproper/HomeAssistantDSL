@@ -220,6 +220,30 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			if forDeviceAtLeaf != "" {
 				trimmed = expandDeviceAtLeafDoubleColon(trimmed, forDeviceAtLeaf)
 			}
+			atLeaf := forDeviceAtLeaf
+			expand := func(line string) string {
+				if atLeaf == "" {
+					return line
+				}
+				return expandDeviceAtLeafDoubleColon(line, atLeaf)
+			}
+			if declarations, newI, warnings, ok := normalizeAggregatedTrigger(entityLines, i, trimmed, expand); ok {
+				for _, w := range warnings {
+					fmt.Fprintf(os.Stderr, "[WARNING] %s line %d: %s\n", entitiesPath, sourceLine(i), w)
+				}
+				for _, declaration := range declarations {
+					triggerDecl, isTrigger := extractNamedTriggerDeclaration(declaration)
+					if !isTrigger {
+						fmt.Fprintf(os.Stderr, "[WARNING] %s line %d: unrecognised trigger condition in %q; ignored\n", entitiesPath, sourceLine(i), declaration)
+						continue
+					}
+					for _, w := range registerNamedTrigger(administration, *triggerDecl, forDeviceID, forDeviceAtLeaf, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, sourceLine(i)) {
+						fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
+					}
+				}
+				i = newI
+				continue
+			}
 			if triggerDecl, ok := extractNamedTriggerDeclaration(trimmed); ok {
 				warnings := registerNamedTrigger(administration, *triggerDecl, forDeviceID, forDeviceAtLeaf, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, sourceLine(i))
 				for _, w := range warnings {
@@ -259,6 +283,13 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			forDeviceID = withBlockDecl.DeviceID
 			forDeviceNamePath = ""
 			continue
+		}
+
+		// The space-level list directives ("space off", "light on", ...) share one generic shape --
+		// see normalizeSpaceListDirective. Rewritten here into their original one-line form, so the
+		// per-keyword handlers further down stay exactly as they were.
+		if normalized, newI, ok := normalizeSpaceListDirective(entityLines, i, trimmed, entitiesPath, sourceLine); ok {
+			trimmed, i = normalized, newI
 		}
 
 		if oneLinerDecl, embeddedEntity, ok := extractDeviceWithOneLiner(trimmed); ok {

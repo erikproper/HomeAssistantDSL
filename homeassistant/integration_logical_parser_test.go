@@ -1,6 +1,7 @@
 package main
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -640,5 +641,63 @@ func TestCollectLogicalDevicesByIDDuplicateWarns(t *testing.T) {
 	}
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings from the parser itself: %v", warnings)
+	}
+}
+
+// TestParseLogicalLayerBodyDerivedOneLinerMatchesBlockForm covers the 2026-10-21 one-liner
+// "derived capability <domain>.<label> with condition <expr>;" -- it must yield exactly the
+// capability the equivalent "with: condition <expr>; end;" block does, also when its expression
+// continues on a following line, and leave the rest of the device body parsed as before.
+func TestParseLogicalLayerBodyDerivedOneLinerMatchesBlockForm(t *testing.T) {
+	parse := func(lines ...string) TLogicalDevice {
+		t.Helper()
+		devices, warnings := parseLogicalLayerBody(lines, nil)
+		if len(warnings) != 0 || len(devices) != 1 {
+			t.Fatalf("got %d devices, warnings %v; want 1 device, no warnings", len(devices), warnings)
+		}
+		return devices[0]
+	}
+	block := parse(
+		"device appliance.sonos with:",
+		"  derived capability binary_sensor.node with:",
+		"    condition physical appliance.sonos and node.sonos_left and node.sonos_right;",
+		"  end;",
+		"  dependency on node.sonos_left;",
+		"end;",
+	)
+	oneLiner := parse(
+		"device appliance.sonos with:",
+		"  derived capability binary_sensor.node with condition physical appliance.sonos and node.sonos_left and node.sonos_right;",
+		"  dependency on node.sonos_left;",
+		"end;",
+	)
+	continued := parse(
+		"device appliance.sonos with:",
+		"  derived capability binary_sensor.node with condition physical appliance.sonos and",
+		"    node.sonos_left and node.sonos_right;",
+		"  dependency on node.sonos_left;",
+		"end;",
+	)
+	if !reflect.DeepEqual(oneLiner, block) {
+		t.Errorf("one-liner = %+v, want the block form's %+v", oneLiner, block)
+	}
+	if !reflect.DeepEqual(continued, block) {
+		t.Errorf("continued one-liner = %+v, want the block form's %+v", continued, block)
+	}
+}
+
+// TestParseLogicalLayerBodyDerivedOneLinerRejectsOtherFields: only "condition"/"value" fit the
+// one-liner; anything else (device_class, delays) needs the block form.
+func TestParseLogicalLayerBodyDerivedOneLinerRejectsOtherFields(t *testing.T) {
+	devices, warnings := parseLogicalLayerBody([]string{
+		"device appliance.sonos with:",
+		"  derived capability binary_sensor.node with delay_off 00:01:00;",
+		"end;",
+	}, nil)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "block form") {
+		t.Errorf("warnings = %v, want one pointing at the block form", warnings)
+	}
+	if len(devices) != 1 || len(devices[0].Capabilities) != 0 {
+		t.Errorf("devices = %+v, want the device without any capability", devices)
 	}
 }

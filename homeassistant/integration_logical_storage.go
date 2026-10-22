@@ -118,6 +118,9 @@ type TLogicalCapability struct {
 	DerivedDeviceClass string
 	DelayOn            string
 	DelayOff           string
+	// AssignedID is a derived capability's frozen "as <id>" (PROJECT.md item 48) -- its universal
+	// ID, the unique_id its generated template entity is registered under. "" until assigned.
+	AssignedID string
 }
 
 // TLogicalSwitchedByFact is one "<domain>.<label> is switched by <domain>.<label> from

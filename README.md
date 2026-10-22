@@ -111,6 +111,19 @@ space infrastructural:rack as area with:
 end;
 ```
 
+The space-level list directives (`light on`, `light off`, `space on`, `space off`, `heating leak`)
+share one shape: `<directive> <item>;` for a single item, or a block for several:
+
+```
+light on social:main;
+heating leak:
+  binary_sensor.social:living/door;
+  binary_sensor.social:kitchen/terrace/door;
+end;
+```
+
+The older `<directive>: <item> <item> ...;` form (several items on one line) is still accepted.
+
 ### Entities
 
 ```
@@ -332,6 +345,24 @@ else:
   set cover.social:house/sarah_bedroom to jinja "100 - (states('number.social_house_sarah_bedroom_my_position') | int)";
 end;
 ```
+
+**Named triggers** keep a device's raw event codes out of the rules. A device block declares when
+an event is raised for that device; every device declaring the same event contributes to it, which
+is why it reads "aggregated":
+
+```
+device buttons.hallway_door_moes at door with:
+  aggregated event.social:main/light/toggle is raised when
+    event.pressed is 'single' and if trigger.button is '2';
+end;
+```
+
+(or the block form `aggregated event.<name> is raised when: <expr>; ... end;`). A rule then uses
+`when event.social:main/light/toggle is raised`. The older forms (`aggregated trigger.<name> with
+trigger <expr>;`, `trigger <name> when <expr>;`, `when trigger.<name> is triggered`) are still
+accepted. Each such event is a real HA `event` entity (here `event.social_main_light_toggle`, a
+trigger-based template entity that raises `raised` whenever one of its devices matches), so
+hand-made HA automations can use it too.
 
 A leading `/` on an entity-ref's path (e.g. `event.physical:/garage/door/tap`) resolves from the
 sphere root regardless of the rule's own position — needed whenever a trigger/condition/action

@@ -70,12 +70,8 @@ Also: EMS heater device -- not started, design/syntax not yet worked out.
       - dovecot
       But keep: cupsd + printer definition.
     [X] Test plex + samba 4 music with 500G SSD
-    [ ] Check usage of internal disks. Optimize with logical volumes?
-    Optimize with Raid capacity?
-
-1. Ubuntu as standard.
-   [ ] Then the old laptop
-   [ ] Then the old pro (https://ubuntuasahi.org/)
+    [ ] Check usage of internal disks.
+    mergerfs!s
 
 2. Migration of home automation:
   [ ] Switch to new Zigbee antenna (planned for the weekend of 2026-10-24/25, not this coming one)
@@ -83,10 +79,67 @@ Also: EMS heater device -- not started, design/syntax not yet worked out.
 3. Xanadu only for plex ...
 [ ] P-s-1@JLI as plex+samba music server
 [ ] Move music away from Xanadu
+[x] `/Volumes/Media` on Xanadu is a mergerfs pool of `/mnt/disk1..6` (each disk's media under
+    `Plex/`), done 2026-10-21. Old symlink farm kept as `/Volumes/Media.symlinks-2026-10-21`.
+[x] `/Volumes/Backups` on Xanadu is a mergerfs pool of `/mnt/yotta1..7` (`noauto`; mount with
+    `sudo systemctl start Volumes-Backups.mount`), yotta1..5's `Plex.Data/` renamed `Plex/`. Done
+    2026-10-21.
+[x] Plex scripts rewritten for the pools 2026-10-21 (`plex.publish` tested; `plex.collect` removed;
+    originals in Xanadu's `~/bin/plex-scripts.bak-2026-10-21/`).
+[ ] Test `plex.backup` once backups is a mergerfs pool; set its `REMOTE_POOL` (placeholder
+    `/Volumes/Backups`).
+[ ] Update Xanadu's `~/bin/media.backup` (currently disabled, "Requires updating!!"): rsync
+    `/Volumes/Backups/{Media,Photography}` to `erikp@backups:/Volumes` (once backups is a pool),
+    with the same `CheckMounted` guard as the Plex scripts.
+[ ] mergerfs on `backups` (the "backup of last resort" stack of old external disks): survey first.
+    Also update/create its `~/bin/mountall` / `umountall`, like Xanadu's (pool after/before the disks).
 
-4. MQTT (local) broker in container on p-s-1 @JLI
+4. MQTT (local) broker in container on p-s-1 @JLI: move all clients off the Green's broker
+   (192.168.178.42) to the (already running, still unused) mosquitto container on p-s-1.
+   Clients: HA main + Zigbee2MQTT add-on (Green); coordinator, HA ha2mqtt, zwave-js-ui, test Z2M
+   (`zigbee2test`), ping report (p-s-1); cpu reports (p-s-1, p-s-2, xanadu, frame, imac, backups);
+   mqtt_commandline (frame); EMS-ESP (192.168.178.181).
+   Phase 0 (no impact):
+   [x] Persistence in p-s-1's mosquitto.conf (as Vienna), restart container.
+   [x] Reachable from LAN on 1883 + `carvalhoproper` login works; firewall if needed.
+   [x] Broker address: IP or `protocols-server-1.fritz.box` (not the bare name); fixed DHCP lease.
+   Phase 1:
+   [x] Temporary bridge (`#`, both directions) new <-> Green broker; check retained (~7800) + live flow.
+       Bridge config: p-s-1 `mosquitto/config/conf.d/bridge-green.conf` (+ `include_dir` line).
+   Phase 2 (one by one, each verified; rollback = revert that client):
+   [x] `Settings.def` `${main_mqtt_server}` + generate + deploy: coordinator, ping, cpu
+       (`secrets.junglinster`), commandline/frame. Hosts off during deploy (imac, backups)
+       need a `cpu` redeploy when next on -- before the Green broker goes. Done 2026-10-21 (all hosts
+       were on; `03_deploy.hosts` now also pushes `cpu/secrets.<house>`, `deploy.<house>` pings -4).
+   [x] zwave-js-ui (its web UI, Settings -> MQTT) -> protocols-server-1.fritz.box. Its old host
+       `junglinster` didn't resolve inside the container (bare names don't), so it had published
+       nothing over MQTT since ~2026-10-15; working again 2026-10-21.
+   [x] EMS-ESP (its web UI, via SSH tunnel through p-s-1) -> 192.168.178.85.
+   [x] HA ha2mqtt MQTT integration -> 127.0.0.1 (same host).
+   [x] Z2M add-on on the Green -> mqtt://192.168.178.85:1883 (add-on *options*: they override
+       configuration.yaml at every start, so a Z2M-web-UI-only change would be reverted).
+   [x] HA main MQTT integration -> 192.168.178.85 (via UI reconfigure). All clients moved 2026-10-21.
+   Phase 3:
+   [ ] (2026-10-22, together with item 3a's last point) Watch the Green broker >= 1 day (from 2026-10-21 18:16): only the bridge may remain
+       connected (the test Z2M on p-s-1 doesn't count: not operational, re-pointed in item 3; nor
+       the add-on's own health check from 172.30.32.2 every 2 min).
+   [ ] Remove bridge; stop + disable (not uninstall) the Mosquitto add-on.
+   [ ] Architecture.md topology section, notes.
+
+3a. Discovery churn (JLI coordinator): mostly fixed 2026-10-21 (restart: ~305 -> 11 retirements).
+   Causes found: retained bridge states under the retired instance name "protocols-server-2"
+   (now ignored: hassBridgeAcceptsInstance; leftovers cleared) and Seed re-grouping a borrowed
+   shared entity's whole remote device under the borrower (Netatmo living room / bedroom, Somfy
+   front / rear). Still open:
+   [x] iPhone: `roaming import` dropped in both houses 2026-10-21 (Companion app already reports to
+       both HAs); leftover relay/roaming topics cleared. Code cleanup: item 31.
+   [ ] 2026-10-22, with the Green broker check (item 4, Phase 3): 5 cloud-host discovery entries
+       (junglinster/homeassistant/.../junglinster_node_{mqtt,studio}_*) retired at every restart --
+       not looked at yet. Also confirm no new daytime retire batches since the 2026-10-21 deploys.
 
 3. Migration of Zigbee2MQTT app from Green to p-s-1 in JLI, plus antenna migration.
+   Includes pointing the p-s-1 Z2M (now still the `zigbee2test` test instance, on the Green broker)
+   at the p-s-1 broker (item 4).
 
     Unlike Vienna's move (same physical Sonoff dongle, just relocated -- DONE + VERIFIED LIVE
     2026-09-08, real network/73 devices preserved intact), Junglinster is also swapping the radio
@@ -140,32 +193,14 @@ Also: EMS heater device -- not started, design/syntax not yet worked out.
 
 ## Migration & improvements
 
-14. moes related renames. Check in Junglinster. Maybe use buttons instead of moes, and then have _1, etc.
-  (registry-impact concern -- see the "stable coordinator<->HA entity identity" item above, plan
-  this after that lands if avoidable)
-Also check somfy rename
-
-  DONE 2026-10-05 (Junglinster, same device-ID-category-naming concern): 4 "philips_dimmer"
-  devices were declared as `sensors.*` but are actually remote buttons (battery_level +
-  event.pressed, no sensor reading of their own) -- renamed to `buttons.*`
-  (living_room_dining/living_room_living/house_kitchen_terrace_door/bathroom). Confirmed zero
-  entity_id impact (byte-identical hass/ output and discovery.yaml otherwise) before applying --
-  these devices have explicit Conceptual.def positioning, so the device-ID prefix never leaks into
-  any HA-facing name.
-
-  DEFERRED, same review, same reason as this item's own moes/somfy case: 3 "main_dimmer"/
-  "workplace_dimmer" devices (`sensors.living_room_living_main_dimmer`, `sensors.living_room_
-  dining_main_dimmer`, `sensors.house_kitchen_workplace_dimmer`) are actual dimmable lights, not
-  sensors -- `lights.*` would be the correct prefix, but unlike the buttons case above, these use
-  the "light.core is switched by ... from ...;" one-liner sugar (Logical.def), which has no
-  explicit positioning of its own and auto-materializes its light entity's name straight from the
-  device ID. Confirmed via generate+diff: renaming would change 3 real, currently-live entity_ids
-  (light.physical_sensors_<name> -> light.physical_lights_<name>) -- exactly the registry-churn
-  class item 7 (stable coordinator<->HA entity identity) exists to eliminate. User's call:
-  defer until item 7 lands, same sequencing as the moes/somfy renames already noted here.
+14. Moes/somfy renames: done for Vienna; still to do for Junglinster (Friday 2026-10-23, on site).
+    Maybe `buttons.*` instead of `moes`, then `_1` etc. Also Junglinster's 3 dimmable lights still
+    declared as `sensors.*` (`living_room_living_main_dimmer`, `living_room_dining_main_dimmer`,
+    `house_kitchen_workplace_dimmer`) -> `lights.*`; this changes their live entity_ids
+    (`light.physical_sensors_*` -> `light.physical_lights_*`), so check the registry impact first.
 
 15. fix physical. Carefull with taps and moeses because of the manual automations.
-- physical to social
+- physical to social; done for vienna
 - final update of bl/ba/node/.. tabs
 
 16. revisit the "core" usage. Can be more subtle. motion, contact, switch, light, fan, etc.
@@ -180,67 +215,20 @@ Also check somfy rename
     ==>
       device sensors.server_room_main_spots with entity light.social:main/light;
 
-48. Template-rendered entities (condition/derived capabilities -- battery_alert-style "derived
-    capability ... via jinja ...;", the aggregate sensors, etc.) have no stable-identity
-    protection at all, unlike Physical.def's "as <id>" mechanism (the old item 7, DONE
-    2026-10-05) for raw discovery capabilities. `buildConditionBinarySensorYAML`/
-    `buildTemplateSensorYAML` (generator.go) write `unique_id: <entity_id>` derived fresh from
-    the entity's CURRENT Conceptual.def name every single generate -- any rename/reposition
-    orphans the old registry row permanently (HA never cleans up a stale `unique_id` on its
-    own, regardless of platform). Not theoretical: real orphans of exactly this shape were
-    already found and cleaned in the 2026-10-05 registry audit (`stale_node_old_device_name`/
-    `stale_battery_alert_old_device_name` categories, which explicitly covered
-    template-platform entities too). Needs its own stable-id design, mirroring item 7's own
-    shape but scoped to `unique_id:`-bearing template entities instead of MQTT capabilities.
-
-49. Floated 2026-10-17, linked to item 48 above: expose a named trigger (PROJECT.md's own
-    device-level trigger-abstraction item, "Deal with the 'physical' sphere") as a REAL
-    HA entity via the template integration's trigger-based "event" platform
-    (https://www.home-assistant.io/integrations/template/#event), instead of purely expanding
-    it inline at generation time. New device-side syntax floated:
-    `trigger event.social:/apartment/living_room/main/light/request with "toggle" when
-    event.pressed is in ['on_row_2', 'off_row_2'];` -- note the target is now a full
-    domain-qualified entity-ref (an `event.*` entity that will really exist), not a bare
-    "sphere:path" name, and `with "<value>"` names which `event_type` this device's own match
-    contributes. Key benefits: (1) a rule can then reference it via the ALREADY-EXISTING "when
-    <entity-ref> is <event-type>;" grammar (no special "trigger.<name> is triggered" keyword
-    needed at all -- could retire that mechanism entirely); (2) a user's own hand-authored
-    manual automation could ALSO trigger off this same named, semantic event entity, without
-    ever learning the raw device/MQTT details -- something today's pure-codegen-macro named
-    trigger cannot offer at all; (3) potentially unifies what are today several separate named
-    triggers per target (e.g. the Signify dimmer's turn_on/turn_off/dim_up/dim_down) into ONE
-    event entity carrying several different event_type values instead -- not yet decided
-    whether that's the intent or if one event entity per action should stay.
-    MUST be designed together with item 48, not sequentially: this creates a genuinely new
-    HA registry entity (its own `unique_id`) for every named trigger, so it inherits item 48's
-    exact stale-registry-orphan risk from day one if built without a stable-id answer first.
-    Also reopens a DEEPER architectural question, not yet resolved (see
-    [[project_discovery_over_yaml_templates]], a 2026-08-19 decision that may need revisiting
-    now that stable unique_ids exist): with Physical.def's own stable "as <id>" mechanism (item
-    7) already removing one of MQTT discovery's traditional advantages over generator-authored
-    static/template YAML (entity_id stability across renames), and given this project's whole
-    workflow is deploy-driven anyway (nothing is ever truly "discovered" spontaneously at
-    runtime, independent of a `./generate`+`./deploy` cycle) -- is the live MQTT-discovery relay
-    between the coordinator and main HA still worth its own complexity, versus the coordinator
-    (or generator) authoring static/templated YAML directly? The one reason from the original
-    2026-08-19 decision that is UNRELATED to id-stability and still stands on its own: Z2M/
-    Z-Wave JS's own discovery payloads carry rich device metadata (manufacturer/model/device
-    grouping/availability/unit hints) for free, which a hand-authored or generator-templated
-    entity would have to reconstruct manually and keep in sync by hand. Not decided; needs its
-    own dedicated reflection before any implementation in this area.
-
-17. Maybe also apply to Junglinster's own picture frame: Vienna's frame got a dedicated
-    `xinit-slideshow.service` (systemd, `Restart=always`) 2026-10-19, so its X server/feh
-    slideshow always comes back within seconds if it ever dies, instead of silently sitting on a
-    bare text login screen for hours (bad for the monitor) until the next scheduled "on" cycle
-    happened to relaunch it. Root trigger not fully confirmed (leading theory: the monitor's own
-    standby drops HDMI hotplug-detect while the output is off via `xrandr --output HDMI-1 --off`,
-    which can cascade into X losing its last input device and exiting cleanly) -- the fix doesn't
-    depend on nailing that down, since supervision recovers regardless of cause. Also simplified
-    `start_slideshow` (removed its now-redundant/race-prone manual X-relaunch fallback, now that
-    systemd owns X's lifecycle) -- `stop_slideshow`/`check_slideshow` unchanged. Not yet done on
-    Junglinster's own frame; check whether it shows the same symptom before assuming it needs the
-    same fix.
+49. Named triggers as real HA event entities -- DONE 2026-10-22 (Vienna deployed): each
+    `aggregated event.<name> is raised when ...` is a trigger-based template `event` entity
+    (entities/template/event/<sphere>/), its triggers/conditions being the former inline
+    expansion; rules trigger on its `raised` event. Verified equivalent for all 29 Vienna rules.
+    Still open:
+    - its unique_id is the entity_id (Conceptual.def level, like space-level entities -- 17g),
+      so renaming a named trigger yields a new entity (the registry sync removes the old one,
+      so no orphan, but its history doesn't carry over);
+    - whether related triggers (a dimmer's on/off/brighter/dimmer) become ONE entity with several
+      event types; then `when <entity> is <event-type>` could replace `is raised`;
+    - the deeper question (see [[project_discovery_over_yaml_templates]]): with stable IDs
+      everywhere, is the coordinator -> HA MQTT-discovery route still worth its complexity vs.
+      generator-authored YAML? The one remaining argument for discovery: Z2M/Z-Wave JS supply
+      device metadata (manufacturer/model/availability/units) for free. Not decided.
 
 17a. We can now update the UIs with the latest lists
 
@@ -253,6 +241,19 @@ Also check somfy rename
 17e. General check on path-based device names (UI)
 Also change the generated friendly names to '<sphere>/<path>/<(sub)domain>' for all.
 Also adjust the names of generated automations.
+
+17f. Multi-item list directives on one line (`space off: @light @media;`; 1 in Vienna, 12 in
+     Junglinster) -> the generic block form (`space off:` / `@light;` / `@media;` / `end;`),
+     per the 2026-10-21 notation. Check the output stays byte-identical.
+
+17g. Sensors are positioned uniquely (own name in their space: `wall/temperature`,
+     `shelf/humidity`, never the space's generic `temperature`); a space-level entity
+     (`<space>/temperature`, `/co2`, ...) exists only by a conscious generalisation declared in the
+     defs -- from one sensor (the space's value *is* that sensor) or several (an average) --
+     replacing today's automatic per-space averages (whose names clashed with a sole sensor, e.g.
+     Vienna's bitron/rack cases, 2026-10-21). Notation not yet designed. Several of Vienna's
+     CHANGE renames (bedroom/shower-room Netatmo co2+humidity, frient and signify illuminance,
+     terrace Netatmo/signify temperature+humidity) wait for this.
 
 18. check def files for more syntax changes 
 
@@ -637,6 +638,12 @@ CHeck if node, temperature, etc, are acknowledged as axplicit "sub domains" in t
   times both houses' coordinators have now run and been verified live (2026-09-08/09's MQTT broker
   migration alone), this is very likely ready to action -- just needs someone to actually check
   the retirement log and pull the branch.
+- The `roaming` / `import` (hassbridge) mechanism is unused since 2026-10-21: its only user, the
+  iPhone, dropped it in both houses (the Companion app already reports to both Home Assistants
+  directly; ~94% of updates reach both, gaps < ~70 min). Candidates: `export_as`/`self_import_from`
+  (THassBridgeDevice, generator emission + parser keywords), `subscribeHassBridgeSelfImport`,
+  `canonicalizeRoamingBridgeTopic`/`canonicalRoamingInstance`, `hassBridgeAcceptsInstance`'s
+  self-import branch, plus related doc comments. Check zero `.def` usage in both houses first.
 - General principle: once a platform has fully moved through its incremental integration steps
   (items 4/5/6/7/8 above), retire the now-superseded generator logic for it outright rather than
   carrying both paths indefinitely -- the dead-code entries above are concrete instances of this.

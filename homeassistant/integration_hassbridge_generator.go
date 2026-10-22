@@ -88,6 +88,9 @@ func generateHassBridgeFile(outputRoot string, hassBridgeDevicesByID map[string]
 				capLines.WriteString("          " + instance + ": " + device.Capabilities[name].Sources[instance] + "\n")
 			}
 			capLines.WriteString("        local_entity: " + attr.EntityID + "\n")
+			if id, frozen := admin.FrozenUniqueIDs["physical:"+deviceID+"!"+name]; frozen {
+				capLines.WriteString("        stable_id: " + id + "\n")
+			}
 			// display_suffix (added 2026-09-10): see TDeviceAttributeLink.DisplaySuffix's own doc
 			// comment -- the word the coordinator's discovery "name" field appends after the
 			// device's own display name, resolved here (generate time) rather than by the

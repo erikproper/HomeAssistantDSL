@@ -27,7 +27,7 @@ func TestExpectedImportedHassBridgeTopics(t *testing.T) {
 		},
 	}}
 	got := expectedImportedTopics(importFile, testPrefix)
-	wantTopic := discoveryTopic(testPrefix, "sensor", importedUniqueID("sensor.physical_shower_room_netatmo_temperature"))
+	wantTopic := discoveryTopic(testPrefix, "sensor", importedUniqueID("sensor.physical_shower_room_netatmo_temperature", ""))
 	if !got[wantTopic] {
 		t.Errorf("expected %v to contain %q", got, wantTopic)
 	}
@@ -511,7 +511,7 @@ func TestSubscribeImportedDevicesPublishesLocalDiscoveryAndRelaysValue(t *testin
 		t.Fatalf("subscribeImportedDevices error: %v", err)
 	}
 
-	wantDiscoveryTopic := discoveryTopic(testPrefix, "sensor", importedUniqueID(localEntity))
+	wantDiscoveryTopic := discoveryTopic(testPrefix, "sensor", importedUniqueID(localEntity, ""))
 	foundDiscovery := false
 	var discoveryPayloadGot map[string]interface{}
 	// A background goroutine (the relay subscription -- see the comment on the real deadlock bug
@@ -911,7 +911,7 @@ func TestPublishDerivedImportedDiscoveryEndToEnd(t *testing.T) {
 		t.Fatalf("publishDerivedImportedDiscovery error: %v", err)
 	}
 
-	wantTopic := discoveryTopic(testPrefix, "binary_sensor", importedUniqueID("binary_sensor.infrastructural_terrace_netatmo_battery_alert"))
+	wantTopic := discoveryTopic(testPrefix, "binary_sensor", importedUniqueID("binary_sensor.infrastructural_terrace_netatmo_battery_alert", ""))
 	var got map[string]interface{}
 	found := false
 	for _, p := range mainClient.publishedSnapshot() {
@@ -950,5 +950,16 @@ func TestPublishDerivedImportedDiscoverySkipsUnresolvableChain(t *testing.T) {
 	}
 	if len(mainClient.publishedSnapshot()) != 0 {
 		t.Errorf("expected no publish for an unresolvable chain, got %v", mainClient.publishedSnapshot())
+	}
+}
+
+// TestImportedUniqueIDPrefersFrozenStableID: a frozen stable_id (PROJECT.md item 48) survives a
+// rename of the local entity; without one, the old name-based formula applies.
+func TestImportedUniqueIDPrefersFrozenStableID(t *testing.T) {
+	if got := importedUniqueID("sensor.social_bedroom_bed_co2", "imported_sensor_physical_bedroom_netatmo_co2"); got != "imported_sensor_physical_bedroom_netatmo_co2" {
+		t.Errorf("frozen: got %q", got)
+	}
+	if got := importedUniqueID("sensor.social_bedroom_bed_co2", ""); got != "imported_sensor_social_bedroom_bed_co2" {
+		t.Errorf("unfrozen: got %q", got)
 	}
 }

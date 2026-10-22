@@ -338,6 +338,57 @@ func TestEntityExistenceTrackerSeedCorrectsSiblingDeviceIDAfterRename(t *testing
 	}
 }
 
+// TestEntityExistenceTrackerSeedKeepsBorrowedSharedEntityWithItsRealDevice is the regression test
+// for the real incident found live 2026-10-21 (Junglinster): sensors.netatmo_livingroom borrows the
+// bedroom module's connectivity entity as its own "node" (flaky base-station sensor). Seed's second
+// pass used to map the module's remote device id to the borrower (last sorted claimant of the
+// shared entity) and then re-group EVERY entity of that module under it -- including the bedroom's
+// own declared ones -- so existence replies for bedroom entities fed the module's model into the
+// living room's device info, flipping all its discovery configs on every reply.
+func TestEntityExistenceTrackerSeedKeepsBorrowedSharedEntityWithItsRealDevice(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
+		"sensors.netatmo_bedroom": {
+			Instances: []string{"ha2mqtt"},
+			Capabilities: map[string]THassBridgeCapability{
+				"node": {SourceEntities: map[string]string{"ha2mqtt": "binary_sensor.vienna_bedroom_connectivity"}},
+				"co2":  {SourceEntities: map[string]string{"ha2mqtt": "sensor.vienna_bedroom_carbon_dioxide"}},
+			},
+		},
+		"sensors.netatmo_livingroom": {
+			Instances: []string{"ha2mqtt"},
+			Capabilities: map[string]THassBridgeCapability{
+				"node":  {SourceEntities: map[string]string{"ha2mqtt": "binary_sensor.vienna_bedroom_connectivity"}},
+				"noise": {SourceEntities: map[string]string{"ha2mqtt": "sensor.vienna_noise"}},
+			},
+		},
+	}}
+	tracker.Seed(bridgeFile)
+	tracker.Record("ha2mqtt", "binary_sensor.vienna_bedroom_connectivity", true, "on", "", "", "", "remote-module", "remote-base")
+	tracker.Record("ha2mqtt", "sensor.vienna_bedroom_carbon_dioxide", true, "452", "", "", "", "remote-module", "remote-base")
+	tracker.Record("ha2mqtt", "sensor.vienna_noise", true, "32", "", "", "", "remote-base", "")
+	tracker.DiscoverSiblings("ha2mqtt", "sensor.vienna_bedroom_carbon_dioxide", "remote-module", "Vienna Bedroom", []string{"sensor.vienna_bedroom_battery"})
+
+	// The next coordinator start, now with every remote device id known.
+	tracker.Seed(bridgeFile)
+
+	byDevice := tracker.snapshotByDevice("ha2mqtt")
+	for _, entity := range []string{"binary_sensor.vienna_bedroom_connectivity", "sensor.vienna_bedroom_carbon_dioxide", "sensor.vienna_bedroom_battery"} {
+		if _, found := byDevice["sensors.netatmo_bedroom"][entity]; !found {
+			t.Errorf("%s not grouped under its real device sensors.netatmo_bedroom: %+v", entity, byDevice)
+		}
+	}
+	if entities := byDevice["sensors.netatmo_livingroom"]; len(entities) != 1 {
+		t.Errorf("sensors.netatmo_livingroom should own only its base-station entity, got %+v", entities)
+	}
+
+	// Borrowing still works for the living room's own via_device resolution (keyed off Physical.def,
+	// not ownership -- TestResolveViaDeviceResolvesSharedSourceEntityRegardlessOfTrackerAttribution).
+	if target, ok := tracker.ResolveViaDevice("ha2mqtt", "sensors.netatmo_bedroom", []string{"binary_sensor.vienna_bedroom_connectivity"}); !ok || target != "sensors.netatmo_livingroom" {
+		t.Errorf("ResolveViaDevice(sensors.netatmo_bedroom) = (%q, %v), want (\"sensors.netatmo_livingroom\", true)", target, ok)
+	}
+}
+
 func TestIsWellFormedEntityID(t *testing.T) {
 	cases := []struct {
 		id   string

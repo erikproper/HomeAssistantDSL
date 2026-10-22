@@ -82,7 +82,7 @@ var importHeaderShorthandPattern = regexp.MustCompile(`^device\s+(\S+)\s+from\s+
 // importCapabilityPattern matches "<domain>.<capability>;" -- see this file's own header comment
 // for the full rationale. Requires the explicit "capability" keyword (PROJECT.md item 11b,
 // 2026-10-11) -- see discoveryCapabilityPattern's own doc comment for the general rationale.
-var importCapabilityPattern = regexp.MustCompile(`^capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s*;\s*$`)
+var importCapabilityPattern = regexp.MustCompile(`^capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_.]*))?\s*;\s*$`)
 
 // importConstantAttributeShapePattern recognizes the same "<name>: "<value>" [forced];" shape
 // integration_hosts_parser.go/integration_hassbridge_parser.go's own constantAttributePattern
@@ -131,7 +131,7 @@ func parseImportIntegrationBody(bodyLines []string) ([]TImportedDevice, []string
 				continue
 			}
 			if matches := importCapabilityPattern.FindStringSubmatch(line); matches != nil {
-				current.Capabilities[matches[1]] = TImportedCapability{}
+				current.Capabilities[matches[1]] = TImportedCapability{AssignedID: matches[2]}
 				continue
 			}
 			warnings = append(warnings, fmt.Sprintf("Physical.def: unrecognised line inside imported device %q's capability block (body line %d): %q", current.DeviceID, lineIdx+1, line))

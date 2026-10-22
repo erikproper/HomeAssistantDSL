@@ -1,6 +1,6 @@
 ---
 name: project-frame-vienna-xserver-systemd-supervision-2026-10-19
-description: "DONE+VERIFIED 2026-10-19: Vienna's picture-frame X server/feh slideshow now runs under a systemd unit (xinit-slideshow.service, Restart=always) instead of an unsupervised background process -- fixes a real incident where it silently sat on a bare text login screen for hours after X exited. PROJECT.md item 17 tracks doing the same for Junglinster's own frame."
+description: "DONE+VERIFIED 2026-10-19: Vienna's picture-frame X server/feh slideshow now runs under a systemd unit (xinit-slideshow.service, Restart=always) instead of an unsupervised background process -- fixes a real incident where it silently sat on a bare text login screen for hours after X exited. Applied identically to Junglinster's frame 2026-10-20 (verified)."
 metadata:
   node_type: memory
   type: project
@@ -46,9 +46,14 @@ underneath. `stop_slideshow`/`check_slideshow` unchanged (they never touched X's
 anyway). Verified both still work correctly against the systemd-supervised X (resolution/feh
 process state toggle correctly both directions).
 
-**PROJECT.md item 17**: do the same for Junglinster's own picture frame -- NOT yet done, and not
-yet even confirmed Junglinster's frame shows the same symptom at all. Check first before assuming
-it needs the identical fix.
+**Junglinster's frame, 2026-10-20**: had the identical pre-fix setup (Ubuntu 26.04, X launched
+by hand via `sudo xinit ... &`, old `start_slideshow` with the kill-and-relaunch branch). Applied the
+same unit file and simplified `start_slideshow` verbatim (old script kept as
+`~/bin/start_slideshow.pre-systemd-2026-10-20`). Verified the same way: `kill -9` Xorg → new Xorg + feh
+within RestartSec; start/stop/check toggle correctly. Left in the "off" state it was in before.
+Gotcha hit while doing it: a remote `ssh ... 'pkill -f "sudo xinit /home/erikp/..."'` matches the
+ssh session's OWN `bash -c` command line and kills the session mid-script -- use `pkill -x` or
+`kill <pid>` instead.
 
 **How to apply**: if this symptom (bare text login screen showing on a picture-frame display)
 recurs on EITHER house after this fix, the systemd unit itself masks the symptom (X always comes

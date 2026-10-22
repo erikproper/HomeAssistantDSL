@@ -113,6 +113,7 @@ func registerLogicalDefinedInputNumberCapability(administration *TAdministration
 	spaceName := administration.CurrentSpaceName()
 	administration.AppendEntityRecord(spaceName, TEntityRecord{
 		Name:                  fullName,
+		SourceKey:             "logical:" + decl.DeviceID + "!" + label,
 		Identity:              identity,
 		Provenance:            provenance,
 		InputNumberMin:        capability.DefinedMinimum,
@@ -322,6 +323,7 @@ func autoMaterializePhysicalCapability(administration *TAdministrationState, dev
 			deviceClass, _, _, icon := resolveCapabilityDefaults(administration.CapabilityDefaults, identity.Domain, identity.Path)
 			administration.AppendEntityRecord("root", TEntityRecord{
 				Name:                  attrFullName,
+				SourceKey:             "physical:" + deviceID + "!" + label,
 				Identity:              identity,
 				Provenance:            provenance,
 				ConditionSources:      sources,
@@ -628,12 +630,26 @@ func (r *logicalConditionResolver) render(node *TConditionExpr) (string, bool) {
 	}
 	switch node.Kind {
 	case CondRef:
+		if strings.HasPrefix(node.Ref, "trigger.") {
+			r.warnings = append(r.warnings, fmt.Sprintf("%s: %q filters a firing event -- only meaningful in an \"event\" capability's condition", r.provenance, node.Ref))
+			return "", false
+		}
 		entityID, ok := r.resolveRefNode(node)
 		if !ok {
 			return "", false
 		}
 		if node.IsAvailable {
 			return fmt.Sprintf("(states('%s') not in ['unavailable', 'unknown'])", entityID), true
+		}
+		if len(node.Values) == 1 {
+			return fmt.Sprintf("is_state('%s', %s)", entityID, jinjaQuotedLiteral(node.Values[0])), true
+		}
+		if len(node.Values) > 1 {
+			quoted := make([]string, len(node.Values))
+			for i, value := range node.Values {
+				quoted[i] = jinjaQuotedLiteral(value)
+			}
+			return fmt.Sprintf("(states('%s') in [%s])", entityID, strings.Join(quoted, ", ")), true
 		}
 		if r.valueMode {
 			return sourceToJinja2(entityID), true
@@ -712,8 +728,8 @@ func registerLogicalDerivedConditionCapability(administration *TAdministrationSt
 	// "value" instead -- the concrete fix for the exact bug that motivated this redesign: both
 	// houses' "derived sensor.pressure with: condition "$1" over: weather.forecast!pressure; end;
 	// end;" misused "condition" for a value that was never actually a boolean.
-	if capability.IsDerivedCondition && capability.Domain != "binary_sensor" {
-		return []string{fmt.Sprintf("%s: %q's \"condition\" derivation must be a \"binary_sensor\" capability, not %q -- use \"value\" instead for a non-boolean domain", provenance, label, capability.Domain)}, false
+	if capability.IsDerivedCondition && capability.Domain != "binary_sensor" && capability.Domain != "event" {
+		return []string{fmt.Sprintf("%s: %q's \"condition\" derivation must be a \"binary_sensor\" or \"event\" capability, not %q -- use \"value\" instead for a non-boolean domain", provenance, label, capability.Domain)}, false
 	}
 	if capability.IsDerivedValue && capability.Domain == "binary_sensor" {
 		return []string{fmt.Sprintf("%s: %q's \"value\" derivation may not be a \"binary_sensor\" capability -- use \"condition\" instead", provenance, label)}, false
@@ -741,6 +757,9 @@ func registerLogicalDerivedConditionCapability(administration *TAdministrationSt
 		logicalDevicesByID:    logicalDevicesByID,
 		valueMode:             capability.IsDerivedValue,
 	}
+	if capability.Domain == "event" {
+		return registerLogicalDerivedEventCapability(administration, resolver, decl, label, deviceNamePath, tree, provenance)
+	}
 	rendered, ok := resolver.render(tree)
 	if !ok {
 		if resolver.deferred {
@@ -767,6 +786,7 @@ func registerLogicalDerivedConditionCapability(administration *TAdministrationSt
 	spaceName := administration.CurrentSpaceName()
 	administration.AppendEntityRecord(spaceName, TEntityRecord{
 		Name:                  fullName,
+		SourceKey:             "logical:" + decl.DeviceID + "!" + label,
 		Identity:              identity,
 		Provenance:            provenance,
 		ConditionExpr:         rendered,
@@ -777,4 +797,75 @@ func registerLogicalDerivedConditionCapability(administration *TAdministrationSt
 	})
 	administration.LogicalEntityLinks[entityID] = TLogicalEntityLink{DeviceID: decl.DeviceID, Label: label}
 	return nil, false
+}
+
+// registerLogicalDerivedEventCapability resolves a "derived capability event.<label> with condition
+// ...;" capability (PROJECT.md item 49, 2026-10-22): an event raised whenever one of the devices its
+// condition names fires a matching event. The condition is an "or" of terms, each one
+// "event.<label> from <device> is <value(s)>", optionally "and if trigger.<attribute> from <device>
+// is <value(s)>" -- the same contributions a device-level "aggregated event ... is raised when"
+// declaration makes, so the result is stored the same way (administration.NamedTriggers, under the
+// positioned entity's own name) and generateNamedTriggerEvents writes the entity, registered under
+// this capability's frozen unique_id.
+func registerLogicalDerivedEventCapability(administration *TAdministrationState, resolver *logicalConditionResolver, decl TDeviceCapabilityEntityDeclaration, label, deviceNamePath string, tree *TConditionExpr, provenance string) (warnings []string, deferred bool) {
+	var sources []TNamedTriggerSource
+	for _, term := range flattenConditionExpr(tree, CondOr) {
+		var event, attribute *TConditionExpr
+		for _, atom := range flattenConditionExpr(term, CondAnd) {
+			switch {
+			case atom.Kind != CondRef || len(atom.Values) == 0:
+				return []string{fmt.Sprintf("%s: an \"event\" capability's condition is an \"or\" of \"event.<label> from <device> is <value>\" terms, each optionally \"and if trigger.<attribute> from <device> is <value>\"", provenance)}, false
+			case strings.HasPrefix(atom.Ref, "trigger.") && attribute == nil:
+				attribute = atom
+			case strings.HasPrefix(atom.Ref, "event.") && event == nil:
+				event = atom
+			default:
+				return []string{fmt.Sprintf("%s: %q: each term of an \"event\" capability's condition has one \"event.<label>\" match and at most one \"trigger.<attribute>\" filter", provenance, atom.Ref)}, false
+			}
+		}
+		if event == nil || event.FromDeviceID == "" {
+			return []string{fmt.Sprintf("%s: a term of an \"event\" capability's condition has no \"event.<label> from <device> is <value>\" match", provenance)}, false
+		}
+		if attribute != nil && attribute.FromDeviceID != "" && attribute.FromDeviceID != event.FromDeviceID {
+			return []string{fmt.Sprintf("%s: %q filters %q's event, but its term matches %q's", provenance, attribute.Ref, attribute.FromDeviceID, event.FromDeviceID)}, false
+		}
+		// The source device's event capability must be positioned itself (its own entity_id is
+		// what HA fires) -- never auto-materialized under a made-up name; until it is, defer.
+		entityID, ok := resolver.resolveTargeted(event.FromDeviceID, bareCapabilityLabel(event.Ref), event.ForcePhysical, false, true)
+		if !ok {
+			if resolver.deferred {
+				return nil, true
+			}
+			return resolver.warnings, false
+		}
+		source := TNamedTriggerSource{EntityID: entityID, EventTypes: event.Values}
+		if attribute != nil {
+			source.TriggerAttr = strings.TrimPrefix(attribute.Ref, "trigger.")
+			source.TriggerAttrValues = attribute.Values
+		}
+		sources = append(sources, source)
+	}
+
+	fullName := resolveDeviceEntityFullName(decl.LocalSpec, administration.SpacePath, deviceNamePath)
+	name, isEvent := strings.CutPrefix(fullName, "event.")
+	if !isEvent {
+		return []string{fmt.Sprintf("%s: an \"event\" capability must be positioned as an \"event.<sphere>:<path>\" entity", provenance)}, false
+	}
+	if len(administration.NamedTriggers[name]) > 0 {
+		return []string{fmt.Sprintf("%s: event %q is already raised elsewhere -- give each event one declaration", provenance, name)}, false
+	}
+	administration.NamedTriggers[name] = sources
+	entityID := namedTriggerEventEntityID(name)
+	administration.RecordSourceKey(entityID, "logical:"+decl.DeviceID+"!"+label)
+	administration.LogicalEntityLinks[entityID] = TLogicalEntityLink{DeviceID: decl.DeviceID, Label: label}
+	return nil, false
+}
+
+// flattenConditionExpr returns the operands of node's top-level chain of kind (CondAnd or CondOr),
+// left to right -- node itself when it isn't one.
+func flattenConditionExpr(node *TConditionExpr, kind TConditionExprKind) []*TConditionExpr {
+	if node == nil || node.Kind != kind {
+		return []*TConditionExpr{node}
+	}
+	return append(flattenConditionExpr(node.Left, kind), flattenConditionExpr(node.Right, kind)...)
 }

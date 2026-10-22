@@ -75,7 +75,7 @@ func TestSubscribeHassBridgePublishesViaDeviceWhenResolvable(t *testing.T) {
 		t.Fatalf("subscribeHassBridge error: %v", err)
 	}
 
-	wantTopic, ok := hassBridgeDiscoveryTopic("sensor.physical_module_battery_level", testPrefix)
+	wantTopic, ok := hassBridgeDiscoveryTopic("sensor.physical_module_battery_level", "", testPrefix)
 	if !ok {
 		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
 	}
@@ -130,7 +130,7 @@ func TestSubscribeHassBridgePublishesDiscoveryAndState(t *testing.T) {
 		t.Fatalf("subscribeHassBridge error: %v", err)
 	}
 
-	wantTopic, ok := hassBridgeDiscoveryTopic("sensor.infrastructural_house_downward_hallway_laserjet_status", testPrefix)
+	wantTopic, ok := hassBridgeDiscoveryTopic("sensor.infrastructural_house_downward_hallway_laserjet_status", "", testPrefix)
 	if !ok {
 		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
 	}
@@ -207,7 +207,7 @@ func TestSubscribeHassBridgePublishesNullNameWhenDisplaySuffixEmpty(t *testing.T
 		t.Fatalf("subscribeHassBridge error: %v", err)
 	}
 
-	wantTopic, ok := hassBridgeDiscoveryTopic("cover.social_house_kitchen", testPrefix)
+	wantTopic, ok := hassBridgeDiscoveryTopic("cover.social_house_kitchen", "", testPrefix)
 	if !ok {
 		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
 	}
@@ -271,7 +271,7 @@ func TestSubscribeHassBridgeFallsBackToLiveTypingWhenDeclaredEmpty(t *testing.T)
 		t.Fatalf("subscribeHassBridge error: %v", err)
 	}
 
-	wantTopic, ok := hassBridgeDiscoveryTopic("sensor.infrastructural_fritz_box_gb_received", testPrefix)
+	wantTopic, ok := hassBridgeDiscoveryTopic("sensor.infrastructural_fritz_box_gb_received", "", testPrefix)
 	if !ok {
 		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
 	}
@@ -341,7 +341,7 @@ func TestSubscribeHassBridgePublishesTypingMetadata(t *testing.T) {
 		byTopic[p.topic] = body
 	}
 
-	nodeTopic, _ := hassBridgeDiscoveryTopic("binary_sensor.infrastructural_junglinster_node", testPrefix)
+	nodeTopic, _ := hassBridgeDiscoveryTopic("binary_sensor.infrastructural_junglinster_node", "", testPrefix)
 	nodeBody, ok := byTopic[nodeTopic]
 	if !ok || nodeBody["device_class"] != "connectivity" {
 		t.Errorf("node's device_class = %v, want \"connectivity\"", byTopic[nodeTopic])
@@ -363,7 +363,7 @@ func TestSubscribeHassBridgePublishesTypingMetadata(t *testing.T) {
 		t.Errorf("node's own availability = %v, want exactly 1 entry (self-check only, no device gate)", nodeBody["availability"])
 	}
 
-	loadTopic, _ := hassBridgeDiscoveryTopic("sensor.infrastructural_junglinster_cpu_load", testPrefix)
+	loadTopic, _ := hassBridgeDiscoveryTopic("sensor.infrastructural_junglinster_cpu_load", "", testPrefix)
 	loadBody, ok := byTopic[loadTopic]
 	if !ok {
 		t.Fatalf("expected a discovery config for cpu/load")
@@ -438,7 +438,7 @@ func TestSubscribeHassBridgeDeviceInfoUpdatesStoreAndRepublishesCapabilities(t *
 		t.Errorf("store snapshot = %v, want sw_version to be updated", snap)
 	}
 
-	wantTopic, ok := hassBridgeDiscoveryTopic("sensor.infrastructural_junglinster_cpu_load", testPrefix)
+	wantTopic, ok := hassBridgeDiscoveryTopic("sensor.infrastructural_junglinster_cpu_load", "", testPrefix)
 	if !ok {
 		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
 	}
@@ -827,7 +827,7 @@ func TestSubscribeHassBridgeExportStripsSuggestedAreaFromCloudOnly(t *testing.T)
 		t.Fatalf("subscribeHassBridge error: %v", err)
 	}
 
-	localDiscoveryTopic, ok := hassBridgeDiscoveryTopic("sensor.infrastructural_vienna_terrace_temperature", testPrefix)
+	localDiscoveryTopic, ok := hassBridgeDiscoveryTopic("sensor.infrastructural_vienna_terrace_temperature", "", testPrefix)
 	if !ok {
 		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
 	}
@@ -977,7 +977,7 @@ func TestExpectedHassBridgeTopicsMatchesPublishedTopic(t *testing.T) {
 	}}
 
 	expected := expectedHassBridgeTopics(bridgeFile, testPrefix)
-	wantTopic, ok := hassBridgeDiscoveryTopic("sensor.infrastructural_house_downward_hallway_laserjet_status", testPrefix)
+	wantTopic, ok := hassBridgeDiscoveryTopic("sensor.infrastructural_house_downward_hallway_laserjet_status", "", testPrefix)
 	if !ok {
 		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
 	}
@@ -1171,7 +1171,7 @@ func TestSubscribeHassBridgeSetsCommandTopicForCommandableCapability(t *testing.
 		t.Fatalf("subscribeHassBridge error: %v", err)
 	}
 
-	localDiscoveryTopic, ok := hassBridgeDiscoveryTopic("vacuum.social_apartment_roomba", testPrefix)
+	localDiscoveryTopic, ok := hassBridgeDiscoveryTopic("vacuum.social_apartment_roomba", "", testPrefix)
 	if !ok {
 		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
 	}
@@ -1259,7 +1259,7 @@ func TestSubscribeHassBridgeSetsJSONAttributesTopicWhenDeclared(t *testing.T) {
 		t.Fatalf("subscribeHassBridge error: %v", err)
 	}
 
-	wantTopic, ok := hassBridgeDiscoveryTopic("vacuum.social_apartment_living_room", testPrefix)
+	wantTopic, ok := hassBridgeDiscoveryTopic("vacuum.social_apartment_living_room", "", testPrefix)
 	if !ok {
 		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
 	}
@@ -1310,7 +1310,7 @@ func TestSubscribeHassBridgeOmitsJSONAttributesTopicWhenNotDeclared(t *testing.T
 		t.Fatalf("subscribeHassBridge error: %v", err)
 	}
 
-	wantTopic, ok := hassBridgeDiscoveryTopic("sensor.infrastructural_vienna_terrace_temperature", testPrefix)
+	wantTopic, ok := hassBridgeDiscoveryTopic("sensor.infrastructural_vienna_terrace_temperature", "", testPrefix)
 	if !ok {
 		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
 	}
@@ -1520,5 +1520,49 @@ func TestBuildHassBridgeEntityDiscoveryBodyNoPositionOmitsFields(t *testing.T) {
 	}
 	if _, present := body["value_template"]; present {
 		t.Errorf("body has a value_template key, want none -- HasPosition is false, state_topic's own payload is still a plain atomic value")
+	}
+}
+
+// TestHassBridgeAcceptsInstance covers the 2026-10-21 guard (hassBridgeAcceptsInstance's own doc
+// comment): retained bridge traffic under an instance a device no longer declares (Junglinster's
+// pre-rename "protocols-server-2") must be ignored, while a roaming self-import device keeps
+// accepting the synthetic ownInstallation segment its sibling's relayed traffic arrives under.
+func TestHassBridgeAcceptsInstance(t *testing.T) {
+	plain := THassBridgeDevice{Instances: []string{"ha2mqtt"}}
+	roaming := THassBridgeDevice{Instances: []string{"main"}, Export: true, ExportAs: "roaming", SelfImportFrom: "roaming"}
+	cases := []struct {
+		name     string
+		device   THassBridgeDevice
+		instance string
+		want     bool
+	}{
+		{"declared instance", plain, "ha2mqtt", true},
+		{"retired instance", plain, "protocols-server-2", false},
+		{"own installation, not self-importing", plain, "junglinster", false},
+		{"roaming, own instance", roaming, "main", true},
+		{"roaming, self-import relay", roaming, "junglinster", true},
+		{"roaming, retired instance", roaming, "protocols-server-2", false},
+	}
+	for _, c := range cases {
+		if got := hassBridgeAcceptsInstance(c.device, c.instance, "junglinster"); got != c.want {
+			t.Errorf("%s: hassBridgeAcceptsInstance(%q) = %v, want %v", c.name, c.instance, got, c.want)
+		}
+	}
+}
+
+// TestHassBridgeUniqueIDPrefersFrozenStableID: a frozen stable_id (PROJECT.md item 48) survives a
+// rename of the local entity -- unique_id and discovery topic both stay; without one, the
+// name-based formula applies.
+func TestHassBridgeUniqueIDPrefersFrozenStableID(t *testing.T) {
+	if got := hassBridgeUniqueID("sensor.social_new_name", "hassbridge_sensor_physical_old_name"); got != "hassbridge_sensor_physical_old_name" {
+		t.Errorf("frozen: got %q", got)
+	}
+	if got := hassBridgeUniqueID("sensor.social_new_name", ""); got != "hassbridge_sensor_social_new_name" {
+		t.Errorf("unfrozen: got %q", got)
+	}
+	frozen, _ := hassBridgeDiscoveryTopic("sensor.social_new_name", "hassbridge_sensor_physical_old_name", testPrefix)
+	old, _ := hassBridgeDiscoveryTopic("sensor.physical_old_name", "", testPrefix)
+	if frozen != old {
+		t.Errorf("topic after rename %q, want the original %q", frozen, old)
 	}
 }

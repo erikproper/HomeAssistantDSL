@@ -47,7 +47,25 @@ type TAdministrationState struct {
 	// provenance) that pair was registered under via RegisterDiscoveryImpliedEntity. A second,
 	// DIFFERENT entity name for the same source pair (possibly in a different space) means the same
 	// device capability was positioned twice at the conceptual layer, which item 0b's rule forbids.
-	ConceptualUseBySource   map[string]TConceptualSourceUse
+	ConceptualUseBySource map[string]TConceptualSourceUse
+
+	// FrozenUniqueIDs holds every capability's frozen "as <id>" (PROJECT.md item 48), keyed
+	// "<device-id>!<capability>" -- the universal ID a generated template entity uses as its
+	// unique_id, so it survives later conceptual AND capability renames. Filled from Physical.def/
+	// Logical.def before Conceptual.def is parsed. SourceKeyByEntityID maps a generated entity's
+	// own entity_id back to that key (set by AppendEntityRecord from TEntityRecord.SourceKey).
+	FrozenUniqueIDs     map[string]string
+	SourceKeyByEntityID map[string]string
+	// SharedSourceKeys marks a SourceKey feeding more than one generated entity (e.g. a capability
+	// both positioned directly and absorbed by a logical device): one def line can only freeze one
+	// ID, so such entities keep their entity_id as unique_id and the generator reports the overlap.
+	SharedSourceKeys map[string]bool
+	// ImportedDeviceIDs lists the devices imported from another installation (Physical.def's
+	// "device <id> from <installation>"), for the registry manifest (registry_manifest.go).
+	ImportedDeviceIDs []string
+	// BridgedDeviceIDs lists the devices of Physical.def's "integration home_assistant" blocks,
+	// for the registry manifest and the frozen-ID write-back.
+	BridgedDeviceIDs        []string
 	ExternalEntitiesBySpace map[string][]string
 	SpaceDepthByName        map[string]int
 	SpaceOffByName          map[string][]string // Entities/aggregations to turn off
@@ -670,6 +688,9 @@ type TEntityRecord struct {
 	// not by a live HA integration the DSL author manually declared. checkAssumedEntitiesOnline
 	// (presence.go) must not flag these as missing.
 	Provenance string // call chain that produced this record, e.g. "Entities.def:65 → battery_alert :roborock"
+	// SourceKey is "<device-id>!<capability>" for an entity generated from a device's own
+	// capability (PROJECT.md item 48) -- the key its frozen unique_id is looked up under.
+	SourceKey string
 
 	// Fields populated during macro expansion for template binary sensor generation.
 	NodeRepresentativeEntityID string // HA entity ID that the node monitors (e.g. sensor.infrastructural_..._battery_level)
@@ -758,6 +779,9 @@ func newAdministrationState() *TAdministrationState {
 		DependsOnAvailabilityTopics:            map[string][]string{},
 		LogicalEntityLinks:                     map[string]TLogicalEntityLink{},
 		ConceptualUseBySource:                  map[string]TConceptualSourceUse{},
+		FrozenUniqueIDs:                        map[string]string{},
+		SourceKeyByEntityID:                    map[string]string{},
+		SharedSourceKeys:                       map[string]bool{},
 		RuleNamesSeen:                          map[string]bool{},
 		NamedTriggers:                          map[string][]TNamedTriggerSource{},
 		NamedTriggerEntityIDByDeviceCapability: map[string]string{},
@@ -804,7 +828,23 @@ func (state *TAdministrationState) EnsureSpaceRegistered(path []string, spaceKin
 	}
 }
 
+// RecordSourceKey records which capability (sourceKey) entityID is generated from -- the key its
+// frozen unique_id is looked up by (UniqueIDFor) -- noting a capability that feeds several entities.
+func (state *TAdministrationState) RecordSourceKey(entityID, sourceKey string) {
+	for other, key := range state.SourceKeyByEntityID {
+		if key == sourceKey && other != entityID {
+			state.SharedSourceKeys[key] = true
+		}
+	}
+	state.SourceKeyByEntityID[entityID] = sourceKey
+}
+
 func (state *TAdministrationState) AppendEntityRecord(spaceName string, record TEntityRecord) {
+	if record.SourceKey != "" {
+		if entityID := toHomeAssistantEntityID(record.Name); entityID != "" {
+			state.RecordSourceKey(entityID, record.SourceKey)
+		}
+	}
 	if _, exists := state.EntityRecordSeenBySpace[spaceName]; !exists {
 		state.EntityRecordSeenBySpace[spaceName] = map[string]string{}
 	}
@@ -1566,4 +1606,17 @@ func addIfAbsent(slice []string, item string) []string {
 		}
 	}
 	return append(slice, item)
+}
+
+// UniqueIDFor returns the unique_id a generated entity is registered under in Home Assistant: its
+// capability's frozen "as <id>" (PROJECT.md item 48) when it has one, otherwise -- as before --
+// its own entity_id. A frozen ID starts out as exactly that entity_id (its name at birth), so
+// freezing it changes nothing in HA; it only matters once the entity is later renamed.
+func (state *TAdministrationState) UniqueIDFor(entityID string) string {
+	if key, ok := state.SourceKeyByEntityID[entityID]; ok && !state.SharedSourceKeys[key] {
+		if id, frozen := state.FrozenUniqueIDs[key]; frozen {
+			return id
+		}
+	}
+	return entityID
 }

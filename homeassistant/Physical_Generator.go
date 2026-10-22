@@ -176,6 +176,9 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 	for _, w := range registerExportedHassBridgeDevices(admin, hassBridgeDevicesByID) {
 		fmt.Printf("[physical] %s\n", w)
 	}
+	for _, w := range autoAssignBridgedFrozenUniqueIDs(definitionDir, admin) {
+		fmt.Printf("[physical] %s\n", w)
+	}
 	// Logical.def "dependency on" (2026-09-16), applyResolvedDependencyTopics' own mirror for the
 	// "home_assistant" bridge kind -- see integration_logical_storage.go's own doc comment.
 	applyResolvedDependencyTopicsToHassBridge(hassBridgeDevicesByID, admin)

@@ -242,8 +242,25 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 		}
 	}
 
+	loadFrozenUniqueIDs(admin, definitionDir, logicalByID)
+	attributeAbsorbedEntities(admin, logicalByID)
+	for id := range hassBridgeDevicesByID {
+		admin.BridgedDeviceIDs = append(admin.BridgedDeviceIDs, id)
+	}
+	for id, device := range importedDevicesByID {
+		admin.ImportedDeviceIDs = append(admin.ImportedDeviceIDs, id)
+		for label, capability := range device.Capabilities {
+			if capability.AssignedID != "" {
+				admin.FrozenUniqueIDs["import:"+id+"!"+label] = capability.AssignedID
+			}
+		}
+	}
+
 	if writeBack {
 		for _, w := range autoAssignDiscoveryStableIDs(definitionDir, discoveryGatewaysByID, admin) {
+			fmt.Printf("[physical] %s\n", w)
+		}
+		for _, w := range autoAssignFrozenUniqueIDs(definitionDir, admin) {
 			fmt.Printf("[physical] %s\n", w)
 		}
 	}
@@ -251,12 +268,20 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 	return admin, nil
 }
 
+// generatedUniqueID is the unique_id every generated entity's YAML gets (PROJECT.md item 48): its
+// capability's frozen universal ID when it has one, otherwise its own entity_id. A package-level
+// lookup rather than a parameter, set once per house by generateFromPaths, so the many small
+// buildXxxYAML helpers below (which only ever receive an entity_id) don't each need the whole
+// administration threaded through.
+var generatedUniqueID = func(entityID string) string { return entityID }
+
 // generateFromPaths contains the full generation pipeline given resolved directory paths.
 func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutputDir, label string) (*TAdministrationState, error) {
 	admin, err := parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label, true)
 	if err != nil {
 		return nil, err
 	}
+	generatedUniqueID = recordingUniqueIDFor(admin)
 
 	fmt.Printf("%s: generating YAML...\n", label)
 
@@ -297,7 +322,9 @@ func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutput
 		{"cover away entities", generateCoverAwayEntities},
 		{"cover away scripts", generateCoverAwayScripts},
 		{"derived binary sensors", generateDerivedBinarySensors},
+		{"named trigger events", generateNamedTriggerEvents},
 		{"automations", generateAutomations},
+		{"registry manifest", generateRegistryManifest},
 	}
 	for _, step := range steps {
 		if err := step.fn(outputDir, admin); err != nil {
@@ -583,7 +610,7 @@ func buildTemplateLightYAML(entityID, displayName string, turnOnItems, turnOffIt
 	sb.WriteString(generatorHeader)
 	sb.WriteString("light:\n")
 	sb.WriteString("- name: " + displayName + "\n")
-	sb.WriteString("  unique_id: " + entityID + "\n")
+	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
 	sb.WriteString("  default_entity_id: " + entityID + "\n")
 	sb.WriteString("  icon: mdi:lightbulb-group\n")
 
@@ -697,7 +724,7 @@ func buildTemplateSwitchYAML(entityID, displayName string, onItems, offItems, ex
 	sb.WriteString(generatorHeader)
 	sb.WriteString("switch:\n")
 	sb.WriteString("- name: " + displayName + "\n")
-	sb.WriteString("  unique_id: " + entityID + "\n")
+	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
 	sb.WriteString("  default_entity_id: " + entityID + "\n")
 	// turn_on: if an explicit "space on:" list is provided it governs turn_on entirely.
 	// Otherwise auto-include child space-aggregate switches (items ending with "/space")
@@ -849,7 +876,7 @@ func generateTemplateBinarySensors(outputDir string, admin *TAdministrationState
 		id := "binary_sensor.infrastructural_" + which
 		content := generatorHeader + "binary_sensor:\n" +
 			"- name: infrastructural/" + which + "\n" +
-			"  unique_id: " + id + "\n" +
+			"  unique_id: " + generatedUniqueID(id) + "\n" +
 			"  state: \"{{ '" + which + "' }}\"\n"
 		if err := writeYAMLFile(filepath.Join(dir, id+".yaml"), content); err != nil {
 			return err
@@ -889,7 +916,7 @@ func buildTemplateNodeYAML(entityID, displayPath, representativeID string) strin
 	sb.WriteString(generatorHeader)
 	sb.WriteString("binary_sensor:\n")
 	sb.WriteString("- name: " + displayPath + "\n")
-	sb.WriteString("  unique_id: " + entityID + "\n")
+	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
 	sb.WriteString("  device_class: connectivity\n")
 	sb.WriteString("  state: \"{{ states('" + representativeID + "') not in ['unavailable', 'unknown'] }}\"\n")
 	return sb.String()
@@ -900,7 +927,7 @@ func buildTemplateBatteryAlertYAML(entityID, displayPath, batteryLevelEntityID s
 	sb.WriteString(generatorHeader)
 	sb.WriteString("binary_sensor:\n")
 	sb.WriteString("- name: " + displayPath + "\n")
-	sb.WriteString("  unique_id: " + entityID + "\n")
+	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
 	sb.WriteString("  device_class: battery\n")
 	sb.WriteString(fmt.Sprintf("  state: \"{{ (states('%s') | int(0)) < %d }}\"\n", batteryLevelEntityID, alertLevel))
 	return sb.String()
@@ -928,7 +955,7 @@ func buildCliSwitchYAML(id, displayName, userAlias, hostFQDN, onScript, offScrip
 	sb.WriteString(generatorHeader)
 	sb.WriteString("- switch:\n")
 	sb.WriteString("    name: " + displayName + "\n")
-	sb.WriteString("    unique_id: " + id + "\n")
+	sb.WriteString("    unique_id: " + generatedUniqueID(id) + "\n")
 	sb.WriteString("    command_on: \"bash /config/bin/run " + userAlias + " " + hostFQDN + " " + onScript + "\"\n")
 	sb.WriteString("    command_off: \"bash /config/bin/run " + userAlias + " " + hostFQDN + " " + offScript + "\"\n")
 	sb.WriteString("    command_state: \"bash /config/bin/run " + userAlias + " " + hostFQDN + " " + stateScript + "\"\n")
@@ -1225,7 +1252,7 @@ func buildConditionBinarySensorYAML(id, displayName, stateExpr, deviceClass, del
 	sb.WriteString(generatorHeader)
 	sb.WriteString("binary_sensor:\n")
 	sb.WriteString("- name: " + displayName + "\n")
-	sb.WriteString("  unique_id: " + id + "\n")
+	sb.WriteString("  unique_id: " + generatedUniqueID(id) + "\n")
 	if deviceClass != "" {
 		sb.WriteString("  device_class: " + deviceClass + "\n")
 	}
@@ -1244,7 +1271,7 @@ func buildTemplateSensorYAML(id, displayName, unit, deviceClass, stateClass, ico
 	sb.WriteString(generatorHeader)
 	sb.WriteString("sensor:\n")
 	sb.WriteString("- name: " + displayName + "\n")
-	sb.WriteString("  unique_id: " + id + "\n")
+	sb.WriteString("  unique_id: " + generatedUniqueID(id) + "\n")
 	if unit != "" {
 		sb.WriteString("  unit_of_measurement: \"" + unit + "\"\n")
 	}
@@ -1346,7 +1373,7 @@ func buildInfraGroupYAML(uniqueID, name string, entities []string, all bool, dev
 	sb.WriteString(generatorHeader)
 	sb.WriteString("platform: group\n")
 	sb.WriteString("name: " + name + "\n")
-	sb.WriteString("unique_id: " + uniqueID + "\n")
+	sb.WriteString("unique_id: " + generatedUniqueID(uniqueID) + "\n")
 	if all {
 		sb.WriteString("all: true\n")
 	}
@@ -1411,7 +1438,7 @@ func buildBinarySensorGroupYAML(entityID, displayName string, memberIDs []string
 	sb.WriteString(generatorHeader)
 	sb.WriteString("platform: group\n")
 	sb.WriteString("name: " + displayName + "\n")
-	sb.WriteString("unique_id: " + entityID + "\n")
+	sb.WriteString("unique_id: " + generatedUniqueID(entityID) + "\n")
 	sb.WriteString("entities:\n")
 	for _, id := range memberIDs {
 		sb.WriteString("- " + id + "\n")
@@ -1654,7 +1681,7 @@ func buildSensorGroupYAML(entityID, displayName string, memberIDs []string) stri
 	sb.WriteString(generatorHeader)
 	sb.WriteString("platform: group\n")
 	sb.WriteString("name: " + displayName + "\n")
-	sb.WriteString("unique_id: " + entityID + "\n")
+	sb.WriteString("unique_id: " + generatedUniqueID(entityID) + "\n")
 	sb.WriteString("type: mean\n")
 	sb.WriteString("ignore_non_numeric: true\n")
 	sb.WriteString("state_class: measurement\n")
@@ -1723,7 +1750,7 @@ func buildLightGroupYAML(entityID, displayName string, memberIDs []string) strin
 	sb.WriteString(generatorHeader)
 	sb.WriteString("platform: group\n")
 	sb.WriteString("name: " + displayName + "\n")
-	sb.WriteString("unique_id: " + entityID + "\n")
+	sb.WriteString("unique_id: " + generatedUniqueID(entityID) + "\n")
 	sb.WriteString("entities:\n")
 	for _, id := range memberIDs {
 		sb.WriteString("- " + id + "\n")
@@ -1960,7 +1987,7 @@ func buildLeafMediaSwitchYAML(entityID, displayName, playerID, noPlayInput, avai
 	sb.WriteString(generatorHeader)
 	sb.WriteString("switch:\n")
 	sb.WriteString("- name: " + displayName + "\n")
-	sb.WriteString("  unique_id: " + entityID + "\n")
+	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
 	sb.WriteString("  default_entity_id: " + entityID + "\n")
 	if availabilityEntityID != "" {
 		sb.WriteString("  availability: \"{{ is_state('" + availabilityEntityID + "', 'on') }}\"\n")
@@ -1999,7 +2026,7 @@ func buildAggregateMediaSwitchYAML(entityID, displayName string, offItems []stri
 	sb.WriteString(generatorHeader)
 	sb.WriteString("switch:\n")
 	sb.WriteString("- name: " + displayName + "\n")
-	sb.WriteString("  unique_id: " + entityID + "\n")
+	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
 	sb.WriteString("  default_entity_id: " + entityID + "\n")
 	sb.WriteString("  icon: mdi:monitor-speaker\n")
 	sb.WriteString("  turn_on:\n")
@@ -2698,7 +2725,7 @@ func buildHeatingShouldBeOffYAML(entityID, displayName, leakageIdentifiedID, lea
 	sb.WriteString(generatorHeader)
 	sb.WriteString("binary_sensor:\n")
 	sb.WriteString("- name: " + displayName + "\n")
-	sb.WriteString("  unique_id: " + entityID + "\n")
+	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
 	sb.WriteString("  state: >-\n")
 	sb.WriteString("    {{\n")
 	sb.WriteString("      (\n")
@@ -3617,7 +3644,7 @@ func buildBinarySensorBlockYAML(entityID, displayName, stateExpr string) string 
 	sb.WriteString(generatorHeader)
 	sb.WriteString("binary_sensor:\n")
 	sb.WriteString("- name: " + displayName + "\n")
-	sb.WriteString("  unique_id: " + entityID + "\n")
+	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
 	sb.WriteString("  state: >-\n")
 	sb.WriteString("    {{\n")
 	sb.WriteString("      " + stateExpr + "\n")
@@ -3632,7 +3659,7 @@ func buildBinarySensorORBlockYAML(entityID, displayName string, childIDs []strin
 	sb.WriteString(generatorHeader)
 	sb.WriteString("binary_sensor:\n")
 	sb.WriteString("- name: " + displayName + "\n")
-	sb.WriteString("  unique_id: " + entityID + "\n")
+	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
 	sb.WriteString("  state: >-\n")
 	sb.WriteString("    {{\n")
 	for i, id := range childIDs {
@@ -3653,7 +3680,7 @@ func buildTimeWindowBinarySensorYAML(entityID, displayName, workdaySensorID, wkd
 	sb.WriteString(generatorHeader)
 	sb.WriteString("binary_sensor:\n")
 	sb.WriteString("- name: " + displayName + "\n")
-	sb.WriteString("  unique_id: " + entityID + "\n")
+	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
 	sb.WriteString("  state: >-\n")
 	sb.WriteString("    {{\n")
 	sb.WriteString("      (\n")
@@ -3980,7 +4007,7 @@ func generateRuleAutomations(outputDir string, admin *TAdministrationState) erro
 			actionDomain := action.EntitySpec[:strings.Index(action.EntitySpec, ".")]
 			content = buildStateTriggerAutomationYAML(rule.Name, automationID, eventID, trigger.State, actionDomain, actionID, action.State)
 		} else {
-			content = buildRuleAutomationYAML(rule, automationID, admin.NamedTriggers)
+			content = buildRuleAutomationYAML(rule, automationID)
 		}
 
 		if err := writeAutomationFile(outputDir, sphere, automationID, content); err != nil {
@@ -4006,9 +4033,8 @@ func isPhase1ShapedRule(rule TRule) bool {
 // buildRuleAutomationYAML builds the complete automation YAML for one TRule: multiple triggers,
 // an optional "if" clause (a full and/or/not boolean expression, PROJECT.md item 13's own
 // "when"/"if"/"then" phrase), and multiple ordered actions (including "if"'s own recursive
-// then/else branches and bare "delay" steps). namedTriggers is admin.NamedTriggers, needed to
-// expand a "named_trigger" kind trigger (renderRuleTriggerYAML's own doc comment).
-func buildRuleAutomationYAML(rule TRule, automationID string, namedTriggers map[string][]TNamedTriggerSource) string {
+// then/else branches and bare "delay" steps).
+func buildRuleAutomationYAML(rule TRule, automationID string) string {
 	var sb strings.Builder
 	sb.WriteString(generatorHeader)
 	sb.WriteString("- alias: " + rule.Name + "\n")
@@ -4016,24 +4042,13 @@ func buildRuleAutomationYAML(rule TRule, automationID string, namedTriggers map[
 	sb.WriteString("  initial_state: True\n")
 	sb.WriteString("  mode: queued\n")
 
-	needsSourceIDs, implied := namedTriggerSourceCondition(rule.Triggers, namedTriggers)
-
 	sb.WriteString("  trigger:\n")
-	sourceIndex := 0
 	for _, trigger := range rule.Triggers {
-		renderRuleTriggerYAML(&sb, trigger, namedTriggers, needsSourceIDs, &sourceIndex)
+		renderRuleTriggerYAML(&sb, trigger)
 	}
 
-	condition := rule.Condition
-	if implied != nil {
-		if condition == nil {
-			condition = implied
-		} else {
-			condition = &TRuleCondition{Kind: "and", Operands: []TRuleCondition{*condition, *implied}}
-		}
-	}
-	if condition != nil {
-		renderRuleConditionTopLevel(&sb, *condition)
+	if rule.Condition != nil {
+		renderRuleConditionTopLevel(&sb, *rule.Condition)
 	}
 
 	sb.WriteString("  action:\n")
@@ -4044,9 +4059,71 @@ func buildRuleAutomationYAML(rule TRule, automationID string, namedTriggers map[
 	return sb.String()
 }
 
+// namedTriggerEventType is the one event type a named trigger's own event entity raises
+// (generateNamedTriggerEvents) -- the "raised" of "when event.<name> is raised".
+const namedTriggerEventType = "raised"
+
+// namedTriggerEventEntityID is the HA entity_id of named trigger name's own event entity.
+func namedTriggerEventEntityID(name string) string {
+	return toHomeAssistantEntityID("event." + name)
+}
+
+// generateNamedTriggerEvents writes one trigger-based template event entity per named trigger
+// (PROJECT.md item 49, 2026-10-22): its triggers are every contributing device's own matching
+// events, its conditions the device-level "and if trigger.<attr> is ..." filters
+// (namedTriggerSourceCondition), and it raises namedTriggerEventType whenever one passes. Rules
+// then trigger on that one entity (renderRuleTriggerYAML) -- the same expansion and gating that
+// used to be inlined into every rule, now done once in HA, where hand-made automations can use it
+// too.
+func generateNamedTriggerEvents(outputDir string, admin *TAdministrationState) error {
+	names := make([]string, 0, len(admin.NamedTriggers))
+	for name := range admin.NamedTriggers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		if len(admin.NamedTriggers[name]) == 0 {
+			continue
+		}
+		displayName := strings.Replace(name, ":", "/", 1)
+		sphere := displayName[:strings.Index(displayName+"/", "/")]
+		entityID := namedTriggerEventEntityID(name)
+		triggers := []TRuleTrigger{{Kind: "named_trigger", Name: name}}
+		needsSourceIDs, implied := namedTriggerSourceCondition(triggers, admin.NamedTriggers)
+
+		var sb strings.Builder
+		sb.WriteString(generatorHeader)
+		sb.WriteString("triggers:\n")
+		sourceIndex := 0
+		renderNamedTriggerSourcesYAML(&sb, admin.NamedTriggers[name], needsSourceIDs, &sourceIndex)
+		if implied != nil {
+			sb.WriteString("conditions:\n")
+			if implied.Kind == "and" {
+				for _, operand := range implied.Operands {
+					renderRuleConditionYAML(&sb, "  ", operand)
+				}
+			} else {
+				renderRuleConditionYAML(&sb, "  ", *implied)
+			}
+		}
+		sb.WriteString("event:\n")
+		sb.WriteString("- name: " + displayName + "\n")
+		sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
+		sb.WriteString("  event_type: " + namedTriggerEventType + "\n")
+		sb.WriteString("  event_types: \"{{ ['" + namedTriggerEventType + "'] }}\"\n")
+
+		dir := filepath.Join(outputDir, "entities", "template", "event", sphere)
+		if err := writeYAMLFile(filepath.Join(dir, entityID+".yaml"), sb.String()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // namedTriggerSourceID returns the per-(trigger,source) id this generator assigns when
 // per-source "id"-scoped conditions are needed (namedTriggerSourceCondition's own doc comment) --
-// shared by that function and renderRuleTriggerYAML so both agree on the same ids without
+// shared by that function and renderNamedTriggerSourcesYAML so both agree on the same ids without
 // either having to pass the other a lookup table. Index is the running count across ALL
 // named_trigger sources seen so far in iteration order (trigger list order, then
 // namedTriggers[trigger.Name] order) -- both call sites iterate identically, so index N always
@@ -4073,8 +4150,8 @@ func namedTriggerSourceID(index int) string {
 // shared-condition shape already proven live on the Signify dimmer (one device, several trigger
 // declarations, all agreeing), with no per-source "id" machinery at all.
 //
-// Otherwise returns (true, cond): the caller (buildRuleAutomationYAML) must have
-// renderRuleTriggerYAML emit namedTriggerSourceID(i) as that trigger entry's own "id", in the
+// Otherwise returns (true, cond): the caller (generateNamedTriggerEvents) must have
+// renderNamedTriggerSourcesYAML emit namedTriggerSourceID(i) as that trigger entry's own "id", in the
 // same iteration order this function uses -- cond is an OR, across all sources, of "trigger.id
 // == this source's id" alone (a source with no attr condition: always true once it's the one
 // that fired, no further restriction) AND-ed with its own attr check (a source that has one).
@@ -4159,42 +4236,48 @@ func stringSlicesEqual(a, b []string) bool {
 	return true
 }
 
+// renderNamedTriggerSourcesYAML writes one event.received trigger per device contributing to a
+// named trigger, each with that device's own EventTypes as its event_type list. needsSourceIDs/
+// sourceIndex (2026-10-19): when namedTriggerSourceCondition decided several sources disagree on
+// their own embedded button-attribute condition, each entry gets its own "id" so the generated
+// condition can scope to exactly the one that fired -- namedTriggerSourceID's own doc comment
+// explains why both sides agree on the same id without a lookup table (identical iteration order).
+func renderNamedTriggerSourcesYAML(sb *strings.Builder, sources []TNamedTriggerSource, needsSourceIDs bool, sourceIndex *int) {
+	for _, source := range sources {
+		sb.WriteString("  - trigger: event.received\n")
+		if needsSourceIDs {
+			sb.WriteString("    id: '" + namedTriggerSourceID(*sourceIndex) + "'\n")
+		}
+		*sourceIndex++
+		sb.WriteString("    target:\n")
+		sb.WriteString("      entity_id:\n")
+		sb.WriteString("      - " + source.EntityID + "\n")
+		sb.WriteString("    options:\n")
+		sb.WriteString("      event_type:\n")
+		for _, eventType := range source.EventTypes {
+			sb.WriteString("      - '" + eventType + "'\n")
+		}
+	}
+}
+
 // renderRuleTriggerYAML writes one trigger list item. "event" kind matches the exact schema real
 // Zigbee/moes button automations already use live (confirmed against both houses' pulled
 // /config/automations.yaml, PROJECT.md item 13's own survey) -- entity-domain event-received,
 // not a "platform: event" built-in HA trigger. "state" kind keeps the older "platform: state"
 // shape buildStateTriggerAutomationYAML already uses, for consistency with follows'/Phase 1's
 // own already-deployed output.
-func renderRuleTriggerYAML(sb *strings.Builder, trigger TRuleTrigger, namedTriggers map[string][]TNamedTriggerSource, needsSourceIDs bool, sourceIndex *int) {
+func renderRuleTriggerYAML(sb *strings.Builder, trigger TRuleTrigger) {
 	switch trigger.Kind {
 	case "named_trigger":
-		// Expands into one event.received trigger per contributing device (checks.go's own
-		// RunPostParseChecks already warned if there are none) -- each device's own EventTypes
-		// rendered as that one trigger entry's own event_type list, same as a single device
-		// matching several raw values directly would. Exactly what a hand-written multi-clause
-		// "when A is X or B is Y or ...;" chain already renders today, just sourced from
-		// NamedTriggers (device-level "trigger ...;" declarations) instead of rule.Triggers.
-		// needsSourceIDs/sourceIndex (2026-10-19): when namedTriggerSourceCondition decided
-		// several sources disagree on their own embedded button-attribute condition, each
-		// trigger entry needs its own "id" so the generated condition can scope to exactly the
-		// one that fired -- namedTriggerSourceID's own doc comment explains why both this
-		// function and that one agree on the same id for the same source without passing each
-		// other a lookup table (identical iteration order).
-		for _, source := range namedTriggers[trigger.Name] {
-			sb.WriteString("  - trigger: event.received\n")
-			if needsSourceIDs {
-				sb.WriteString("    id: '" + namedTriggerSourceID(*sourceIndex) + "'\n")
-			}
-			*sourceIndex++
-			sb.WriteString("    target:\n")
-			sb.WriteString("      entity_id:\n")
-			sb.WriteString("      - " + source.EntityID + "\n")
-			sb.WriteString("    options:\n")
-			sb.WriteString("      event_type:\n")
-			for _, eventType := range source.EventTypes {
-				sb.WriteString("      - '" + eventType + "'\n")
-			}
-		}
+		// The named trigger's own event entity (generateNamedTriggerEvents) already expands and
+		// gates every contributing device -- the rule just listens to it.
+		sb.WriteString("  - trigger: event.received\n")
+		sb.WriteString("    target:\n")
+		sb.WriteString("      entity_id:\n")
+		sb.WriteString("      - " + namedTriggerEventEntityID(trigger.Name) + "\n")
+		sb.WriteString("    options:\n")
+		sb.WriteString("      event_type:\n")
+		sb.WriteString("      - '" + namedTriggerEventType + "'\n")
 	case "event":
 		entityID := toHomeAssistantEntityID(trigger.EntitySpec)
 		sb.WriteString("  - trigger: event.received\n")
@@ -4267,7 +4350,7 @@ func renderRuleConditionYAML(sb *strings.Builder, indent string, cond TRuleCondi
 		sb.WriteString(indent + "  value_template: '{{ trigger.to_state.attributes." + cond.TriggerAttr + " == " + jinjaQuotedLiteral(cond.Value) + " }}'\n")
 	case "trigger_id":
 		// Scopes a per-source condition (namedTriggerSourceCondition's own doc comment) to
-		// exactly the trigger entry that actually fired -- renderRuleTriggerYAML must emit the
+		// exactly the trigger entry that actually fired -- renderNamedTriggerSourcesYAML must emit the
 		// matching "id: '<value>'" on that same trigger entry, or this never matches anything.
 		sb.WriteString(indent + "- condition: template\n")
 		sb.WriteString(indent + "  value_template: '{{ trigger.id == " + jinjaQuotedLiteral(cond.Value) + " }}'\n")
@@ -4493,7 +4576,7 @@ func buildPlatformGroupYAML(entityID, displayName string, all bool, memberIDs []
 		sb.WriteString("all: true\n")
 	}
 	sb.WriteString("name: " + displayName + "\n")
-	sb.WriteString("unique_id: " + entityID + "\n")
+	sb.WriteString("unique_id: " + generatedUniqueID(entityID) + "\n")
 	sb.WriteString("entities:\n")
 	for _, id := range memberIDs {
 		sb.WriteString("- " + id + "\n")

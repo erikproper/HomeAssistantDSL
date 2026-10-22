@@ -71,6 +71,10 @@ type TImportedCapability struct {
 	Domain                string
 	DerivedFromCapability string
 	DerivedViaTemplate    string
+	// AssignedID is the capability's frozen universal ID (PROJECT.md item 48, "capability ... as
+	// <id>;") -- the unique_id its coordinator-published entity keeps across local renames. "" until
+	// the generator assigns one (frozen_unique_ids.go).
+	AssignedID string
 }
 
 // TImportedDevice is one "device <local-id> from <remote-installation> <remote-device-id> with:

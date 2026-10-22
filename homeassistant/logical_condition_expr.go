@@ -13,7 +13,9 @@
  *
  *   bool-expr  := bool-expr "and" bool-expr | bool-expr "or" bool-expr | "not" bool-expr
  *               | "(" bool-expr ")" | atom
- *   atom       := ref | ref "is" "available" | "jinja" jinja-head
+ *   bool-expr  := ... | bool-expr "and" "if" bool-expr   ("if" optional, reads as a filter)
+ *   atom       := ref ["from" ["physical"] device-id] ["is" ("available" | STRING | "in" "[" STRING
+ *                 {"," STRING} "]")] | "physical" device-id ["is" "available"] | "jinja" jinja-head
  *   ref        := bare sibling capability label, or a literal "domain.path[!attribute]" entity
  *                 reference -- exactly logicalBareCapabilityRefPattern's own charset/meaning,
  *                 resolved later (registerLogicalDerivedConditionCapability) via the same
@@ -97,6 +99,11 @@ type TConditionExpr struct {
 	IsAvailable   bool
 	FromDeviceID  string
 	ForcePhysical bool
+	// Values (2026-10-22) is set by "<ref> is '<value>'" / "<ref> is in ['<value>', ...]": the
+	// ref's state must be one of them. In an "event" capability's condition (PROJECT.md item 49)
+	// an "event.<label>" ref matches its event types this way, and a "trigger.<attribute>" ref
+	// filters on the firing event's own attribute.
+	Values []string
 
 	// CondJinja only. Two shapes (2026-10-05, PROJECT.md 1h): a literal-string head has
 	// JinjaSources == nil and embeds its own "$[domain.label]" placeholders directly inside
@@ -155,6 +162,8 @@ const (
 	TokLBrace
 	TokRBrace
 	TokComma
+	TokLBracket
+	TokRBracket
 	TokDollarBrace // the two-char "${" sequence introducing a named jinja template call
 	TokSemicolon
 	TokNumber // a "${name}(args)" argument literal, e.g. "10" -- never a valid ref (refs always start with a letter/underscore)
@@ -221,6 +230,10 @@ func (t *TConditionExprTokeniser) advance() {
 		t.current = TConditionExprToken{Kind: TokRBrace, Value: "}"}
 	case r == ',':
 		t.current = TConditionExprToken{Kind: TokComma, Value: ","}
+	case r == '[':
+		t.current = TConditionExprToken{Kind: TokLBracket, Value: "["}
+	case r == ']':
+		t.current = TConditionExprToken{Kind: TokRBracket, Value: "]"}
 	case r == ';':
 		t.current = TConditionExprToken{Kind: TokSemicolon, Value: ";"}
 	case r == '$':
@@ -230,7 +243,7 @@ func (t *TConditionExprTokeniser) advance() {
 		} else {
 			t.current = TConditionExprToken{Kind: TokError, Value: "$"}
 		}
-	case r == '"':
+	case r == '"' || r == '\'':
 		var sb strings.Builder
 		closed := false
 		for {
@@ -238,7 +251,7 @@ func (t *TConditionExprTokeniser) advance() {
 			if !ok {
 				break
 			}
-			if c == '"' {
+			if c == r {
 				closed = true
 				break
 			}
@@ -339,12 +352,13 @@ func (p *TConditionExprParser) ParseOrExpr(out **TConditionExpr) bool {
 	return true
 }
 
-// ParseAndExpr := ParseNotExpr ("and" ParseNotExpr)*
+// ParseAndExpr := ParseNotExpr ("and" ["if"] ParseNotExpr)*
 func (p *TConditionExprParser) ParseAndExpr(out **TConditionExpr) bool {
 	if !p.ParseNotExpr(out) {
 		return false
 	}
 	for p.ThisIdentKeywordWas("and") {
+		p.ThisIdentKeywordWas("if")
 		left := *out
 		var right *TConditionExpr
 		if !p.ParseNotExpr(&right) {
@@ -415,7 +429,7 @@ func (p *TConditionExprParser) ParsePhysicalShorthand(out **TConditionExpr) bool
 	return true
 }
 
-// ParseRef := IDENT ["from" ["physical"] IDENT] ["is" "available"]
+// ParseRef := IDENT ["from" ["physical"] IDENT] ["is" ("available" | ParseValues)]
 //
 // The optional "from [physical] <device-id>" clause (2026-09-24) targets an EXPLICITLY OTHER
 // device's own capability instead of a same-device sibling label -- "physical" forces the lookup
@@ -440,14 +454,42 @@ func (p *TConditionExprParser) ParseRef(out **TConditionExpr) bool {
 		p.advance()
 	}
 	isAvailable := false
+	var values []string
 	if p.ThisIdentKeywordWas("is") {
-		if !p.ForcedThisIdentKeywordWas("available") {
+		if !p.ThisIdentKeywordWas("available") && !p.ParseValues(&values) {
 			return false
 		}
-		isAvailable = true
+		isAvailable = values == nil
 	}
-	*out = &TConditionExpr{Kind: CondRef, Ref: ref, IsAvailable: isAvailable, FromDeviceID: fromDeviceID, ForcePhysical: forcePhysical}
+	*out = &TConditionExpr{Kind: CondRef, Ref: ref, IsAvailable: isAvailable, FromDeviceID: fromDeviceID, ForcePhysical: forcePhysical, Values: values}
 	return true
+}
+
+// ParseValues := STRING | "in" "[" STRING {"," STRING} "]"
+func (p *TConditionExprParser) ParseValues(out *[]string) bool {
+	if p.current.Kind == TokString {
+		*out = []string{p.current.Value}
+		p.advance()
+		return true
+	}
+	if !p.ThisIdentKeywordWas("in") {
+		return p.reportError("expected %q, a quoted value or %q after %q, got %q", "available", "in [...]", "is", p.current.Value)
+	}
+	if !p.ForcedThisTokenWas(TokLBracket, `"["`) {
+		return false
+	}
+	for {
+		if p.current.Kind != TokString {
+			return p.reportError("expected a quoted value in the %q list, got %q", "in", p.current.Value)
+		}
+		*out = append(*out, p.current.Value)
+		p.advance()
+		if p.current.Kind != TokComma {
+			break
+		}
+		p.advance()
+	}
+	return p.ForcedThisTokenWas(TokRBracket, `"]"`)
 }
 
 func (p *TConditionExprParser) ForcedThisIdentKeywordWas(kw string) bool {

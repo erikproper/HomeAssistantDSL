@@ -205,7 +205,7 @@ var derivedConditionOneLinerPattern = regexp.MustCompile(`^derived\s+capability\
 // doc comment for why it's safe to always unwrap unconditionally (no ambiguity, no failure mode
 // that needs a warning the way an undeclared jinja template name does).
 func resolveDerivedConditionOneLiners(content string) string {
-	lines := strings.Split(content, "\n")
+	lines := strings.Split(stripDerivedAssignedIDs(content), "\n")
 	for i, rawLine := range lines {
 		line := strings.TrimSpace(rawLine)
 		m := derivedConditionOneLinerPattern.FindStringSubmatch(line)
@@ -215,4 +215,82 @@ func resolveDerivedConditionOneLiners(content string) string {
 		lines[i] = "capability " + m[1] + " " + m[2] + ";"
 	}
 	return strings.Join(lines, "\n")
+}
+
+// derivedAssignedIDPattern matches a "derived capability <domain>.<label> as <id> with|from ...;"
+// statement -- its frozen "as <id>" (PROJECT.md item 48, 2026-10-21) is the capability's universal
+// ID, the unique_id its generated template entity is registered under in Home Assistant, and sits
+// right after the capability's name (2026-10-22), before its "with"/"from" part. Group 1 is the
+// statement head, group 2 the capability's label, group 3 the ID, group 4 the rest.
+var derivedAssignedIDPattern = regexp.MustCompile(`^(\s*(?:hidden\s+)?derived\s+capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*))\s+as\s+([A-Za-z_][A-Za-z0-9_.]*)(\s.*;)\s*$`)
+
+// physicalDeviceHeaderPattern matches the start of a Physical.def device declaration, capturing its
+// device id -- the device a following "derived capability ..." line belongs to.
+var physicalDeviceHeaderPattern = regexp.MustCompile(`^\s*device\s+([A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*)\b`)
+
+// bridgedCapabilityAssignedIDPattern matches a plain "capability <domain>.<label> <source> as <id>
+// [with ...];" line -- only meaningful inside an "integration home_assistant" block, whose bridged
+// capabilities' coordinator-published unique_id it fixes (PROJECT.md item 48). As in the block
+// form, the ID sits before the "with" part. Group 1 is the line up to the ID, group 2 the label,
+// group 3 the ID, group 4 the rest.
+var bridgedCapabilityAssignedIDPattern = regexp.MustCompile(`^(\s*(?:hidden\s+)?capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s+[^\s;]+)\s+as\s+([A-Za-z_][A-Za-z0-9_.]*)((?:\s+with\s.*)?;)\s*$`)
+
+// bridgedCapabilityBlockAssignedIDPattern is bridgedCapabilityAssignedIDPattern's block-header
+// counterpart -- "[capability] <domain>.<label> <source> as <id> with:" -- the ID sits before the
+// header's "with:", as in Logical.def's block form. Group 1 is the header up to (excluding) the ID.
+var bridgedCapabilityBlockAssignedIDPattern = regexp.MustCompile(`^(\s*(?:capability\s+)?[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s+\S.*?)\s+as\s+([A-Za-z_][A-Za-z0-9_.]*)\s+with:\s*$`)
+
+// physicalIntegrationHeaderPattern captures the integration kind of an "integration <kind> ..."
+// block header.
+var physicalIntegrationHeaderPattern = regexp.MustCompile(`^\s*integration\s+(\S+)`)
+
+// frozenIDLines walks content (Physical.def, one statement per line) and calls visit for every line
+// carrying a frozen "as <id>": every derived capability line, plus every plain capability line of
+// an "integration home_assistant" block -- with the device it belongs to, the capability's label,
+// the line without the ID, and the ID.
+func frozenIDLines(content string, visit func(i int, deviceID, label, stripped, id string)) {
+	deviceID, integration := "", ""
+	for i, line := range strings.Split(content, "\n") {
+		if m := physicalIntegrationHeaderPattern.FindStringSubmatch(line); m != nil {
+			integration, deviceID = m[1], ""
+			continue
+		}
+		if m := physicalDeviceHeaderPattern.FindStringSubmatch(line); m != nil {
+			deviceID = m[1]
+			continue
+		}
+		if m := derivedAssignedIDPattern.FindStringSubmatch(line); m != nil {
+			visit(i, deviceID, m[2], m[1]+m[4], m[3])
+			continue
+		}
+		if integration == "home_assistant" {
+			if m := bridgedCapabilityAssignedIDPattern.FindStringSubmatch(line); m != nil {
+				visit(i, deviceID, m[2], m[1]+m[4], m[3])
+			} else if m := bridgedCapabilityBlockAssignedIDPattern.FindStringSubmatch(line); m != nil {
+				visit(i, deviceID, m[2], m[1]+" with:", m[3])
+			}
+		}
+	}
+}
+
+// stripDerivedAssignedIDs removes every frozen "as <id>" frozenIDLines finds from content, one line
+// for one line, so none of Physical.def's own capability parsers ever sees it --
+// collectDerivedFrozenIDs reads it separately. Called first thing by resolveDerivedConditionOneLiners,
+// which every one of those parsers already runs.
+func stripDerivedAssignedIDs(content string) string {
+	lines := strings.Split(content, "\n")
+	frozenIDLines(content, func(i int, _, _, stripped, _ string) { lines[i] = stripped })
+	return strings.Join(lines, "\n")
+}
+
+// collectDerivedFrozenIDs returns every frozen "as <id>" frozenIDLines finds in content, keyed
+// "<device-id>!<label>".
+func collectDerivedFrozenIDs(content string) map[string]string {
+	ids := map[string]string{}
+	frozenIDLines(content, func(_ int, deviceID, label, _, id string) {
+		if deviceID != "" {
+			ids[deviceID+"!"+label] = id
+		}
+	})
+	return ids
 }

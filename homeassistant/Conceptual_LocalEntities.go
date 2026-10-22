@@ -108,6 +108,7 @@ func registerLocalCapabilityEntityLink(administration *TAdministrationState, dec
 		deviceClass, _, _, icon := resolveCapabilityDefaults(administration.CapabilityDefaults, identity.Domain, identity.Path)
 		administration.AppendEntityRecord(spaceName, TEntityRecord{
 			Name:              fullName,
+			SourceKey:         "physical:" + decl.DeviceID + "!" + bareName,
 			Identity:          identity,
 			Provenance:        provenance,
 			ConditionSources:  sources,
@@ -137,6 +138,7 @@ func registerLocalCapabilityEntityLink(administration *TAdministrationState, dec
 		deviceClass, _, _, icon := resolveCapabilityDefaults(administration.CapabilityDefaults, identity.Domain, identity.Path)
 		administration.AppendEntityRecord(spaceName, TEntityRecord{
 			Name:              fullName,
+			SourceKey:         "physical:" + decl.DeviceID + "!" + bareName,
 			Identity:          identity,
 			Provenance:        provenance,
 			ConditionSources:  []string{siblingAttr.EntityID},
@@ -152,6 +154,7 @@ func registerLocalCapabilityEntityLink(administration *TAdministrationState, dec
 		// bare "entity <spec>;" declaration, HasDefinitionOrImport left false (the zero value).
 		administration.AppendEntityRecord(spaceName, TEntityRecord{
 			Name:       fullName,
+			SourceKey:  "physical:" + decl.DeviceID + "!" + bareName,
 			Identity:   identity,
 			Provenance: provenance,
 			NoCollect:  decl.NoCollect,
@@ -234,6 +237,7 @@ func registerLocalMediaSwitchCapability(administration *TAdministrationState, de
 	spaceName := administration.CurrentSpaceName()
 	administration.AppendEntityRecord(spaceName, TEntityRecord{
 		Name:                            fullName,
+		SourceKey:                       "physical:" + decl.DeviceID + "!" + bareName,
 		Identity:                        identity,
 		Provenance:                      provenance,
 		MediaSwitchPlayerName:           capability.MediaPlayerEntity,
