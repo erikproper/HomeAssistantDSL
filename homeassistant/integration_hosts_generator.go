@@ -172,9 +172,6 @@ func generateCoordinatorDevicesFile(outputRoot string, devices []THostDevice, ad
 		if d.ImportedFrom != "" {
 			sb.WriteString("    imported_from: \"" + d.ImportedFrom + "\"\n")
 		}
-		if hostDeviceViaYAML(d, admin) {
-			sb.WriteString("    yaml: true\n")
-		}
 		if mat, known := MaterializationForIntegrationType(d.IntegrationType); known {
 			if topic := mat.StateTopic(d.HostName); topic != "" {
 				sb.WriteString("    topic: " + topic + "\n")
@@ -202,10 +199,9 @@ func generateCoordinatorDevicesFile(outputRoot string, devices []THostDevice, ad
 		}
 		if admin != nil {
 			if link, hasLink := admin.DeviceConceptualLinks[d.DeviceID]; hasLink {
-				// A plain local device: the coordinator publishes it under "<device-id>_node" and
-				// "<device-id>_<attribute>" (buildDiscoveryConfigs, discovery.go); cloud-routed and
-				// imported devices are published differently.
-				local := !d.Cloud && d.ImportedFrom == ""
+				// A device with entities on this house's broker: its YAML entities
+				// (hosts_yaml_entities.go) are "<device-id>_node" and "<device-id>_<attribute>".
+				local := hostDeviceViaYAML(d, admin)
 				if local && link.NodeEntityID != "" {
 					coordinatorPublishedEntities = append(coordinatorPublishedEntities, TRegistryManifestEntry{UniqueID: d.DeviceID + "_node", EntityID: link.NodeEntityID})
 				}
@@ -239,12 +235,12 @@ func generateCoordinatorDevicesFile(outputRoot string, devices []THostDevice, ad
 				// Filtered to this device's own known hosts-kind attribute names -- a real bug
 				// found live 2026-09-07: AttributeEntityIDs is shared with OTHER integration
 				// kinds positioned on the SAME deviceID (e.g. host.frame is both a "hosts" cpu
-				// device and a "commandline" device, discoverycommandline.go's own doc comment),
+				// device and a "commandline" device, commandlineYAMLEntityBodies' doc comment (commandline_yaml_entities.go)),
 				// so blindly writing every key here leaked a commandline capability ("slideshow")
 				// into devices.yaml as if it were a hosts-kind variable attribute, producing a
 				// bogus "sensor" discovery config (buildDiscoveryConfigs, discovery.go) reading a
 				// JSON field ("value_json.slideshow") that hosts/frame/cpu/state's payload never
-				// has -- alongside the correct "switch" discovery config commandline.yaml's own
+				// has -- alongside the correct "switch" discovery config the (then) commandline.yaml's own
 				// entry_id produces for the same capability.
 				// AttributeEntityIDs is keyed by bare leaf name ("load"), but AttributeNames
 				// returns the full "<group>/<leaf>" form ("cpu/load") -- splitCapabilityName

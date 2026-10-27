@@ -74,7 +74,7 @@ entity switch.social:apartment/living_room/picture_frame from host.frame switch.
 // TestCommandlineCapabilityEntityLinkRejectsDomainMismatch confirms a local spec whose domain
 // doesn't match the capability's own Kind is rejected outright, not silently coerced -- unlike a
 // hassbridge capability, a commandline capability's Kind IS the entity's real HA domain as the
-// coordinator will actually publish it (discoverycommandline.go); a mismatch would produce a
+// YAML entity gets it (commandline_yaml_entities.go); a mismatch would produce a
 // reference to an entity that will never actually exist under that domain.
 func TestCommandlineCapabilityEntityLinkRejectsDomainMismatch(t *testing.T) {
 	const miniDSL = `device host.frame with:

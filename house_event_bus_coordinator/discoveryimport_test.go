@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"testing"
+
+	"homeassistant/hamqtt"
 )
 
 func TestLoadImportedHassBridgeFileMissingReturnsZeroValue(t *testing.T) {
@@ -14,39 +16,6 @@ func TestLoadImportedHassBridgeFileMissingReturnsZeroValue(t *testing.T) {
 	}
 	if len(got.Devices) != 0 {
 		t.Errorf("got %v, want a zero-value file for a missing path", got)
-	}
-}
-
-func TestExpectedImportedHassBridgeTopics(t *testing.T) {
-	importFile := TImportedFile{Devices: map[string]TImportedDevice{
-		"hass.vienna_shower_room": {
-			RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_shower_room",
-			Capabilities: map[string]TImportedCapability{
-				"temperature": {LocalEntity: "sensor.physical_shower_room_netatmo_temperature"},
-			},
-		},
-	}}
-	got := expectedImportedTopics(importFile, testPrefix)
-	wantTopic := discoveryTopic(testPrefix, "sensor", importedUniqueID("sensor.physical_shower_room_netatmo_temperature", ""))
-	if !got[wantTopic] {
-		t.Errorf("expected %v to contain %q", got, wantTopic)
-	}
-}
-
-// TestExpectedImportedHassBridgeTopicsSkipsUnresolvedCapability confirms a capability with no
-// LocalEntity (shouldn't normally reach this file at all -- generateImportedDeviceFile
-// already omits it -- but defensive here too) contributes nothing to the expected set.
-func TestExpectedImportedHassBridgeTopicsSkipsUnresolvedCapability(t *testing.T) {
-	importFile := TImportedFile{Devices: map[string]TImportedDevice{
-		"hass.vienna_shower_room": {
-			RemoteInstallation: "junglinster", RemoteDeviceID: "hass.vienna_shower_room",
-			Capabilities: map[string]TImportedCapability{
-				"temperature": {},
-			},
-		},
-	}}
-	if got := expectedImportedTopics(importFile, testPrefix); len(got) != 0 {
-		t.Errorf("got %v, want an empty set when no capability has a resolved LocalEntity", got)
 	}
 }
 
@@ -511,25 +480,16 @@ func TestSubscribeImportedDevicesPublishesLocalDiscoveryAndRelaysValue(t *testin
 		t.Fatalf("subscribeImportedDevices error: %v", err)
 	}
 
-	wantDiscoveryTopic := discoveryTopic(testPrefix, "sensor", importedUniqueID(localEntity, ""))
-	foundDiscovery := false
-	var discoveryPayloadGot map[string]interface{}
-	// A background goroutine (the relay subscription -- see the comment on the real deadlock bug
-	// this avoids, discoveryimport.go) may already be publishing concurrently by this point, so
-	// this must read through the thread-safe snapshot, not the raw field, even here.
-	for _, p := range mainClient.publishedSnapshot() {
-		if p.topic == wantDiscoveryTopic {
-			foundDiscovery = true
-			if err := json.Unmarshal(p.payload, &discoveryPayloadGot); err != nil {
-				t.Fatalf("unmarshalling published discovery payload: %v", err)
-			}
-		}
+	// Nothing goes to Home Assistant any more (PROJECT.md 19h.4): what the exporting house says is
+	// recorded in the catalogue for the generator's YAML, and no local discovery is published.
+	if _, found := findPublish(mainClient.publishedSnapshot(), discoveryTopic(testPrefix, "sensor", importedUniqueID(localEntity, ""))); found {
+		t.Errorf("an imported entity's discovery is published to Home Assistant: %v", mainClient.publishedSnapshot())
 	}
-	if !foundDiscovery {
-		t.Fatalf("expected local discovery config published to %q, got %v", wantDiscoveryTopic, mainClient.publishedSnapshot())
-	}
-	if discoveryPayloadGot["default_entity_id"] != localEntity {
-		t.Errorf("default_entity_id = %v, want the Spaces.def-resolved %q", discoveryPayloadGot["default_entity_id"], localEntity)
+	importCatalogue.mu.Lock()
+	_, catalogued := importCatalogue.byEntity[localEntity]
+	importCatalogue.mu.Unlock()
+	if !catalogued {
+		t.Errorf("expected %s in the import catalogue", localEntity)
 	}
 
 	// All three subscriptions (the discovery-config filter, the "home_assistant"-kind state-relay
@@ -808,57 +768,6 @@ func TestSubscribeImportedHassBridgeDevicesNoopWithNoCloudClient(t *testing.T) {
 	}
 }
 
-// TestResolveImportedDerivedCapabilityAtomic covers the single-step case: state_topic is the
-// atomic sibling's own local relay topic, template is the bare passthrough "value".
-func TestResolveImportedDerivedCapabilityAtomic(t *testing.T) {
-	device := TImportedDevice{Capabilities: map[string]TImportedCapability{
-		"battery_level": {LocalEntity: "sensor.infrastructural_terrace_netatmo_battery_level"},
-	}}
-	topic, template, ok := resolveImportedDerivedCapability(device, "battery_level", map[string]bool{})
-	if !ok {
-		t.Fatalf("expected a resolved chain")
-	}
-	if topic != importedStateTopic("sensor.infrastructural_terrace_netatmo_battery_level") {
-		t.Errorf("topic = %q, want the atomic capability's own local relay topic", topic)
-	}
-	if template != "value" {
-		t.Errorf("template = %q, want the bare passthrough \"value\"", template)
-	}
-}
-
-// TestResolveImportedDerivedCapabilityComposesChain covers a two-step derivation (a capability
-// derived from another derived capability) -- must collapse to the ultimate atomic ancestor's own
-// topic, with a fully nested, parenthesized template.
-func TestResolveImportedDerivedCapabilityComposesChain(t *testing.T) {
-	device := TImportedDevice{Capabilities: map[string]TImportedCapability{
-		"battery_level":         {LocalEntity: "sensor.infrastructural_terrace_netatmo_battery_level"},
-		"battery_alert":         {Domain: "binary_sensor", DerivedFromCapability: "battery_level", DerivedViaTemplate: "( $ | int(0) < 20 )"},
-		"battery_alert_delayed": {Domain: "binary_sensor", DerivedFromCapability: "battery_alert", DerivedViaTemplate: "not ($)"},
-	}}
-	topic, template, ok := resolveImportedDerivedCapability(device, "battery_alert_delayed", map[string]bool{})
-	if !ok {
-		t.Fatalf("expected a resolved chain")
-	}
-	if topic != importedStateTopic("sensor.infrastructural_terrace_netatmo_battery_level") {
-		t.Errorf("topic = %q, want the ULTIMATE atomic ancestor's own topic", topic)
-	}
-	want := "not ((( (value) | int(0) < 20 )))"
-	if template != want {
-		t.Errorf("template = %q, want %q", template, want)
-	}
-}
-
-// TestResolveImportedDerivedCapabilityDanglingReference covers "derived from" a label the device
-// doesn't declare at all -- must fail cleanly (ok=false), not panic.
-func TestResolveImportedDerivedCapabilityDanglingReference(t *testing.T) {
-	device := TImportedDevice{Capabilities: map[string]TImportedCapability{
-		"battery_alert": {Domain: "binary_sensor", DerivedFromCapability: "battery_level", DerivedViaTemplate: "( $ | int(0) < 20 )"},
-	}}
-	if _, _, ok := resolveImportedDerivedCapability(device, "battery_alert", map[string]bool{}); ok {
-		t.Errorf("expected ok=false: battery_level is not declared on this device")
-	}
-}
-
 // TestBuildDerivedImportedDiscoveryBody covers the discovery config shape for a derived import
 // capability: state_topic/value_template come from the resolved chain, not any exporter payload.
 func TestBuildDerivedImportedDiscoveryBody(t *testing.T) {
@@ -882,74 +791,12 @@ func TestBuildDerivedImportedDiscoveryBody(t *testing.T) {
 	if body["default_entity_id"] != cap.LocalEntity {
 		t.Errorf("default_entity_id = %v, want %q", body["default_entity_id"], cap.LocalEntity)
 	}
-	if body["payload_on"] != mqttStateOn || body["payload_off"] != mqttStateOff {
+	if body["payload_on"] != hamqtt.StateOn || body["payload_off"] != hamqtt.StateOff {
 		t.Errorf("payload_on/off = %v/%v, want the lowercase binary_sensor convention", body["payload_on"], body["payload_off"])
 	}
 	deviceBlock, ok := body["device"].(map[string]interface{})
 	if !ok || deviceBlock["name"] != "apartment/terrace/netatmo" {
 		t.Errorf("device block = %v, want name %q", body["device"], "apartment/terrace/netatmo")
-	}
-}
-
-// TestPublishDerivedImportedDiscoveryEndToEnd is the end-to-end counterpart: a derived capability
-// declared in importFile gets its own discovery config published, with no cloud message involved
-// at all -- unlike every other imported capability's own discovery path.
-func TestPublishDerivedImportedDiscoveryEndToEnd(t *testing.T) {
-	importFile := TImportedFile{Devices: map[string]TImportedDevice{
-		"import.vienna_terrace": {
-			DisplayName: "apartment/terrace/netatmo",
-			Capabilities: map[string]TImportedCapability{
-				"battery_level": {LocalEntity: "sensor.infrastructural_terrace_netatmo_battery_level"},
-				"battery_alert": {Domain: "binary_sensor", DerivedFromCapability: "battery_level", DerivedViaTemplate: "( $ | int(0) < 20 )", LocalEntity: "binary_sensor.infrastructural_terrace_netatmo_battery_alert"},
-			},
-		},
-	}}
-	mainClient := &fakeClient{}
-	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
-
-	if err := publishDerivedImportedDiscovery(mainClient, importFile, publisher, testPrefix, "test"); err != nil {
-		t.Fatalf("publishDerivedImportedDiscovery error: %v", err)
-	}
-
-	wantTopic := discoveryTopic(testPrefix, "binary_sensor", importedUniqueID("binary_sensor.infrastructural_terrace_netatmo_battery_alert", ""))
-	var got map[string]interface{}
-	found := false
-	for _, p := range mainClient.publishedSnapshot() {
-		if p.topic == wantTopic {
-			found = true
-			if err := json.Unmarshal(p.payload, &got); err != nil {
-				t.Fatalf("unmarshalling published discovery payload: %v", err)
-			}
-		}
-	}
-	if !found {
-		t.Fatalf("expected a discovery config published to %q, got %v", wantTopic, mainClient.publishedSnapshot())
-	}
-	wantStateTopic := importedStateTopic("sensor.infrastructural_terrace_netatmo_battery_level")
-	if got["state_topic"] != wantStateTopic {
-		t.Errorf("state_topic = %v, want the sibling's own local relay topic %q", got["state_topic"], wantStateTopic)
-	}
-}
-
-// TestPublishDerivedImportedDiscoverySkipsUnresolvableChain confirms a dangling "derived from"
-// reference is skipped (no publish, no error), not fatal -- physical_rule_derived_capabilities.go
-// already warns about this at generate time.
-func TestPublishDerivedImportedDiscoverySkipsUnresolvableChain(t *testing.T) {
-	importFile := TImportedFile{Devices: map[string]TImportedDevice{
-		"import.vienna_terrace": {
-			Capabilities: map[string]TImportedCapability{
-				"battery_alert": {Domain: "binary_sensor", DerivedFromCapability: "battery_level", DerivedViaTemplate: "( $ | int(0) < 20 )", LocalEntity: "binary_sensor.infrastructural_terrace_netatmo_battery_alert"},
-			},
-		},
-	}}
-	mainClient := &fakeClient{}
-	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
-
-	if err := publishDerivedImportedDiscovery(mainClient, importFile, publisher, testPrefix, "test"); err != nil {
-		t.Fatalf("publishDerivedImportedDiscovery error: %v", err)
-	}
-	if len(mainClient.publishedSnapshot()) != 0 {
-		t.Errorf("expected no publish for an unresolvable chain, got %v", mainClient.publishedSnapshot())
 	}
 }
 

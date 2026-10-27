@@ -1,33 +1,8 @@
 package main
 
 import (
-	"encoding/json"
 	"testing"
 )
-
-func TestPublishDiscoverEntityInputPayloadShape(t *testing.T) {
-	client := &fakeClient{}
-	if err := publishDiscoverEntityInput(client, "homeassistant", "test"); err != nil {
-		t.Fatalf("publishDiscoverEntityInput error: %v", err)
-	}
-	if len(client.published) != 1 {
-		t.Fatalf("got %d publishes, want 1", len(client.published))
-	}
-
-	var body map[string]interface{}
-	if err := json.Unmarshal(client.published[0].payload, &body); err != nil {
-		t.Fatalf("payload is not valid JSON: %v (%s)", err, client.published[0].payload)
-	}
-	if body["command_topic"] != discoverEntityCommandTopic() {
-		t.Errorf("command_topic = %v, want %q", body["command_topic"], discoverEntityCommandTopic())
-	}
-	if optimistic, ok := body["optimistic"].(bool); !ok || !optimistic {
-		t.Errorf("optimistic = %v, want true (no state_topic, nothing reports a value back)", body["optimistic"])
-	}
-	if _, hasStateTopic := body["state_topic"]; hasStateTopic {
-		t.Errorf("body = %+v, want no state_topic at all", body)
-	}
-}
 
 func TestSubscribeDiscoverEntityRequestsSeedsAndInquiresOnEveryInstance(t *testing.T) {
 	tracker := newEntityExistenceTracker("")

@@ -34,18 +34,6 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
-// missingDeclaredEntitiesStableID is this binary_sensor's own unique_id/object_id -- one fixed
-// entity, not one per kind, since the itemized breakdown belongs in this entity's own attributes
-// (PublishNow) and the generate-time report, not in a proliferation of near-identical entities.
-const missingDeclaredEntitiesStableID = "missing_declared_entities"
-
-// missingDeclaredEntitiesDiscoveryTopic mirrors every other coordinator-authored discovery entity
-// in this codebase (discoveryTopic, discovery.go) -- conceptualPrefix-qualified, same as the meta
-// reload/restart buttons.
-func missingDeclaredEntitiesDiscoveryTopic(conceptualPrefix string) string {
-	return discoveryTopic(conceptualPrefix, "binary_sensor", missingDeclaredEntitiesStableID)
-}
-
 // missingDeclaredEntitiesStateTopic/missingDeclaredEntitiesAttributesTopic are bare (not
 // conceptualPrefix-qualified) -- this entity's own state/attributes are coordinator-internal
 // plumbing, never relayed anywhere else, so there's no collision risk to guard against the way a
@@ -56,40 +44,6 @@ func missingDeclaredEntitiesStateTopic() string {
 
 func missingDeclaredEntitiesAttributesTopic() string {
 	return "coordinator/missing_declared_entities/attributes"
-}
-
-// expectedMissingDeclaredEntitiesTopics is the one discovery topic publishMissingDeclaredEntitiesDiscoveryConfig
-// produces -- must be folded into main.go's own expectedTopics set or watchForOrphanedDiscoveryTopics
-// retires it moments after it's first published, exactly the same real bug
-// expectedMetaReloadRestartTopics' own doc comment describes (found live 2026-09-05) for the meta
-// buttons.
-func expectedMissingDeclaredEntitiesTopics(conceptualPrefix string) map[string]bool {
-	return map[string]bool{missingDeclaredEntitiesDiscoveryTopic(conceptualPrefix): true}
-}
-
-// publishMissingDeclaredEntitiesDiscoveryConfig discovery-publishes the one binary_sensor -- local
-// broker only, called once at startup and again on every reconnect (main.go), alongside
-// publishMetaReloadRestartButtons' own identical call sites.
-func publishMissingDeclaredEntitiesDiscoveryConfig(client mqtt.Client, conceptualPrefix, installation string) error {
-	topic := missingDeclaredEntitiesDiscoveryTopic(conceptualPrefix)
-	body := map[string]interface{}{
-		"unique_id":             missingDeclaredEntitiesStableID,
-		"object_id":             missingDeclaredEntitiesStableID,
-		"name":                  "Missing declared entities",
-		"device_class":          "problem",
-		"icon":                  "mdi:link-off",
-		"state_topic":           missingDeclaredEntitiesStateTopic(),
-		"payload_on":            "true",
-		"payload_off":           "false",
-		"json_attributes_topic": missingDeclaredEntitiesAttributesTopic(),
-		"entity_category":       "diagnostic",
-		"origin":                coordinatorOriginMap(installation),
-	}
-	data, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("marshalling missing declared entities discovery config: %w", err)
-	}
-	return publishRetained(client, topic, data)
 }
 
 // TMissingDeclaredEntitiesPublisher debounces/schedules PublishNow -- same shape as

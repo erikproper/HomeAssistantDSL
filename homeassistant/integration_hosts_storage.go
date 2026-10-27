@@ -47,6 +47,9 @@ var knownConstantDeviceAttributes = map[string]bool{
 	"serial_number":     true,
 	"configuration_url": true,
 	"suggested_area":    true,
+	// via_device (PROJECT.md 19h.3): the device this one hangs off -- a bridge device's, as the
+	// coordinator resolves it (e.g. a Netatmo module via its base station), captured at generate.
+	"via_device": true,
 }
 
 // THostDevice is one "device <id> <host> <type> [with: <capability>: [\"<literal>\"]
@@ -99,13 +102,6 @@ type THostDevice struct {
 	// user request, applied to the "hosts" integration's own devices too since a "hosts" device's
 	// entities live on "main" exactly like a hassbridge device's do).
 	IgnoreOtherCapabilities bool
-
-	// EntitiesViaYAML (PROJECT.md 19e, 2026-10-27), from an "entities via yaml;" line directly in
-	// the "integration hosts with: ... end;" block: Home Assistant gets this device's entities
-	// from the generator's own YAML "mqtt:" config instead of the coordinator's discovery
-	// (hosts_yaml_entities.go) -- for a local device; a cloud-routed or imported one is left to
-	// the coordinator (PROJECT.md 19h).
-	EntitiesViaYAML bool
 }
 
 // dedupedHostNames returns every device's HostName, deduplicated and sorted, regardless

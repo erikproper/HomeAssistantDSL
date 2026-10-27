@@ -102,39 +102,6 @@ func generateDiscoveryIntegrationOutputs(bodyLines []string, ctx TPhysicalGenera
 			sb.WriteString("  " + id + ":\n")
 			sb.WriteString("    gateway: " + link.GatewayDeviceID + "\n")
 			sb.WriteString("    leaf: " + link.Leaf + "\n")
-			if link.StableID != "" {
-				sb.WriteString("    stable_id: " + link.StableID + "\n")
-			}
-			if _, viaYAML := ctx.Admin.YAMLEntities[id]; viaYAML {
-				sb.WriteString("    yaml: true\n")
-			}
-			// The entity's conceptual name, for the relayed discovery config's "name": Home
-			// Assistant's UI shows the entity by it, not by the customized friendly_name (PROJECT.md
-			// 17h, 2026-10-26).
-			if identity, found := entityIdentityByID(ctx.Admin, id); found && identity.Sphere != "" {
-				sb.WriteString("    name: \"" + friendlyEntityName(identity) + "\"\n")
-			}
-			if link.SourceDomain != "" {
-				sb.WriteString("    source_domain: " + link.SourceDomain + "\n")
-			}
-			if link.DeviceClass != "" {
-				sb.WriteString("    device_class: " + link.DeviceClass + "\n")
-			}
-			if link.Unit != "" {
-				sb.WriteString("    unit: \"" + link.Unit + "\"\n")
-			}
-			if link.StateClass != "" {
-				sb.WriteString("    state_class: " + link.StateClass + "\n")
-			}
-			if link.Icon != "" {
-				sb.WriteString("    icon: " + link.Icon + "\n")
-			}
-			if link.ValueTemplateWrap != "" {
-				sb.WriteString("    value_template_wrap: \"" + link.ValueTemplateWrap + "\"\n")
-			}
-			if link.Invert {
-				sb.WriteString("    invert: true\n")
-			}
 		}
 	}
 

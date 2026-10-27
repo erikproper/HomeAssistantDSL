@@ -12,14 +12,11 @@ func TestDeviceRoutingPlan(t *testing.T) {
 		hasCloudClient bool
 		want           TDeviceRoutingPlan
 	}{
-		{"plain local", TDevice{}, true, TDeviceRoutingPlan{PublishMain: true}},
-		{"real cross-house import", TDevice{ImportedFrom: "junglinster"}, true, TDeviceRoutingPlan{PublishMain: true}},
+		{"plain local", TDevice{}, true, TDeviceRoutingPlan{}},
+		{"real cross-house import", TDevice{ImportedFrom: "junglinster"}, true, TDeviceRoutingPlan{}},
 		{"cloud only, not imported", TDevice{Cloud: true}, true, TDeviceRoutingPlan{PublishCloud: true}},
-		{"cloud + self-import (replaces old cloud+native)", TDevice{Cloud: true, ImportedFrom: "junglinster"}, true, TDeviceRoutingPlan{PublishMain: true, PublishCloud: true}},
-		// A self-import's PublishMain never depends on hasCloudClient -- matches how a real
-		// cross-house import already behaves (it's still "imported", the device is still visible
-		// locally, even though this house happens to have no cloud broker configured right now).
-		{"cloud + self-import, no cloud client", TDevice{Cloud: true, ImportedFrom: "junglinster"}, false, TDeviceRoutingPlan{PublishMain: true}},
+		{"cloud + self-import (replaces old cloud+native)", TDevice{Cloud: true, ImportedFrom: "junglinster"}, true, TDeviceRoutingPlan{PublishCloud: true}},
+		{"cloud + self-import, no cloud client", TDevice{Cloud: true, ImportedFrom: "junglinster"}, false, TDeviceRoutingPlan{}},
 		{"cloud declared, not imported, no cloud client", TDevice{Cloud: true}, false, TDeviceRoutingPlan{}},
 	}
 	for _, c := range cases {

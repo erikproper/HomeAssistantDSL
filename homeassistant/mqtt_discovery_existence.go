@@ -401,11 +401,12 @@ func buildDiscoverySuggestionReport(statusByGateway map[string]TDiscoveryExisten
 		maxLHS := 0
 		for _, leaf := range leaves {
 			domain, suffix := recognizeDiscoveryCapability(leaf)
-			lhs := domain + "." + suffix
 			comment := ""
 			if suffix == "" {
+				suffix = suggestedDiscoveryLabel(leaf)
 				comment = " # not recognized"
 			}
+			lhs := "capability " + domain + "." + suffix
 			if len(lhs) > maxLHS {
 				maxLHS = len(lhs)
 			}

@@ -45,10 +45,13 @@ func TestBuildPassthroughSuggestionReportEmitsIdentifiersAndCapabilities(t *test
 		t.Errorf("report = %q, want an explicit identifiers line (the slug has no relation to the real device id)", report)
 	}
 	// recognizeDiscoveryCapability recognizes "temperature" in the leaf name -- LHS uses the
-	// recognized suffix, RHS is always the raw leaf itself (recognizeDiscoveryCapability's own
-	// existing behavior, shared with the gateway-leaf report).
-	if !strings.Contains(report, "sensor.temperature sensor.0xaabbcc_temperature;") {
+	// recognized suffix, RHS is always the raw leaf itself, without its domain: a line that parses
+	// as is (2026-10-27).
+	if !strings.Contains(report, "capability sensor.temperature 0xaabbcc_temperature;") {
 		t.Errorf("report = %q, want the leaf suggested as a capability line", report)
+	}
+	if m := discoveryCapabilityPattern.FindStringSubmatch("capability sensor.temperature 0xaabbcc_temperature;"); m == nil || m[3] != "0xaabbcc_temperature" {
+		t.Errorf("the suggested line doesn't parse as a capability with leaf 0xaabbcc_temperature: %q", m)
 	}
 }
 

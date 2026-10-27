@@ -8,15 +8,15 @@
  * construct (Conceptual_DeviceCapabilityEntities.go) for a "commandline" integration device's own
  * switch/sensor/button capability -- lets a script-backed entity get a real conceptual position
  * (e.g. "switch.social:picture_frame") instead of the coordinator's own auto-derived
- * "switch.<host>_<name>" fallback (house_event_bus_coordinator/discoverycommandline.go), the same
+ * "switch.<host>_<name>" fallback (commandlineYAMLEntityBodies, commandline_yaml_entities.go), the same
  * positioning freedom every other device kind's capabilities already have.
  *
  * Unlike registerHostAttributeEntity/registerDeviceSourceEntityLink, there's no per-attribute
  * typing metadata to resolve here (a commandline capability declares no device_class/unit/
  * state_class anywhere in Physical.def) -- this only ever resolves the entity id itself, which
- * generateCommandlineCoordinatorFile (integration_commandline_generator.go) reads back out of
- * DeviceConceptualLinks to pass through to the coordinator as the capability's desired entity_id/
- * display name.
+ * commandline_yaml_entities.go and recordCommandlineRegistryEntries
+ * (integration_commandline_generator.go) read back out of DeviceConceptualLinks as the
+ * capability's entity_id and name.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
@@ -34,7 +34,7 @@ import "fmt"
 // device's shared DeviceConceptualLink -- the same link a "hosts"/"home_assistant" declaration of
 // the SAME deviceID already established via its own "device <spec> from <device-id> [with: ...];"
 // positioning line (deliberately reused, not re-created, for a device that shares its identity
-// across kinds -- see discoverycommandline.go's own doc comment for why host.frame does this).
+// across kinds -- see commandlineYAMLEntityBodies' doc comment (commandline_yaml_entities.go) for why host.frame does this).
 //
 // A domain mismatch between localSpec's own domain (e.g. "binary_sensor") and capability.Kind
 // (e.g. "switch") is rejected outright, not coerced: unlike a hassbridge capability (whose Source

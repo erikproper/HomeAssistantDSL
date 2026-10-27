@@ -31,6 +31,7 @@ import "fmt"
 //   - "sensor": StatusScript only.
 //   - "switch": StatusScript, OnScript, OffScript (all three, in that order).
 //   - "button": PressScript only.
+//
 // Each script is captured as one opaque quoted command-line string (path + args) -- the daemon
 // does ordinary shell-word-splitting at invocation time, letting a single generic script be
 // reused parametrically rather than needing one bespoke script per entity.

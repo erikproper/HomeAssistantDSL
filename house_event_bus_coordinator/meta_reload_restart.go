@@ -37,7 +37,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -54,73 +53,6 @@ func metaActionTopic(action, target string) string {
 
 // metaActions is every scope this file handles, applied identically to "reload" and "restart".
 var metaActions = []string{"reload", "restart"}
-
-// expectedMetaReloadRestartTopics is every discovery topic publishMetaReloadRestartButtons
-// produces -- must be added to main.go's own expectedTopics set (the same way
-// discoverEntityStableID's own topic already is, discover_entity_input.go's doc comment) or
-// watchForOrphanedDiscoveryTopics retires every one of these buttons moments after they're first
-// published, since they're coordinator-owned and not derived from any devices/discovery/hassbridge
-// file this house's own generator output already accounts for. Real bug found live 2026-09-05:
-// without this, every meta button vanished from the broker within the same startup pass that
-// published it.
-func expectedMetaReloadRestartTopics(conceptualPrefix, installation string, instances []string) map[string]bool {
-	expected := map[string]bool{}
-	if installation == "" {
-		return expected
-	}
-	targets := append([]string{}, instances...)
-	targets = append(targets, installation, "all")
-	for _, action := range metaActions {
-		for _, target := range targets {
-			stableID := "meta_" + action + "_" + sanitizeTopicSegment(target)
-			expected[discoveryTopic(conceptualPrefix, "button", stableID)] = true
-		}
-	}
-	return expected
-}
-
-// publishMetaReloadRestartButtons discovery-publishes one MQTT button per (action, target) pair --
-// reload/restart crossed with every one of this house's own real instances, this installation
-// itself, and "all" -- e.g. a two-real-instance installation gets (2 instances + 1 installation +
-// 1 "all") * 2 actions = 8 buttons.
-func publishMetaReloadRestartButtons(client mqtt.Client, conceptualPrefix, installation string, instances []string) error {
-	if installation == "" {
-		return nil
-	}
-	targets := append([]string{}, instances...)
-	targets = append(targets, installation, "all")
-	for _, action := range metaActions {
-		icon := "mdi:reload"
-		if action == "restart" {
-			icon = "mdi:restart"
-		}
-		for _, target := range targets {
-			stableID := "meta_" + action + "_" + sanitizeTopicSegment(target)
-			topic := discoveryTopic(conceptualPrefix, "button", stableID)
-			// Infrastructural, not a sphere of its own (PROJECT.md item 18, 2026-10-26): the
-			// unique_id keeps its "meta_" root, so it stays the same entity; name and entity_id
-			// follow the sphere (the generator's registry table renames an existing one).
-			body := map[string]interface{}{
-				"unique_id":       stableID,
-				"object_id":       "infrastructural_" + action + "_" + sanitizeTopicSegment(target),
-				"name":            "infrastructural/" + action + "/" + target,
-				"icon":            icon,
-				"command_topic":   metaActionTopic(action, target),
-				"payload_press":   "PRESS",
-				"entity_category": "config",
-				"origin":          coordinatorOriginMap(installation),
-			}
-			data, err := json.Marshal(body)
-			if err != nil {
-				return fmt.Errorf("marshalling meta %s button for %q: %w", action, target, err)
-			}
-			if err := publishRetained(client, topic, data); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
 
 // publishMetaAction sends one fire-and-forget (non-retained) command to target's own
 // metaActionTopic(action, target) on client -- the shared low-level primitive every fan-out below

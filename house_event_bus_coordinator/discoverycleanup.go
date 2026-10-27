@@ -152,52 +152,6 @@ func isCoordinatorOwnedTopic(topic, prefix string) bool {
 	return nodeID == "coordinator" || strings.HasPrefix(nodeID, "host_") || strings.HasPrefix(nodeID, "discovery_")
 }
 
-// expectedHostsPayloads computes every discovery topic AND its exact expected JSON payload this
-// run's devices.yaml implies for the main broker, reusing buildDiscoveryConfigs (discovery.go)
-// itself so this can never drift from what actually gets published. Calls deviceRoutingPlan
-// directly (mqtt_relay.go) rather than re-deriving its PublishMain logic inline -- this file's own
-// header comment already flags that duplication as a drift risk, and it actually drifted once
-// already (2026-09-02, when "native" was retired: this function's own inline copy of the check
-// would have silently kept excluding a self-imported device from "expected" if it hadn't been
-// rewritten to call the one true source of the routing decision instead). hasCloudClient must be
-// the real value (not hardcoded true) -- a Cloud-only device that would otherwise be excluded here
-// is instead correctly EXCLUDED when hasCloudClient is false, matching deviceRoutingPlan's own
-// "no cloud client configured" case.
-//
-// store supplies each device's own already-known live-reported fields (manufacturer/model/
-// sw_version/via_device/...) via store.Snapshot(id) -- real bug found live 2026-09-09, PROJECT.md:
-// this used to always pass live=nil to buildDiscoveryConfigs, computing a bare, live-data-free
-// baseline. watchForOrphanedDiscoveryTopics (below) compares that baseline, byte-for-byte, against
-// whatever the broker's own retained discovery message actually holds during its startup settle
-// window -- but a device whose live fields were already learned and persisted across a PREVIOUS
-// coordinator run (store's own persisted live_device_info.json, liveinfo.go) has *already*
-// live-enriched content sitting on the broker from before this restart, which a nil-live baseline
-// can never match. The mismatch got misread as "someone else published something wrong here" and
-// the topic was wrongly retired -- confirmed live on Vienna (host.eriks-mac-mini/host.frame's own
-// sensor+binary_sensor discovery wiped from the broker, invisible in HA's own MQTT integration for
-// over a day, self-inflicted and never self-healing since nothing ever re-triggered a real
-// republish for content the manifest still believed was already correctly on the broker). Passing
-// store's own already-persisted snapshot here makes the startup baseline match what's actually
-// expected to already be there, closing the gap this construct's own doc comment already flagged
-// as a *runtime* risk without noticing it was just as live a risk at startup.
-func expectedHostsPayloads(devicesFile TDevicesFile, hasCloudClient bool, store *TLiveDeviceInfoStore) (map[string]string, error) {
-	expected := map[string]string{}
-	prefix := devicesFile.conceptualPrefix()
-	for id, device := range devicesFile.Devices {
-		if !deviceRoutingPlan(device, hasCloudClient).PublishMain {
-			continue
-		}
-		for _, cfg := range buildDiscoveryConfigs(id, device, store.Snapshot(id), "", prefix, devicesFile.Installation) {
-			data, err := json.Marshal(cfg.Payload)
-			if err != nil {
-				return nil, fmt.Errorf("marshalling discovery payload for %s: %w", cfg.Topic, err)
-			}
-			expected[cfg.Topic] = string(data)
-		}
-	}
-	return expected, nil
-}
-
 // expectedCloudHostsPayloads computes every discovery topic AND its exact expected JSON payload
 // this run's devices.yaml implies for the *cloud* broker, with each topic qualified by
 // ownInstallation+"/" exactly as publishDeviceDiscovery itself qualifies it. Calls
@@ -239,31 +193,6 @@ func expectedCloudHostsPayloads(devicesFile TDevicesFile, ownInstallation string
 		}
 	}
 	return expected, nil
-}
-
-// expectedDiscoveryBridgeTopics computes every discovery topic this run's discovery.yaml entity
-// links imply -- the topic depends only on gatewayID+leaf (relayedDiscoveryUniqueID,
-// discoverybridge.go), or on link.StableID when set (2026-10-05, PROJECT.md item 7), both known
-// statically, so no live gateway payload is needed to know which topics to expect (only to fill
-// their bodies in later -- so, unlike expectedHostsPayloads, this can only report topic
-// existence, not expected content). Must use the SAME preference buildRelayedDiscoveryConfig
-// does, or a stable-ID'd entity's real topic would never match this function's own "expected" set
-// and the cleanup pass would wrongly retire it as orphaned.
-func expectedDiscoveryBridgeTopics(discoveryFile TDiscoveryFile, prefix string) map[string]bool {
-	expected := map[string]bool{}
-	for entityID, link := range discoveryFile.EntityLinks {
-		dotIdx := strings.Index(entityID, ".")
-		if dotIdx < 0 || link.YAML { // a YAML entity's relayed topic is no longer expected: retired
-			continue
-		}
-		domain := entityID[:dotIdx]
-		stableID := link.StableID
-		if stableID == "" {
-			stableID = relayedDiscoveryUniqueID(link.Gateway, link.Leaf)
-		}
-		expected[discoveryTopic(prefix, domain, stableID)] = true
-	}
-	return expected
 }
 
 // topicSet reduces a topic->payload map to a topic set, for callers that only need to know

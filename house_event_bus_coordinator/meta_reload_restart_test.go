@@ -1,87 +1,8 @@
 package main
 
 import (
-	"encoding/json"
 	"testing"
 )
-
-func TestPublishMetaReloadRestartButtonsPublishesEveryScope(t *testing.T) {
-	client := &fakeClient{}
-	if err := publishMetaReloadRestartButtons(client, testPrefix, "junglinster", []string{"main", "protocols-server-2"}); err != nil {
-		t.Fatalf("publishMetaReloadRestartButtons error: %v", err)
-	}
-
-	// 2 instances + installation + "all" = 4 targets, times 2 actions = 8 buttons.
-	if len(client.published) != 8 {
-		t.Fatalf("got %d publishes, want 8: %+v", len(client.published), client.published)
-	}
-
-	wantTopic, _ := discoveryTopic(testPrefix, "button", "meta_reload_main"), true
-	found := false
-	for _, p := range client.published {
-		if p.topic != wantTopic {
-			continue
-		}
-		found = true
-		var body map[string]interface{}
-		if err := json.Unmarshal(p.payload, &body); err != nil {
-			t.Fatalf("unmarshalling button payload: %v", err)
-		}
-		if body["command_topic"] != "meta/reload/main/request" {
-			t.Errorf("command_topic = %v, want %q", body["command_topic"], "meta/reload/main/request")
-		}
-		if body["name"] != "infrastructural/reload/main" {
-			t.Errorf("name = %v, want %q", body["name"], "infrastructural/reload/main")
-		}
-		if body["unique_id"] != "meta_reload_main" || body["object_id"] != "infrastructural_reload_main" {
-			t.Errorf("unique_id/object_id = %v/%v, want the unchanged meta_reload_main and infrastructural_reload_main", body["unique_id"], body["object_id"])
-		}
-	}
-	if !found {
-		t.Errorf("expected a button published at %q, got %+v", wantTopic, client.published)
-	}
-
-	installationTopic := discoveryTopic(testPrefix, "button", "meta_restart_junglinster")
-	allTopic := discoveryTopic(testPrefix, "button", "meta_restart_all")
-	for _, want := range []string{installationTopic, allTopic} {
-		found := false
-		for _, p := range client.published {
-			if p.topic == want {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("expected a button published at %q, got %+v", want, client.published)
-		}
-	}
-}
-
-// TestExpectedMetaReloadRestartTopicsMatchesPublishedTopics is a regression test for a real bug
-// found live 2026-09-05: every meta button vanished from the broker within the same startup pass
-// that published it, because watchForOrphanedDiscoveryTopics only ever protects topics listed in
-// main.go's own expectedTopics set (the same mechanism discoverEntityStableID's own topic already
-// needs, discover_entity_input.go) -- these coordinator-owned buttons were never added there, so
-// they were retired as "unexpected" moments after publishMetaReloadRestartButtons published them.
-// This asserts expectedMetaReloadRestartTopics names exactly the same topics
-// publishMetaReloadRestartButtons actually publishes to, so the two can never drift apart again.
-func TestExpectedMetaReloadRestartTopicsMatchesPublishedTopics(t *testing.T) {
-	client := &fakeClient{}
-	installation := "junglinster"
-	instances := []string{"main", "protocols-server-2"}
-	if err := publishMetaReloadRestartButtons(client, testPrefix, installation, instances); err != nil {
-		t.Fatalf("publishMetaReloadRestartButtons error: %v", err)
-	}
-
-	expected := expectedMetaReloadRestartTopics(testPrefix, installation, instances)
-	if len(expected) != len(client.published) {
-		t.Fatalf("expectedMetaReloadRestartTopics has %d topics, but %d buttons were actually published", len(expected), len(client.published))
-	}
-	for _, p := range client.published {
-		if !expected[p.topic] {
-			t.Errorf("published topic %q is not in expectedMetaReloadRestartTopics -- watchForOrphanedDiscoveryTopics would retire it", p.topic)
-		}
-	}
-}
 
 func TestSubscribeMetaFanOutInstallationScopeFansOutLocallyOnly(t *testing.T) {
 	client := &fakeClient{}
@@ -232,15 +153,5 @@ func TestSubscribeMetaInstanceCloudRelayNoOpWithoutCloudOrInstallation(t *testin
 	}
 	if len(cloudClient.subscribedHandlersSnapshot()) != 0 {
 		t.Errorf("expected no subscriptions with an empty installation name, got %d", len(cloudClient.subscribedHandlersSnapshot()))
-	}
-}
-
-func TestPublishMetaReloadRestartButtonsNoOpWithNoInstallation(t *testing.T) {
-	client := &fakeClient{}
-	if err := publishMetaReloadRestartButtons(client, testPrefix, "", []string{"main"}); err != nil {
-		t.Fatalf("publishMetaReloadRestartButtons error: %v", err)
-	}
-	if len(client.published) != 0 {
-		t.Errorf("expected no buttons published with an empty installation name, got %+v", client.published)
 	}
 }

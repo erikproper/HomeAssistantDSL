@@ -16,68 +16,58 @@ JLI
  
 ## Migration & improvements
 
-19. Discovery versus template: metadata captured into Physical.def (plan agreed 2026-10-24).
-    Metadata (model, manufacturer, sw/hw version, ...) changes rarely, so it no longer argues for
-    discovery. The plan:
-    1. Metadata first: at generate time the generator takes each device's "device" block from the
-       retained discovery it already reads (Definitions/.cache) and writes it into Physical.def
-       itself, pretty-printed. A value flagged as override keeps its listed value; only when
-       discovery reports something different does the discovered value appear next to it, as a
-       comment -- so it stays visible what discovery provided. Syntax, the existing metadata
-       lines with a trailing "override":
-           model:      "Home Assistant Green" override;   # discovery: "Green"
-           sw_version: "1.0 (ESPHome 2026.10.0)";
-    2. Then templates instead of relayed discovery for the main instance, one integration at a time
-       (Zigbee2MQTT first): YAML "mqtt:" entities with unique_id = the frozen stable_id, so registry
-       entries, devices and history stay.
-    3. Discovery between locations (other house, cloud) is published from this captured       information, not by rewriting an internal discovery message. ha2mqtt and fhem2mqtt follow
-       the same pattern.
-    Entity_ids (decided 2026-10-26, Erik: (b)): entity_ids follow the position; a rename in the
-    defs reaches Home Assistant through the deploy's registry repair (table-driven, Architecture.md).
-    Names (from 17h, 2026-10-26): every entity, of every kind, gets its full conceptual name
-    ("sphere/path") as its "name" -- the UI shows the registry name, not the friendly_name. Today
-    only the relayed Zigbee2MQTT/EMS-ESP entities do; the others still get: imported (Netatmo)
-    "apartment/living_room/low_board/co2" (no sphere), bridged (ha2mqtt) a suffix only ("status"),
-    host attributes "apartment/living_room/rack/protocols-server-2/load", host nodes none (the UI
-    shows the device name, e.g. "sony_tv"). Button events: their name holds the device id
-    ("physical/buttons.bedroom_bed_moes/pressed") instead of a position.
-    Steps (agreed 2026-10-26), each built, verified locally (generated output compared), then
-    deployed and checked live in Vienna first, Junglinster after:
-    How a step goes (19b-19d done 2026-10-26/27, both houses; all Zigbee2MQTT devices on YAML):
-    "entities via yaml;" in a discovery device's Physical.def block makes the generator write its
-    entities as YAML "mqtt:" config (mqtt_yaml_entities.go) from the coordinator's relayed configs
-    (discovery_relayed_configs/state), and the coordinator withdraws the relay; batches by device
-    type, Vienna first. Check only after HA's MQTT reload has finished (~45 s); `ha core check`
-    does NOT validate mqtt YAML entities, only a reload does. Compare entity_ids, devices, areas
-    and states with a snapshot taken right before the deploy.
-    19e. Hosts and commandline (cpu/ping nodes and attributes, the picture frame) as YAML too;
-         fixes their names.
-    19f. EMS-ESP (Junglinster only).
-    19g. Z-Wave (Junglinster only).
-    19h. Between locations (plan point 3): imports, cloud hosts, ha2mqtt/fhem2mqtt bridges
-         published from the captured information; fixes the imported/bridged names.
-    19i. Cleanup: the coordinator's unused relay code, documentation. Home Assistant's MQTT schema
-         knowledge into one module shared by generator and coordinator (Architecture.md §6.16:
-         field table, abbreviations, discovery-to-YAML); generate reports discovery fields the
-         YAML drops; tools/ha_mqtt_fields.py stays a migration aid only.
-    The discovery prefix stays homeassistant.physical: next to an existing discovery-driven
-    installation's homeassistant/, it allows migrating such an installation device by device.
-
-20. Retained state for raw and discovered integrations (Architecture.md §6.16): the coordinator
-    cross-posts the latest message of each of their state topics, retained, onto its own topic;
-    state entities read that copy, event entities keep the original; the coordinator's own
-    availability joins theirs. After 19, which also shows which cross-posts are needed. Erik:
-    "we also need to detect if they are really down" (availability, per raw device).
-    Why it matters now: HA's MQTT reload re-creates EVERY YAML mqtt entity, so since 19 every
-    deploy loses every non-retained value (Vienna 2026-10-27: 99 of 162 "unknown" after a deploy).
+20. Retained state for raw and discovered integrations (Architecture.md §6.16; design agreed with
+    Erik 2026-10-27). Why: Home Assistant's MQTT reload re-creates EVERY YAML mqtt entity, so every
+    deploy loses every value whose topic isn't retained (Vienna 2026-10-27: 99 of 162 "unknown").
+    Principle: a device's retain status can't be known, certainly not at discovery time (a
+    retained message at subscribe proves the publisher retains, its absence proves nothing; a
+    discovery config doesn't say). So assume the worst, without gateway-specific code, and let
+    the defs say otherwise.
+    Mechanism:
+    - Shadow topic "<original topic>/retain" (decided; neither broker has any "/retain" topic
+      today): the coordinator cross-posts the latest message of each shadowed state topic,
+      unchanged, retained; the state entities' YAML state_topic points there. Commands keep going
+      to the integration's own command topic. Event entities (event, button/remote "action") never
+      read a shadow, even where one topic carries both (Zigbee2MQTT's action in the state JSON).
+    - The generator decides, per state topic, and gives the coordinator the list to shadow; the
+      coordinator never decides itself. It keeps a manifest of the shadows it owns and clears the
+      retained message of every one no longer listed, at deploy and at every start (the pattern of
+      discoverycleanup.go's TTopicManifest/RetireMissing). A new shadow fills at once from the
+      original's retained message, if there is one; otherwise at the device's next report.
+    - Switching a device either way only changes its entities' state_topic in the YAML: unique_id
+      and entity_id stay, so registry and history do.
+    - Every entity that reads a shadow also gets the coordinator's own availability (its Last
+      Will): if the coordinator stops, values must not freeze.
+    Declaration, in the defs:
+    - Default, for every device: not retained, so a shadow. This holds for discovered devices even
+      where the gateway does retain (EMS-ESP retains all its 146 state topics, Z-Wave JS UI all
+      1428): no gateway-specific knowledge in the code.
+    - A device's own line, in either form, always wins: "is retained" or "is not retained" (the
+      way out of a wildcard that says retained). For discovered devices it is an override; for raw
+      MQTT devices (item 39), whose declaration says everything anyway, it is the normal way.
+    - A wildcard, once per installation, for all devices of a gateway; applies when a device has no
+      line of its own. OPEN, Erik to choose: on topics, in MQTT's own filter syntax ('retained
+      topics "zwave/#", "ems-esp/#";' -- what retain is a property of, and the same for raw
+      devices, which have no identifiers), or on device identifiers ("zwavejs2mqtt_*",
+      "ems-esp*" -- stable per gateway). via_device can't carry it: only Zigbee2MQTT sets it on
+      every device (Z-Wave JS UI never, EMS-ESP on one device).
+    Still to do before building: Zigbee2MQTT subscribes to all of zigbee2mqtt/#; check on one
+    device that it ignores ".../retain" (it should only act on /set and /get). Availability per
+    raw device: "we also need to detect if they are really down" (Erik) -- each raw definition
+    needs its own availability.
+    Steps: (a) grammar ("is retained"/"is not retained", the wildcard) and the generator's per-topic
+    decision; (b) coordinator: shadow list, cross-posting, manifest cleanup; (c) the YAML writers
+    point state entities at the shadow and add the coordinator's availability; (d) Vienna first,
+    then Junglinster; check values survive a deploy; (e) then remove the interim below.
     Interim, both houses: deploy.d/06_restart.zigbee2mqtt restarts Zigbee2MQTT once HA main has
     finished reloading or restarting; it republishes its cached state of every device (cache_state,
     cache_state_persistent, cache_state_send_on_startup; motion comes back as no motion, buttons
-    with action=null). Side effects: the bridge is offline ~10-30 s, and plugs stay "offline" in its
-    availability for up to ~5 minutes (it re-checks routers one by one), so HA can't switch them
-    meanwhile; the heating automations run on unavailable -> state and send the current setpoints
-    again (no effect seen, heating off). EMS-ESP and Z-Wave (19f/19g) will need their own answer.
-Can we, at discovery time, infer if a device uses retain on its state or not? We only need a "retain wrapper" of the device communicates in a non-retaining way.
+    with action=null). Side effects: the bridge is offline ~10-30 s; plugs and battery devices
+    stay "offline" in its availability up to ~5 minutes or until their next check-in (seen
+    2026-10-27: Vienna's Signify dimmer, Junglinster's kitchen Go), so HA can't switch them
+    meanwhile; template sensors with a delay show "unknown" until the delay has passed after a
+    reload; the heating automations run on unavailable -> state and send the current setpoints
+    again (no effect seen, heating off). EMS-ESP's and Z-Wave JS UI's values survive (retained).
 
 21. "home_assistant main" (Architecture.md §6.16): per entity, can it become local (no MQTT round
     trip to itself), or does something else on the bus need it?
@@ -91,17 +81,34 @@ Can we, at discovery time, infer if a device uses retain on its state or not? We
     Found on the way: Vienna's living-room import named Junglinster's own
     sensors.netatmo_living_room (not exported) instead of sensors.netatmo_livingroom -- stale
     values since 2026-10-26 12:02, CO2/noise/pressure missing -- without any report from
-    generate: an import of a device the other house doesn't export should be reported.
+    generate: an import of a device the other house doesn't export should be reported
 
 22a. Vienna's washing-machine plug (switch.washing_machine, ROBB ROB_200-017-0) should be on by
     default (Erik, 2026-10-27). Check whether Zigbee2MQTT offers a power-on behaviour for it
     (several bulbs have select.power_on_behavior); otherwise a rule that switches it back on.
 EP: No issue. I always "leave it on", but if it happens to be off, it is no issue switching it on.
+So, skip this item.
 
 22b. Junglinster's 12 Hue Taps (kinetic, battery-less) only send when pressed, so Zigbee2MQTT's
     availability marks them offline and their events are "unavailable" (they still work when
     pressed). Exclude them from Zigbee2MQTT's availability, or ignore it for them.
 
+22c. we need a pretty printer for the def files. Especially the ones that are updated with the unique IDs.
+    It should also try to keep lines to about 80 characters (Erik, 2026-10-27) -- e.g. the long
+    "capability ... as <id>;" lines and the metadata blocks generate now writes (Architecture.md §6.16).
+
+22d. Metadata topics per device, provided by the integration (Erik, 2026-10-27): the coordinator
+    isn't aware of each (non-discovery) integration's peculiarities, so every integration gives
+    it, per device, the list of topics that carry that device's metadata (manufacturer, model,
+    sw_version, ...), which it collects into discovery_device_info/state for generate to weave
+    into Physical.def (Architecture.md §6.16). Half there: the hosts integration's type definition
+    (THostsEntityMaterialization.DeviceInfoTopic) already sets each device's device_info_topic
+    in devices.yaml, but the coordinator ignores it and subscribes to hosts/+/device/state,
+    hardcoded. Generalise to a "metadata topics" list per device, for every integration kind
+    (hosts, home_assistant bridges, commandline, later fhem2mqtt and raw MQTT).
+
+22f. Vienna's TV ping node (hosts/sony_tv/node/state) never gets a message: the ping reporter
+    publishes nothing for sony_tv (seen 2026-10-27, not caused by the YAML switch).
 23. Can we trigger, within HA, the reload of an integration?
 The netatmo integration on P-s-2@JLI  often "losed" some connection
 leading to entities of especially the "Smart Indoor Air Quality Monitor" to report
@@ -121,7 +128,7 @@ reloading the Ring integration brought them back.
     "defaults:" in Physical.def) set unit/icon/device_class/state_class but only fill gaps, and have
     no precision. Add "precision:" (a sensor's suggested_display_precision -- display only; HA keeps
     full precision in state, history and statistics) and "forced" (override a value the gateway
-    supplies, e.g. Zigbee2MQTT's pressure unit). Easy once entities are YAML (Zigbee2MQTT since 19): the
+    supplies, e.g. Zigbee2MQTT's pressure unit). Easy now that entities are YAML (Architecture.md §6.16): the
     generator writes every field itself.
     The old bash approach's settings (Erik): $HOME/go/src/homeassistant/Old/Junglinster/Modules/
     Settings.1.hass -- units per quantity (UnitsOf_pressure="mbar", UnitsOf_temperature="°C",
@@ -141,6 +148,18 @@ reloading the Ring integration brought them back.
 So, what is available to be positioned as potential capabilities, and what is available to be positioned at the conceptual layer.
 
 26. Logical layer + available nuances in relation to "via device"  (netatmo radio module via main module) and aggregation.
+    Availability via "via_device" (Erik, 2026-10-27): Home Assistant derives nothing from
+    via_device -- it only shows "connected via" and the device hierarchy -- so when X hangs off Y
+    and Y is down, X's entities stay available unless their own availability says otherwise. The
+    generator should infer that dependency from the declared "via_device: Y;" (a device reference
+    in the defs, Architecture.md §6.16), one declaration for both the hierarchy and the availability, like
+    "dependency on" in Logical.def today. Avoid redundancy where a gateway's own discovery
+    already operationalises it (Zigbee2MQTT puts its bridge/state into every device's
+    availability; that doesn't mean EMS-ESP or Z-Wave JS UI do), but the defs must not depend on
+    that: the dependency is declared, the operationalisation only skips what is already there.
+    Also integrations as devices: e.g. "integration.ha2mqtt" as a device of its own, and a device
+    it integrates gets "via_device: integration.ha2mqtt;" ("roof/envoy" is integrated via
+    ha2mqtt); the same for Zigbee2MQTT, Z-Wave JS UI, EMS-ESP, hosts. To think through carefully.
   
   Capability level mapping of values at logical level?
   Tap 1,2,3,4 => 1,2 = event.event_1 { toggle }
@@ -150,8 +169,8 @@ But we do not need to see these at the conceptual.def level
 Plus "conceptualisation" of the triggering rules.
 Should be byte level equivallent. 
   
-- Note (2026-09-22, from the coordinator-scope discussion that led to item 19's operational-role
-  split -- see memory: project_event_bus_operational_vs_coordinative_roles.md and
+- Note (2026-09-22, from the coordinator-scope discussion that led to the operational-role
+  split (then item 19) -- see memory: project_event_bus_operational_vs_coordinative_roles.md and
   project_junglinster_coordinator_crash_loop_2026_09_22.md): Logical.def work breaks down into (at
   least) four distinct situations, worth keeping distinct rather than treating "the logical layer"
   as one undifferentiated bucket when this item is actually designed:
@@ -161,12 +180,11 @@ Should be byte level equivallent.
        HA instance) -- cross-device composition.
     4. Defining ABSTRACTED entities that accommodate for shortcomings in the actual device (e.g. a
        device that never reports its own state back, or one that works via multi-broadcast radio
-       messages rather than a clean request/reply) -- this is the FHEM-motivated case from item 19.
+       messages rather than a clean request/reply) -- the FHEM-motivated case.
   Of these, (2) and (4) are the two that could plausibly be implemented either IN the coordinator
-  or in a separate component (per item 19's own reasoning: (4) in particular is operational, not
+  or in a separate component (per that discussion: (4) in particular is operational, not
   coordinative, and may belong in that same higher-reliability separate role rather than the
-  coordinator) -- an open design question, not yet decided, to resolve when this item is picked up
-  together with item 19.
+  coordinator) -- an open design question, not yet decided, to resolve when this item is picked up.
 - Deal with the "physical" sphere. Should be empty, where contributing sensors need a conceptual name as well based on the location the material (= real physical) world.
   - Prerequisite step identified 2026-10-15: a rule's "when" clause breaches abstraction by
     containing raw, device-level protocol codes (e.g. "event.physical:door/moes/1 is 2_single or
@@ -501,6 +519,14 @@ Should be byte level equivallent.
      first deploy (no matching by hand in the HA UI, no previous-manifest comparison by source).
 
 31. Code cleaning (dead code, superseded generator logic, parser)
+==> Dead code found 2026-10-27 (go/ast analysis, not from item 19, left out of its cleanup): generator
+    firstNonEmptyEnv (defined.go), extractVariableName, findAggregateConstituents,
+    formatSpaceLabel, scanInputNumberBody (expander.go), bootstrapAutomationBody
+    (remote_instance_automations.go), and used only by tests: impliedAggregatesForSpace,
+    lookupIcon, lookupAggregatedDomain, homeAssistantCapabilityEntityIDs, ResetGlobalVariables;
+    coordinator, used only by tests: drainDiscoveryRelayQueue, loadTopicManifest,
+    deviceEventEndpoints. Cross-check them against the grammar first (Erik): a dead function may
+    belong to a DSL construct that should go too, or one that should still work.
 ==> CHeck if node, temperature, etc, are acknowledged as axplicit "sub domains" in the code.
 ==> Start by checking the dead DSL constructs, and clean the assocuated code.
 - Rename the `homeassistant_instances/...` MQTT topic tree (bootstrap/bridge protocol,

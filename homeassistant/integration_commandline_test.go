@@ -13,6 +13,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,7 +116,7 @@ end;`, "\n"))
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
 
-	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot}
+	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot, HAOutputDir: filepath.Join(outputRoot, "hass")}
 	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame frame with:
   capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
   capability button.reboot    "reboot_frame";
@@ -138,25 +139,25 @@ end;`, "\n"), ctx); err != nil {
 		t.Errorf("commandline/frame.yaml should have no \"sensors:\" section (no sensor capability declared); got:\n%s", hostContent)
 	}
 
-	coordFile, err := os.ReadFile(filepath.Join(outputRoot, "coordinator", "commandline.yaml"))
+	coordFile, err := commandlineYAMLEntities(filepath.Join(outputRoot, "hass"))
 	if err != nil {
-		t.Fatalf("reading coordinator/commandline.yaml: %v", err)
+		t.Fatalf("reading the YAML entities: %v", err)
 	}
 	coordContent := string(coordFile)
-	for _, want := range []string{"host.frame:", `host: "frame"`, "switches:", "slideshow: {}", "buttons:", "reboot: {}"} {
+	for _, want := range []string{"unique_id: host.frame_commandline_node", "default_entity_id: switch.frame_slideshow", "command_topic: commandline/frame/slideshow/set", "default_entity_id: button.frame_reboot", "command_topic: commandline/frame/reboot/press"} {
 		if !strings.Contains(coordContent, want) {
-			t.Errorf("coordinator/commandline.yaml missing %q; got:\n%s", want, coordContent)
+			t.Errorf("the YAML entities missing %q; got:\n%s", want, coordContent)
 		}
 	}
 	if strings.Contains(coordContent, "check_slideshow") {
-		t.Errorf("coordinator/commandline.yaml must never carry script content; got:\n%s", coordContent)
+		t.Errorf("the YAML entities must never carry script content; got:\n%s", coordContent)
 	}
 }
 
 // TestGenerateCommandlineIntegrationOutputsUsesPositionedEntityID confirms a capability positioned
 // in Spaces.def (DeviceConceptualLinks populated the same way a real "entity <spec> from
 // <device-id> entity <capability>;" line would) gets its resolved entity_id/name written into
-// coordinator/commandline.yaml, instead of being left for the coordinator to auto-derive.
+// the YAML entities, instead of being left for the coordinator to auto-derive.
 func TestGenerateCommandlineIntegrationOutputsUsesPositionedEntityID(t *testing.T) {
 	outputRoot := t.TempDir()
 	admin := newAdministrationState()
@@ -169,24 +170,24 @@ func TestGenerateCommandlineIntegrationOutputsUsesPositionedEntityID(t *testing.
 		},
 	}
 
-	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot, Admin: admin}
+	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot, HAOutputDir: filepath.Join(outputRoot, "hass"), Admin: admin}
 	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame frame with:
   capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
 end;`, "\n"), ctx); err != nil {
 		t.Fatalf("generateCommandlineIntegrationOutputs: %v", err)
 	}
 
-	coordFile, err := os.ReadFile(filepath.Join(outputRoot, "coordinator", "commandline.yaml"))
+	coordFile, err := commandlineYAMLEntities(filepath.Join(outputRoot, "hass"))
 	if err != nil {
-		t.Fatalf("reading coordinator/commandline.yaml: %v", err)
+		t.Fatalf("reading the YAML entities: %v", err)
 	}
 	coordContent := string(coordFile)
 	for _, want := range []string{
-		`entity_id: "switch.social_apartment_living_room_picture_frame"`,
-		`name: "social/apartment/living_room/picture_frame"`,
+		"default_entity_id: switch.social_apartment_living_room_picture_frame",
+		"name: social/apartment/living_room/picture_frame",
 	} {
 		if !strings.Contains(coordContent, want) {
-			t.Errorf("coordinator/commandline.yaml missing %q; got:\n%s", want, coordContent)
+			t.Errorf("the YAML entities missing %q; got:\n%s", want, coordContent)
 		}
 	}
 }
@@ -194,7 +195,7 @@ end;`, "\n"), ctx); err != nil {
 // TestGenerateCommandlineIntegrationOutputsWritesDeviceDisplayName is a regression test for a real
 // gap found live 2026-09-11: registerCommandlineDevicePositioning (Conceptual_DevicePositioning.go)
 // already computes a device-level DisplayName from Spaces.def's own positioning, but nothing ever
-// serialized it into coordinator/commandline.yaml -- so the coordinator's own "device:" block
+// serialized it into the YAML entities -- so the coordinator's own "device:" block
 // always fell back to the bare Host instead (e.g. Vienna's own picture_frame device showing up
 // named "protocols-server-2", its Host, rather than "apartment/living_room/picture_frame").
 func TestGenerateCommandlineIntegrationOutputsWritesDeviceDisplayName(t *testing.T) {
@@ -205,20 +206,20 @@ func TestGenerateCommandlineIntegrationOutputsWritesDeviceDisplayName(t *testing
 		AttributeEntityIDs: map[string]TDeviceAttributeLink{},
 	}
 
-	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot, Admin: admin}
+	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot, HAOutputDir: filepath.Join(outputRoot, "hass"), Admin: admin}
 	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame frame with:
   capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
 end;`, "\n"), ctx); err != nil {
 		t.Fatalf("generateCommandlineIntegrationOutputs: %v", err)
 	}
 
-	coordFile, err := os.ReadFile(filepath.Join(outputRoot, "coordinator", "commandline.yaml"))
+	coordFile, err := commandlineYAMLEntities(filepath.Join(outputRoot, "hass"))
 	if err != nil {
-		t.Fatalf("reading coordinator/commandline.yaml: %v", err)
+		t.Fatalf("reading the YAML entities: %v", err)
 	}
 	coordContent := string(coordFile)
-	if !strings.Contains(coordContent, "display_name: apartment/living_room/picture_frame") {
-		t.Errorf("coordinator/commandline.yaml missing display_name; got:\n%s", coordContent)
+	if !strings.Contains(coordContent, "name: apartment/living_room/picture_frame\n") {
+		t.Errorf("the YAML entities missing display_name; got:\n%s", coordContent)
 	}
 }
 
@@ -227,19 +228,19 @@ end;`, "\n"), ctx); err != nil {
 // nothing to fall back to but the bare Host, same as every other device kind's own manifest.
 func TestGenerateCommandlineIntegrationOutputsOmitsDisplayNameWhenUnpositioned(t *testing.T) {
 	outputRoot := t.TempDir()
-	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot}
+	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot, HAOutputDir: filepath.Join(outputRoot, "hass")}
 	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame frame with:
   capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
 end;`, "\n"), ctx); err != nil {
 		t.Fatalf("generateCommandlineIntegrationOutputs: %v", err)
 	}
 
-	coordFile, err := os.ReadFile(filepath.Join(outputRoot, "coordinator", "commandline.yaml"))
+	coordFile, err := commandlineYAMLEntities(filepath.Join(outputRoot, "hass"))
 	if err != nil {
-		t.Fatalf("reading coordinator/commandline.yaml: %v", err)
+		t.Fatalf("reading the YAML entities: %v", err)
 	}
-	if strings.Contains(string(coordFile), "display_name:") {
-		t.Errorf("coordinator/commandline.yaml should have no display_name line for an unpositioned device; got:\n%s", coordFile)
+	if strings.Contains(string(coordFile), "name: apartment/") {
+		t.Errorf("the YAML entities should have no display_name line for an unpositioned device; got:\n%s", coordFile)
 	}
 }
 
@@ -267,13 +268,13 @@ end;`, "\n"))
 // TestGenerateCommandlineIntegrationOutputsResolvesDependencyOn confirms a parsed "dependency on
 // <id>;" resolves (single-hop, directly against ctx.HostDevicesByID) into the target's own node
 // topic, ANDed into every one of this device's own entities -- including its own liveness entity,
-// same as hassbridge's identical precedent (hassBridgeAvailabilityTopics) -- AND gets written into
-// coordinator/commandline.yaml's own "depends_on_availability:" field for the coordinator to
-// actually apply (house_event_bus_coordinator/discoverycommandline.go).
+// same as hassbridge's identical precedent (hassBridgeAvailabilityTopics) -- AND gets into the
+// YAML entities' availability (commandline_yaml_entities.go).
 func TestGenerateCommandlineIntegrationOutputsResolvesDependencyOn(t *testing.T) {
 	outputRoot := t.TempDir()
 	ctx := TPhysicalGenerationContext{
-		OutputRoot: outputRoot,
+		OutputRoot:  outputRoot,
+		HAOutputDir: filepath.Join(outputRoot, "hass"),
 		HostDevicesByID: map[string]THostDevice{
 			"node.frame": {DeviceID: "node.frame", HostName: "frame", IntegrationType: "ping"},
 		},
@@ -285,16 +286,13 @@ end;`, "\n"), ctx); err != nil {
 		t.Fatalf("generateCommandlineIntegrationOutputs: %v", err)
 	}
 
-	coordFile, err := os.ReadFile(filepath.Join(outputRoot, "coordinator", "commandline.yaml"))
+	coordFile, err := commandlineYAMLEntities(filepath.Join(outputRoot, "hass"))
 	if err != nil {
-		t.Fatalf("reading coordinator/commandline.yaml: %v", err)
+		t.Fatalf("reading the YAML entities: %v", err)
 	}
 	coordContent := string(coordFile)
-	if !strings.Contains(coordContent, "depends_on_availability:") {
-		t.Fatalf("coordinator/commandline.yaml missing \"depends_on_availability:\"; got:\n%s", coordContent)
-	}
 	if !strings.Contains(coordContent, "hosts/frame/node/state") {
-		t.Errorf("coordinator/commandline.yaml missing the resolved node.frame topic; got:\n%s", coordContent)
+		t.Errorf("the YAML entities missing the resolved node.frame topic; got:\n%s", coordContent)
 	}
 }
 
@@ -304,7 +302,7 @@ end;`, "\n"), ctx); err != nil {
 // warn-and-continue discipline.
 func TestGenerateCommandlineIntegrationOutputsWarnsOnUnresolvableDependency(t *testing.T) {
 	outputRoot := t.TempDir()
-	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot}
+	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot, HAOutputDir: filepath.Join(outputRoot, "hass")}
 	if err := generateCommandlineIntegrationOutputs(strings.Split(`device appliance.picture_frame frame with:
   dependency on node.unknown;
   capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
@@ -312,11 +310,29 @@ end;`, "\n"), ctx); err != nil {
 		t.Fatalf("generateCommandlineIntegrationOutputs: %v", err)
 	}
 
-	coordFile, err := os.ReadFile(filepath.Join(outputRoot, "coordinator", "commandline.yaml"))
+	coordFile, err := commandlineYAMLEntities(filepath.Join(outputRoot, "hass"))
 	if err != nil {
-		t.Fatalf("reading coordinator/commandline.yaml: %v", err)
+		t.Fatalf("reading the YAML entities: %v", err)
 	}
-	if strings.Contains(string(coordFile), "depends_on_availability:") {
-		t.Errorf("coordinator/commandline.yaml should have no depends_on_availability for an unresolvable dependency; got:\n%s", coordFile)
+	if strings.Contains(string(coordFile), "hosts/") {
+		t.Errorf("the YAML entities should have no depends_on_availability for an unresolvable dependency; got:\n%s", coordFile)
 	}
+}
+
+// commandlineYAMLEntities is every YAML "mqtt:" entity file under haOutputDir, concatenated --
+// where a commandline device's entities are since PROJECT.md 19e (no coordinator/commandline.yaml).
+func commandlineYAMLEntities(haOutputDir string) ([]byte, error) {
+	files, err := filepath.Glob(filepath.Join(haOutputDir, "entities", "mqtt", "*", "*.yaml"))
+	if err != nil || len(files) == 0 {
+		return nil, fmt.Errorf("no YAML entities under %s (%v)", haOutputDir, err)
+	}
+	var all []byte
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, data...)
+	}
+	return all, nil
 }

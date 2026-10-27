@@ -255,7 +255,7 @@ func deviceHasCapability(capName, deviceID string, discoveryGatewaysByID map[str
 	if device, ok := commandlineDevicesByID[deviceID]; ok {
 		// "node" mirrors the "hosts" branch's own exact exception above: a commandline device's
 		// node is LWT-based, synthesized by the coordinator (house_event_bus_coordinator/
-		// discoverycommandline.go's own unconditional "_commandline_node" entity), never a literal
+		// commandline_yaml_entities.go's own unconditional "_commandline_node" entity), never a literal
 		// Physical.def-declared Capabilities map entry (2026-10-12, PROJECT.md item 11c: giving
 		// commandline devices a real, positionable "node" capability, replacing the Logical.def-only
 		// "derived capability binary_sensor.node with: condition node.X; end;" indirection that used
@@ -498,7 +498,7 @@ func registerDeviceCapabilityEntityLinkAllowingHiddenCore(administration *TAdmin
 	// one of this device's own commandline capabilities -- a commandline device commonly shares its
 	// DeviceID with a "hosts"-kind declaration of the same physical machine (e.g. host.frame is both
 	// a "hosts" cpu device and a "commandline" device, deliberately sharing one HA device identity,
-	// discoverycommandline.go's own doc comment), so falling through to the other kinds below when
+	// commandlineYAMLEntityBodies' doc comment (commandline_yaml_entities.go)), so falling through to the other kinds below when
 	// the capability name isn't recognised here (rather than erroring immediately, unlike every
 	// other branch) is required for that dual-kind case to keep working for its own non-commandline
 	// capabilities (e.g. "load"/"temperature").
@@ -507,7 +507,7 @@ func registerDeviceCapabilityEntityLinkAllowingHiddenCore(administration *TAdmin
 		// entry -- see deviceHasCapability's commandline "node" case for why (mirrors the "hosts"
 		// branch's own identical treatment of its ping-based node, just above in this same
 		// dispatcher). Kind is hardcoded "binary_sensor" since that's the only domain the
-		// coordinator's own auto-published "_commandline_node" entity (discoverycommandline.go) is
+		// coordinator's own auto-published "_commandline_node" entity (commandline_yaml_entities.go) is
 		// ever published as.
 		//
 		// Skipped when this SAME DeviceID is ALSO a "hosts"-kind device

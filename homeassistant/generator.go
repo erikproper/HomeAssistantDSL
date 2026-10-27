@@ -319,8 +319,8 @@ var generatedUniqueID = func(entityID string) string { return entityID }
 
 // generateFromPaths contains the full generation pipeline given resolved directory paths.
 func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutputDir, label string) (*TAdministrationState, error) {
-	// Before parsing: the physical layer's coordinator files (devices.yaml, commandline.yaml) are
-	// written during it, recording their entities for the registry manifest as they go.
+	// Before parsing: the physical layer's writers (devices.yaml, the commandline devices) record
+	// their entities for the registry manifest as they go.
 	coordinatorPublishedEntities = nil
 	spaceAggregateMembers = nil
 	positionedEntityIDs = nil

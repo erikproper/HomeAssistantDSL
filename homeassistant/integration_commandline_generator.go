@@ -8,10 +8,8 @@
  * two outputs: (a) <outputRoot>/commandline/<host>.yaml, the target host's own script config for
  * the mqtt_commandline daemon (Integrations/mqtt_commandline/) -- deployed the same way
  * cpu/secrets.* already is, via a deploy.d step naming the host explicitly, not generator-decided
- * routing; (b) <outputRoot>/coordinator/commandline.yaml, the coordinator-consumable device/
- * capability list house_event_bus_coordinator/discoverycommandline.go reads to build MQTT
- * discovery configs -- scripts themselves never appear there, since the coordinator only ever
- * relays state/command topics, never invokes anything.
+ * routing; (b) the registry manifest's entries for its entities (recordCommandlineRegistryEntries),
+ * whose YAML "mqtt:" config commandline_yaml_entities.go writes (PROJECT.md 19e).
  * generateCommandlineIntegrationOutputs is the entry point registered in Physical_Storage.go's
  * integrationBodyParsers.
  *
@@ -85,7 +83,7 @@ func generateCommandlineHostFile(outputRoot string, device TCommandlineDevice) e
 // by Conceptual_CommandlineEntities.go's registerCommandlineCapabilityEntityLink, via the ordinary
 // "entity <spec> from <device-id> <capability>;" construct), returning the entity id and a
 // sphere/path-derived display name -- both "" if this capability was never positioned in
-// Spaces.def, in which case discoverycommandline.go falls back to its own auto-derived naming.
+// Spaces.def, in which case commandline_yaml_entities.go falls back to its own auto-derived naming.
 func commandlineCapabilityRef(admin *TAdministrationState, deviceID, name string) (entityID, displayName string) {
 	if admin == nil {
 		return "", ""
@@ -101,109 +99,34 @@ func commandlineCapabilityRef(admin *TAdministrationState, deviceID, name string
 	return attr.EntityID, attr.Identity.Sphere + "/" + attr.Identity.Path
 }
 
-// generateCommandlineCoordinatorFile writes <outputRoot>/coordinator/commandline.yaml: every
-// declared device's id/host plus its capability names grouped by kind -- no script content, since
-// the coordinator only ever relays commandline/<host>/<entity>/... topics, never invokes a script
-// itself. A capability positioned in Spaces.def (via "entity <spec> from <device-id> entity
-// <capability>;") carries its resolved entity_id/name along too, so the coordinator can use the
-// DSL author's own chosen conceptual position instead of an auto-derived "switch.<host>_<name>".
-func generateCommandlineCoordinatorFile(outputRoot string, devices []TCommandlineDevice, admin *TAdministrationState) error {
-	sortedDevices := append([]TCommandlineDevice{}, devices...)
-	sort.Slice(sortedDevices, func(i, j int) bool { return sortedDevices[i].DeviceID < sortedDevices[j].DeviceID })
-
-	var sb strings.Builder
-	sb.WriteString(generatorHeader)
-	sb.WriteString("devices:\n")
-	for _, d := range sortedDevices {
-		names := make([]string, 0, len(d.Capabilities))
-		for name := range d.Capabilities {
-			names = append(names, name)
+// recordCommandlineRegistryEntries records every commandline entity's unique_id and entity_id
+// for the registry manifest (registry_manifest.go): the daemon's liveness node and each positioned
+// capability. The coordinator no longer gets a commandline.yaml -- Home Assistant gets these
+// entities from the generator's YAML (commandline_yaml_entities.go, PROJECT.md 19e).
+func recordCommandlineRegistryEntries(devices []TCommandlineDevice, admin *TAdministrationState) {
+	for _, d := range devices {
+		for name, capability := range d.Capabilities {
+			entityID, _ := commandlineCapabilityRef(admin, d.DeviceID, name)
+			if entityID == "" {
+				continue
+			}
+			uniqueID := d.DeviceID + "_" + name
+			if capability.AssignedID != "" {
+				uniqueID = capability.AssignedID
+			}
+			coordinatorPublishedEntities = append(coordinatorPublishedEntities, TRegistryManifestEntry{UniqueID: uniqueID, EntityID: entityID})
 		}
-		sort.Strings(names)
-
-		sb.WriteString("  " + d.DeviceID + ":\n")
-		sb.WriteString("    host: \"" + d.Host + "\"\n")
-		// display_name (added 2026-09-11): this house's own Spaces.def-positioning-derived name
-		// for the device -- real gap found live: registerCommandlineDevicePositioning
-		// (Conceptual_DevicePositioning.go) already computes this correctly, but nothing ever
-		// serialized it here, so the coordinator's own "device:" block always fell back to the
-		// bare Host instead (e.g. Vienna's own picture_frame device showing up named
-		// "protocols-server-2" -- its Host -- rather than its real Spaces.def position). Absent
-		// entirely (via omitempty on the coordinator's own decode side) when the device was never
-		// positioned, same "nothing to fall back to but the bare id" case every other device kind
-		// already has.
-		if admin != nil {
-			if link, ok := admin.DeviceConceptualLinks[d.DeviceID]; ok && link.DisplayName != "" {
-				sb.WriteString("    display_name: " + link.DisplayName + "\n")
-			}
-		}
-		// depends_on_availability (2026-10-06) mirrors integration_hassbridge_generator.go's/
-		// integration_import_generator.go's own identical field exactly.
-		if len(d.DependsOnAvailabilityTopics) > 0 {
-			sb.WriteString("    depends_on_availability:\n")
-			for _, topic := range d.DependsOnAvailabilityTopics {
-				sb.WriteString("      - \"" + topic + "\"\n")
-			}
-		}
-
-		writeKindList := func(kind, section string) {
-			var kindNames []string
-			for _, name := range names {
-				if d.Capabilities[name].Kind == kind {
-					kindNames = append(kindNames, name)
-				}
-			}
-			if len(kindNames) == 0 {
-				return
-			}
-			sb.WriteString("    " + section + ":\n")
-			for _, name := range kindNames {
-				entityID, displayName := commandlineCapabilityRef(admin, d.DeviceID, name)
-				if entityID == "" {
-					sb.WriteString("      " + name + ": {}\n")
-					continue
-				}
-				sb.WriteString("      " + name + ":\n")
-				sb.WriteString("        entity_id: \"" + entityID + "\"\n")
-				sb.WriteString("        name: \"" + displayName + "\"\n")
-				uniqueID := d.DeviceID + "_" + name // the coordinator's formula (discoverycommandline.go)
-				if id := d.Capabilities[name].AssignedID; id != "" {
-					sb.WriteString("        stable_id: \"" + id + "\"\n")
-					uniqueID = id
-				}
-				coordinatorPublishedEntities = append(coordinatorPublishedEntities, TRegistryManifestEntry{UniqueID: uniqueID, EntityID: entityID})
-			}
-		}
-		writeKindList("switch", "switches")
-		writeKindList("sensor", "sensors")
-		writeKindList("button", "buttons")
-
-		// node (2026-10-12, PROJECT.md item 11c): this device's own daemon-liveness entity, which
-		// the coordinator (house_event_bus_coordinator/discoverycommandline.go) always publishes
-		// unconditionally regardless of positioning -- unlike switch/sensor/button above, there's
-		// no corresponding Capabilities map entry to iterate (see
-		// Conceptual_DeviceCapabilityEntities.go's commandline "node" special case), so this is
-		// always written, once per device, rather than looped over a kind-filtered name list.
-		nodeEntityID, nodeDisplayName := commandlineCapabilityRef(admin, d.DeviceID, "node")
-		if nodeEntityID == "" {
-			sb.WriteString("    node: {}\n")
-		} else {
-			sb.WriteString("    node:\n")
-			sb.WriteString("      entity_id: \"" + nodeEntityID + "\"\n")
+		if nodeEntityID, _ := commandlineCapabilityRef(admin, d.DeviceID, "node"); nodeEntityID != "" {
 			coordinatorPublishedEntities = append(coordinatorPublishedEntities, TRegistryManifestEntry{UniqueID: d.DeviceID + "_commandline_node", EntityID: nodeEntityID})
-			sb.WriteString("      name: \"" + nodeDisplayName + "\"\n")
 		}
 	}
-
-	dir := filepath.Join(outputRoot, "coordinator")
-	return writeYAMLFile(filepath.Join(dir, "commandline.yaml"), sb.String())
 }
 
 // generateCommandlineIntegrationOutputs parses the "integration commandline with: ... end;"
 // block's body into devices, then writes the per-host daemon config file(s), each host's own
 // "main" broker secrets (mirroring cpu/ping's own "deployed the same way cpu/secrets.* already
 // is" convention -- a commandline device is a plain local LAN device like ping/cpu, no per-device
-// broker profile selection needed), and the coordinator-consumable commandline.yaml.
+// broker profile selection needed), and records its entities for the registry manifest.
 func generateCommandlineIntegrationOutputs(bodyLines []string, ctx TPhysicalGenerationContext) error {
 	devices, warnings := parseCommandlineIntegrationBody(bodyLines)
 	for _, w := range warnings {
@@ -245,5 +168,9 @@ func generateCommandlineIntegrationOutputs(bodyLines []string, ctx TPhysicalGene
 			}
 		}
 	}
-	return generateCommandlineCoordinatorFile(ctx.OutputRoot, devices, ctx.Admin)
+	recordCommandlineRegistryEntries(devices, ctx.Admin)
+	for _, report := range generateYAMLCommandlineEntities(devices, ctx) {
+		fmt.Printf("[integration commandline] %s\n", report)
+	}
+	return nil
 }

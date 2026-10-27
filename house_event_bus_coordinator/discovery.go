@@ -41,24 +41,11 @@ const (
 	// mqttBoolPayloadTrue/False is a plain Go-boolean-string -- this coordinator's own convention
 	// for a "hosts"-kind device's node/switch entities (discovery.go's TBinarySensorDiscoveryPayload,
 	// unconditional for every hosts device) and the "commandline" integration's own node/
-	// availability topics (discoverycommandline.go) -- never HA's own native on/off spelling.
+	// availability topics -- never HA's own native on/off spelling.
 	mqttBoolPayloadTrue  = "true"
 	mqttBoolPayloadFalse = "false"
-
-	// mqttStateOn/Off is Home Assistant's own native lowercase binary_sensor state convention --
-	// used when this coordinator proxies a REAL HA entity's own on/off state verbatim (a
-	// hassbridge-kind binary_sensor, applyProxiedBinarySensorPayload) and by
-	// buildAvailabilityFields' own node-topic availability factor (which normalises either
-	// mqttStateOn/Off or mqttBoolPayloadTrue/False, via its own value_template, to this pair).
-	mqttStateOn  = "on"
-	mqttStateOff = "off"
-
-	// mqttStateAvailable/Unavailable is buildAvailabilityFields' own state-topic availability
-	// factor's normalised pair -- mqttStateUnavailable also doubles as the literal string a proxied
-	// HA entity's own last-reported state naturally becomes when its upstream integration can't
-	// read it (never a value this coordinator invents itself).
-	mqttStateAvailable   = "available"
-	mqttStateUnavailable = "unavailable"
+	// Home Assistant's own lowercase "on"/"off", used when a REAL HA entity's own state is
+	// proxied verbatim, is hamqtt.StateOn/StateOff.
 )
 
 // TDiscoveryDevice is the shared HA discovery "device:" block grouping a device's node and
@@ -112,12 +99,6 @@ func cloudSafePayload(payload interface{}) interface{} {
 		p.Device = p.Device.withoutSuggestedArea()
 		return p
 	case TSensorDiscoveryPayload:
-		p.Device = p.Device.withoutSuggestedArea()
-		return p
-	case TCommandlineSwitchDiscoveryPayload:
-		p.Device = p.Device.withoutSuggestedArea()
-		return p
-	case TCommandlineButtonDiscoveryPayload:
 		p.Device = p.Device.withoutSuggestedArea()
 		return p
 	default:
@@ -340,7 +321,7 @@ func availabilityTopicFor(nodeStateTopic, capability string) string {
 // TAvailabilityEntry is one entry of HA MQTT discovery's "availability" list -- a single extra
 // factor ANDed (availability_mode "all") into an entity's own availability, each with its own
 // topic/value_template/payload pair since a node topic's and a proxied entity's own state topic
-// use different raw payload conventions (see nodeAvailabilityEntries' own doc comment). Shared
+// use different raw payload conventions (see hamqtt.NodeAvailabilityEntries' doc comment). Shared
 // between buildAvailabilityFields' map-based body (hassbridge/import, body["availability"] = these,
 // json.Marshal serialises a []TAvailabilityEntry identically whether reached through a
 // map[string]interface{} or a typed struct field) and the commandline integration's own typed
@@ -352,96 +333,6 @@ type TAvailabilityEntry struct {
 	ValueTemplate       string `json:"value_template"`
 	PayloadAvailable    string `json:"payload_available"`
 	PayloadNotAvailable string `json:"payload_not_available"`
-}
-
-// nodeAvailabilityEntries builds one TAvailabilityEntry per non-empty nodeTopic -- a device's own
-// connectivity signal, or (PROJECT.md's logical-layer work) another device's own connectivity
-// signal this one was declared to "depend on" (Logical.def "dependency on <other-id>;", resolved
-// generator-side, already flattened across the full transitive dependency chain -- the coordinator
-// never walks that graph itself, it just ANDs whatever flat topic list it's handed). Empty strings
-// are skipped, so a caller can pass its own possibly-"" node topic (already gated via
-// availabilityTopicFor -- "" for the node capability itself, or a device with no declared node
-// capability) straight through without an extra branch at the call site.
-//
-// value_template normalises BOTH conventions a node topic can carry, rather than assuming one --
-// a hassbridge-kind node relays a real HA entity's own lowercase mqttStateOn/Off
-// (applyProxiedBinarySensorPayload), but a hosts-kind (or commandline-kind, 2026-10-06) node topic
-// publishes the coordinator's own mqttBoolPayloadTrue/False (discovery.go's
-// TBinarySensorDiscoveryPayload{PayloadOn: mqttBoolPayloadTrue, ...}, unconditional for every hosts/
-// commandline device). Shared by the hassbridge entity-availability path, the cross-house import
-// path (an import can wrap EITHER kind, kind-agnostic since 2026-09-05, so hardcoding one literal
-// here silently broke availability for an imported hosts-kind device's own node topic specifically
-// -- real bug found live 2026-09-08), AND commandline's own "dependency on" support -- a
-// hosts-kind dependency is the only kind resolved today, always "true"/"false".
-func nodeAvailabilityEntries(nodeTopics ...string) []TAvailabilityEntry {
-	var entries []TAvailabilityEntry
-	for _, nodeTopic := range nodeTopics {
-		if nodeTopic == "" {
-			continue
-		}
-		entries = append(entries, TAvailabilityEntry{
-			Topic:               nodeTopic,
-			ValueTemplate:       fmt.Sprintf("{{ '%s' if value in ['%s', '%s'] else '%s' }}", mqttStateOn, mqttStateOn, mqttBoolPayloadTrue, mqttStateOff),
-			PayloadAvailable:    mqttStateOn,
-			PayloadNotAvailable: mqttStateOff,
-		})
-	}
-	return entries
-}
-
-// buildAvailabilityFields sets body's HA MQTT discovery "availability"/"availability_mode"
-// fields for an entity proxying a real, independently-fallible upstream HA entity (hassbridge and
-// import kinds -- not used by hosts, whose self-reported values are tied to the same liveness as
-// their own node signal, so this two-factor distinction doesn't apply there). Refines the earlier
-// node-only gating live 2026-08-31: node being reachable does NOT guarantee every entity it
-// reports is itself valid right now -- e.g. one Netatmo module's own reading can drop out
-// (upstream integration reports it "unavailable") while the module's own connectivity stays fine.
-// Availability is therefore the AND (availability_mode "all", the same mechanism Zigbee2MQTT's own
-// discovery configs already use to AND bridge-level + device-level availability) of:
-//  1. stateTopic itself, always checked -- if the entity's own last-reported payload is literally
-//     "unavailable" (what a proxied HA entity's own state naturally becomes when its upstream
-//     integration can't read it, independent of device connectivity), it's unavailable.
-//  2. every one of nodeTopics (variadic, since 2026-09-16 -- see below), each treated identically:
-//     the device's own connectivity signal, or (PROJECT.md's logical-layer work) another device's
-//     own connectivity signal this one was declared to "depend on" (Logical.def, resolved
-//     generator-side into TImportedDevice.DependsOnAvailabilityTopics, already flattened across
-//     the full transitive dependency chain -- the coordinator never walks that graph itself, it
-//     just ANDs whatever flat topic list it's handed). Empty strings are skipped, so a caller can
-//     pass its own possibly-"" node topic (already gated via availabilityTopicFor -- "" for the
-//     node capability itself, or a device with no declared node capability) straight through
-//     without an extra branch at the call site.
-//
-// A further factor -- mixing in the availability of the compute node/host an entity's own
-// integration runs on (e.g. protocols-server-2 itself) -- is intentionally not built here; that's
-// a separate, later step per the user's own explicit sequencing.
-func buildAvailabilityFields(body map[string]interface{}, stateTopic string, nodeTopics ...string) {
-	entries := append([]TAvailabilityEntry{
-		{
-			Topic:               stateTopic,
-			ValueTemplate:       fmt.Sprintf("{{ '%s' if value == '%s' else '%s' }}", mqttStateUnavailable, mqttStateUnavailable, mqttStateAvailable),
-			PayloadAvailable:    mqttStateAvailable,
-			PayloadNotAvailable: mqttStateUnavailable,
-		},
-	}, nodeAvailabilityEntries(nodeTopics...)...)
-	body["availability"] = entries
-	body["availability_mode"] = "all"
-}
-
-// applyProxiedBinarySensorPayload sets body's "payload_on"/"payload_off" to HA's own native
-// binary_sensor state convention ("on"/"off", lowercase) when localEntity's domain is
-// "binary_sensor" -- a no-op for every other domain. Real bug found live 2026-08-31: hassbridge
-// and import discovery configs never set these fields at all, so HA's MQTT binary_sensor platform
-// fell back to its OWN default ("ON"/"OFF", uppercase) -- which never matches a proxied entity's
-// actual lowercase state, leaving it stuck at "unknown" even though the upstream source was
-// reporting a perfectly good "on". Hosts devices don't need this: their own node entity already
-// sets PayloadOn/PayloadOff explicitly (TBinarySensorDiscoveryPayload, "true"/"false" -- a
-// coordinator-chosen convention, not a proxied HA entity's own state).
-func applyProxiedBinarySensorPayload(body map[string]interface{}, localEntity string) {
-	if !strings.HasPrefix(localEntity, "binary_sensor.") {
-		return
-	}
-	body["payload_on"] = mqttStateOn
-	body["payload_off"] = mqttStateOff
 }
 
 // buildDiscoveryConfigs returns every HA MQTT Discovery config implied by one devices.yaml

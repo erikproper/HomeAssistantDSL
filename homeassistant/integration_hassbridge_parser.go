@@ -478,7 +478,7 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 				current.Capabilities[matches[2]] = THassBridgeCapability{Domain: matches[1], Sources: map[string]string{instance: matches[3]}}
 				continue
 			}
-			if matches := constantAttributePattern.FindStringSubmatch(line); matches != nil {
+			if matches := constantAttributePattern.FindStringSubmatch(quoteDeviceReference(line)); matches != nil {
 				if !knownConstantDeviceAttributes[matches[1]] {
 					warnings = append(warnings, fmt.Sprintf("Physical.def: device %q: unrecognised constant device attribute %q; ignored", current.DeviceID, matches[1]))
 					continue

@@ -74,39 +74,18 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
-// TDeviceRoutingPlan says which broker(s) a device's discovery config belongs on -- see this
-// file's own doc comment for the full table.
+// TDeviceRoutingPlan says whether a device's discovery config goes on the cloud broker: its cloud
+// catalogue entry, which another house imports from. Nothing goes to this house's own Home
+// Assistant any more -- it gets every hosts device from the generator's YAML (PROJECT.md 19).
 type TDeviceRoutingPlan struct {
-	PublishMain  bool
 	PublishCloud bool
 }
 
 // deviceRoutingPlan resolves device's routing plan. hasCloudClient is false when this house has
 // no cloud broker profile configured at all -- in that case nothing ever routes to cloud,
 // regardless of what a device declares (publishDiscovery already warns once per such device).
-//
-// PublishMain and PublishCloud are deliberately independent checks, not a linear if/else-early-
-// -return chain (which is what this function used to be, before "native" was retired 2026-09-02)
-// -- a device can now be BOTH ImportedFrom-qualified (even self-referentially, "imported" from
-// this same house's own installation, the "cloud"+"import" self-import case) AND Cloud at the
-// same time, and both facts need to keep mattering independently: PublishMain must be true
-// because it's (self-)imported, and PublishCloud must ALSO stay true because it's still Cloud --
-// an early return on the ImportedFrom check alone would silently stop publishing the cloud
-// catalogue entry for a device that's still very much its own real cloud-side source. PublishMain
-// never depends on hasCloudClient, for either kind of import -- consistent with how a real
-// cross-house import already behaved before this change.
 func deviceRoutingPlan(device TDevice, hasCloudClient bool) TDeviceRoutingPlan {
-	var plan TDeviceRoutingPlan
-	if device.ImportedFrom != "" || !device.Cloud {
-		plan.PublishMain = true
-	}
-	if device.Cloud && hasCloudClient {
-		plan.PublishCloud = true
-	}
-	if device.YAML {
-		plan.PublishMain = false
-	}
-	return plan
+	return TDeviceRoutingPlan{PublishCloud: device.Cloud && hasCloudClient}
 }
 
 // needsCloudRelay reports whether device's raw state/node/device-info traffic needs bridging
@@ -272,7 +251,12 @@ func relayCloudDevice(cloudClient, mainClient mqtt.Client, deviceID string, devi
 				err := token.Error()
 				fmt.Printf("[relay] %s: republishing %s -> %s: %v\n", deviceID, msg.Topic(), target, err)
 			}
-			tracker.Touch(mainClient, cloudClient, deviceID, device.NodeTopic, true)
+			// A retained message is only the last report, replayed on (re)subscribe -- no sign of
+			// life (found live 2026-10-27: switched-off Macs showed "on" for ~1.5 minutes after
+			// every coordinator restart).
+			if !msg.Retained() {
+				tracker.Touch(mainClient, cloudClient, deviceID, device.NodeTopic, true)
+			}
 		}
 		tok := subscribe(cloudClient, bareTopic, 0, handler)
 		if !tok.WaitTimeout(10*time.Second) || tok.Error() != nil {

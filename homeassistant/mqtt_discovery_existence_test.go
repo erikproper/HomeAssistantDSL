@@ -228,8 +228,11 @@ func TestBuildDiscoverySuggestionReportRHSIsBareLeaf(t *testing.T) {
 	if !strings.Contains(report, " boiler_heatingpump;") {
 		t.Errorf("expected the bare leaf as RHS with no domain prefix, got:\n%s", report)
 	}
-	if strings.Contains(report, "sensor.boiler_heatingpump") {
+	if strings.Contains(report, " sensor.boiler_heatingpump;") {
 		t.Errorf("RHS must not be domain-prefixed, got:\n%s", report)
+	}
+	if !strings.Contains(report, "capability sensor.boiler_heatingpump boiler_heatingpump;") {
+		t.Errorf("expected a parseable capability line with a label (2026-10-27), got:\n%s", report)
 	}
 }
 

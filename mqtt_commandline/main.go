@@ -21,8 +21,8 @@
  * status_script and republishes state, "state reflects reality, never assumed"); commandline/<host>/
  * <entity>/press (button command, no state at all, matching MQTT button semantics).
  *
- * The coordinator (house_event_bus_coordinator/discoverycommandline.go) never subscribes to any of
- * these topics itself -- HA's own switch/button discovery config points its command_topic directly
+ * The coordinator never subscribes to any of these topics itself -- HA's own switch/button YAML
+ * entity (homeassistant/commandline_yaml_entities.go) points its command_topic directly
  * at this daemon's own topic, so this daemon is the only thing that ever needs to see a command.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai

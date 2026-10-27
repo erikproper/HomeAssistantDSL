@@ -22,7 +22,7 @@ import (
 // TestGenerateCoordinatorDevicesFileExcludesForeignAttributeEntityIDs is the regression test for a
 // real bug found live 2026-09-07: a device positioned under BOTH a "hosts" declaration (e.g. cpu)
 // and a "commandline" declaration shares one DeviceConceptualLink (host.frame is both -- see
-// discoverycommandline.go's own doc comment), so its AttributeEntityIDs map carries entries from
+// commandlineYAMLEntityBodies' doc comment, commandline_yaml_entities.go), so its AttributeEntityIDs map carries entries from
 // BOTH kinds. generateCoordinatorDevicesFile must only ever write the ones that are actually this
 // device's own hosts-kind attributes (mat.AttributeNames) into devices.yaml's
 // "conceptual.attribute_entities" -- writing a foreign entry (e.g. a commandline capability like

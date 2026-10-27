@@ -253,14 +253,17 @@ func buildPassthroughSuggestionReport(devices map[string]tPassthroughDeviceSugge
 			_, suffix := recognizeDiscoveryCapability(leaf)
 			comment := ""
 			if suffix == "" {
-				suffix = leaf
+				suffix = suggestedDiscoveryLabel(leaf)
 				comment = " # not recognized"
 			}
-			lhs := domain + "." + suffix
+			// A copy-paste-ready capability line: "capability <domain>.<label> <leaf>;" -- the
+			// leaf is the gateway's own unique_id, never prefixed by its domain (the parser would
+			// take "<domain>.<leaf>" as a leaf of that name; "<domain>:<leaf>" is the qualifier).
+			lhs := "capability " + domain + "." + suffix
 			if len(lhs) > maxLHS {
 				maxLHS = len(lhs)
 			}
-			lines = append(lines, line{lhs: lhs, rhs: domain + "." + leaf + ";", comment: comment})
+			lines = append(lines, line{lhs: lhs, rhs: leaf + ";", comment: comment})
 		}
 
 		sb.WriteString("device discovery." + slug + " with:\n")
@@ -297,4 +300,20 @@ func buildPassthroughCollisionReport(collisions map[string]tPassthroughNameColli
 		sb.WriteString("# that device in Zigbee2MQTT to force it to republish under its current identity.\n\n")
 	}
 	return sb.String()
+}
+
+// suggestedDiscoveryLabel is a capability label for a leaf recognizeDiscoveryCapability doesn't
+// know: the leaf without a Zigbee2MQTT device address and suffix ("0x..._linkquality_zigbee2mqtt"
+// -> "linkquality"), since a label may not start with a digit.
+func suggestedDiscoveryLabel(leaf string) string {
+	label := strings.TrimSuffix(leaf, "_zigbee2mqtt")
+	if strings.HasPrefix(label, "0x") {
+		if i := strings.Index(label, "_"); i > 0 {
+			label = label[i+1:]
+		}
+	}
+	if label == "" || (label[0] >= '0' && label[0] <= '9') {
+		label = "_" + label
+	}
+	return label
 }

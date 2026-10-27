@@ -503,8 +503,8 @@ or Logical.def, carries its universal ID right after its name, before its `with`
 or `derived capability … as <id> with:` (block). A bridged capability carries it after its source:
 `capability <domain>.<label> <source> as <id> [with …];`. A commandline capability carries it
 after its name, before its scripts (`capability switch.picture_frame as <id> "<status>" …;`,
-2026-10-22); the coordinator publishes it as the capability's unique_id (`stable_id` in
-commandline.yaml), so the capability can be renamed. Its MQTT topics still follow the label. It is the `unique_id` of the template entity generated from
+2026-10-22); it is the capability's unique_id in its YAML entity (commandline_yaml_entities.go),
+so the capability can be renamed. Its MQTT topics still follow the label. It is the `unique_id` of the template entity generated from
 it. The generator writes it itself the first time it sees the capability: its entity_id at that
 moment, which is exactly the unique_id it had before IDs were frozen, so freezing changed nothing
 in Home Assistant. It is never recomputed, so renaming the entity or the capability keeps the same
@@ -1313,7 +1313,13 @@ each have their own option for it, and we don't want integration-specific code (
 it. Mosquitto has no "force retain" (a broker with a rule engine, e.g. EMQX, could republish with
 retain, but that would tie us to that broker). So the coordinator steps in: for every state topic
 of a raw or discovered entity, it cross-posts the latest message, unchanged, retained, onto a topic
-of its own, and the entity's YAML `state_topic` points there. Commands keep going straight to the
+of its own -- a shadow topic, "<original topic>/retain" (Erik, 2026-10-27) -- and the entity's YAML `state_topic` points
+there. A device's retain status can't be observed (a retained message at subscribe proves the
+publisher retains, its absence proves nothing) and a discovery config doesn't say it, so for
+*discovered* devices the worst is always assumed: every state topic gets its shadow, even where the
+gateway does retain (EMS-ESP, by its own setting) -- no gateway-specific code. For *raw* devices the
+defs declare everything anyway: an "is retained" option on the declaration lets their entities read
+the device's own topics; without it (the default) they read the shadow. Commands keep going straight to the
 integration's own command topic. Seen live: PROJECT.md 20 (was 31c), and Vienna's 19d batch 1 (34 of 51
 entities "unknown" until their device's next report).
 - Only *state* is cross-posted. Events are never retained: an `event` entity, a button or a
@@ -1333,15 +1339,73 @@ entities "unknown" until their device's next report).
 how Home Assistant structures MQTT entities in two ways: reading the discovery a gateway publishes
 (abbreviations, `~`, device/origin blocks), and writing YAML entities (which fields each domain and
 light schema accepts). A real change of either needs a code change, so this knowledge belongs in
-one module, shared by generator and coordinator, not spread over both (today:
-`homeassistant/mqtt_yaml_entities.go` with `ha_mqtt_fields.json`, the coordinator's
-`deviceInfoFieldKeys` and `buildRelayedDiscoveryConfig`). The field table is part of the code,
-with the Home Assistant version it was checked against. `tools/ha_mqtt_fields.py` (reading it out
-of Home Assistant's own code) is a migration aid: empirical data next to the documentation and the
-sources, not a step any build or deploy depends on. Structurally, what keeps the table honest is
-the data itself: generate reports, per discovered entity, every field of its discovery config the
-YAML leaves out that isn't a known discovery-only one (`origin`, `object_id`, ...) -- a new field
-from a gateway or a schema change shows up there, and then the table and the code change together.
+one module, shared by generator and coordinator, not spread over both: the package `hamqtt`
+(`homeassistant/hamqtt`, its own Go package in the same module). `fields.go` holds the field table
+(`ha_mqtt_fields.json`, embedded, with the Home Assistant version it was checked against), the
+abbreviations, `DiscoveredConfig` (what Home Assistant's discovery keeps of a payload: abbreviations
+expanded, `~` substituted, unknown fields dropped) and `Accepts`; `relay.go`, `bridge.go` and
+`imported.go` the builders of each entity kind's config. The coordinator's device-block keys come
+from the same table. `tools/ha_mqtt_fields.py` (reading the table out of Home Assistant's own code)
+is a migration aid: empirical data next to the documentation and the sources, not a step any build
+or deploy depends on. Structurally, what keeps the table honest is the data itself: generate
+reports, per device, every field its YAML leaves out because the domain doesn't know it ("dropped,
+unknown to Home Assistant: light value_template (2)") -- `origin`, `object_id` and `~` excepted, which go by design. Our own builders
+only write fields the domain accepts, so what shows up there comes from a source: a new field from a
+gateway, or a schema change, and then the table and the code change together.
+
+**How the YAML entities are built (item 19, done 2026-10-27).** One file per entity,
+`entities/mqtt/<domain>/<entity_id>.yaml`, included with `!include_dir_merge_list`. Every entity
+keeps the unique_id (its frozen universal ID, §6.7) and entity_id it had under discovery, so
+registry entries, devices and history stay; its `name` is its full conceptual name ("sphere/path",
+the UI shows the registry name, not the friendly_name).
+- *Discovered*: the coordinator collects every discovery config of every declared gateway, used or
+  not, and publishes them retained per gateway (`discovery_raw_configs/<gateway>/state`, also
+  under `<installation>/` on the cloud broker). Generate fetches them and caches them in
+  `Definitions/.cache/discovery_raw_configs.json`; a gateway the broker doesn't deliver (offline,
+  or a slow link cutting the fetch short) keeps its cached configs. The relay's transformation
+  (`hamqtt.RelayedConfig`) then `DiscoveredConfig` make the entity. A capability declared for the
+  first time gets its YAML on that same generate; one without a raw config is an ERROR in
+  generate's output and stays out -- never a fallback to discovery.
+- *Controlled* (hosts, commandline) and the coordinator's own entities (meta controls, missing
+  declared entities): from the defs alone.
+- *Bridged*: from the defs, plus the source entities' typing as the coordinator learns it
+  (`hassbridge_typing/state`, cached); a value nothing reports stays out.
+- *Imports*: what the exporting house says about an entity (device metadata, via_device, typing,
+  payloads) belongs to that house: it comes from the coordinator's `import_catalogue/state`
+  (cached), never from the importer's defs. The coordinator relays the state onto
+  `imports/<entity>/state`.
+- *Device metadata* (manufacturer, model, versions, serial, via_device) changes rarely, so it is
+  captured into Physical.def at generate time, from what discovery or the device itself reports
+  (`discovery_device_info/state`, cached). A value marked `forced` keeps its listed value; where
+  the report differs, it appears next to it as a comment (`model: "Roomba" forced;   # discovery:
+  ...`). A value nothing reports any more stays. `via_device: utility.envoy;` is a device
+  reference, unquoted; the YAML gets the referenced device's Home Assistant identifier (a
+  discovery device's first identifier, every other device's declared id).
+- *Discovery to Home Assistant ends*: no coordinator publishes discovery to its main instance. Two
+  exceptions remain: the cloud catalogue between houses (another house's import reads it), and
+  the passthrough of an undeclared discovery device, for migrating an installation device by
+  device. That is also why the discovery prefix stays `homeassistant.physical` (next to an existing
+  installation's `homeassistant/`), and why `${mqtt_discovery_conceptual}` stays in the code
+  (commented out in both houses' Settings.def; its default is the same).
+- *Suggestions* (`suggestions/discovery.txt`) are copy-paste-ready capability lines
+  (`capability <domain>.<label> <leaf>;`).
+
+**Deploying YAML entities: what the live rollout taught.**
+- One field Home Assistant doesn't know makes the WHOLE MQTT reload fail, while the deploy still
+  reports success (found live: a relay `state_topic` on a bridge button; 64 entities missing for
+  ~5 minutes). So generate validates every YAML file against the field table (an unknown field
+  stops it), and deploy step 06 reports Home Assistant's reload errors
+  (`tools/ha_reload_errors.py`). `ha core check` does not validate MQTT YAML entities; only a
+  reload does.
+- The MQTT reload takes ~45 s and recreates every YAML entity: check only after it. Values of
+  topics that aren't retained are lost (Zigbee2MQTT's state topics; EMS-ESP's and Z-Wave JS UI's
+  are retained): deploy step 06 restarts Zigbee2MQTT, whose `cache_state_send_on_startup`
+  republishes every state (Zigbee plugs can stay unavailable up to ~5 minutes). The lasting answer
+  is the retained shadow topic above (PROJECT.md 20).
+- The coordinator runs as systemd `Type=notify`, sending `READY=1` once every subscription is in
+  place, so a reload request the deploy sends right after a restart isn't lost.
+- A retained cloud message is no sign of life: a cloud host's liveness only counts live messages
+  (switched-off Macs showed "on" for ~1.5 minutes after every coordinator restart).
 
 **Mapping from §6.10's older numbering**: its kind 1 (hosts) is *controlled*; kind 2 (discovery)
 is *discovered*; kind 3 (`home_assistant` bridge) is *bridged*; kind 4 (imports) is the transport

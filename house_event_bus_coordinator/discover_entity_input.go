@@ -39,7 +39,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -47,39 +46,10 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
-// discoverEntityStableID is this meta entity's own stable discovery id -- fixed, not tied to any
-// device or instance, since it's a single coordinator-owned control, not a per-instance one.
-const discoverEntityStableID = "meta_discover_entity"
-
 // discoverEntityCommandTopic is where the coordinator listens for a manually-typed fully qualified
 // entity_id to bootstrap.
 func discoverEntityCommandTopic() string {
 	return "meta/discover_entity/set"
-}
-
-// publishDiscoverEntityInput discovery-publishes the single MQTT text entity a person uses to seed
-// a brand-new device. Optimistic (no state_topic) -- nothing needs to report a value back, HA just
-// keeps showing whatever was last typed until the person clears or replaces it themselves.
-func publishDiscoverEntityInput(client mqtt.Client, conceptualPrefix, installation string) error {
-	topic := discoveryTopic(conceptualPrefix, "text", discoverEntityStableID)
-	body := map[string]interface{}{
-		"unique_id": discoverEntityStableID,
-		// object_id pins the entity_id itself (text.infrastructural_discover_entity, PROJECT.md
-		// item 18 -- the unique_id keeps its "meta_" root) independent of "name" -- HA would
-		// otherwise slugify "name" into the entity_id.
-		"object_id":       "infrastructural_discover_entity",
-		"name":            "infrastructural/discover_entity",
-		"icon":            "mdi:text-search",
-		"command_topic":   discoverEntityCommandTopic(),
-		"optimistic":      true,
-		"entity_category": "config",
-		"origin":          coordinatorOriginMap(installation),
-	}
-	data, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("marshalling discover-entity discovery payload: %w", err)
-	}
-	return publishRetained(client, topic, data)
 }
 
 // discoverEntityRequestSeparator splits an "<instance>: <entity_id>" request -- colon followed by

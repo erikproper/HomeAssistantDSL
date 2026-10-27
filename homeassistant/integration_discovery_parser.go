@@ -34,6 +34,16 @@ var discoveryIdentifiersPattern = regexp.MustCompile(`^identifiers\s+"([^"]*)"\s
 // "<field>: \"<value>\" [forced];", optionally followed by the generator's own "# discovery:
 // ..." note -- the same shape a hosts device's constant attributes have. The generator writes
 // these itself from the discovered metadata; a forced value is the author's and is kept.
+// deviceReferencePattern is a metadata line whose value is a device reference, not a string --
+// "via_device: utility.envoy;" (Erik, 2026-10-27): the device it hangs off, by its declared id.
+var deviceReferencePattern = regexp.MustCompile(`^(\s*via_device:\s*)([A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*)(\s.*|;.*)$`)
+
+// quoteDeviceReference returns line with a device reference's value quoted, so every metadata
+// pattern reads it like any other value; other lines are returned unchanged.
+func quoteDeviceReference(line string) string {
+	return deviceReferencePattern.ReplaceAllString(line, `$1"$2"$3`)
+}
+
 var discoveryMetadataPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*):\s*"([^"]*)"(?:\s+(forced))?\s*;\s*(?:#.*)?$`)
 
 // Domain is mandatory and explicit, same shape and rationale as the "home_assistant" integration
@@ -145,18 +155,11 @@ func parseDiscoveryDeviceBody(cur *TLineCursor, deviceID, parentDeviceID string)
 			cur.Advance()
 			continue
 		}
-		if matches := discoveryMetadataPattern.FindStringSubmatch(line); matches != nil && knownConstantDeviceAttributes[matches[1]] {
+		if matches := discoveryMetadataPattern.FindStringSubmatch(quoteDeviceReference(line)); matches != nil && knownConstantDeviceAttributes[matches[1]] {
 			if current.Metadata == nil {
 				current.Metadata = map[string]THostConstantAttribute{}
 			}
 			current.Metadata[matches[1]] = THostConstantAttribute{Value: matches[2], Forced: matches[3] != ""}
-			cur.Advance()
-			continue
-		}
-		if line == "entities via yaml;" {
-			// PROJECT.md 19c (2026-10-27): Home Assistant gets this device's entities from the
-			// generator's own YAML "mqtt:" config, not from the coordinator's relay.
-			current.EntitiesViaYAML = true
 			cur.Advance()
 			continue
 		}

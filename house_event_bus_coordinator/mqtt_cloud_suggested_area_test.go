@@ -18,29 +18,16 @@ func TestPublishDeviceDiscoveryStripsSuggestedAreaFromCloudOnly(t *testing.T) {
 	baseDevice.Conceptual.ConstantAttributes["suggested_area"] = TConceptualConstant{Value: "garage"}
 	nodeTopic := "homeassistant/binary_sensor/coordinator/host_smarty_node/config"
 
-	// deviceRoutingPlan only ever routes a device to ONE of local/cloud at a time (Cloud=false ->
-	// local only, Cloud=true -> cloud only, ImportedFrom aside) -- two separate publishes, same
-	// underlying device/suggested_area, isolate exactly what each leg actually sends.
+	// Nothing goes to this house's own Home Assistant any more (PROJECT.md 19): a local device
+	// publishes nothing; a cloud-routed one only its cloud catalogue entry, without suggested_area.
 	localClient := &fakeClient{}
 	store := NewLiveDeviceInfoStore("", nil)
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
 	if _, err := publishDeviceDiscovery(localClient, nil, "junglinster", "host.smarty", baseDevice, store, nil, publisher, testPrefix); err != nil {
 		t.Fatalf("publishDeviceDiscovery (local) error: %v", err)
 	}
-	localPublish, found := findPublish(localClient.publishedSnapshot(), nodeTopic)
-	if !found {
-		t.Fatalf("expected a local publish to %q, got %+v", nodeTopic, localClient.publishedSnapshot())
-	}
-	var localPayload struct {
-		Device struct {
-			SuggestedArea string `json:"suggested_area"`
-		} `json:"device"`
-	}
-	if err := json.Unmarshal(localPublish.payload, &localPayload); err != nil {
-		t.Fatalf("unmarshalling local payload: %v", err)
-	}
-	if localPayload.Device.SuggestedArea != "garage" {
-		t.Errorf("local payload suggested_area = %q, want %q", localPayload.Device.SuggestedArea, "garage")
+	if _, found := findPublish(localClient.publishedSnapshot(), nodeTopic); found {
+		t.Errorf("a local device's discovery is published to Home Assistant: %+v", localClient.publishedSnapshot())
 	}
 
 	cloudDevice := baseDevice

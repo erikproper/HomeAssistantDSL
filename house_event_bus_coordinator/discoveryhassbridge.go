@@ -40,6 +40,8 @@ import (
 	"strings"
 	"time"
 
+	"homeassistant/hamqtt"
+
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"gopkg.in/yaml.v3"
 )
@@ -119,14 +121,6 @@ type TCapabilityCommand struct {
 	ValueTrigger bool   `yaml:"value_trigger"`
 	DataKey      string `yaml:"data_key"`
 	TopicKey     string `yaml:"topic_key"`
-}
-
-// topicKey is command.TopicKey, defaulting to "command_topic" when unset.
-func (command TCapabilityCommand) topicKey() string {
-	if command.TopicKey != "" {
-		return command.TopicKey
-	}
-	return "command_topic"
 }
 
 // THassBridgeDevice is one bridged device's instance qualifier, declared capabilities, and
@@ -292,28 +286,6 @@ func hassBridgeEntityAttributesTopic(instance, localEntity string) string {
 	return "homeassistant_instances/" + instance + "/bridge/" + localEntity + "/attributes"
 }
 
-// hassBridgeEntityCommandTopic is the one shared command topic for every command a bridged
-// entity accepts -- must stay in lock-step with homeassistant/remote_instance_entity_commands.go's
-// own hassBridgeEntityCommandTopic (generator side), whose generated automations subscribe to
-// this exact same string.
-func hassBridgeEntityCommandTopic(instance, localEntity string) string {
-	return "homeassistant_instances/" + instance + "/bridge/" + localEntity + "/command"
-}
-
-// hassBridgeEntityCommandTopicFor is the topic ONE specific command's own discovery-config field
-// (command.topicKey()) actually gets set to -- the shared base topic for a fixed-payload command,
-// or a DEDICATED topic (base + "/" + name) for a ValueTrigger command. Must stay in lock-step with
-// homeassistant/remote_instance_entity_commands.go's own identically-named function (generator
-// side), whose generated automations subscribe to this exact same string -- see that function's
-// own doc comment for why ValueTrigger commands can't share the base topic.
-func hassBridgeEntityCommandTopicFor(instance, localEntity, name string, command TCapabilityCommand) string {
-	base := hassBridgeEntityCommandTopic(instance, localEntity)
-	if command.ValueTrigger {
-		return base + "/" + name
-	}
-	return base
-}
-
 func hassBridgeDiscoveryTopic(localEntity, stableID, prefix string) (topic string, ok bool) {
 	dotIdx := strings.Index(localEntity, ".")
 	if dotIdx < 0 {
@@ -464,120 +436,35 @@ func hassBridgeAvailabilityTopics(device THassBridgeDevice, capability string) [
 // every found.DiscoveryExtra field verbatim -- all fully resolved by the generator
 // (hassbridge_commands.go), never domain-specific logic here.
 func buildHassBridgeEntityDiscoveryBody(stableID, localEntity string, found hassBridgeMatch, stateTopic, attributesTopic string, devBlock TDiscoveryDevice, nodeAvailabilityTopics []string, liveUnit, liveDeviceClass, liveIcon, instance string, commandsEnabled bool, installation string) map[string]interface{} {
-	// name -- real bug found live 2026-09-29 (Junglinster's "utility.somfy_kitchen" cover,
-	// reported friendly_name "house/kitchen house/kitchen/cover"): this used to set "name" to
-	// devBlock.Name + "/" + DisplaySuffix, a non-null string HA then combined with device.name
-	// itself, doubling devBlock.Name into the display. Fixed the same way
-	// TBinarySensorDiscoveryPayload's own doc comment already fixed this exact mistake once
-	// (discovery.go) and buildRelayedDiscoveryConfig's own analogous fix repeats one file over
-	// (discoverybridge.go): when DisplaySuffix is empty (the device's own display name already
-	// conveys everything -- its own leaf equals the entity's domain), "name" is a literal JSON
-	// null ("device name alone"), not devBlock.Name repeated. Otherwise "name" is DisplaySuffix
-	// ALONE -- a short leaf label (e.g. "cover") HA auto-combines with device.name on its own,
-	// matching TSensorDiscoveryPayload's own established convention for a device with several
-	// entities -- devBlock.Name must never be prefixed onto it by hand.
-	var name interface{}
-	if found.DisplaySuffix != "" {
-		name = found.DisplaySuffix
+	commands := make(map[string]hamqtt.Command, len(found.Commands))
+	for name, command := range found.Commands {
+		commands[name] = hamqtt.Command{Payload: command.Payload, DiscoveryKey: command.DiscoveryKey, ValueTrigger: command.ValueTrigger, DataKey: command.DataKey, TopicKey: command.TopicKey}
 	}
-	body := map[string]interface{}{
-		"unique_id":         stableID,
-		"default_entity_id": localEntity,
-		"name":              name,
-		"state_topic":       stateTopic,
-		"device":            devBlock,
-		"origin":            coordinatorOriginMap(installation),
-	}
-	deviceClass := found.DeviceClass
-	if deviceClass == "" {
-		deviceClass = liveDeviceClass
-	}
-	unit := found.Unit
-	if unit == "" {
-		unit = liveUnit
-	}
-	if deviceClass != "" {
-		body["device_class"] = deviceClass
-	}
-	if unit != "" {
-		body["unit_of_measurement"] = unit
-	}
-	if found.StateClass != "" {
-		body["state_class"] = found.StateClass
-	}
-	// The "node" capability's own liveIcon fallback is deliberately skipped: real bug found live
-	// 2026-09-22 (Vienna's appliance.washing_machine) -- "node" and another capability (here,
-	// "status") commonly share the exact same raw source entity (both read
-	// sensor.bathroom_washing_machine), so liveIcon -- the SOURCE entity's own live-reported icon
-	// attribute -- resolved identically for both, giving "node" the washing-machine icon "status"
-	// legitimately declares via its own explicit "icon: ...;" override. "node" is a SYNTHETIC
-	// connectivity indicator (device_class "connectivity", auto-assigned unless the DSL author
-	// overrides it), not a literal mirror of the source's own meaning the way liveIcon's fallback
-	// is meant for -- inheriting the raw sensor's own icon is a category mistake, and HA already
-	// renders a sensible built-in icon for device_class "connectivity" once nothing overrides it.
-	icon := found.Icon
-	if icon == "" && found.Capability != "node" {
-		icon = liveIcon
-	}
-	if icon != "" {
-		body["icon"] = icon
-	}
-	if commandsEnabled && len(found.Commands) > 0 {
-		for name, command := range found.Commands {
-			body[command.topicKey()] = hassBridgeEntityCommandTopicFor(instance, localEntity, name, command)
-			// A ValueTrigger command ("number"'s set_value, cover's set_position --
-			// homeassistant/hassbridge_commands.go's own doc comment) carries no fixed
-			// payload/discovery_key at all -- its own topicKey() field alone is everything MQTT's
-			// number/cover schema needs for it.
-			if command.DiscoveryKey != "" {
-				body[command.DiscoveryKey] = command.Payload
-			}
-		}
-		for key, value := range found.DiscoveryExtra {
-			body[key] = value
-		}
-	}
-	// json_attributes_topic (2026-09-21): deliberately set OUTSIDE the command-gated block above --
-	// unlike Commands/DiscoveryExtra, it has nothing to do with whether this entity is commandable.
-	if found.HasAttributes && attributesTopic != "" {
-		body["json_attributes_topic"] = attributesTopic
-	}
-	// position_topic/position_template (2026-09-25): deliberately set OUTSIDE the command-gated
-	// block above, same reasoning as json_attributes_topic -- reading a position has nothing to do
-	// with whether this entity is commandable at all (a read-only cover could have one too). Reads
-	// off the SAME state_topic the plain "state" key already uses (buildHassBridgeStatePayload
-	// folds both into one JSON payload generator-side), never a separate topic.
-	//
-	// value_template (real bug found live 2026-09-25, same deploy): once HasPosition turns
-	// state_topic's own payload into a JSON blob ({'state': ..., 'position': ...}), MQTT's own
-	// cover schema does NOT auto-parse a "state" key out of it the way vacuum.py's schema does
-	// (vacuum has no value_template hook at all, by design -- domainStatePayloadTemplate's own doc
-	// comment) -- cover just tried to match the WHOLE raw JSON string against "open"/"closed"/...,
-	// permanently stuck on "unknown". Only set here (not unconditionally) so vacuum's own
-	// already-working state_topic handling stays untouched.
-	if found.HasPosition && stateTopic != "" {
-		body["position_topic"] = stateTopic
-		body["position_template"] = "{{ value_json.position }}"
-		body["value_template"] = "{{ value_json.state }}"
-	}
-	applyProxiedBinarySensorPayload(body, localEntity)
-	buildAvailabilityFields(body, stateTopic, nodeAvailabilityTopics...)
+	body := hamqtt.BridgeEntityConfig(hamqtt.BridgeEntity{
+		UniqueID: stableID, LocalEntity: localEntity, Capability: found.Capability, DisplaySuffix: found.DisplaySuffix,
+		DeviceClass: found.DeviceClass, Unit: found.Unit, StateClass: found.StateClass, Icon: found.Icon,
+		LiveUnit: liveUnit, LiveDeviceClass: liveDeviceClass, LiveIcon: liveIcon,
+		Commands: commands, DiscoveryExtra: found.DiscoveryExtra, HasAttributes: found.HasAttributes, HasPosition: found.HasPosition,
+		Instance: instance, StateTopic: stateTopic, AttributesTopic: attributesTopic,
+		NodeAvailabilityTopics: nodeAvailabilityTopics, CommandsEnabled: commandsEnabled, Device: devBlock,
+	})
+	body["availability"] = availabilityEntriesFrom(body["availability"])
+	body["origin"] = coordinatorOriginMap(installation)
 	return body
 }
 
-// expectedHassBridgeTopics computes every discovery topic bridgeFile's declared capabilities
-// imply -- known statically, no live gateway/automation report needed, the same "topic existence
-// doesn't depend on live data" property expectedDiscoveryBridgeTopics already has.
-func expectedHassBridgeTopics(bridgeFile THassBridgeFile, prefix string) map[string]bool {
-	expected := map[string]bool{}
-	for _, device := range bridgeFile.Devices {
-		for _, cap := range device.Capabilities {
-			if topic, ok := hassBridgeDiscoveryTopic(cap.LocalEntity, cap.StableID, prefix); ok {
-				expected[topic] = true
-			}
-		}
+// availabilityEntriesFrom turns hamqtt's availability list into this package's own type, as the
+// discovery configs carried it before the builders moved there.
+func availabilityEntriesFrom(list interface{}) []TAvailabilityEntry {
+	var availability []TAvailabilityEntry
+	entries, _ := list.([]map[string]interface{})
+	for _, entry := range entries {
+		availability = append(availability, TAvailabilityEntry{
+			Topic: entry["topic"].(string), ValueTemplate: entry["value_template"].(string),
+			PayloadAvailable: entry["payload_available"].(string), PayloadNotAvailable: entry["payload_not_available"].(string),
+		})
 	}
-	return expected
+	return availability
 }
 
 // hassBridgeAcceptsInstance reports whether a bridge message whose instance segment is instance
@@ -752,8 +639,7 @@ func subscribeHassBridge(client, cloudClient mqtt.Client, ownInstallation string
 			return
 		}
 
-		topic, ok := hassBridgeDiscoveryTopic(localEntity, found.StableID, conceptualPrefix)
-		if !ok {
+		if !strings.Contains(localEntity, ".") {
 			return
 		}
 
@@ -772,16 +658,13 @@ func subscribeHassBridge(client, cloudClient mqtt.Client, ownInstallation string
 			}
 		}
 		devBlock := buildHassBridgeDeviceBlock(found.DeviceID, device, store.Snapshot(found.DeviceID), viaDeviceID)
+		if discoveryDeviceInfo.RecordBridgeDevice(found.DeviceID, store.Snapshot(found.DeviceID), viaDeviceID) {
+			discoveryDeviceInfo.SchedulePublish(client, cloudClient, ownInstallation)
+		}
 		availabilityTopics := hassBridgeAvailabilityTopics(device, found.Capability)
-		body := buildHassBridgeEntityDiscoveryBody(hassBridgeUniqueID(localEntity, found.StableID), localEntity, found, msg.Topic(), hassBridgeEntityAttributesTopic(parts[1], localEntity), devBlock, availabilityTopics, liveUnit, liveDeviceClass, liveIcon, parts[1], true, ownInstallation)
-		data, err := json.Marshal(body)
-		if err != nil {
-			fmt.Printf("[hass-bridge] marshalling discovery payload for %s: %v\n", localEntity, err)
-			return
-		}
-		if err := publisher.Publish(client, "main", topic, data); err != nil {
-			fmt.Printf("[hass-bridge] publishing %s: %v\n", topic, err)
-		}
+		// Home Assistant gets the entity from the generator's YAML (PROJECT.md 19h.3); what the
+		// source entity reports of its typing is collected for it.
+		hassBridgeTyping.Record(localEntity, liveUnit, liveDeviceClass, liveIcon, client, cloudClient, ownInstallation)
 
 		// Only cross-post traffic that genuinely originated from one of this device's OWN
 		// declared real instances (parts[1], e.g. "main"/"protocols-server-2") -- not a message
@@ -866,9 +749,13 @@ func republishHassBridgeDeviceCapabilities(client, cloudClient mqtt.Client, ownI
 		viaDeviceID, _ = existenceTracker.ResolveViaDevice(defaultInstance, deviceID, hassBridgeOwnSourceEntities(device, defaultInstance))
 	}
 	devBlock := buildHassBridgeDeviceBlock(deviceID, device, store.Snapshot(deviceID), viaDeviceID)
+	// What the bridge reports about the device goes into discovery_device_info/state too, for
+	// generate to capture into Physical.def (PROJECT.md 19h.3) -- via_device as resolved here.
+	if discoveryDeviceInfo.RecordBridgeDevice(deviceID, store.Snapshot(deviceID), viaDeviceID) {
+		discoveryDeviceInfo.SchedulePublish(client, cloudClient, ownInstallation)
+	}
 	for capability, cap := range device.Capabilities {
-		topic, ok := hassBridgeDiscoveryTopic(cap.LocalEntity, cap.StableID, conceptualPrefix)
-		if !ok {
+		if !strings.Contains(cap.LocalEntity, ".") {
 			continue
 		}
 		found := hassBridgeMatch{Capability: capability, DeviceID: deviceID, THassBridgeCapability: cap}
@@ -879,15 +766,7 @@ func republishHassBridgeDeviceCapabilities(client, cloudClient mqtt.Client, ownI
 				liveUnit, liveDeviceClass, liveIcon = existenceTracker.LiveTyping(hassBridgeDefaultInstance(device), source)
 			}
 		}
-		body := buildHassBridgeEntityDiscoveryBody(hassBridgeUniqueID(cap.LocalEntity, cap.StableID), cap.LocalEntity, found, hassBridgeEntityStateTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), hassBridgeEntityAttributesTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), devBlock, availabilityTopics, liveUnit, liveDeviceClass, liveIcon, hassBridgeDefaultInstance(device), true, ownInstallation)
-		data, err := json.Marshal(body)
-		if err != nil {
-			fmt.Printf("[hass-bridge] marshalling discovery payload for %s: %v\n", cap.LocalEntity, err)
-			continue
-		}
-		if err := publisher.Publish(client, "main", topic, data); err != nil {
-			fmt.Printf("[hass-bridge] publishing %s: %v\n", topic, err)
-		}
+		hassBridgeTyping.Record(cap.LocalEntity, liveUnit, liveDeviceClass, liveIcon, client, cloudClient, ownInstallation)
 		if exportToCloud {
 			cloudStateTopic := qualifier + "/" + canonicalizeRoamingBridgeTopic(hassBridgeEntityStateTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), device)
 			cloudAttributesTopic := qualifier + "/" + canonicalizeRoamingBridgeTopic(hassBridgeEntityAttributesTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), device)

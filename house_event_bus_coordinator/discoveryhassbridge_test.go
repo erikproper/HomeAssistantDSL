@@ -81,7 +81,7 @@ func TestSubscribeHassBridgePublishesViaDeviceWhenResolvable(t *testing.T) {
 	}
 
 	found := false
-	for _, p := range client.published {
+	for _, p := range localBridgeConfigs(bridgeFile, store, existenceTracker, "protocols-server-2|sensor.physical_module_battery_level") {
 		if p.topic != wantTopic {
 			continue
 		}
@@ -136,7 +136,7 @@ func TestSubscribeHassBridgePublishesDiscoveryAndState(t *testing.T) {
 	}
 
 	found := false
-	for _, p := range client.published {
+	for _, p := range localBridgeConfigs(bridgeFile, store, nil, "protocols-server-2|sensor.infrastructural_house_downward_hallway_laserjet_status") {
 		if p.topic != wantTopic {
 			continue
 		}
@@ -213,7 +213,7 @@ func TestSubscribeHassBridgePublishesNullNameWhenDisplaySuffixEmpty(t *testing.T
 	}
 
 	found := false
-	for _, p := range client.published {
+	for _, p := range localBridgeConfigs(bridgeFile, store, nil, "protocols-server-2|cover.social_house_kitchen") {
 		if p.topic != wantTopic {
 			continue
 		}
@@ -276,7 +276,7 @@ func TestSubscribeHassBridgeFallsBackToLiveTypingWhenDeclaredEmpty(t *testing.T)
 		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
 	}
 	found := false
-	for _, p := range client.published {
+	for _, p := range localBridgeConfigs(bridgeFile, store, existenceTracker, "protocols-server-2|sensor.infrastructural_fritz_box_gb_received") {
 		if p.topic != wantTopic {
 			continue
 		}
@@ -333,7 +333,7 @@ func TestSubscribeHassBridgePublishesTypingMetadata(t *testing.T) {
 	}
 
 	byTopic := map[string]map[string]interface{}{}
-	for _, p := range client.published {
+	for _, p := range localBridgeConfigs(bridgeFile, store, nil, "main|binary_sensor.infrastructural_junglinster_node", "main|sensor.infrastructural_junglinster_cpu_load") {
 		var body map[string]interface{}
 		if err := json.Unmarshal(p.payload, &body); err != nil {
 			t.Fatalf("unmarshalling discovery payload for %s: %v", p.topic, err)
@@ -443,7 +443,7 @@ func TestSubscribeHassBridgeDeviceInfoUpdatesStoreAndRepublishesCapabilities(t *
 		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
 	}
 	found := false
-	for _, p := range client.published {
+	for _, p := range localBridgeConfigs(bridgeFile, store, nil, "main|sensor.infrastructural_junglinster_cpu_load") {
 		if p.topic != wantTopic {
 			continue
 		}
@@ -611,7 +611,7 @@ func TestSubscribeHassBridgeSkipsCrossPostForSelfImportEcho(t *testing.T) {
 	// The local/main discovery config still needs to be published/refreshed -- only the cloud
 	// cross-post is suppressed.
 	foundLocal := false
-	for _, p := range client.publishedSnapshot() {
+	for _, p := range localBridgeConfigs(bridgeFile, store, nil, "junglinster|sensor.infrastructural_eriks_iphone_battery_level") {
 		var body map[string]interface{}
 		if err := json.Unmarshal(p.payload, &body); err == nil && body["state_topic"] == echoTopic {
 			foundLocal = true
@@ -831,7 +831,7 @@ func TestSubscribeHassBridgeExportStripsSuggestedAreaFromCloudOnly(t *testing.T)
 	if !ok {
 		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
 	}
-	localPublish, found := findPublish(client.publishedSnapshot(), localDiscoveryTopic)
+	localPublish, found := findPublish(localBridgeConfigs(bridgeFile, store, nil, "protocols-server-2|sensor.infrastructural_vienna_terrace_temperature"), localDiscoveryTopic)
 	if !found {
 		t.Fatalf("expected a local discovery publish to %q, got %+v", localDiscoveryTopic, client.publishedSnapshot())
 	}
@@ -959,30 +959,6 @@ func TestExpectedHassBridgeCloudTopicsEmptyWithNoInstallation(t *testing.T) {
 	}}
 	if got := expectedHassBridgeCloudTopics(bridgeFile, "", testPrefix); len(got) != 0 {
 		t.Errorf("got %v, want an empty set when ownInstallation is \"\"", got)
-	}
-}
-
-func TestExpectedHassBridgeTopicsMatchesPublishedTopic(t *testing.T) {
-	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
-		"hass.laserjet": {
-			Instances: []string{"protocols-server-2"},
-			Capabilities: map[string]THassBridgeCapability{
-				"status": {
-					SourceEntities: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w"},
-					LocalEntity:    "sensor.infrastructural_house_downward_hallway_laserjet_status",
-					DisplaySuffix:  "status",
-				},
-			},
-		},
-	}}
-
-	expected := expectedHassBridgeTopics(bridgeFile, testPrefix)
-	wantTopic, ok := hassBridgeDiscoveryTopic("sensor.infrastructural_house_downward_hallway_laserjet_status", "", testPrefix)
-	if !ok {
-		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
-	}
-	if !expected[wantTopic] {
-		t.Errorf("expectedHassBridgeTopics = %v, want it to contain %q", expected, wantTopic)
 	}
 }
 
@@ -1178,7 +1154,7 @@ func TestSubscribeHassBridgeSetsCommandTopicForCommandableCapability(t *testing.
 	wantCommandTopic := "homeassistant_instances/protocols-server-2/bridge/vacuum.social_apartment_roomba/command"
 
 	localFound := false
-	for _, p := range client.published {
+	for _, p := range localBridgeConfigs(bridgeFile, store, nil, "protocols-server-2|vacuum.social_apartment_roomba") {
 		if p.topic != localDiscoveryTopic {
 			continue
 		}
@@ -1266,7 +1242,7 @@ func TestSubscribeHassBridgeSetsJSONAttributesTopicWhenDeclared(t *testing.T) {
 	wantAttributesTopic := "homeassistant_instances/protocols-server-2/bridge/vacuum.social_apartment_living_room/attributes"
 
 	found := false
-	for _, p := range client.published {
+	for _, p := range localBridgeConfigs(bridgeFile, store, nil, "protocols-server-2|vacuum.social_apartment_living_room") {
 		if p.topic != wantTopic {
 			continue
 		}
@@ -1316,7 +1292,7 @@ func TestSubscribeHassBridgeOmitsJSONAttributesTopicWhenNotDeclared(t *testing.T
 	}
 
 	found := false
-	for _, p := range client.published {
+	for _, p := range localBridgeConfigs(bridgeFile, store, nil, "protocols-server-2|sensor.infrastructural_vienna_terrace_temperature") {
 		if p.topic != wantTopic {
 			continue
 		}

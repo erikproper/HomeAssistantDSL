@@ -6,31 +6,6 @@ import (
 	"time"
 )
 
-func TestPublishMissingDeclaredEntitiesDiscoveryConfig(t *testing.T) {
-	client := &fakeClient{}
-	if err := publishMissingDeclaredEntitiesDiscoveryConfig(client, "homeassistant.physical", "vienna"); err != nil {
-		t.Fatalf("publishMissingDeclaredEntitiesDiscoveryConfig error: %v", err)
-	}
-	wantTopic := discoveryTopic("homeassistant.physical", "binary_sensor", missingDeclaredEntitiesStableID)
-	publish, found := findPublish(client.published, wantTopic)
-	if !found {
-		t.Fatalf("expected a discovery config publish to %q, got %+v", wantTopic, client.published)
-	}
-	var body map[string]interface{}
-	if err := json.Unmarshal(publish.payload, &body); err != nil {
-		t.Fatalf("unmarshal discovery config: %v", err)
-	}
-	if body["device_class"] != "problem" {
-		t.Errorf("device_class = %v, want \"problem\"", body["device_class"])
-	}
-	if body["state_topic"] != missingDeclaredEntitiesStateTopic() {
-		t.Errorf("state_topic = %v, want %q", body["state_topic"], missingDeclaredEntitiesStateTopic())
-	}
-	if body["json_attributes_topic"] != missingDeclaredEntitiesAttributesTopic() {
-		t.Errorf("json_attributes_topic = %v, want %q", body["json_attributes_topic"], missingDeclaredEntitiesAttributesTopic())
-	}
-}
-
 // TestMissingDeclaredEntitiesPublisherPublishNowAggregatesAllTrackers confirms the aggregate state
 // reflects ANY of the three trackers having a known-not-to-exist item, and the itemized attributes
 // concatenate all three -- PROJECT.md item 1a's own "one shared indicator across kind-2/kind-3/

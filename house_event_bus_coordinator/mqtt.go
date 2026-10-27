@@ -158,8 +158,8 @@ func connectMQTT(secrets TMQTTBrokerSecrets, clientID string, hook *TReconnectHo
 // retire-then-republish, discoverycleanup.go), using store's current live snapshot for it and
 // viaDeviceHostName resolved to another device's identifier via hostNameToDeviceID (silently
 // unresolved -- "" -- if no match). Routes to mainClient/cloudClient per deviceRoutingPlan(device)
-// (mqtt_relay.go) -- a plain local device publishes to main only, same as always; "cloud"-routed
-// and imported devices route differently, see that function's own doc comment for the full table.
+// (mqtt_relay.go): only a "cloud"-routed device's cloud catalogue entry is published -- this
+// house's own Home Assistant gets every hosts device from the generator's YAML (PROJECT.md 19).
 // Shared by publishDiscovery (startup, every device) and subscribeDeviceInfo's message handler
 // (one device, on update).
 func publishDeviceDiscovery(mainClient, cloudClient mqtt.Client, ownInstallation string, deviceID string, device TDevice, store *TLiveDeviceInfoStore, hostNameToDeviceID map[string]string, publisher *TDiscoveryPublisher, prefix string) (int, error) {
@@ -169,16 +169,6 @@ func publishDeviceDiscovery(mainClient, cloudClient mqtt.Client, ownInstallation
 
 	published := 0
 	for _, cfg := range buildDiscoveryConfigs(deviceID, device, live, viaDeviceID, prefix, ownInstallation) {
-		if plan.PublishMain {
-			data, err := json.Marshal(cfg.Payload)
-			if err != nil {
-				return published, fmt.Errorf("marshalling discovery payload for %s: %w", cfg.Topic, err)
-			}
-			if err := publisher.Publish(mainClient, "main", cfg.Topic, data); err != nil {
-				return published, err
-			}
-			published++
-		}
 		if plan.PublishCloud {
 			// Cloud topic is INDEPENDENT of cfg.Topic (the local one) -- keyed by
 			// exportStableID(ownInstallation, deviceID, cfg.Capability), the same stable-id scheme

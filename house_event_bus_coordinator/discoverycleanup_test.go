@@ -324,86 +324,6 @@ func TestDiscoveryPublisherRetireOneForgetsPassthroughMarking(t *testing.T) {
 
 // --- expected topic/payload computation ---
 
-func TestExpectedHostsPayloadsMatchesBuildDiscoveryConfigs(t *testing.T) {
-	devicesFile := TDevicesFile{Devices: map[string]TDevice{"host.smarty": smartyDevice()}}
-	got, err := expectedHostsPayloads(devicesFile, true, NewLiveDeviceInfoStore("", nil))
-	if err != nil {
-		t.Fatalf("expectedHostsPayloads error: %v", err)
-	}
-
-	want := map[string]bool{}
-	for _, cfg := range buildDiscoveryConfigs("host.smarty", smartyDevice(), nil, "", devicesFile.conceptualPrefix(), devicesFile.Installation) {
-		want[cfg.Topic] = true
-	}
-	if len(got) != len(want) {
-		t.Fatalf("got topics %v, want %v", got, want)
-	}
-	for topic := range want {
-		if _, ok := got[topic]; !ok {
-			t.Errorf("missing expected topic %q", topic)
-		}
-	}
-}
-
-// TestExpectedHostsPayloadsUsesPersistedLiveDeviceInfo is the regression test for a real bug found
-// live 2026-09-09 (Vienna): expectedHostsPayloads used to always compute its baseline with
-// live=nil, so a device whose manufacturer/model/sw_version/... was already learned and persisted
-// across a PREVIOUS coordinator run had a startup "expected" payload that could never match what
-// was actually, correctly sitting on the broker from before the restart (already live-enriched).
-// watchForOrphanedDiscoveryTopics' startup content-check then wrongly retired the topic. Confirms
-// expectedHostsPayloads now folds the store's own persisted snapshot into its baseline, matching
-// buildDiscoveryConfigs(..., store.Snapshot(id), ...) exactly -- not the bare, live-data-free one.
-func TestExpectedHostsPayloadsUsesPersistedLiveDeviceInfo(t *testing.T) {
-	devicesFile := TDevicesFile{Devices: map[string]TDevice{"host.smarty": smartyDevice()}}
-
-	store := NewLiveDeviceInfoStore("", nil)
-	store.Update("host.smarty", map[string]string{"manufacturer": "raspberrypi", "sw_version": "Fedora Linux 44"})
-
-	got, err := expectedHostsPayloads(devicesFile, true, store)
-	if err != nil {
-		t.Fatalf("expectedHostsPayloads error: %v", err)
-	}
-
-	wantEnriched := map[string]string{}
-	for _, cfg := range buildDiscoveryConfigs("host.smarty", smartyDevice(), store.Snapshot("host.smarty"), "", devicesFile.conceptualPrefix(), devicesFile.Installation) {
-		data, err := json.Marshal(cfg.Payload)
-		if err != nil {
-			t.Fatalf("marshalling want payload: %v", err)
-		}
-		wantEnriched[cfg.Topic] = string(data)
-	}
-	if len(wantEnriched) == 0 {
-		t.Fatalf("test setup produced no discovery configs to compare against")
-	}
-	for topic, want := range wantEnriched {
-		if got[topic] != want {
-			t.Errorf("got[%q] = %s, want the live-enriched payload %s", topic, got[topic], want)
-		}
-	}
-
-	// The bug's own symptom, made explicit: the bare (live=nil) baseline must NOT match what
-	// expectedHostsPayloads now computes, for at least the device-info-bearing "device" fields --
-	// otherwise this test would pass even with the old, broken behaviour.
-	bare := map[string]string{}
-	for _, cfg := range buildDiscoveryConfigs("host.smarty", smartyDevice(), nil, "", devicesFile.conceptualPrefix(), devicesFile.Installation) {
-		data, err := json.Marshal(cfg.Payload)
-		if err != nil {
-			t.Fatalf("marshalling bare payload: %v", err)
-		}
-		bare[cfg.Topic] = string(data)
-	}
-	sawDifference := false
-	for topic, want := range wantEnriched {
-		if bare[topic] != want {
-			sawDifference = true
-			break
-		}
-	}
-	if !sawDifference {
-		t.Fatalf("test setup error: live-enriched and bare payloads are identical, so this test can't distinguish the fix from the bug")
-	}
-}
-
 // TestExpectedCloudHostsPayloadsQualifiesTopicsAndSkipsNonCloudAndRealImportedDevices confirms
 // expectedCloudHostsPayloads includes every Cloud device -- whether self-imported (ImportedFrom
 // naming this house's own installation, the "cloud"+"import" case that replaced "native" 2026-09-02)
@@ -468,52 +388,6 @@ func TestExpectedCloudHostsPayloadsQualifiesTopicsAndSkipsNonCloudAndRealImporte
 		if topic == "junglinster/hosts/plain/cpu/state" || topic == "junglinster/hosts/imported/cpu/state" {
 			t.Errorf("plain-local/real-imported device topic %q must not appear in the cloud broker's expected set", topic)
 		}
-	}
-}
-
-func TestExpectedDiscoveryBridgeTopicsUsesGatewayAndLeaf(t *testing.T) {
-	discoveryFile := TDiscoveryFile{
-		EntityLinks: map[string]TDiscoveryEntityLink{
-			"sensor.social_garage_door_temperature": {Gateway: "discovery.ems_esp", Leaf: "boiler_outdoortemp"},
-		},
-	}
-	got := expectedDiscoveryBridgeTopics(discoveryFile, testPrefix)
-	want := "homeassistant/sensor/coordinator/discovery_ems_esp_boiler_outdoortemp/config"
-	if !got[want] {
-		t.Fatalf("got %v, want a set containing %q", got, want)
-	}
-
-	// Renaming/repositioning the entity (a different key, same gateway+leaf) must yield the same
-	// topic -- that's the whole point of keying on gateway+leaf rather than our own entity id.
-	renamed := TDiscoveryFile{
-		EntityLinks: map[string]TDiscoveryEntityLink{
-			"sensor.infrastructural_boiler_outside_temp": {Gateway: "discovery.ems_esp", Leaf: "boiler_outdoortemp"},
-		},
-	}
-	gotRenamed := expectedDiscoveryBridgeTopics(renamed, testPrefix)
-	if !gotRenamed[want] {
-		t.Errorf("got %v after rename, want the same topic %q unchanged", gotRenamed, want)
-	}
-}
-
-// TestExpectedDiscoveryBridgeTopicsPrefersStableID covers PROJECT.md item 7: a link.StableID
-// must win over the Gateway+Leaf computation here too, or a stable-ID'd entity's real topic
-// would never appear in this function's own "expected" set, and the orphan-cleanup pass
-// (watchForOrphanedDiscoveryTopics) would wrongly retire it as unexpected.
-func TestExpectedDiscoveryBridgeTopicsPrefersStableID(t *testing.T) {
-	discoveryFile := TDiscoveryFile{
-		EntityLinks: map[string]TDiscoveryEntityLink{
-			"sensor.social_garage_door_temperature": {Gateway: "discovery.ems_esp_renamed", Leaf: "boiler_outdoortemp", StableID: "frozen_stable_id"},
-		},
-	}
-	got := expectedDiscoveryBridgeTopics(discoveryFile, testPrefix)
-	want := "homeassistant/sensor/coordinator/frozen_stable_id/config"
-	if !got[want] {
-		t.Fatalf("got %v, want a set containing %q (the frozen StableID, not the renamed gateway's own computation)", got, want)
-	}
-	notWant := "homeassistant/sensor/coordinator/discovery_ems_esp_renamed_boiler_outdoortemp/config"
-	if got[notWant] {
-		t.Errorf("got %v, should NOT contain %q (the computed-from-gateway topic, since StableID is set)", got, notWant)
 	}
 }
 
@@ -738,18 +612,5 @@ func TestExpectedCloudHostsPayloadsMatchesCloudSafePayload(t *testing.T) {
 		if got[topic] != string(cloud) {
 			t.Errorf("expected cloud payload for %s =\n%s\nwant what the cloud leg publishes\n%s", topic, got[topic], cloud)
 		}
-	}
-}
-
-// TestExpectedDiscoveryBridgeTopicsLeavesOutYAMLEntities: an entity Home Assistant gets from the
-// generator's YAML (PROJECT.md 19c) no longer has an expected relayed topic, so it is retired.
-func TestExpectedDiscoveryBridgeTopicsLeavesOutYAMLEntities(t *testing.T) {
-	file := TDiscoveryFile{EntityLinks: map[string]TDiscoveryEntityLink{
-		"sensor.relayed": {Gateway: "sensors.a", Leaf: "0x01_temperature_zigbee2mqtt", StableID: "a_temperature"},
-		"sensor.as_yaml": {Gateway: "sensors.b", Leaf: "0x02_temperature_zigbee2mqtt", StableID: "b_temperature", YAML: true},
-	}}
-	expected := expectedDiscoveryBridgeTopics(file, testPrefix)
-	if !expected[discoveryTopic(testPrefix, "sensor", "a_temperature")] || expected[discoveryTopic(testPrefix, "sensor", "b_temperature")] || len(expected) != 1 {
-		t.Errorf("expected = %v, want only the relayed entity's topic", expected)
 	}
 }

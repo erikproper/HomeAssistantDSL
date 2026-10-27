@@ -118,10 +118,6 @@ type TDevice struct {
 	// handled identically from here on; there is no more separate "native" field/keyword.
 	Cloud        bool   `yaml:"cloud,omitempty"`
 	ImportedFrom string `yaml:"imported_from,omitempty"`
-	// YAML: Home Assistant gets this device's entities from the generator's own YAML "mqtt:"
-	// config (PROJECT.md 19e), so the coordinator publishes no local discovery for it -- and
-	// withdraws what it published before (deviceRoutingPlan).
-	YAML bool `yaml:"yaml,omitempty"`
 }
 
 // TDevicesFile is the top-level shape of a generated devices.yaml file. MQTTDiscoveryConceptualPrefix
@@ -170,62 +166,6 @@ type TDiscoveryGateway struct {
 type TDiscoveryEntityLink struct {
 	Gateway string `yaml:"gateway"`
 	Leaf    string `yaml:"leaf"`
-
-	// StableID (2026-10-05, PROJECT.md item 7's stable coordinator<->HA entity identity design)
-	// is a frozen "as <id>;" from Physical.def, generator-assigned once and never recomputed.
-	// buildRelayedDiscoveryConfig/expectedDiscoveryBridgeTopics prefer this over their own
-	// relayedDiscoveryUniqueID(Gateway, Leaf) computation whenever it's set -- a device-ID rename
-	// or hardware swap at the same conceptual position then no longer changes this entity's own
-	// unique_id/discovery topic. Empty means not yet assigned; falls back to the old computation.
-	StableID string `yaml:"stable_id,omitempty"`
-
-	// Name (PROJECT.md 17h, 2026-10-26) is the entity's conceptual name ("social/apartment/
-	// bedroom/windoor/temperature"), the relayed discovery config's "name" -- see
-	// buildRelayedDiscoveryConfig. Empty for a discovery.yaml written before it existed.
-	Name string `yaml:"name,omitempty"`
-
-	// YAML (PROJECT.md 19c, 2026-10-27) marks an entity Home Assistant now gets from the
-	// generator's own YAML "mqtt:" entities instead of from this relay: its config is still built
-	// (and published in discovery_relayed_configs/state, for the generator), but no longer
-	// relayed -- its relayed discovery topic is withdrawn.
-	YAML bool `yaml:"yaml,omitempty"`
-
-	// SourceDomain (2026-09-15), when non-empty, requires the incoming raw discovery message's
-	// own topic domain component to match this exactly, in addition to (Gateway, Leaf) --
-	// disambiguates a leaf id the gateway publishes under more than one raw domain for the same
-	// underlying property (real case: Vienna's Moes scene-remote buttons, whose "action" property
-	// gets both a legacy "sensor" text mirror and a richer "event" entity, identical unique_id).
-	// Empty (the common case) matches whichever raw domain publishes the leaf, same as before this
-	// field existed -- required for the existing, deliberate cross-domain relay pattern (e.g.
-	// "fan.core: 0x..._switch_zigbee2mqtt;", relaying a switch-domain-published leaf under a
-	// different declared conceptual domain) to keep working unchanged.
-	SourceDomain string `yaml:"source_domain,omitempty"`
-
-	// DeviceClass/Unit/StateClass/Icon are generator-resolved gap-fillers (Defaults.def, via
-	// resolveCapabilityDefaults) -- discoverybridge.go's buildRelayedDiscoveryConfig only uses
-	// these when the gateway's own natively-published discovery payload leaves the field empty,
-	// never overriding a value the gateway already reported.
-	DeviceClass string `yaml:"device_class,omitempty"`
-	Unit        string `yaml:"unit,omitempty"`
-	StateClass  string `yaml:"state_class,omitempty"`
-	Icon        string `yaml:"icon,omitempty"`
-
-	// ValueTemplateWrap (2026-09-15), set only for a "derived ... from <hidden raw leaf> via
-	// TTT;" capability: TTT itself, "$" standing for the gateway's own native value_template
-	// expression. buildRelayedDiscoveryConfig folds it into the relayed entity's own
-	// value_template/state_value_template instead of using the gateway's raw extraction verbatim
-	// -- one MQTT-discovered entity computed at the source, no separate materialized raw entity or
-	// locally-computed HA template sensor needed.
-	ValueTemplateWrap string `yaml:"value_template_wrap,omitempty"`
-
-	// Invert (2026-09-28), from Physical.def's own "inverted " capability qualifier
-	// (homeassistant/integration_discovery_storage.go's TDiscoveryCapability.Inverted doc comment
-	// has the full rationale -- a normally-closed relay is the motivating case). When true,
-	// buildRelayedDiscoveryConfig swaps payload_on/payload_off (and state_on/state_off, if the
-	// gateway's own native payload sets them) on the relayed config -- a full physical-level
-	// inversion of both the reported state and the command sent on turn_on/turn_off, achieved
-	// entirely within the discovery payload, no separate template/wrapper entity needed.
-	Invert bool `yaml:"invert,omitempty"`
 }
 
 // TDiscoveryFile is the top-level shape of a generated coordinator/discovery.yaml file --
@@ -306,12 +246,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	commandlineFile, err := loadCommandlineFile(filepath.Join(coordinatorDir, "commandline.yaml"))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-
 	mainEntitiesFile, err := loadMainEntitiesFile(filepath.Join(coordinatorDir, "main_entities.yaml"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -371,46 +305,18 @@ func main() {
 	topicToDeviceID, hostNameToDeviceID := buildDeviceLookups(devicesFile)
 
 	conceptualPrefix := devicesFile.conceptualPrefix()
-	expectedHostsContent, err := expectedHostsPayloads(devicesFile, cloudClient != nil, store)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-	expectedTopics := topicSet(expectedHostsContent)
-	for t := range expectedDiscoveryBridgeTopics(discoveryFile, conceptualPrefix) {
-		expectedTopics[t] = true
-	}
-	for t := range expectedHassBridgeTopics(hassBridgeFile, conceptualPrefix) {
-		expectedTopics[t] = true
-	}
+	// Nothing of this coordinator's own is expected on the main broker's discovery any more (PROJECT.md
+	// 19): Home Assistant gets every entity from the generator's YAML, so the cleanup withdraws
+	// whatever earlier runs left there.
+	expectedHostsContent := map[string]string{}
+	expectedTopics := map[string]bool{}
 	// An imported device's local discovery configs belong on "main" (they're locally-published
 	// relay entities, same as any other device) -- fully precomputable from Physical.def alone, see
 	// discoveryimport.go's own header comment for why.
-	for t := range expectedImportedTopics(importedFile, conceptualPrefix) {
-		expectedTopics[t] = true
-	}
-	for t := range expectedCommandlineTopics(commandlineFile, conceptualPrefix, devicesFile.Installation) {
-		expectedTopics[t] = true
-	}
-	// The "Discover entity" meta control (discover_entity_input.go) is permanent, coordinator-owned,
-	// and not derived from any devices/discovery/hassbridge file -- must be listed here explicitly,
-	// or watchForOrphanedDiscoveryTopics (below) retires it moments after publishDiscoverEntityInput
-	// (further down this function) ever publishes it, since its own "coordinator"-owned topic would
-	// otherwise never appear "expected". Confirmed live 2026-08-28: without this, the entity never
-	// stayed up long enough for HA to show it at all.
-	expectedTopics[discoveryTopic(conceptualPrefix, "text", discoverEntityStableID)] = true
-	// Same reasoning as discoverEntityStableID immediately above -- the reload/restart meta
-	// buttons (meta_reload_restart.go) are also coordinator-owned, not derived from any
-	// devices/discovery/hassbridge file, and must be listed here explicitly.
-	for t := range expectedMetaReloadRestartTopics(conceptualPrefix, devicesFile.Installation, homeAssistantInstancesFile.Instances) {
-		expectedTopics[t] = true
-	}
-	// Same reasoning again -- the "missing declared entities" indicator (missing_declared_entities.go,
-	// PROJECT.md item 1a) is also coordinator-owned, not derived from any devices/discovery/hassbridge
-	// file, and must be listed here explicitly.
-	for t := range expectedMissingDeclaredEntitiesTopics(conceptualPrefix) {
-		expectedTopics[t] = true
-	}
+	// The coordinator's own entities -- "Discover entity", the reload/restart meta buttons, the
+	// "missing declared entities" indicator -- come from the generator's YAML since PROJECT.md 19h.2
+	// (homeassistant/coordinator_yaml_entities.go): their discovery topics are not expected, so the
+	// cleanup withdraws what earlier runs published.
 
 	declaredCleanNodeIDs := make(map[string]bool, len(cleanupFile.CleanTopics))
 	for _, t := range cleanupFile.CleanTopics {
@@ -598,17 +504,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
-	// "derived" import capabilities (plans/derived-capability-mechanism.md Phase 2) need no cloud
-	// message to resolve -- fully knowable from importedFile alone, so published once here rather
-	// than reactively inside subscribeImportedDevices' own message handlers.
-	if err := publishDerivedImportedDiscovery(client, importedFile, publisher, conceptualPrefix, devicesFile.Installation); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-	if err := publishCommandlineDiscovery(client, commandlineFile, publisher, conceptualPrefix, devicesFile.Installation); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
 
 	if err := existenceTracker.StartEntityExistenceInquiries(client, cloudClient, devicesFile.Installation, homeAssistantInstancesFile.Instances, store); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -617,11 +512,6 @@ func main() {
 
 	// Architecture.md §6.9: bootstrapping an entirely new, undeclared device needs a human-provided
 	// seed -- DiscoverSiblings can only enrich a device the tracker already has some anchor for.
-	if err := publishDiscoverEntityInput(client, conceptualPrefix, devicesFile.Installation); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("[existence] published \"Discover entity\" meta control at %s\n", discoveryTopic(conceptualPrefix, "text", discoverEntityStableID))
 	if err := subscribeDiscoverEntityRequests(client, existenceTracker, homeAssistantInstancesFile.Instances); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -634,10 +524,6 @@ func main() {
 	// PROJECT.md item 2: reload/restart meta-commands -- one button per (action, scope), scopes
 	// being every declared real instance, this installation, and "all" (cross-house via the cloud
 	// broker, meta_reload_restart.go's own doc comment for the loop-guard reasoning).
-	if err := publishMetaReloadRestartButtons(client, conceptualPrefix, devicesFile.Installation, homeAssistantInstancesFile.Instances); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
 	if err := subscribeMetaFanOut(client, cloudClient, devicesFile.Installation, homeAssistantInstancesFile.Instances); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -665,10 +551,6 @@ func main() {
 	}
 	existenceTracker.SetOnChange(onMissingDeclaredEntitiesChange)
 	importExistenceTracker.SetOnChange(onMissingDeclaredEntitiesChange)
-	if err := publishMissingDeclaredEntitiesDiscoveryConfig(client, conceptualPrefix, devicesFile.Installation); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
 	if err := missingDeclaredEntitiesPublisher.PublishNow(client, discoveryExistenceTracker, existenceTracker, importExistenceTracker); err != nil {
 		fmt.Printf("[missing-declared-entities] %v\n", err)
 	}
@@ -692,20 +574,8 @@ func main() {
 			fmt.Printf("[reconnect] passthroughDeviceTracker.PublishStatus: %v\n", err)
 		}
 		importExistenceTracker.PublishAll(client, cloudClient, devicesFile.Installation, importedFile)
-		if err := publishCommandlineDiscovery(client, commandlineFile, publisher, conceptualPrefix, devicesFile.Installation); err != nil {
-			fmt.Printf("[reconnect] publishCommandlineDiscovery: %v\n", err)
-		}
-		if err := publishDiscoverEntityInput(client, conceptualPrefix, devicesFile.Installation); err != nil {
-			fmt.Printf("[reconnect] publishDiscoverEntityInput: %v\n", err)
-		}
-		if err := publishMetaReloadRestartButtons(client, conceptualPrefix, devicesFile.Installation, homeAssistantInstancesFile.Instances); err != nil {
-			fmt.Printf("[reconnect] publishMetaReloadRestartButtons: %v\n", err)
-		}
 		if err := publishLocalBrokerInstallation(client, devicesFile.Installation); err != nil {
 			fmt.Printf("[reconnect] publishLocalBrokerInstallation: %v\n", err)
-		}
-		if err := publishMissingDeclaredEntitiesDiscoveryConfig(client, conceptualPrefix, devicesFile.Installation); err != nil {
-			fmt.Printf("[reconnect] publishMissingDeclaredEntitiesDiscoveryConfig: %v\n", err)
 		}
 		if err := missingDeclaredEntitiesPublisher.PublishNow(client, discoveryExistenceTracker, existenceTracker, importExistenceTracker); err != nil {
 			fmt.Printf("[reconnect] missingDeclaredEntitiesPublisher.PublishNow: %v\n", err)

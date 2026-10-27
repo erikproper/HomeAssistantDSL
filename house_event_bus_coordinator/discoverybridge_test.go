@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"homeassistant/hamqtt"
 	"path/filepath"
 	"testing"
 )
@@ -143,7 +144,7 @@ func TestBuildRelayedDiscoveryConfig(t *testing.T) {
 	}
 	raw := rawPayloadFixture(t, realEMSESPBoilerOutdoortempPayload)
 
-	topic, body, ok := buildRelayedDiscoveryConfig("sensor.social_garage_door_temperature", "discovery.ems_esp", raw, payload, TDiscoveryEntityLink{}, testPrefix, "test", "sensor", false)
+	topic, body, ok := buildRelayedDiscoveryConfig("sensor.social_garage_door_temperature", "discovery.ems_esp", raw, payload, hamqtt.Link{}, testPrefix, "test", "sensor", false)
 	if !ok {
 		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
 	}
@@ -170,20 +171,31 @@ func TestBuildRelayedDiscoveryConfig(t *testing.T) {
 		t.Errorf("has_entity_name = %v, want unset (not a real MQTT discovery key)", body["has_entity_name"])
 	}
 	// Regression test, 2026-09-14: HA's Fan integration reads state_value_template, not
-	// value_template -- both must be set to the same value so a switch-shaped payload relayed
-	// under domain "fan" (or any other domain with its own state-template key name) still works.
+	// value_template -- a switch-shaped payload relayed under domain "fan" (or any other domain
+	// with its own state-template key name) must get the key its domain knows. Since PROJECT.md
+	// 19i only that one: the other is a field Home Assistant doesn't know there.
 	wantTemplate := "{{value_json['outdoortemp'] if value_json['outdoortemp'] is defined else 0}}"
 	if body["value_template"] != wantTemplate {
 		t.Errorf("value_template = %v, want %q", body["value_template"], wantTemplate)
 	}
-	if body["state_value_template"] != wantTemplate {
-		t.Errorf("state_value_template = %v, want %q (HA's Fan integration reads this key, not value_template)", body["state_value_template"], wantTemplate)
+	if _, present := body["state_value_template"]; present {
+		t.Errorf("state_value_template set on a sensor, which doesn't know it")
+	}
+	_, fanBody, ok := buildRelayedDiscoveryConfig("fan.social_garage_door_fan", "discovery.ems_esp", raw, payload, hamqtt.Link{}, testPrefix, "test", "switch", false)
+	if !ok {
+		t.Fatalf("expected the fan relay to succeed")
+	}
+	if fanBody["state_value_template"] != wantTemplate {
+		t.Errorf("fan state_value_template = %v, want %q (HA's Fan integration reads this key, not value_template)", fanBody["state_value_template"], wantTemplate)
+	}
+	if _, present := fanBody["value_template"]; present {
+		t.Errorf("value_template set on a fan, which doesn't know it")
 	}
 }
 
 // TestBuildRelayedDiscoveryConfigPrefersStableID covers PROJECT.md item 7 (memory/project_stable_
 // entity_identity_design.md): a link.StableID, once set, drives both the unique_id and the
-// discovery topic -- NOT relayedDiscoveryUniqueID(gatewayID, leaf) -- so a device-ID rename
+// discovery topic -- NOT hamqtt.RelayedUniqueID(gatewayID, leaf) -- so a device-ID rename
 // (gatewayID changing) doesn't change either, even though the raw payload's own UniqueID is
 // unchanged. Uses a deliberately "wrong" gatewayID (as if the device had just been renamed) to
 // prove the computed fallback is never consulted when StableID is present.
@@ -194,7 +206,7 @@ func TestBuildRelayedDiscoveryConfigPrefersStableID(t *testing.T) {
 	}
 	raw := rawPayloadFixture(t, realEMSESPBoilerOutdoortempPayload)
 
-	link := TDiscoveryEntityLink{StableID: "frozen_stable_id"}
+	link := hamqtt.Link{StableID: "frozen_stable_id"}
 	topic, body, ok := buildRelayedDiscoveryConfig("sensor.social_garage_door_temperature", "discovery.ems_esp_renamed", raw, payload, link, testPrefix, "test", "sensor", false)
 	if !ok {
 		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
@@ -243,8 +255,8 @@ func TestWrapMQTTValueTemplateRecognisesSingleQuotedKey(t *testing.T) {
 }
 
 // TestBuildRelayedDiscoveryConfigAppliesValueTemplateWrap proves link.ValueTemplateWrap (set only
-// for a "derived ... from <hidden raw leaf> via ...;" capability) is folded into BOTH
-// value_template and state_value_template, on top of the gateway's own native extraction.
+// for a "derived ... from <hidden raw leaf> via ...;" capability) is folded into the state
+// template, on top of the gateway's own native extraction.
 func TestBuildRelayedDiscoveryConfigAppliesValueTemplateWrap(t *testing.T) {
 	payload := tDecodedDiscoveryPayload{
 		UniqueID:      "door_aqara_multi_pressure",
@@ -256,7 +268,7 @@ func TestBuildRelayedDiscoveryConfigAppliesValueTemplateWrap(t *testing.T) {
 		"state_topic":    "zigbee2mqtt/apartment/hallway/door/aqara_multi",
 		"value_template": `{{ value_json["pressure"] }}`,
 	}
-	link := TDiscoveryEntityLink{ValueTemplateWrap: "($ | float(0)) + 20"}
+	link := hamqtt.Link{ValueTemplateWrap: "($ | float(0)) + 20"}
 
 	_, body, ok := buildRelayedDiscoveryConfig("sensor.physical_apartment_hallway_door_aqara_multi_pressure", "discovery.hallway_door_aqara_multi", raw, payload, link, testPrefix, "test", "sensor", false)
 	if !ok {
@@ -265,9 +277,6 @@ func TestBuildRelayedDiscoveryConfigAppliesValueTemplateWrap(t *testing.T) {
 	want := `{% if "pressure" in value_json %}{{ ((value_json["pressure"]) | float(0)) + 20 }}{% else %}{{ this.state }}{% endif %}`
 	if body["value_template"] != want {
 		t.Errorf("value_template = %v, want %q", body["value_template"], want)
-	}
-	if body["state_value_template"] != want {
-		t.Errorf("state_value_template = %v, want %q", body["state_value_template"], want)
 	}
 	// payload_on/payload_off are a binary_sensor-only MQTT schema concept -- a wrapped sensor
 	// relay (this test) must never carry them.
@@ -302,7 +311,7 @@ func TestBuildRelayedDiscoveryConfigDefaultsGapFillOnly(t *testing.T) {
 	// device_class/unit are already native -- link's conflicting values must NOT win.
 	// state_class the payload leaves empty, so link's value must gap-fill it. icon has no
 	// native counterpart at all, so it always comes from link.
-	link := TDiscoveryEntityLink{
+	link := hamqtt.Link{
 		DeviceClass: "should-not-win",
 		Unit:        "should-not-win",
 		StateClass:  "measurement",
@@ -362,7 +371,7 @@ func TestBuildRelayedDiscoveryConfigStripsSensorOnlyFieldsOnDomainMismatch(t *te
 		Unit:          "W",
 		StateClass:    "measurement",
 	}
-	link := TDiscoveryEntityLink{ValueTemplateWrap: "'on' if (($ | int(0)) > 50) else 'off'"}
+	link := hamqtt.Link{ValueTemplateWrap: "'on' if (($ | int(0)) > 50) else 'off'"}
 
 	_, body, ok := buildRelayedDiscoveryConfig("binary_sensor.social_house_kitchen_workplace_furnace_consumes", "sensors.house_heating_power_meter", raw, payload, link, testPrefix, "test", "sensor", false)
 	if !ok {
@@ -404,7 +413,7 @@ func TestBuildRelayedDiscoveryConfigInvertsExplicitPayloadOnOff(t *testing.T) {
 		StateTopic:   "zigbee2mqtt/house/kitchen/workplace/furnace",
 		CommandTopic: "zigbee2mqtt/house/kitchen/workplace/furnace/set",
 	}
-	link := TDiscoveryEntityLink{Invert: true}
+	link := hamqtt.Link{Invert: true}
 
 	_, body, ok := buildRelayedDiscoveryConfig("switch.social_house_kitchen_workplace_furnace", "sensors.kitchen_workplace_furnace_switch", raw, payload, link, testPrefix, "test", "switch", false)
 	if !ok {
@@ -433,7 +442,7 @@ func TestBuildRelayedDiscoveryConfigInvertsImplicitDefaultsWhenNativePayloadOmit
 		StateTopic:   "zigbee2mqtt/house/kitchen/workplace/furnace",
 		CommandTopic: "zigbee2mqtt/house/kitchen/workplace/furnace/set",
 	}
-	link := TDiscoveryEntityLink{Invert: true}
+	link := hamqtt.Link{Invert: true}
 
 	_, body, ok := buildRelayedDiscoveryConfig("switch.social_house_kitchen_workplace_furnace", "sensors.kitchen_workplace_furnace_switch", raw, payload, link, testPrefix, "test", "switch", false)
 	if !ok {
@@ -471,7 +480,7 @@ func TestBuildRelayedDiscoveryConfigInvertsStateOnOffOnlyWhenNativePayloadSetsTh
 		StateTopic:   "zigbee2mqtt/house/kitchen/workplace/furnace",
 		CommandTopic: "zigbee2mqtt/house/kitchen/workplace/furnace/set",
 	}
-	link := TDiscoveryEntityLink{Invert: true}
+	link := hamqtt.Link{Invert: true}
 
 	_, body, ok := buildRelayedDiscoveryConfig("switch.social_house_kitchen_workplace_furnace", "sensors.kitchen_workplace_furnace_switch", raw, payload, link, testPrefix, "test", "switch", false)
 	if !ok {
@@ -503,7 +512,7 @@ func TestBuildRelayedDiscoveryConfigNameNullForSoleGatewayCapability(t *testing.
 		StateTopic: "zigbee2mqtt/house/kitchen/workplace/furnace",
 	}
 
-	_, body, ok := buildRelayedDiscoveryConfig("switch.social_house_kitchen_workplace_furnace", "sensors.kitchen_workplace_furnace_switch", raw, payload, TDiscoveryEntityLink{}, testPrefix, "test", "switch", true)
+	_, body, ok := buildRelayedDiscoveryConfig("switch.social_house_kitchen_workplace_furnace", "sensors.kitchen_workplace_furnace_switch", raw, payload, hamqtt.Link{}, testPrefix, "test", "switch", true)
 	if !ok {
 		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
 	}
@@ -534,7 +543,7 @@ func TestBuildRelayedDiscoveryConfigNamePassesThroughForSharedGatewayCapability(
 		StateTopic: "zigbee2mqtt/aqara_multi",
 	}
 
-	_, body, ok := buildRelayedDiscoveryConfig("binary_sensor.social_house_hallway_occupancy", "sensors.hallway_aqara_multi", raw, payload, TDiscoveryEntityLink{}, testPrefix, "test", "binary_sensor", false)
+	_, body, ok := buildRelayedDiscoveryConfig("binary_sensor.social_house_hallway_occupancy", "sensors.hallway_aqara_multi", raw, payload, hamqtt.Link{}, testPrefix, "test", "binary_sensor", false)
 	if !ok {
 		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
 	}
@@ -557,7 +566,7 @@ func TestBuildRelayedDiscoveryConfigPreservesLightCapabilities(t *testing.T) {
 	}
 	raw := rawPayloadFixture(t, realZigbee2MQTTVidjaLeft1Payload)
 
-	_, body, ok := buildRelayedDiscoveryConfig("light.physical_apartment_living_room_vidja_left_1", "discovery.vidja_left_1", raw, payload, TDiscoveryEntityLink{}, testPrefix, "test", "light", false)
+	_, body, ok := buildRelayedDiscoveryConfig("light.physical_apartment_living_room_vidja_left_1", "discovery.vidja_left_1", raw, payload, hamqtt.Link{}, testPrefix, "test", "light", false)
 	if !ok {
 		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
 	}
@@ -601,7 +610,7 @@ func TestBuildRelayedDiscoveryConfigPreservesLightCapabilities(t *testing.T) {
 }
 
 func TestBuildRelayedDiscoveryConfigFailsWithoutUniqueID(t *testing.T) {
-	_, _, ok := buildRelayedDiscoveryConfig("sensor.social_garage_door_temperature", "discovery.ems_esp", nil, tDecodedDiscoveryPayload{}, TDiscoveryEntityLink{}, testPrefix, "test", "sensor", false)
+	_, _, ok := buildRelayedDiscoveryConfig("sensor.social_garage_door_temperature", "discovery.ems_esp", nil, tDecodedDiscoveryPayload{}, hamqtt.Link{}, testPrefix, "test", "sensor", false)
 	if ok {
 		t.Errorf("expected failure when the decoded payload has no unique_id")
 	}
@@ -627,7 +636,7 @@ func TestBuildRelayedDiscoveryConfigSucceedsWithoutStateTopic(t *testing.T) {
 	}
 	raw := rawPayloadFixture(t, climatePayload)
 
-	topic, body, ok := buildRelayedDiscoveryConfig("climate.physical_apartment_living_room_bitron_thermostat", "discovery.living_room_bitron_thermostat", raw, payload, TDiscoveryEntityLink{}, testPrefix, "test", "climate", false)
+	topic, body, ok := buildRelayedDiscoveryConfig("climate.physical_apartment_living_room_bitron_thermostat", "discovery.living_room_bitron_thermostat", raw, payload, hamqtt.Link{}, testPrefix, "test", "climate", false)
 	if !ok {
 		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed for a payload with no state_topic")
 	}
@@ -691,64 +700,6 @@ func TestSubscribeDiscoveryBridgeMarksExistence(t *testing.T) {
 const realMoesActionSensorPayload = `{"availability":[{"topic":"zigbee2mqtt/bridge/state","value_template":"{{ value_json.state }}"}],"availability_mode":"all","device":{"identifiers":["zigbee2mqtt_0x70ac08fffe4f0c15"]},"object_id":"apartment/hallway/door/moes_action","origin":{"name":"Zigbee2MQTT"},"state_topic":"zigbee2mqtt/apartment/hallway/door/moes","unique_id":"0x70ac08fffe4f0c15_action_zigbee2mqtt","value_template":"{{ value_json[\"action\"] }}"}`
 const realMoesActionEventPayload = `{"availability":[{"topic":"zigbee2mqtt/bridge/state","value_template":"{{ value_json.state }}"}],"availability_mode":"all","device":{"identifiers":["zigbee2mqtt_0x70ac08fffe4f0c15"]},"event_types":["1_single","1_double","hold"],"object_id":"apartment/hallway/door/moes_action","origin":{"name":"Zigbee2MQTT"},"state_topic":"zigbee2mqtt/apartment/hallway/door/moes","unique_id":"0x70ac08fffe4f0c15_action_zigbee2mqtt"}`
 
-// TestSubscribeDiscoveryBridgeSourceDomainDisambiguatesSharedLeaf is the regression test for the
-// real gap above: without TDiscoveryEntityLink.SourceDomain, matching on (gateway, leaf) alone
-// would let EITHER raw message relay under the SAME target entity, non-deterministically depending
-// on retained-message delivery order. With SourceDomain "event" declared, only the "event"-domain
-// topic relays; the "sensor"-domain one (same gateway, same leaf) must not.
-func TestSubscribeDiscoveryBridgeSourceDomainDisambiguatesSharedLeaf(t *testing.T) {
-	discoveryFile := TDiscoveryFile{
-		PhysicalPrefix: "physical",
-		Gateways: map[string]TDiscoveryGateway{
-			"discovery.hallway_door_moes": {Identifiers: []string{"zigbee2mqtt_0x70ac08fffe4f0c15"}},
-		},
-		EntityLinks: map[string]TDiscoveryEntityLink{
-			"event.physical_apartment_hallway_door_moes_core": {
-				Gateway:      "discovery.hallway_door_moes",
-				Leaf:         "0x70ac08fffe4f0c15_action_zigbee2mqtt",
-				SourceDomain: "event",
-			},
-		},
-	}
-	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
-	jobs := make(chan TDiscoveryRelayJob, 100)
-
-	client := &fakeClient{}
-	if err := subscribeDiscoveryBridge(client, nil, "vienna", discoveryFile, publisher, testPrefix, nil, nil, nil, jobs); err != nil {
-		t.Fatalf("subscribeDiscoveryBridge error: %v", err)
-	}
-
-	wantTopic := "homeassistant/event/coordinator/discovery_hallway_door_moes_0x70ac08fffe4f0c15_action_zigbee2mqtt/config"
-
-	// The "sensor"-domain message must NOT relay under the "event"-domain target entity.
-	client.subscribedHandlers[0](client, fakeMessage{
-		topic:   "physical/sensor/0x70ac08fffe4f0c15/action/config",
-		payload: []byte(realMoesActionSensorPayload),
-	})
-	drainDiscoveryRelayQueue(jobs, publisher)
-	if _, found := findPublish(client.published, wantTopic); found {
-		t.Fatalf("sensor-domain message must not relay to the event-domain target, but it did: %+v", client.published)
-	}
-
-	// The "event"-domain message (same gateway, same leaf) must relay.
-	client.subscribedHandlers[0](client, fakeMessage{
-		topic:   "physical/event/0x70ac08fffe4f0c15/action/config",
-		payload: []byte(realMoesActionEventPayload),
-	})
-	drainDiscoveryRelayQueue(jobs, publisher)
-	publish, found := findPublish(client.published, wantTopic)
-	if !found {
-		t.Fatalf("expected the event-domain message to relay to %s, got %+v", wantTopic, client.published)
-	}
-	var body map[string]interface{}
-	if err := json.Unmarshal(publish.payload, &body); err != nil {
-		t.Fatalf("unmarshal relayed payload: %v", err)
-	}
-	if body["event_types"] == nil {
-		t.Errorf("relayed payload missing event_types -- got the wrong raw message: %s", publish.payload)
-	}
-}
-
 // TestSubscribeDiscoveryBridgeRetractsOnEmptyPayload confirms an empty (retracted) discovery
 // payload on a topic the handler previously saw a real payload on moves that leaf to
 // known-not-to-exist -- PROJECT.md 1.8's retraction half. The resulting status publish itself is
@@ -788,8 +739,8 @@ func TestSubscribeDiscoveryBridgeRetractsOnEmptyPayload(t *testing.T) {
 	}
 }
 
-// TestSubscribeDiscoveryBridgeToleratesNilExistenceTracker confirms the pre-existing relay-only
-// behaviour still works when no tracker is supplied (nil is an accepted, deliberate no-op).
+// TestSubscribeDiscoveryBridgeToleratesNilExistenceTracker confirms the handler still works when no
+// tracker is supplied (nil is an accepted, deliberate no-op).
 func TestSubscribeDiscoveryBridgeToleratesNilExistenceTracker(t *testing.T) {
 	discoveryFile := TDiscoveryFile{
 		PhysicalPrefix: "physical",
@@ -813,8 +764,16 @@ func TestSubscribeDiscoveryBridgeToleratesNilExistenceTracker(t *testing.T) {
 	})
 	drainDiscoveryRelayQueue(jobs, publisher)
 
-	if _, found := findPublish(client.published, "homeassistant/sensor/coordinator/discovery_ems_esp_boiler_outdoortemp/config"); !found {
-		t.Errorf("expected the relayed discovery config publish to still happen, got %+v", client.published)
+	// Nothing goes to Home Assistant any more (PROJECT.md 19): the raw config is recorded for the
+	// generator's YAML, and nothing is relayed.
+	discoveryRawConfigs.mu.Lock()
+	_, recorded := discoveryRawConfigs.byGateway["discovery.ems_esp"]["sensor/boiler_outdoortemp"]
+	discoveryRawConfigs.mu.Unlock()
+	if !recorded {
+		t.Errorf("expected the raw config to be recorded for discovery.ems_esp")
+	}
+	if _, found := findPublish(client.published, "homeassistant/sensor/coordinator/discovery_ems_esp_boiler_outdoortemp/config"); found {
+		t.Errorf("a declared device's entity is relayed to Home Assistant: %+v", client.published)
 	}
 }
 
@@ -1346,7 +1305,7 @@ func TestBuildRelayedDiscoveryConfigUsesConceptualName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decodeDiscoveryPayload error: %v", err)
 	}
-	link := TDiscoveryEntityLink{Name: "social/garage/door/temperature"}
+	link := hamqtt.Link{Name: "social/garage/door/temperature"}
 	for _, sole := range []bool{false, true} {
 		raw := rawPayloadFixture(t, realEMSESPBoilerOutdoortempPayload)
 		_, body, ok := buildRelayedDiscoveryConfig("sensor.social_garage_door_temperature", "discovery.ems_esp", raw, payload, link, testPrefix, "test", "sensor", sole)
@@ -1367,7 +1326,7 @@ func TestBuildRelayedDiscoveryConfigShowsUpdatesOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decodeDiscoveryPayload error: %v", err)
 	}
-	link := TDiscoveryEntityLink{Name: "infrastructural/house/corridor/corb/firmware"}
+	link := hamqtt.Link{Name: "infrastructural/house/corridor/corb/firmware"}
 	_, body, ok := buildRelayedDiscoveryConfig("update.infrastructural_house_corridor_corb_firmware", "sensors.corridor_corb", rawPayloadFixture(t, update), payload, link, testPrefix, "test", "update", false)
 	if !ok {
 		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
