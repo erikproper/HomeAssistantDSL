@@ -824,7 +824,7 @@ func subscribeHassBridge(client, cloudClient mqtt.Client, ownInstallation string
 	}
 
 	const filter = "homeassistant_instances/+/bridge/+/state"
-	token := client.Subscribe(filter, 0, handler)
+	token := subscribe(client, filter, 0, handler)
 	if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
 		if err := token.Error(); err != nil {
 			return fmt.Errorf("subscribing to %s: %w", filter, err)
@@ -959,7 +959,7 @@ func subscribeHassBridgeDeviceInfo(client, cloudClient mqtt.Client, ownInstallat
 	}
 
 	const filter = "homeassistant_instances/+/bridge/device/+/state"
-	token := client.Subscribe(filter, 0, handler)
+	token := subscribe(client, filter, 0, handler)
 	if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
 		if err := token.Error(); err != nil {
 			return fmt.Errorf("subscribing to %s: %w", filter, err)
@@ -1049,7 +1049,7 @@ func subscribeHassBridgeSelfImport(cloudClient, mainClient mqtt.Client, ownInsta
 			qualifier + "/homeassistant_instances/+/bridge/+/state":        stateHandler,
 			qualifier + "/homeassistant_instances/+/bridge/device/+/state": deviceInfoHandler,
 		} {
-			tok := cloudClient.Subscribe(filter, 0, handler)
+			tok := subscribe(cloudClient, filter, 0, handler)
 			if !tok.WaitTimeout(10*time.Second) || tok.Error() != nil {
 				if err := tok.Error(); err != nil {
 					return fmt.Errorf("subscribing to %s: %w", filter, err)

@@ -1,112 +1,46 @@
 # Checkpoint — Home Assistant DSL Generator + Coordinator
 
-**Frozen:** 2026-10-19 (machine handover — this Mac is going in for service; the new machine
-picks up from here, reading only what's synced via Nextcloud).
-**Status:** both Go modules (`homeassistant` generator, `house_event_bus_coordinator`) build/vet/
-test clean. Vienna's p-s-1 (Pi4) has been fully migrated from Fedora to Ubuntu and is live
-(containers, coordinator, smtpproxy, Samba, off-box backups all verified). Vienna's own rule
-migration (named-trigger abstraction) is deployed live — including a same-day regression fix
-(Moes buttons) — but **full live verification of that fix is NOT done yet**, see below.
-Junglinster's Conceptual.def is untouched by any of this session's rule-migration work.
+**Frozen:** 2026-10-24 (Erik in Junglinster).
+**Status:** both Go modules build/vet/test clean. Both houses deployed 2026-10-24; Junglinster's
+last deploys did the physical->social renames (item 15, done). Durable detail lives in
+`PROJECT.md` (open items), `README.md`/`Architecture.md` (how things work) and the Claude memory
+directory (synced via Nextcloud). This file is only the pointer to where to pick up.
 
-This file is a short pointer, not a duplicate. Durable project-level detail lives in
-`PROJECT.md` (open TODOs), `README.md`'s Operational notes (incident write-ups), and
-`claude-notes/memory/` (this session's Claude memory, copied out of `~/.claude` so it survives
-a machine switch — that directory is local to a machine, not Nextcloud-synced).
+**Git:** a large uncommitted changeset spans both modules (`git status`). Don't discard any of it.
 
-**Git note**: a large uncommitted changeset (83 files as of this freeze) spans both Go modules —
-this whole multi-day session's work, never committed. Don't assume a clean git state, and don't
-discard any of it — `git status`/`git diff` are the authoritative record of what's changed.
+## Next
 
----
+Pick up with:
 
-## What's genuinely IN FLIGHT (needs picking up, not just background context)
+1. Item 19 (plan in PROJECT.md).
 
-1. **Moes button fix — deployed, NOT fully verified.** Real regression found live 2026-10-19:
-   every Moes multi-gang button in Vienna stopped working after the 2026-10-15/18 named-trigger
-   rule migration. Root cause: the coordinator's own pre-existing discovery-layer
-   `state_value_template` normalizes a multi-gang button's raw action (`1_single`) into
-   `event_type: "single"` + a separate `button: "1"` attribute — the migrated rules had copied
-   the old RAW values straight into the new construct, so they could never match. Fixed by
-   extending the trigger declaration's embedded attr-condition to accept a list of values
-   (`and if trigger.<attr> is in [...]`), and a new `namedTriggerSourceCondition`
-   (`generator.go`, replacing `namedTriggerImpliedCondition`) that per-source "id"-scopes the
-   condition when several different devices feed the same named trigger with DIFFERING
-   button-number requirements — falls back to the original simple shared-condition shape when
-   sources agree, so the Signify dimmer's already-proven output stays byte-identical (full test
-   suite + a new dedicated regression test both pass). 43 `Conceptual.def` lines rewritten,
-   `./generate` + `./deploy` both run clean, user's **first manual test confirmed working** —
-   but they went to sleep before testing the rest. **Next session: confirm the fix across ALL
-   affected rules** (full list: see README.md's Operational notes entry, same incident, for the
-   complete rundown of which rules/devices are affected).
-2. **This `claude-notes/` transfer itself, in progress.** Triggered by this Mac going in for
-   service. Once this checkpoint and `MACHINE.md` are both written and reviewed, the transfer
-   is done — nothing to resume there unless something was missed (see the transfer's own report
-   for what was/wasn't found).
-3. **Vienna's old Fedora SSD**: migration off it is fully done and verified (see
-   `claude-notes/memory/project_vienna_ps1_fedora_to_ubuntu_migration_done_2026_10_18.md`), but
-   the disk itself still needs reformatting + the music collection copying onto it (user's own
-   task, using a separate Ubuntu Mac — ext4 isn't natively writable from macOS). Not yet done as
-   of this freeze. Destined for Junglinster's p-s-1 as its music disk, target: this coming
-   Friday.
+Done 2026-10-26, all deployed: no node in the physical/social sphere (inputs inlined or named
+"<node>/ping|cpu|controller/node", generate warns otherwise), enabler nodes, switched lights' nodes
+up while their relay is off, ping reporter sends 3 pings, Junglinster cpu distribution moved from
+xanadu to protocols-server-1, deploy skips reload/restart after a failed copy, ssh ControlMaster
+for both houses (local ~/.ssh/config, each Mac needs it), "enabled by" (17k, incl. the iMac as
+server.imac), coordinator renews its MQTT subscriptions after a reconnect (it went deaf to the
+cloud broker after a DNS outage), 17g complete (single-player spaces' media switches are the
+player's own switch; note for an ambiguous node at a space's name; derived-node leaf fallback),
+17h (relayed Zigbee2MQTT/EMS-ESP entities carry their conceptual name as discovery "name", so HA's
+UI shows it; the other kinds moved to item 19), 17i (firmware updates follow the nodes, written
+into the defs, shown without install; firmware_updates summary; list.updates for an update page),
+17j (the deploy's registry step is a repair driven only by the generator's table, documented
+with its HA dependency in Architecture.md; native entities in the table as "native", keyed by
+source, renamed with their position, never removed -- recorded 2026-10-26, renames from the next
+deploy on), 17l (device ids whose prefix misstated the device renamed: 31 in Junglinster, 2 in
+Vienna; frozen unique_ids unchanged, 3 hidden switched-light entities renamed by the repair),
+item 18 ("meta" controls are infrastructural now; unique_ids kept, renamed by the table; MQTT
+topics unchanged; Junglinster's dashboard updated). Capability label "core" renamed to the
+domain in both houses (generated output identical, so nothing to deploy).
 
-## Queued but not started
-
-- **PROJECT.md item 17**: maybe apply the same X-server systemd supervision
-  (`xinit-slideshow.service`, `Restart=always`) to Junglinster's own picture frame that Vienna's
-  frame got 2026-10-19 — not yet even confirmed Junglinster's frame shows the same symptom.
-- **Vienna's shower_room door_moes family** — turned out to already be migrated (a 2026-10-18
-  note claiming otherwise was wrong, corrected in PROJECT.md).
-- A fresh grep sweep of the rest of Vienna's Conceptual.def for any other remaining raw
-  event-code `when` clauses the earlier migration batches might have missed.
-- Junglinster's Conceptual.def: zero rules migrated to the named-trigger construct — entirely
-  separate, not started. Given Vienna's OWN Moes devices all had the latent normalization bug,
-  check whether Junglinster has Moes-style multi-gang buttons before migrating there, and build
-  the trigger declarations with the normalized `event_type` + `button`-attribute form from the
-  start.
-- Certbot/Let's Encrypt renewal duty still needs moving from Vienna's retired Fedora box
-  (`certbot-renew.timer`) to the new Ubuntu one before the current cert expires 2026-12-06.
-- Items 48/49 in PROJECT.md (template-entity stable-id gap; named-trigger-as-a-real-HA-event-
-  entity + discovery-vs-templating reflection) — both still just ideas, nothing designed.
-
-## Key files (generator-side work touched this session)
-
-| File | Role |
-|------|------|
-| `homeassistant/generator.go` | Bulk of YAML generation; **`namedTriggerSourceCondition`/`attrValueCondition`/`namedTriggerSourceID` (2026-10-19, replaces `namedTriggerImpliedCondition`)** |
-| `homeassistant/administration.go` | Runtime state; `TNamedTriggerSource` (**`TriggerAttrValues []string`, 2026-10-19, was a single string**) |
-| `homeassistant/Conceptual_NamedTriggerEntities.go` | Device-level `trigger ...;` construct; **attr-condition suffix now accepts a bracketed list too (2026-10-19)** |
-| `homeassistant/Conceptual_NamedTriggerEntities_test.go` | **New test: `TestNamedTriggerDisagreeingSourcesGetPerSourceScopedConditions`** |
-| `homeassistant/rule_parser.go` | Rule grammar incl. `when trigger.<name> is triggered` |
-| `house_event_bus_coordinator/` | Unchanged this session — the Moes bug was purely a generator/`.def` mismatch with this module's OWN pre-existing (unchanged) discovery normalization |
+Xanadu is powered down until needed (Plex videos, backups); power cycle procedure in memory.
 
 ## Commands
 
 ```bash
-cd homeassistant && go build ./... && go vet ./... && go test ./...              # generator module
-go install .                                                                      # ALWAYS before trusting a real ./generate run (from homeassistant/)
-cd /Users/erikproper/SmartLiving/Vienna && ./generate && diff -rq hass/vienna <snapshot>  # real regenerate, real house -- diff before deploying
-cd /Users/erikproper/SmartLiving/Vienna && ./deploy                               # sources deploy.d/01..05 in order
+cd homeassistant && go vet . && go test . && go install .     # generator (install before generating)
+cd house_event_bus_coordinator && go vet . && go test .
+cd ~/SmartLiving/<House> && bash generate                      # Nextcloud scripts: always via bash
+cd ~/SmartLiving/<House> && bash deploy                        # deploy.d/01..05, incl. registry sync
 ```
-
-SSH access, sudo conventions, and absolute paths this project's scripts depend on: see
-`claude-notes/MACHINE.md` (written alongside this file, same transfer).
-
-## Machine-handover transfer, 2026-10-19: what's missing and why
-
-`claude-notes/` (this file's sibling) carries everything from `~/.claude` that this project's
-own docs/memory reference, copied out because `~/.claude` itself is local to a machine, not
-Nextcloud-synced. Checked every `[[...]]` link and `project_*`/`feedback_*` mention across
-`PROJECT.md`, `README.md`, `Architecture.md`, and this file — all resolved to a real file now
-under `claude-notes/memory/`, none missing.
-
-Two things referenced but genuinely absent, not renamed or merged:
-- `~/.claude/plans/derived-capability-mechanism.md` and `~/.claude/plans/via-device-inference.md`
-  — both referenced from memory/PROJECT.md as the design plan for now-FINISHED work (the
-  "derived" capability mechanism; `via_device`, PROJECT.md's own words: "finished, formerly item
-  3"). Likely cleaned up once that work completed, while the corresponding memory files
-  (`claude-notes/memory/project_derived_capability_mechanism.md`, present) kept the durable
-  summary. Only `binary-weaving-iverson.md` and `splendid-zooming-lighthouse.md` actually exist
-  in `~/.claude/plans/` and were copied to `claude-notes/plans/`.
-- `~/.claude/CLAUDE.md` (user-level instructions) doesn't exist on the old machine at all —
-  nothing to copy, `claude-notes/user-CLAUDE.md` was never created.

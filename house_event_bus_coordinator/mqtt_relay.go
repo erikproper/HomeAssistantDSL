@@ -103,6 +103,9 @@ func deviceRoutingPlan(device TDevice, hasCloudClient bool) TDeviceRoutingPlan {
 	if device.Cloud && hasCloudClient {
 		plan.PublishCloud = true
 	}
+	if device.YAML {
+		plan.PublishMain = false
+	}
 	return plan
 }
 
@@ -271,7 +274,7 @@ func relayCloudDevice(cloudClient, mainClient mqtt.Client, deviceID string, devi
 			}
 			tracker.Touch(mainClient, cloudClient, deviceID, device.NodeTopic, true)
 		}
-		tok := cloudClient.Subscribe(bareTopic, 0, handler)
+		tok := subscribe(cloudClient, bareTopic, 0, handler)
 		if !tok.WaitTimeout(10*time.Second) || tok.Error() != nil {
 			if err := tok.Error(); err != nil {
 				return fmt.Errorf("relaying %s: subscribing to %s: %w", deviceID, bareTopic, err)
@@ -346,7 +349,7 @@ func subscribeCloudOnlyDeviceInfo(cloudClient, mainClient mqtt.Client, ownInstal
 	}
 
 	for topic := range topicToDeviceID {
-		tok := cloudClient.Subscribe(topic, 0, handler)
+		tok := subscribe(cloudClient, topic, 0, handler)
 		if !tok.WaitTimeout(10*time.Second) || tok.Error() != nil {
 			if err := tok.Error(); err != nil {
 				return fmt.Errorf("subscribing to %s: %w", topic, err)

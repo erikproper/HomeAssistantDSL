@@ -74,9 +74,21 @@ func extractDeviceCapabilityEntityDeclaration(line string) (*TDeviceCapabilityEn
 	return &TDeviceCapabilityEntityDeclaration{
 		LocalSpec:  matches[1],
 		DeviceID:   matches[2],
-		Capability: matches[3],
+		Capability: domainNamedCapability(matches[1], matches[3]),
 		NoCollect:  strings.HasSuffix(line, "with no_collect;"),
 	}, true
+}
+
+// domainNamedCapability expands "from DD" -- a bare capability equal to the entity's own domain --
+// to the capability DD.DD (2026-10-25, Erik): "entity cover.social:front from cover;" keeps the
+// entity's name what rules use, instead of a trailing "/cover" the name drops again. Any other bare
+// capability stays bare, for the domain-qualification check to reject.
+func domainNamedCapability(localSpec, capability string) string {
+	domain, _, _ := strings.Cut(localSpec, ".")
+	if capability == domain {
+		return domain + "." + domain
+	}
+	return capability
 }
 
 // forDeviceShorthandPattern is the body-line shape inside a "device <spec> from <device-id>
@@ -584,7 +596,7 @@ func registerDeviceCapabilityEntityLinkAllowingHiddenCore(administration *TAdmin
 			}
 			return []string{fmt.Sprintf("%s: device %q declares no %q capability; add a \"<type>.%s: <source>;\" line to its Physical.def declaration", provenance, decl.DeviceID, bareName, bareName)}, false
 		}
-		return registerDeviceSourceEntityLink(administration, TDeviceSourceEntityDeclaration{
+		warnings, deferred := registerDeviceSourceEntityLink(administration, TDeviceSourceEntityDeclaration{
 			LocalSpec: decl.LocalSpec,
 			// capabilityKey (bareName) is non-empty below, so registerDeviceSourceEntityLink
 			// preserves capability's own already-per-instance Sources map unchanged -- this Source
@@ -592,6 +604,21 @@ func registerDeviceCapabilityEntityLinkAllowingHiddenCore(administration *TAdmin
 			Source:   representativeSource(capability.Sources),
 			DeviceID: decl.DeviceID,
 		}, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, lineNum, finalAttempt, bareName, deviceNamePath)
+		// A capability with a slow-speed shadow ("slow speed ...;", 2026-10-23) brings it along:
+		// "<domain>.<sphere>:<path>" implies "<domain>.<sphere>:slow/<path>", no line of its own.
+		slowLabel := slowSpeedCapabilityLabel(bareName)
+		if slow, hasSlow := device.Capabilities[slowLabel]; hasSlow && !deferred && len(warnings) == 0 {
+			warnings, deferred = registerDeviceSourceEntityLink(administration, TDeviceSourceEntityDeclaration{
+				LocalSpec: slowSpeedLocalSpec(decl.LocalSpec),
+				Source:    representativeSource(slow.Sources),
+				DeviceID:  decl.DeviceID,
+			}, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, lineNum, finalAttempt, slowLabel, deviceNamePath)
+			if !deferred && len(warnings) == 0 {
+				attributes := administration.DeviceConceptualLinks[decl.DeviceID].AttributeEntityIDs
+				administration.SlowSpeedShadows[attributes[bareName].EntityID] = attributes[slowLabel].EntityID
+			}
+		}
+		return warnings, deferred
 	}
 
 	if importedDevice, found := importedDevicesByID[decl.DeviceID]; found {
@@ -761,4 +788,17 @@ func registerHostCapabilityEntityLink(administration *TAdministrationState, devi
 	registerHostAttributeEntity(administration, mat, device, fullName, spaceName, provenance, link, bareName)
 	administration.DeviceConceptualLinks[deviceID] = link
 	return nil, false
+}
+
+// slowSpeedLocalSpec is the positioning implied for a capability's slow-speed shadow:
+// "cover.social:front" -> "cover.social:slow/front", "cover.social:" -> "cover.social:slow".
+func slowSpeedLocalSpec(spec string) string {
+	colon := strings.Index(spec, ":")
+	if colon < 0 {
+		return spec
+	}
+	if path := spec[colon+1:]; path != "" {
+		return spec[:colon+1] + "slow/" + path
+	}
+	return spec + "slow"
 }

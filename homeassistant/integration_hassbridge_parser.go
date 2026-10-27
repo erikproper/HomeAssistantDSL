@@ -236,7 +236,15 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 	// once per field. Checked before capabilityPattern since the two are mutually exclusive by
 	// trailing token ("with:" vs ";") but both start the same way. Same colon-dropped grammar as
 	// capabilityPattern just above.
-	capabilityWithPattern := regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+(.+?)\s*with:\s*$`)
+	// The "capability" keyword is optional here (2026-10-23), so a block reads like its one-line
+	// counterpart: "capability cover.cover <source> as <id> with: ... end;".
+	capabilityWithPattern := regexp.MustCompile(`^(?:capability\s+)?([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+(.+?)\s*with:\s*$`)
+	// "slow speed <source>;" -- inside a capability's own "with: ... end;" block (2026-10-23, the
+	// Somfy covers): <source> is a "shadow" of the capability's own source, the same cover run at
+	// slow speed. It becomes a sibling capability "slow/<label>" of the same domain (cover.cover
+	// -> cover.slow/cover), positioned implicitly alongside the capability itself
+	// (Conceptual_DeviceCapabilityEntities.go) and preferred by the generated cover control.
+	capabilityWithSlowSpeedPattern := regexp.MustCompile(`^slow\s+speed\s+(\S+)\s*;\s*$`)
 	// Single-statement shorthand for capabilityWithPattern's own block form -- "<domain>.<path>
 	// <source> with <single-statement>;" instead of "<domain>.<path> <source> with:
 	// <single-statement>; end;" -- mirrors logicalDeviceOneLinerPattern's identical reasoning
@@ -411,7 +419,15 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 
 		if inDeviceCapabilities && pendingCapabilityPath != "" {
 			if line == "end;" {
+				shadowSlowSpeedPosition(current.Capabilities, pendingCapabilityPath, instance)
 				pendingCapabilityPath = ""
+				continue
+			}
+			if matches := capabilityWithSlowSpeedPattern.FindStringSubmatch(line); matches != nil {
+				current.Capabilities[slowSpeedCapabilityLabel(pendingCapabilityPath)] = THassBridgeCapability{
+					Domain:  current.Capabilities[pendingCapabilityPath].Domain,
+					Sources: map[string]string{instance: matches[1]},
+				}
 				continue
 			}
 			if cap, ok := ApplyWithClauseBodyLine(current.Capabilities[pendingCapabilityPath], line, capabilityWithBodyStatements); ok {
@@ -594,4 +610,33 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 	}
 
 	return devices, warnings
+}
+
+// slowSpeedCapabilityLabel is the label of capability label's slow-speed shadow ("slow speed ...;"
+// inside its "with:" block): "cover" -> "slow/cover".
+func slowSpeedCapabilityLabel(label string) string {
+	return "slow/" + label
+}
+
+// shadowSlowSpeedPosition gives capability label's slow-speed shadow the same "derived value"
+// (position) as label itself, read from the shadow's own source: "cover.front!current_position"
+// becomes "cover.front_low_speed!current_position". A cover offering set_position needs a position
+// topic in Home Assistant, or its discovery config is rejected -- which is what kept every slow
+// Somfy cover out of Home Assistant until 2026-10-23.
+func shadowSlowSpeedPosition(capabilities map[string]THassBridgeCapability, label, instance string) {
+	slowLabel := slowSpeedCapabilityLabel(label)
+	slow, hasSlow := capabilities[slowLabel]
+	position := capabilities[label].Position[instance]
+	if !hasSlow || position == "" || slow.Position[instance] != "" {
+		return
+	}
+	attribute := ""
+	if bang := strings.Index(position, "!"); bang >= 0 {
+		attribute = position[bang:]
+	}
+	if slow.Position == nil {
+		slow.Position = map[string]string{}
+	}
+	slow.Position[instance] = slow.Sources[instance] + attribute
+	capabilities[slowLabel] = slow
 }

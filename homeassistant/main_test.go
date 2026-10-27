@@ -366,7 +366,7 @@ end;`
 
 func TestSourceToJinja2IsAvailableSugar(t *testing.T) {
 	got := sourceToJinja2("sensor.processor_use is available")
-	want := "'on' if (states('sensor.processor_use') not in ['unavailable', 'unknown']) else 'off'"
+	want := "'on' if (states('sensor.processor_use') != 'unavailable') else 'off'"
 	if got != want {
 		t.Errorf("sourceToJinja2 = %q, want %q", got, want)
 	}
@@ -386,13 +386,13 @@ func TestParseConditionDirectiveIsAvailableSugar(t *testing.T) {
 	if len(sources) != 1 || sources[0] != "sensor.processor_use" {
 		t.Fatalf("sources = %v, want [sensor.processor_use]", sources)
 	}
-	wantExpr := "$1 not in ['unavailable', 'unknown']"
+	wantExpr := "$1 != 'unavailable'"
 	if expr != wantExpr {
 		t.Errorf("expr = %q, want %q", expr, wantExpr)
 	}
 	// Confirm it produces the exact same generated expression as writing the boilerplate by hand.
 	got := buildConditionStateExpr(sources, expr)
-	want := "states('sensor.processor_use') not in ['unavailable', 'unknown']"
+	want := "states('sensor.processor_use') != 'unavailable'"
 	if got != want {
 		t.Errorf("buildConditionStateExpr = %q, want %q", got, want)
 	}
@@ -663,7 +663,10 @@ func TestGenerateReportingAutomationsSplitsNumericAndDeviceInfoCapabilities(t *t
 	}
 }
 
-func TestGenerateCustomizationFilesSkipsDiscoveryImpliedEntities(t *testing.T) {
+// TestGenerateCustomizationFilesNamesDiscoveryImpliedEntities: a discovery-implied entity gets a
+// friendly_name of its own ("<sphere>/<position path>", item 17e), but no icon -- the coordinator's
+// discovery payload sets that.
+func TestGenerateCustomizationFilesNamesDiscoveryImpliedEntities(t *testing.T) {
 	const miniDSL = `space social:garage with:
   device host.smarty with entity binary_sensor.infrastructural:/smarty/node from binary_sensor.node;
   entity switch.social:test_switch;
@@ -685,10 +688,12 @@ end;`
 	}
 
 	nodePath := filepath.Join(outputDir, "customization", "binary_sensor", "infrastructural", "binary_sensor.infrastructural_smarty_node.yaml")
-	if _, err := os.Stat(nodePath); err == nil {
-		t.Errorf("expected no customization file for the discovery-implied node entity, but found %s", nodePath)
-	} else if !os.IsNotExist(err) {
-		t.Fatalf("unexpected error checking %s: %v", nodePath, err)
+	content, err := os.ReadFile(nodePath)
+	if err != nil {
+		t.Fatalf("expected a customization file for the discovery-implied node entity: %v", err)
+	}
+	if !strings.Contains(string(content), "friendly_name: infrastructural/smarty/node") || strings.Contains(string(content), "icon:") {
+		t.Errorf("discovery-implied node customization = %q, want only its friendly_name", content)
 	}
 
 	switchPath := filepath.Join(outputDir, "customization", "switch", "social", "switch.social_garage_test_switch.yaml")
@@ -1414,7 +1419,7 @@ end;`
 	if len(node.ConditionSources) != 1 || node.ConditionSources[0] != "light.physical_vidja_left_1" {
 		t.Errorf("node.ConditionSources = %v, want [\"light.physical_vidja_left_1\"]", node.ConditionSources)
 	}
-	if node.ConditionExpr != "$1 not in ['unavailable', 'unknown']" {
+	if node.ConditionExpr != "$1 != 'unavailable'" {
 		t.Errorf("node.ConditionExpr = %q, want the standard \"is available\" liveness check", node.ConditionExpr)
 	}
 	// Real bug found live 2026-09-24 (node 67's own "node" capability, the first time this exact

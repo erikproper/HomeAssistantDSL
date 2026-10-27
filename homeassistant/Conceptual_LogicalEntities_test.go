@@ -79,8 +79,8 @@ func TestRegisterLogicalDerivedConditionCapabilityResolvesFromDeviceID(t *testin
 // covers the key new capability this session's redesign unlocks: "node from physical
 // appliance.washing_machine" reaching a hassbridge device's own raw Physical.def "node" capability
 // that was NEVER positioned in Conceptual.def at all (because the override precedence skips its
-// auto-registration once a Logical.def override claims "node") -- auto-materialized on demand with
-// the "physical/<device-id>/<label>" synthetic name, exactly the user's own worked example.
+// auto-registration once a Logical.def override claims "node") -- auto-materialized on demand next
+// to the node it feeds, as its "controller" node (2026-10-26: no node in the "physical" sphere).
 func TestRegisterLogicalDerivedConditionCapabilityAutoMaterializesFromPhysicalHassBridgeCapability(t *testing.T) {
 	admin := newAdministrationState()
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
@@ -104,7 +104,7 @@ func TestRegisterLogicalDerivedConditionCapabilityAutoMaterializesFromPhysicalHa
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
 
-	wantEntity := "binary_sensor.physical_appliance_washing_machine_node"
+	wantEntity := "binary_sensor.infrastructural_washing_machine_controller_node"
 	rec, found := findEntityRecordByName(admin, "binary_sensor.infrastructural/washing_machine/node")
 	if !found {
 		t.Fatalf("no entity record registered for binary_sensor.infrastructural/washing_machine/node")
@@ -122,7 +122,7 @@ func TestRegisterLogicalDerivedConditionCapabilityAutoMaterializesFromPhysicalHa
 // device-id atom" sugar (2026-09-24): "node.candy" used directly as a condition atom means "that
 // device's own node capability" -- folding the old device-level "dependency on node.candy;" effect
 // into an ordinary condition atom. Reuses the SAME auto-materialization path already proven for
-// "hosts"-kind targets (the pre-existing "node.candy" -> "physical_node_candy_node" precedent).
+// "hosts"-kind targets, named after the node it feeds and the host's integration ("ping").
 func TestRegisterLogicalDerivedConditionCapabilityResolvesBareDeviceIDAsNode(t *testing.T) {
 	admin := newAdministrationState()
 	hostDevicesByID := map[string]THostDevice{
@@ -147,7 +147,7 @@ func TestRegisterLogicalDerivedConditionCapabilityResolvesBareDeviceIDAsNode(t *
 	if !found {
 		t.Fatalf("no entity record registered for binary_sensor.infrastructural/washing_machine/node")
 	}
-	if !strings.Contains(rec.ConditionExpr, "binary_sensor.physical_node_candy_node") {
+	if !strings.Contains(rec.ConditionExpr, "binary_sensor.infrastructural_washing_machine_ping_node") {
 		t.Errorf("ConditionExpr = %q, want it to reference node.candy's own auto-materialized node entity", rec.ConditionExpr)
 	}
 }
@@ -254,7 +254,7 @@ func TestAutoMaterializePhysicalCapabilityDiscoveryKindPropagatesStableID(t *tes
 		},
 	}
 
-	entityID, ok := autoMaterializePhysicalCapability(admin, "sensors.house_kitchen_workplace_dimmer", "core", discoveryGatewaysByID, nil, nil, nil, "test")
+	entityID, ok := autoMaterializePhysicalCapability(admin, "sensors.house_kitchen_workplace_dimmer", "core", "", TEntityIdentity{}, discoveryGatewaysByID, nil, nil, nil, "test")
 	if !ok {
 		t.Fatalf("expected auto-materialization to succeed")
 	}
@@ -287,7 +287,7 @@ func TestRegisterLogicalAbsorbedCapabilityFromHostsDeviceIgnoresSourcesOwnShadow
 	// Simulate the source device's own "node" bare-condition reference running first, exactly as
 	// Logical.def's own hand-written "condition node.xanadu or jinja ...;" does -- this is what
 	// stamps the "physical/node.xanadu" shadow identity onto DeviceConceptualLinks["node.xanadu"].
-	if _, ok := autoMaterializePhysicalCapability(admin, "node.xanadu", "node", nil, nil, hostDevicesByID, nil, "test"); !ok {
+	if _, ok := autoMaterializePhysicalCapability(admin, "node.xanadu", "node", "", TEntityIdentity{}, nil, nil, hostDevicesByID, nil, "test"); !ok {
 		t.Fatalf("expected the \"node\" auto-materialization to succeed")
 	}
 	if sphere := admin.DeviceConceptualLinks["node.xanadu"].HostIdentity.Sphere; sphere != "physical" {

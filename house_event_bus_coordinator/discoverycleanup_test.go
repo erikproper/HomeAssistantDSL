@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -706,5 +707,49 @@ func TestWatchForOrphanedDiscoveryTopicsIgnoresUnrelatedTopics(t *testing.T) {
 	drainDiscoveryRelayQueue(jobs, publisher)
 	if len(client.published) != 0 {
 		t.Fatalf("got %d publishes, want 0 (not a coordinator-owned topic): %+v", len(client.published), client.published)
+	}
+}
+
+// TestExpectedCloudHostsPayloadsMatchesCloudSafePayload: the expected cloud content is what the
+// cloud leg actually publishes (suggested_area stripped) -- otherwise the orphan watcher's content
+// check retires every such cloud copy at each restart (Junglinster's studio/mqtt hosts, 2026-10-22).
+func TestExpectedCloudHostsPayloadsMatchesCloudSafePayload(t *testing.T) {
+	device := smartyDevice()
+	device.Cloud = true
+	device.Conceptual.ConstantAttributes = map[string]TConceptualConstant{"model": {Value: "Compute host"}, "suggested_area": {Value: "Office"}}
+	devicesFile := TDevicesFile{Devices: map[string]TDevice{"host.smarty": device}}
+
+	got, err := expectedCloudHostsPayloads(devicesFile, "junglinster", NewLiveDeviceInfoStore("", nil))
+	if err != nil {
+		t.Fatalf("expectedCloudHostsPayloads error: %v", err)
+	}
+	prefix := devicesFile.conceptualPrefix()
+	configs := buildDiscoveryConfigs("host.smarty", device, nil, "", prefix, "junglinster")
+	if len(configs) == 0 {
+		t.Fatal("no discovery configs built")
+	}
+	for _, cfg := range configs {
+		local, _ := json.Marshal(cfg.Payload)
+		if !strings.Contains(string(local), "suggested_area") {
+			t.Fatalf("fixture should carry a suggested_area locally, got %s", local)
+		}
+		cloud, _ := json.Marshal(cloudSafePayload(cfg.Payload))
+		topic := "junglinster/" + discoveryTopic(prefix, cfg.Component, exportStableID("junglinster", "host.smarty", cfg.Capability))
+		if got[topic] != string(cloud) {
+			t.Errorf("expected cloud payload for %s =\n%s\nwant what the cloud leg publishes\n%s", topic, got[topic], cloud)
+		}
+	}
+}
+
+// TestExpectedDiscoveryBridgeTopicsLeavesOutYAMLEntities: an entity Home Assistant gets from the
+// generator's YAML (PROJECT.md 19c) no longer has an expected relayed topic, so it is retired.
+func TestExpectedDiscoveryBridgeTopicsLeavesOutYAMLEntities(t *testing.T) {
+	file := TDiscoveryFile{EntityLinks: map[string]TDiscoveryEntityLink{
+		"sensor.relayed": {Gateway: "sensors.a", Leaf: "0x01_temperature_zigbee2mqtt", StableID: "a_temperature"},
+		"sensor.as_yaml": {Gateway: "sensors.b", Leaf: "0x02_temperature_zigbee2mqtt", StableID: "b_temperature", YAML: true},
+	}}
+	expected := expectedDiscoveryBridgeTopics(file, testPrefix)
+	if !expected[discoveryTopic(testPrefix, "sensor", "a_temperature")] || expected[discoveryTopic(testPrefix, "sensor", "b_temperature")] || len(expected) != 1 {
+		t.Errorf("expected = %v, want only the relayed entity's topic", expected)
 	}
 }

@@ -52,6 +52,18 @@ import (
 type TCommandlineCapabilityRef struct {
 	EntityID string `yaml:"entity_id,omitempty"`
 	Name     string `yaml:"name,omitempty"`
+	// StableID is the capability's frozen universal ID (Physical.def's "as <id>", PROJECT.md item
+	// 48/16) -- its unique_id, so renaming the capability keeps its HA registry entry.
+	StableID string `yaml:"stable_id,omitempty"`
+}
+
+// commandlineUniqueID is a commandline capability's unique_id: its frozen StableID, or (never
+// frozen yet) "<deviceID>_<name>", the formula every such ID was first frozen from.
+func commandlineUniqueID(deviceID, name string, ref TCommandlineCapabilityRef) string {
+	if ref.StableID != "" {
+		return ref.StableID
+	}
+	return deviceID + "_" + name
 }
 
 // TCommandlineDevice is one entry under "devices:" in a generated coordinator/commandline.yaml
@@ -238,7 +250,7 @@ func buildCommandlineDiscoveryConfigs(deviceID string, device TCommandlineDevice
 
 	switches := commandlineCapabilityNames(device.Switches)
 	for _, name := range switches {
-		uniqueID := deviceID + "_" + name
+		uniqueID := commandlineUniqueID(deviceID, name, device.Switches[name])
 		entityID, displayName := resolveCommandlineNaming(device.Host, name, "switch", device.Switches[name])
 		configs = append(configs, TDiscoveryConfig{
 			Topic: discoveryTopic(prefix, "switch", uniqueID),
@@ -262,7 +274,7 @@ func buildCommandlineDiscoveryConfigs(deviceID string, device TCommandlineDevice
 
 	sensors := commandlineCapabilityNames(device.Sensors)
 	for _, name := range sensors {
-		uniqueID := deviceID + "_" + name
+		uniqueID := commandlineUniqueID(deviceID, name, device.Sensors[name])
 		entityID, displayName := resolveCommandlineNaming(device.Host, name, "sensor", device.Sensors[name])
 		configs = append(configs, TDiscoveryConfig{
 			Topic: discoveryTopic(prefix, "sensor", uniqueID),
@@ -281,7 +293,7 @@ func buildCommandlineDiscoveryConfigs(deviceID string, device TCommandlineDevice
 
 	buttons := commandlineCapabilityNames(device.Buttons)
 	for _, name := range buttons {
-		uniqueID := deviceID + "_" + name
+		uniqueID := commandlineUniqueID(deviceID, name, device.Buttons[name])
 		entityID, displayName := resolveCommandlineNaming(device.Host, name, "button", device.Buttons[name])
 		configs = append(configs, TDiscoveryConfig{
 			Topic: discoveryTopic(prefix, "button", uniqueID),

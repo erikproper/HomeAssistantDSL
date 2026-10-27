@@ -133,6 +133,7 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 		Installation:                  resolveInstallationName(definitionDir),
 		DiscoveryExistenceAggregate:   &tDiscoveryExistenceFetchResult{},
 	}
+	verifyLocalBrokerInstallation(ctx)
 
 	physicalContent, mergedLineNos, layerWarnings := collectLayerContent(definitionDir, []string{"Physical.def"}, LayerPhysical)
 	for _, w := range layerWarnings {
@@ -164,6 +165,12 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 	if err := generateHomeAssistantInstancesFile(outputRoot, instances); err != nil {
 		return err
 	}
+	instanceNames := make([]string, 0, len(instances))
+	for name := range instances {
+		instanceNames = append(instanceNames, name)
+	}
+	sort.Strings(instanceNames)
+	recordInfrastructuralControls(instanceNames, ctx.Installation)
 
 	hassBridgeDevicesByID, hassBridgeWarnings := collectHassBridgeDevicesByID(definitionDir)
 	for _, w := range hassBridgeWarnings {
@@ -230,6 +237,12 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 	discoveryGatewaysByID, discoveryGatewayWarnings := collectDiscoveryGatewaysByID(definitionDir)
 	for _, w := range discoveryGatewayWarnings {
 		fmt.Printf("[physical] %s\n", w)
+	}
+	for _, report := range captureDiscoveryMetadata(definitionDir, discoveryGatewaysByID, hostDevicesByID, ctx) {
+		fmt.Printf("[physical] %s\n", report)
+	}
+	for _, report := range generateYAMLMQTTEntities(definitionDir, discoveryGatewaysByID, ctx) {
+		fmt.Printf("[physical] %s\n", report)
 	}
 	if err := generateDiscoverySuggestions(definitionDir, outputRoot, discoveryGatewaysByID, admin.DiscoveryEntityLinks, discoveryPassthroughRules, ctx); err != nil {
 		return err

@@ -1337,3 +1337,48 @@ func TestSubscribeDiscoveryBridgeMatchesCommandTopicPrefix(t *testing.T) {
 		t.Errorf("expected a passthrough publish matched via command_topic on %s, got %+v", wantTopic, client.published)
 	}
 }
+
+// TestBuildRelayedDiscoveryConfigUsesConceptualName: a relayed entity is named by its own
+// conceptual name, also when it is its gateway's sole capability (PROJECT.md 17h) -- Home
+// Assistant's UI shows it by this name, not by the customized friendly_name.
+func TestBuildRelayedDiscoveryConfigUsesConceptualName(t *testing.T) {
+	payload, err := decodeDiscoveryPayload([]byte(realEMSESPBoilerOutdoortempPayload))
+	if err != nil {
+		t.Fatalf("decodeDiscoveryPayload error: %v", err)
+	}
+	link := TDiscoveryEntityLink{Name: "social/garage/door/temperature"}
+	for _, sole := range []bool{false, true} {
+		raw := rawPayloadFixture(t, realEMSESPBoilerOutdoortempPayload)
+		_, body, ok := buildRelayedDiscoveryConfig("sensor.social_garage_door_temperature", "discovery.ems_esp", raw, payload, link, testPrefix, "test", "sensor", sole)
+		if !ok {
+			t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
+		}
+		if body["name"] != "social/garage/door/temperature" {
+			t.Errorf("sole=%v: name = %v, want the conceptual name", sole, body["name"])
+		}
+	}
+}
+
+// TestBuildRelayedDiscoveryConfigShowsUpdatesOnly: a relayed firmware update has no install
+// command, so Home Assistant only shows it (PROJECT.md 17i).
+func TestBuildRelayedDiscoveryConfigShowsUpdatesOnly(t *testing.T) {
+	const update = `{"name":null,"unique_id":"0x0017880104a1e1f7_update_zigbee2mqtt","state_topic":"zigbee2mqtt/house/corridor/corb","command_topic":"zigbee2mqtt/bridge/request/device/ota_update/update","payload_install":"{\"id\": \"0x0017880104a1e1f7\"}","device_class":"firmware","entity_category":"config"}`
+	payload, err := decodeDiscoveryPayload([]byte(update))
+	if err != nil {
+		t.Fatalf("decodeDiscoveryPayload error: %v", err)
+	}
+	link := TDiscoveryEntityLink{Name: "infrastructural/house/corridor/corb/firmware"}
+	_, body, ok := buildRelayedDiscoveryConfig("update.infrastructural_house_corridor_corb_firmware", "sensors.corridor_corb", rawPayloadFixture(t, update), payload, link, testPrefix, "test", "update", false)
+	if !ok {
+		t.Fatalf("expected buildRelayedDiscoveryConfig to succeed")
+	}
+	if _, has := body["command_topic"]; has {
+		t.Errorf("command_topic kept, want it dropped")
+	}
+	if _, has := body["payload_install"]; has {
+		t.Errorf("payload_install kept, want it dropped")
+	}
+	if body["state_topic"] != "zigbee2mqtt/house/corridor/corb" {
+		t.Errorf("state_topic = %v, want it kept", body["state_topic"])
+	}
+}

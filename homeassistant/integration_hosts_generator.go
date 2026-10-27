@@ -172,6 +172,9 @@ func generateCoordinatorDevicesFile(outputRoot string, devices []THostDevice, ad
 		if d.ImportedFrom != "" {
 			sb.WriteString("    imported_from: \"" + d.ImportedFrom + "\"\n")
 		}
+		if hostDeviceViaYAML(d, admin) {
+			sb.WriteString("    yaml: true\n")
+		}
 		if mat, known := MaterializationForIntegrationType(d.IntegrationType); known {
 			if topic := mat.StateTopic(d.HostName); topic != "" {
 				sb.WriteString("    topic: " + topic + "\n")
@@ -199,6 +202,13 @@ func generateCoordinatorDevicesFile(outputRoot string, devices []THostDevice, ad
 		}
 		if admin != nil {
 			if link, hasLink := admin.DeviceConceptualLinks[d.DeviceID]; hasLink {
+				// A plain local device: the coordinator publishes it under "<device-id>_node" and
+				// "<device-id>_<attribute>" (buildDiscoveryConfigs, discovery.go); cloud-routed and
+				// imported devices are published differently.
+				local := !d.Cloud && d.ImportedFrom == ""
+				if local && link.NodeEntityID != "" {
+					coordinatorPublishedEntities = append(coordinatorPublishedEntities, TRegistryManifestEntry{UniqueID: d.DeviceID + "_node", EntityID: link.NodeEntityID})
+				}
 				sb.WriteString("    conceptual:\n")
 				sb.WriteString("      node_entity: " + link.NodeEntityID + "\n")
 				if link.NodeDeviceClass != "" {
@@ -268,6 +278,9 @@ func generateCoordinatorDevicesFile(outputRoot string, devices []THostDevice, ad
 					sb.WriteString("      attribute_entities:\n")
 					for _, name := range attrNames {
 						attr := link.AttributeEntityIDs[name]
+						if local && attr.EntityID != "" {
+							coordinatorPublishedEntities = append(coordinatorPublishedEntities, TRegistryManifestEntry{UniqueID: d.DeviceID + "_" + name, EntityID: attr.EntityID})
+						}
 						sb.WriteString("        " + name + ":\n")
 						sb.WriteString("          entity: " + attr.EntityID + "\n")
 						if fullName := leafToFullName[name]; fullName != "" && fullName != name {
@@ -452,6 +465,9 @@ func generateHostsIntegrationOutputs(bodyLines []string, ctx TPhysicalGeneration
 	// only ever carries this house's own native "hosts" declarations now.
 	if err := generateCoordinatorDevicesFile(ctx.OutputRoot, devices, ctx.Admin, ctx.MQTTDiscoveryConceptualPrefix, ctx.Installation); err != nil {
 		return err
+	}
+	for _, report := range generateYAMLHostsEntities(devices, ctx) {
+		fmt.Printf("[integration hosts] %s\n", report)
 	}
 	if ctx.HasMQTTSecrets {
 		// generatePhysicalIntegrationOutputs already warns once if MQTT settings are missing

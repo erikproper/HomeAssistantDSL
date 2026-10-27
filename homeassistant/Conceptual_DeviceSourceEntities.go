@@ -255,7 +255,13 @@ func registerDeviceSourceEntityLink(administration *TAdministrationState, decl T
 		}
 	}
 	displaySuffix := key
-	if deviceSpecLeafPath(decl.LocalSpec) == "" {
+	if _, isShadow := strings.CutPrefix(key, "slow/"); isShadow {
+		displaySuffix = "slow" // a slow-speed shadow (Physical.def "slow speed ...;", 2026-10-23)
+	}
+	// "vacuum.social:vacuum" (a capability labelled after its own domain, PROJECT.md item 16) names
+	// the same entity as "vacuum.social:" -- its trailing domain segment is stripped -- so it gets
+	// the same suffix too.
+	if deviceSpecLeafPath(stripEntityOwnTrailingDomainSegment(decl.LocalSpec)) == "" {
 		if deviceLeaf == identity.Domain {
 			displaySuffix = ""
 		} else {

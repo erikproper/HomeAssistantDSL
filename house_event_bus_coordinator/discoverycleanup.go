@@ -220,7 +220,11 @@ func expectedCloudHostsPayloads(devicesFile TDevicesFile, ownInstallation string
 			continue
 		}
 		for _, cfg := range buildDiscoveryConfigs(id, device, store.Snapshot(id), "", prefix, ownInstallation) {
-			data, err := json.Marshal(cfg.Payload)
+			// The cloud copy's own payload (cloudSafePayload, as publishDeviceDiscovery sends it) --
+			// comparing against the local payload made the orphan watcher retire every cloud copy
+			// carrying a suggested_area at each restart, and publishDiscovery republish it right
+			// after (found 2026-10-22: Junglinster's 5 studio/mqtt cloud entries, PROJECT.md 3a).
+			data, err := json.Marshal(cloudSafePayload(cfg.Payload))
 			if err != nil {
 				return nil, fmt.Errorf("marshalling discovery payload for %s: %w", cfg.Topic, err)
 			}
@@ -249,7 +253,7 @@ func expectedDiscoveryBridgeTopics(discoveryFile TDiscoveryFile, prefix string) 
 	expected := map[string]bool{}
 	for entityID, link := range discoveryFile.EntityLinks {
 		dotIdx := strings.Index(entityID, ".")
-		if dotIdx < 0 {
+		if dotIdx < 0 || link.YAML { // a YAML entity's relayed topic is no longer expected: retired
 			continue
 		}
 		domain := entityID[:dotIdx]
@@ -594,7 +598,7 @@ func watchForOrphanedDiscoveryTopics(client mqtt.Client, publisher *TDiscoveryPu
 	}
 
 	filter := prefix + "/+/+/+/config"
-	token := client.Subscribe(filter, 0, handler)
+	token := subscribe(client, filter, 0, handler)
 	if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
 		if err := token.Error(); err != nil {
 			return fmt.Errorf("subscribing to %s: %w", filter, err)

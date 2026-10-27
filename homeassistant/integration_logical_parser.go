@@ -67,6 +67,19 @@ var logicalDependencyOnPattern = regexp.MustCompile(`^dependency\s+on\s+(\S+)\s*
 // semantics.
 var logicalColocatedPattern = regexp.MustCompile(`^colocated\s+(\S+)\s+as\s+(\S+)\s*;\s*$`)
 
+// logicalEnabledByPattern is "enabled by <domain>.<label> from <device-id> [as <id>] [with
+// delay_off <time>];" (PROJECT.md 17k, 2026-10-26) -- see TLogicalDevice.EnabledBy.
+var logicalEnabledByPattern = regexp.MustCompile(`^enabled\s+by\s+([a-z_]+)\.([a-z0-9_/]+)\s+from\s+(\S+?)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_.]*))?(?:\s+with\s+delay_off\s+(\S+?))?\s*;\s*$`)
+
+// enabledByFact returns line's "enabled by" fact, if it is one.
+func enabledByFact(line string) (*TLogicalEnabledByFact, bool) {
+	m := logicalEnabledByPattern.FindStringSubmatch(line)
+	if m == nil {
+		return nil, false
+	}
+	return &TLogicalEnabledByFact{Domain: m[1], Label: m[2], DeviceID: m[3], AssignedID: m[4], DelayOff: m[5]}, true
+}
+
 // logicalSwitchedByPattern matches a device-level "<domain>.<label> is switched by
 // <domain>.<label> from <device-id>;" line (2026-09-27, the "switched_device" migration -- see
 // TLogicalSwitchedByFact's own doc comment and logical_switched_by.go's header comment).
@@ -464,6 +477,14 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 				current.Colocated = append(current.Colocated, TLogicalColocatedFact{DeviceID: matches[1], LeafSuffix: matches[2]})
 				continue
 			}
+			if fact, ok := enabledByFact(line); ok {
+				if current.EnabledBy != nil {
+					warnings = append(warnings, fmt.Sprintf("Logical.def: device %q is \"enabled by\" more than once (body line %d) -- keeping the first", current.DeviceID, lineIdx+1))
+				} else {
+					current.EnabledBy = fact
+				}
+				continue
+			}
 			if updated, ok := ApplyWithClauseBodyLine(current, line, logicalDeviceBodyStatements); ok {
 				current = updated
 				continue
@@ -539,12 +560,14 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 			case logicalColocatedPattern.MatchString(body):
 				m := logicalColocatedPattern.FindStringSubmatch(body)
 				dev.Colocated = append(dev.Colocated, TLogicalColocatedFact{DeviceID: m[1], LeafSuffix: m[2]})
+			case logicalEnabledByPattern.MatchString(body):
+				dev.EnabledBy, _ = enabledByFact(body)
 			default:
 				if updated, ok := ApplyWithClauseBodyLine(dev, body, logicalDeviceBodyStatements); ok {
 					dev = updated
 					break
 				}
-				warnings = append(warnings, fmt.Sprintf("Logical.def: device %q's one-line \"with %s\" body isn't a recognised single-statement form -- only \"dependency on <id>;\", \"colocated <id> as <leaf>;\", or \"<domain>.<label> is switched by ...;\" may be shortened this way (body line %d)", deviceID, body, lineIdx+1))
+				warnings = append(warnings, fmt.Sprintf("Logical.def: device %q's one-line \"with %s\" body isn't a recognised single-statement form -- only \"dependency on <id>;\", \"colocated <id> as <leaf>;\", \"enabled by <domain>.<label> from <id>;\", or \"<domain>.<label> is switched by ...;\" may be shortened this way (body line %d)", deviceID, body, lineIdx+1))
 				continue
 			}
 			devices = append(devices, dev)

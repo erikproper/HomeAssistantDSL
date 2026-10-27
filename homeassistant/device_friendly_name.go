@@ -224,6 +224,9 @@ func findSharedDevicePositions(admin *TAdministrationState, discoveryGatewaysByI
 	sort.Strings(deviceIDs)
 
 	for _, deviceID := range deviceIDs {
+		if admin.EventOnlyDeviceIDs[deviceID] {
+			continue
+		}
 		for _, occ := range admin.DevicePositioningOccurrences[deviceID] {
 			key := positionKey{space: strings.Join(occ.SpacePath, "/"), leaf: occ.DeviceNamePath}
 			if groups[key] == nil {
@@ -479,6 +482,9 @@ func deriveDeviceOwnLeafFromSiblings(admin *TAdministrationState, deviceID strin
 		sphere    string
 	}
 	var bare, withTail []candidate
+	// atSpace holds the domains of the siblings positioned at their space's own name (e.g. a bare
+	// "light.social:"): the last resort to name the node after (see the end of this function).
+	var atSpace []string
 	for _, records := range admin.EntityRecordsBySpace {
 		for _, rec := range records {
 			// A "physical" sphere entity (e.g. "entity event.physical: from event.pressed;")
@@ -511,6 +517,7 @@ func deriveDeviceOwnLeafFromSiblings(admin *TAdministrationState, deviceID strin
 				}
 			}
 			if remainder == "" {
+				atSpace = addIfAbsent(atSpace, rec.Identity.Domain)
 				continue
 			}
 			// pm[3] (conceptualProvenancePattern's own \S+ capture) is ALWAYS just decl.LocalSpec's
@@ -577,6 +584,17 @@ func deriveDeviceOwnLeafFromSiblings(admin *TAdministrationState, deviceID strin
 			return leaf
 		}
 	}
+	// Every sibling stands for its space itself (PROJECT.md 17g, 2026-10-26): name the node after
+	// what that sibling is -- its own leaf ("temperature" for "sensor.social:temperature"), else
+	// its domain ("light" for a bare "light.social:") -- instead of leaving it at the space's own
+	// name, where it wouldn't say what it is the node of.
+	if len(withTail) > 0 {
+		return withTail[0].capLabel
+	}
+	if len(atSpace) > 0 {
+		sort.Strings(atSpace)
+		return atSpace[0]
+	}
 	return ""
 }
 
@@ -608,6 +626,9 @@ func validateDevicesHaveFriendlyNames(admin *TAdministrationState, discoveryGate
 	}
 	sort.Strings(deviceIDs)
 	for _, id := range deviceIDs {
+		if admin.EventOnlyDeviceIDs[id] {
+			continue
+		}
 		if _, positioned := resolveDeviceFriendlyName(id, admin, discoveryGatewaysByID); !positioned {
 			warnings = append(warnings, fmt.Sprintf("device %q has no positioned \"node\" capability -- its own device friendly name falls back to its raw id instead of its real conceptual position; position its node (PROJECT.md item 8)", id))
 		}

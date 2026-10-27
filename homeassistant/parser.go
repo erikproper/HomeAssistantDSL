@@ -127,9 +127,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 	// "device <id> at <leaf> with:" header -- deliberately SEPARATE from forDeviceNamePath above
 	// (not reusing namingSpacePath's own blanket fold, which applies to every explicit-sphere-path
 	// line unconditionally): this leaf only ever folds into a line that opts in via "::"
-	// (expandDeviceAtLeafDoubleColon, below), and is also what a "trigger ...;" line's own hidden
-	// entity uses as its local path instead of deriving one from the device id
-	// (Conceptual_NamedTriggerEntities.go's own doc comment).
+	// (expandDeviceAtLeafDoubleColon, below).
 	forDeviceAtLeaf := ""
 
 	// currentRule is nil outside a "rule <spec> with: ...; end;" body -- a flat state flag, same
@@ -220,37 +218,6 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			if forDeviceAtLeaf != "" {
 				trimmed = expandDeviceAtLeafDoubleColon(trimmed, forDeviceAtLeaf)
 			}
-			atLeaf := forDeviceAtLeaf
-			expand := func(line string) string {
-				if atLeaf == "" {
-					return line
-				}
-				return expandDeviceAtLeafDoubleColon(line, atLeaf)
-			}
-			if declarations, newI, warnings, ok := normalizeAggregatedTrigger(entityLines, i, trimmed, expand); ok {
-				for _, w := range warnings {
-					fmt.Fprintf(os.Stderr, "[WARNING] %s line %d: %s\n", entitiesPath, sourceLine(i), w)
-				}
-				for _, declaration := range declarations {
-					triggerDecl, isTrigger := extractNamedTriggerDeclaration(declaration)
-					if !isTrigger {
-						fmt.Fprintf(os.Stderr, "[WARNING] %s line %d: unrecognised trigger condition in %q; ignored\n", entitiesPath, sourceLine(i), declaration)
-						continue
-					}
-					for _, w := range registerNamedTrigger(administration, *triggerDecl, forDeviceID, forDeviceAtLeaf, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, sourceLine(i)) {
-						fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
-					}
-				}
-				i = newI
-				continue
-			}
-			if triggerDecl, ok := extractNamedTriggerDeclaration(trimmed); ok {
-				warnings := registerNamedTrigger(administration, *triggerDecl, forDeviceID, forDeviceAtLeaf, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, sourceLine(i))
-				for _, w := range warnings {
-					fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
-				}
-				continue
-			}
 			expanded, ok := expandForDeviceShorthandLine(trimmed, forDeviceID)
 			if !ok {
 				// 2026-09-19: try the even-shorter "entity <spec>;" shape (no "from" at all) --
@@ -282,6 +249,11 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			}
 			forDeviceID = withBlockDecl.DeviceID
 			forDeviceNamePath = ""
+			continue
+		} else if strings.HasPrefix(trimmed, "device ") && strings.HasSuffix(trimmed, " with:") {
+			// A device header no form above recognises used to be skipped silently, leaving its
+			// block's entities without their device (2026-10-26: "device utility.xc40 as area with:").
+			fmt.Fprintf(os.Stderr, "[WARNING] %s line %d: unrecognised device header %q -- write \"device <id> with:\" or \"device <id> as leaf <leaf> with:\"; an area is declared on a space (\"space <sphere>:<name> as area with:\")\n", entitiesPath, sourceLine(i), trimmed)
 			continue
 		}
 
@@ -703,6 +675,13 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			continue
 		}
 
+		// "availability all;" (PROJECT.md item 17b): this space's template aggregates (light, space
+		// and media switch) are available only while every member is, instead of any member.
+		if trimmed == "availability all;" {
+			administration.SpaceAvailabilityAll[administration.CurrentSpaceName()] = true
+			continue
+		}
+
 		// Handle "heating leak: ..." statements — records which entities (doors/windows) must be
 		// closed before a radiator can safely run.  Generates a leakage_evidence sensor per space.
 		if strings.HasPrefix(trimmed, "heating leak:") {
@@ -904,12 +883,14 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 	}
 	administration.SpacePath = origSpacePath
 
-	// For every space with a climate entity or a physical heating switch, auto-register a
-	// leakage_evidence sensor — unconditionally, matching the legacy generator, since a space
-	// without an explicit "heating leak:" still gets the sensor (aggregating to always-off via
-	// binary_sensor.infrastructural_off, see generateBinarySensorGroups). The entity lives in the
+	// For every space with a climate entity or a physical heating switch and doors/windows to watch
+	// ("heating leak:"), auto-register a leakage_evidence sensor. A space without them has no
+	// leakage at all (2026-10-26: no more always-off constant standing in). The entity lives in the
 	// physical domain at the same path as the social space.
 	for _, spaceName := range heatingCapableSocialSpaceNames(administration) {
+		if len(administration.HeatingLeaksByName[spaceName]) == 0 {
+			continue
+		}
 		// Derive the path component (strip the leading sphere name, e.g. "social/kitchen" → "kitchen").
 		contextPath := spaceName
 		if idx := strings.Index(spaceName, "/"); idx >= 0 {
@@ -979,9 +960,8 @@ func parseRuleStatementLine(administration *TAdministrationState, rule *TRule, l
 			for i := range triggers {
 				triggers[i].EntitySpec = normalizeEntityFullName(triggers[i].EntitySpec, administration.SpacePath)
 				if triggers[i].Kind == "named_trigger" {
-					// Space-relative, same as EntitySpec above -- see registerNamedTrigger's own
-					// doc comment (Conceptual_NamedTriggerEntities.go) for why a named trigger's
-					// Name is resolved, not taken literally.
+					// Space-relative, same as EntitySpec above: the same relative name in two
+					// spaces names two different events.
 					triggers[i].Name = normalizeEntityFullName(triggers[i].Name, administration.SpacePath)
 				}
 			}

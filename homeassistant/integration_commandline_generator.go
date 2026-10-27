@@ -166,6 +166,12 @@ func generateCommandlineCoordinatorFile(outputRoot string, devices []TCommandlin
 				sb.WriteString("      " + name + ":\n")
 				sb.WriteString("        entity_id: \"" + entityID + "\"\n")
 				sb.WriteString("        name: \"" + displayName + "\"\n")
+				uniqueID := d.DeviceID + "_" + name // the coordinator's formula (discoverycommandline.go)
+				if id := d.Capabilities[name].AssignedID; id != "" {
+					sb.WriteString("        stable_id: \"" + id + "\"\n")
+					uniqueID = id
+				}
+				coordinatorPublishedEntities = append(coordinatorPublishedEntities, TRegistryManifestEntry{UniqueID: uniqueID, EntityID: entityID})
 			}
 		}
 		writeKindList("switch", "switches")
@@ -184,6 +190,7 @@ func generateCommandlineCoordinatorFile(outputRoot string, devices []TCommandlin
 		} else {
 			sb.WriteString("    node:\n")
 			sb.WriteString("      entity_id: \"" + nodeEntityID + "\"\n")
+			coordinatorPublishedEntities = append(coordinatorPublishedEntities, TRegistryManifestEntry{UniqueID: d.DeviceID + "_commandline_node", EntityID: nodeEntityID})
 			sb.WriteString("      name: \"" + nodeDisplayName + "\"\n")
 		}
 	}

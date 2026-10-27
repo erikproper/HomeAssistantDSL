@@ -47,14 +47,54 @@ import (
 // guarded since paho invokes OnConnectHandler on its own internal goroutine, concurrently with
 // whatever main() is still doing.
 //
-// Deliberately does NOT re-run any subscribeX(...) call -- re-subscribing on every reconnect
-// would register additional, duplicate handlers for the same topic without removing the old
-// ones (double-processing every message, and for hassbridge/self-import specifically, risking a
-// real feedback loop), not just republish something idempotent. Topic subscriptions instead
-// survive a same-broker reconnect via SetResumeSubs(true) below, which is paho's own session-
-// resumption mechanism; only a genuinely NEW broker (this migration's own case) starts a session
-// with no memory of prior subscriptions at all, which is exactly what the idempotent republish
-// this hook triggers is for.
+// Subscriptions are renewed separately, before this hook runs (subscriptionRegistry below).
+// TSubscriptionRegistry remembers every topic each client subscribes to, so a reconnect can renew
+// them (2026-10-26, found live: Junglinster's coordinator reconnected to the cloud broker after a
+// DNS outage, but received nothing from it any more -- no ping/cpu host behind the cloud broker
+// reported, for hours). The client uses a clean session, so the broker forgets its subscriptions
+// on a disconnect, and paho's SetResumeSubs only resends subscribe requests still in flight, not
+// established ones. Renewing sends the topics again with a nil handler: paho then keeps the
+// handler it already routes the topic to (client.Subscribe only replaces a route when given a
+// handler), so nothing is ever handled twice.
+type TSubscriptionRegistry struct {
+	mu       sync.Mutex
+	byClient map[mqtt.Client]map[string]byte // client -> topic filter -> QoS
+}
+
+var subscriptionRegistry = &TSubscriptionRegistry{byClient: map[mqtt.Client]map[string]byte{}}
+
+// subscribe subscribes client to topic like client.Subscribe, and records it for renewal.
+func subscribe(client mqtt.Client, topic string, qos byte, handler mqtt.MessageHandler) mqtt.Token {
+	subscriptionRegistry.mu.Lock()
+	if subscriptionRegistry.byClient[client] == nil {
+		subscriptionRegistry.byClient[client] = map[string]byte{}
+	}
+	subscriptionRegistry.byClient[client][topic] = qos
+	subscriptionRegistry.mu.Unlock()
+	return client.Subscribe(topic, qos, handler)
+}
+
+// renew subscribes client again to every topic it subscribed to before; a no-op on the first
+// connect, when there are none yet.
+func (r *TSubscriptionRegistry) renew(client mqtt.Client) {
+	r.mu.Lock()
+	topics := make(map[string]byte, len(r.byClient[client]))
+	for topic, qos := range r.byClient[client] {
+		topics[topic] = qos
+	}
+	r.mu.Unlock()
+	if len(topics) == 0 {
+		return
+	}
+	fmt.Printf("[reconnect] renewing %d subscription(s)\n", len(topics))
+	token := client.SubscribeMultiple(topics, nil)
+	go func() {
+		if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
+			fmt.Printf("[reconnect] renewing subscriptions failed: %v\n", token.Error())
+		}
+	}()
+}
+
 type TReconnectHook struct {
 	mu sync.Mutex
 	fn func()
@@ -79,11 +119,9 @@ func (h *TReconnectHook) call() {
 // selects "ssl://" over a plain "tcp://" broker URL, with an empty tls.Config -- meaning the
 // system's own root CA pool, sufficient for a publicly-trusted certificate (e.g. Let's Encrypt,
 // the cloud broker's own setup) without needing a custom CA file; nothing here supports a
-// privately-issued/self-signed cloud broker certificate. SetResumeSubs(true) asks paho to
-// automatically restore this client's own topic subscriptions after a same-broker reconnect
-// (the default, CleanSession-style behaviour drops them silently); hook.call() fires on every
-// (re)connect, including the first, but is a safe no-op until main() has set a real function on
-// it -- see TReconnectHook's own doc comment.
+// privately-issued/self-signed cloud broker certificate. Every (re)connect first renews the
+// client's subscriptions (TSubscriptionRegistry), then calls hook -- a safe no-op until main()
+// has set a real function on it, see TReconnectHook's own doc comment.
 func connectMQTT(secrets TMQTTBrokerSecrets, clientID string, hook *TReconnectHook) (mqtt.Client, error) {
 	opts := mqtt.NewClientOptions()
 	scheme := "tcp"
@@ -98,11 +136,12 @@ func connectMQTT(secrets TMQTTBrokerSecrets, clientID string, hook *TReconnectHo
 	opts.SetAutoReconnect(true)
 	opts.SetResumeSubs(true)
 	opts.SetConnectTimeout(10 * time.Second)
-	if hook != nil {
-		opts.SetOnConnectHandler(func(mqtt.Client) {
+	opts.SetOnConnectHandler(func(c mqtt.Client) {
+		subscriptionRegistry.renew(c)
+		if hook != nil {
 			hook.call()
-		})
-	}
+		}
+	})
 
 	client := mqtt.NewClient(opts)
 	token := client.Connect()
@@ -199,7 +238,7 @@ func subscribeDebugLogger(client mqtt.Client, label string) error {
 	handler := func(_ mqtt.Client, msg mqtt.Message) {
 		fmt.Printf("[hosts:%s] %s = %s\n", label, msg.Topic(), string(msg.Payload()))
 	}
-	token := client.Subscribe("hosts/#", 0, handler)
+	token := subscribe(client, "hosts/#", 0, handler)
 	if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
 		if err := token.Error(); err != nil {
 			return fmt.Errorf("subscribing to hosts/# on %s broker: %w", label, err)
@@ -247,7 +286,7 @@ func subscribeDeviceInfo(mainClient, cloudClient mqtt.Client, ownInstallation st
 			fmt.Printf("[device-info] %s: republishing discovery: %v\n", deviceID, err)
 		}
 	}
-	token := mainClient.Subscribe("hosts/+/device/state", 0, handler)
+	token := subscribe(mainClient, "hosts/+/device/state", 0, handler)
 	if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
 		if err := token.Error(); err != nil {
 			return fmt.Errorf("subscribing to hosts/+/device/state: %w", err)

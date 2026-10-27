@@ -91,7 +91,7 @@ import "strings"
 // as unit_of_measurement/device_class, off the same states[] call.
 func entityExistenceInquiryAutomationBody(name string) string {
 	var sb strings.Builder
-	sb.WriteString("- alias: \"Coordinator bridge: entity existence inquiry\"\n")
+	sb.WriteString("- alias: \"infrastructural/coordinator/bridge/entity_existence_inquiry\"\n")
 	sb.WriteString("  id: automation.coordinator_bridge_inquire_" + name + "\n")
 	// HA's automation default (mode: single) silently drops a new trigger arriving while a
 	// previous run is still in progress, instead of queuing it -- confirmed live 2026-08-29: a

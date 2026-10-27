@@ -166,20 +166,41 @@ func isKnownDeviceID(id string, discoveryGatewaysByID map[string]TDiscoveryGatew
 // existed before 2026-09-27 -- every auto-materialized id up to then always appended label
 // verbatim (confirmed nothing relies on that -- these are purely internal/plumbing ids, never
 // hand-authored or referenced by their exact string elsewhere).
-func autoMaterializedFullName(domain string, syntheticIdentity TEntityIdentity, label string) string {
+//
+// capabilityDomain is the capability's own domain, which differs from domain when a "switch"
+// capability is coerced into its role (coercedDomain): "switch_2" in its light role still shortens
+// to "2", so the coercion leaves the name as it was.
+func autoMaterializedFullName(domain, capabilityDomain string, syntheticIdentity TEntityIdentity, label string) string {
 	shortLabel := label
 	switch {
-	case label == "core", label == domain:
+	case label == "core", label == domain, label == capabilityDomain:
 		shortLabel = ""
 	default:
-		if rest, ok := strings.CutPrefix(label, domain+"_"); ok && rest != "" {
-			shortLabel = rest
+		for _, prefix := range []string{domain + "_", capabilityDomain + "_"} {
+			if rest, ok := strings.CutPrefix(label, prefix); ok && rest != "" {
+				shortLabel = rest
+				break
+			}
 		}
 	}
 	if shortLabel == "" {
 		return fmt.Sprintf("%s.%s/%s", domain, syntheticIdentity.Sphere, syntheticIdentity.Path)
 	}
 	return fmt.Sprintf("%s.%s/%s/%s", domain, syntheticIdentity.Sphere, syntheticIdentity.Path, shortLabel)
+}
+
+// switchCoercionRoles are the roles a "switch" capability may play (2026-10-25, Erik): the device
+// switches something, and whether that is a light or a fan follows from how it is used -- e.g.
+// "light.core is switched by switch.switch_2 from ..." -- so its hidden entity is a light (or fan)
+// already when it is imported, and can be grouped as one.
+var switchCoercionRoles = map[string]bool{"light": true, "fan": true}
+
+// coercedDomain is the domain a capability of capabilityDomain gets in role ("" = no role).
+func coercedDomain(capabilityDomain, role string) string {
+	if capabilityDomain == "switch" && switchCoercionRoles[role] {
+		return role
+	}
+	return capabilityDomain
 }
 
 // autoMaterializePhysicalCapability generalizes resolveLogicalDependencyNodeEntities' own
@@ -199,12 +220,18 @@ func autoMaterializedFullName(domain string, syntheticIdentity TEntityIdentity, 
 // has no positioning of its own at all yet), merging the new attribute into any EXISTING link
 // rather than replacing it, so a device already positioned via its own normal Conceptual.def
 // declaration keeps everything it already has.
-func autoMaterializePhysicalCapability(administration *TAdministrationState, deviceID, label string, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, hostDevicesByID map[string]THostDevice, localDevicesByID map[string]TLocalDevice, provenance string) (entityID string, ok bool) {
+//
+// identity overrides that synthetic identity when non-zero: a logical node's own inputs are named
+// after the node they feed instead (logicalConditionResolver.resolveNodeInput).
+func autoMaterializePhysicalCapability(administration *TAdministrationState, deviceID, label, role string, identity TEntityIdentity, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, hostDevicesByID map[string]THostDevice, localDevicesByID map[string]TLocalDevice, provenance string) (entityID string, ok bool) {
 	link, hasLink := administration.DeviceConceptualLinks[deviceID]
 	if !hasLink || link.AttributeEntityIDs == nil {
 		link.AttributeEntityIDs = map[string]TDeviceAttributeLink{}
 	}
 	syntheticIdentity := TEntityIdentity{Sphere: "physical", Path: deviceID}
+	if identity != (TEntityIdentity{}) {
+		syntheticIdentity = identity
+	}
 
 	if host, found := hostDevicesByID[deviceID]; found {
 		mat, known := MaterializationForIntegrationType(host.IntegrationType)
@@ -264,7 +291,7 @@ func autoMaterializePhysicalCapability(administration *TAdministrationState, dev
 		if !hasCap || capability.AvailabilityOf != "" || capability.DerivedFromCapability != "" || capability.Hidden {
 			return "", false
 		}
-		attrFullName := autoMaterializedFullName(capability.Domain, syntheticIdentity, label)
+		attrFullName := autoMaterializedFullName(coercedDomain(capability.Domain, role), capability.Domain, syntheticIdentity, label)
 		id := toHomeAssistantEntityID(attrFullName)
 		if id == "" {
 			return "", false
@@ -279,7 +306,7 @@ func autoMaterializePhysicalCapability(administration *TAdministrationState, dev
 		// deliberately gets TWO legitimate entity views (one user-facing, one purely internal
 		// plumbing), not a genuine authoring mistake.
 		administration.RegisterDiscoveryImpliedEntity("root", attrFullName, provenance, deviceID+"!"+label+"!physical", false)
-		deviceClass, unit, stateClass, icon := resolveCapabilityDefaults(administration.CapabilityDefaults, capability.Domain, label)
+		deviceClass, unit, stateClass, icon := resolveCapabilityDefaults(administration.CapabilityDefaults, coercedDomain(capability.Domain, role), label)
 		administration.DiscoveryEntityLinks[id] = TDiscoveryEntityLink{
 			EntityID:        id,
 			GatewayDeviceID: deviceID,
@@ -305,7 +332,7 @@ func autoMaterializePhysicalCapability(administration *TAdministrationState, dev
 		if !hasCap {
 			return "", false
 		}
-		attrFullName := autoMaterializedFullName(capability.Domain, syntheticIdentity, label)
+		attrFullName := autoMaterializedFullName(coercedDomain(capability.Domain, role), capability.Domain, syntheticIdentity, label)
 		id := toHomeAssistantEntityID(attrFullName)
 		if id == "" {
 			return "", false
@@ -423,9 +450,12 @@ func resolveLogicalSiblingSourceEntityID(administration *TAdministrationState, d
 			// sensor. Picking the lexicographically-first match is an arbitrary but STABLE
 			// tie-break -- both candidates are always equivalent in practice (same raw MQTT leaf),
 			// so which one wins is cosmetic, but it must be deterministic.
+			// Only an entity of the capability's own domain counts: the same leaf may also be
+			// positioned under another domain (a Hue tap's raw action as both its "event" and a
+			// legacy "sensor", 2026-10-23), which is a different entity, not this capability.
 			var candidates []string
 			for id, link := range administration.DiscoveryEntityLinks {
-				if link.GatewayDeviceID == deviceID && link.Leaf == siblingCapability.Leaf {
+				if link.GatewayDeviceID == deviceID && link.Leaf == siblingCapability.Leaf && strings.HasPrefix(id, siblingCapability.Domain+".") {
 					candidates = append(candidates, id)
 				}
 			}
@@ -436,7 +466,7 @@ func resolveLogicalSiblingSourceEntityID(administration *TAdministrationState, d
 		}
 	}
 	if allowAutoMaterialize {
-		if id, materialized := autoMaterializePhysicalCapability(administration, deviceID, token, discoveryGatewaysByID, hassBridgeDevicesByID, hostDevicesByID, localDevicesByID, provenance); materialized {
+		if id, materialized := autoMaterializePhysicalCapability(administration, deviceID, token, "", TEntityIdentity{}, discoveryGatewaysByID, hassBridgeDevicesByID, hostDevicesByID, localDevicesByID, provenance); materialized {
 			return id, true, false
 		}
 	}
@@ -466,8 +496,13 @@ type logicalConditionResolver struct {
 	// tree, see parseValueExpr): a bare CondRef renders as its plain resolved value (sourceToJinja2:
 	// states()/state_attr()), not the boolean is_state(...) check a "condition" bare ref needs.
 	valueMode bool
-	deferred  bool
-	warnings  []string
+	// nodeInputPath is the path of the node this resolver renders the condition of (without its
+	// trailing "/node"), "" for any other capability; hostNodeInputs are the hosts that condition
+	// pings. Both feed resolveNodeInput.
+	nodeInputPath  string
+	hostNodeInputs []string
+	deferred       bool
+	warnings       []string
 }
 
 // resolveLeaf resolves an ordinary same-device sibling label or literal entity_id (a CondRef with
@@ -554,24 +589,95 @@ func (r *logicalConditionResolver) resolveJinjaToken(token string) (string, bool
 // atom). Both forms allow auto-materialization -- see resolveLogicalSiblingSourceEntityID's own
 // doc comment for why that's safe to enable only here, never for resolveLeaf's same-device path.
 func (r *logicalConditionResolver) resolveRefNode(node *TConditionExpr) (string, bool) {
-	targetDeviceID := r.deviceID
-	label := node.Ref
+	targetDeviceID, label, targeted := r.refTarget(node)
+	if !targeted {
+		return r.resolveLeaf(node.Ref)
+	}
+	return r.resolveTargeted(targetDeviceID, label, node.ForcePhysical, true, false)
+}
+
+// refTarget returns the device and capability label node refers to when it names one explicitly
+// ("<label> from <device>", or a bare device id meaning that device's node); targeted is false for
+// an ordinary same-device sibling or literal entity_id.
+func (r *logicalConditionResolver) refTarget(node *TConditionExpr) (targetDeviceID, label string, targeted bool) {
 	switch {
 	case node.FromDeviceID != "":
-		targetDeviceID = node.FromDeviceID
 		// A "from"-qualified label may be written either bare ("core") or domain-prefixed
 		// ("switch.core", matching how a capability line always reads in Physical.def/Logical.def
 		// even though the map key itself is always the bare label -- e.g. THassBridgeCapability's
 		// own Domain is a separate field from its map key) -- strip a leading "<domain>." before
 		// using it as a lookup key, same map-key shape a same-device sibling label always has.
-		label = bareCapabilityLabel(node.Ref)
+		return node.FromDeviceID, bareCapabilityLabel(node.Ref), true
 	case isKnownDeviceID(node.Ref, r.discoveryGatewaysByID, r.hassBridgeDevicesByID, r.importedDevicesByID, r.hostDevicesByID, r.localDevicesByID, r.logicalDevicesByID):
-		targetDeviceID = node.Ref
-		label = "node"
-	default:
-		return r.resolveLeaf(node.Ref)
+		return node.Ref, "node", true
 	}
-	return r.resolveTargeted(targetDeviceID, label, node.ForcePhysical, true, false)
+	return "", "", false
+}
+
+// resolveNodeInput resolves a node a logical node's own condition refers to (e.g. "physical
+// appliance.sonos_kitchen and node.sonos_kitchen") that has no positioning of its own, so that no
+// node ever lands in the "physical" sphere (2026-10-26, Erik): a device's own "<capability> is
+// available" node is inlined, any other one is materialized next to the node it feeds, as
+// "infrastructural/<node path>/<qualifier>/node" -- the host's integration ("ping", plus the
+// host's own id leaf when the condition pings several), else "controller" (the device's own link
+// to its controller, e.g. a bridged washing machine's). handled is false for anything else, which
+// the ordinary resolution takes.
+func (r *logicalConditionResolver) resolveNodeInput(node *TConditionExpr) (expr string, handled, ok bool) {
+	if r.nodeInputPath == "" {
+		return "", false, false
+	}
+	targetDeviceID, label, targeted := r.refTarget(node)
+	if !targeted || label != "node" {
+		return "", false, false
+	}
+	if _, positioned, _ := resolveLogicalSiblingSourceEntityID(r.administration, targetDeviceID, label, node.ForcePhysical, false, true, r.discoveryGatewaysByID, r.hassBridgeDevicesByID, r.hostDevicesByID, r.localDevicesByID, r.provenance); positioned {
+		return "", false, false
+	}
+	if device, isLocal := r.localDevicesByID[targetDeviceID]; isLocal {
+		if capability, hasCap := device.Capabilities[label]; hasCap && capability.AvailabilityOf != "" {
+			sibling, hasSibling := r.administration.DeviceConceptualLinks[targetDeviceID].AttributeEntityIDs[capability.AvailabilityOf]
+			if !hasSibling {
+				return "", false, false
+			}
+			return fmt.Sprintf("(states('%s') != 'unavailable')", sibling.EntityID), true, true
+		}
+	}
+	qualifier := "controller"
+	if host, isHost := r.hostDevicesByID[targetDeviceID]; isHost {
+		qualifier = host.IntegrationType
+		if len(r.hostNodeInputs) > 1 {
+			qualifier += "/" + targetDeviceID[strings.Index(targetDeviceID, ".")+1:]
+		}
+	}
+	identity := TEntityIdentity{Sphere: "infrastructural", Path: r.nodeInputPath + "/" + qualifier}
+	entityID, materialized := autoMaterializePhysicalCapability(r.administration, targetDeviceID, label, "", identity, r.discoveryGatewaysByID, r.hassBridgeDevicesByID, r.hostDevicesByID, r.localDevicesByID, r.provenance)
+	if !materialized {
+		return "", false, false
+	}
+	return fmt.Sprintf("is_state('%s', 'on')", entityID), true, true
+}
+
+// hostNodeInputsOf returns the distinct hosts tree's own node references point at.
+func (r *logicalConditionResolver) hostNodeInputsOf(tree *TConditionExpr) []string {
+	var hosts []string
+	var walk func(node *TConditionExpr)
+	walk = func(node *TConditionExpr) {
+		if node == nil {
+			return
+		}
+		if node.Kind == CondRef {
+			if targetDeviceID, label, targeted := r.refTarget(node); targeted && label == "node" {
+				if _, isHost := r.hostDevicesByID[targetDeviceID]; isHost && !slices.Contains(hosts, targetDeviceID) {
+					hosts = append(hosts, targetDeviceID)
+				}
+			}
+		}
+		walk(node.Child)
+		walk(node.Left)
+		walk(node.Right)
+	}
+	walk(tree)
+	return hosts
 }
 
 // bareCapabilityLabel strips a leading "<domain>." from a "from"-qualified ref, if present --
@@ -634,12 +740,17 @@ func (r *logicalConditionResolver) render(node *TConditionExpr) (string, bool) {
 			r.warnings = append(r.warnings, fmt.Sprintf("%s: %q filters a firing event -- only meaningful in an \"event\" capability's condition", r.provenance, node.Ref))
 			return "", false
 		}
+		if !node.IsAvailable && len(node.Values) == 0 && !r.valueMode {
+			if expr, handled, ok := r.resolveNodeInput(node); handled {
+				return expr, ok
+			}
+		}
 		entityID, ok := r.resolveRefNode(node)
 		if !ok {
 			return "", false
 		}
 		if node.IsAvailable {
-			return fmt.Sprintf("(states('%s') not in ['unavailable', 'unknown'])", entityID), true
+			return fmt.Sprintf("(states('%s') != 'unavailable')", entityID), true
 		}
 		if len(node.Values) == 1 {
 			return fmt.Sprintf("is_state('%s', %s)", entityID, jinjaQuotedLiteral(node.Values[0])), true
@@ -760,6 +871,14 @@ func registerLogicalDerivedConditionCapability(administration *TAdministrationSt
 	if capability.Domain == "event" {
 		return registerLogicalDerivedEventCapability(administration, resolver, decl, label, deviceNamePath, tree, provenance)
 	}
+	fullName := resolveDeviceEntityFullName(decl.LocalSpec, administration.SpacePath, deviceNamePath)
+	identity := extractEntityIdentity(fullName)
+	if label == "node" {
+		if path, isNode := strings.CutSuffix(identity.Path, "/node"); isNode {
+			resolver.nodeInputPath = path
+			resolver.hostNodeInputs = resolver.hostNodeInputsOf(tree)
+		}
+	}
 	rendered, ok := resolver.render(tree)
 	if !ok {
 		if resolver.deferred {
@@ -768,8 +887,6 @@ func registerLogicalDerivedConditionCapability(administration *TAdministrationSt
 		return resolver.warnings, false
 	}
 
-	fullName := resolveDeviceEntityFullName(decl.LocalSpec, administration.SpacePath, deviceNamePath)
-	identity := extractEntityIdentity(fullName)
 	if identity.Domain == "" {
 		return []string{fmt.Sprintf("%s: could not resolve a domain from %q; skipping", provenance, decl.LocalSpec)}, false
 	}
@@ -803,10 +920,9 @@ func registerLogicalDerivedConditionCapability(administration *TAdministrationSt
 // ...;" capability (PROJECT.md item 49, 2026-10-22): an event raised whenever one of the devices its
 // condition names fires a matching event. The condition is an "or" of terms, each one
 // "event.<label> from <device> is <value(s)>", optionally "and if trigger.<attribute> from <device>
-// is <value(s)>" -- the same contributions a device-level "aggregated event ... is raised when"
-// declaration makes, so the result is stored the same way (administration.NamedTriggers, under the
-// positioned entity's own name) and generateNamedTriggerEvents writes the entity, registered under
-// this capability's frozen unique_id.
+// is <value(s)>". The terms are stored in administration.NamedTriggers under the positioned
+// entity's own name, and generateNamedTriggerEvents writes the entity, registered under this
+// capability's frozen unique_id.
 func registerLogicalDerivedEventCapability(administration *TAdministrationState, resolver *logicalConditionResolver, decl TDeviceCapabilityEntityDeclaration, label, deviceNamePath string, tree *TConditionExpr, provenance string) (warnings []string, deferred bool) {
 	var sources []TNamedTriggerSource
 	for _, term := range flattenConditionExpr(tree, CondOr) {
@@ -829,9 +945,11 @@ func registerLogicalDerivedEventCapability(administration *TAdministrationState,
 		if attribute != nil && attribute.FromDeviceID != "" && attribute.FromDeviceID != event.FromDeviceID {
 			return []string{fmt.Sprintf("%s: %q filters %q's event, but its term matches %q's", provenance, attribute.Ref, attribute.FromDeviceID, event.FromDeviceID)}, false
 		}
-		// The source device's event capability must be positioned itself (its own entity_id is
-		// what HA fires) -- never auto-materialized under a made-up name; until it is, defer.
-		entityID, ok := resolver.resolveTargeted(event.FromDeviceID, bareCapabilityLabel(event.Ref), event.ForcePhysical, false, true)
+		// The source device's raw event is plumbing of the logical layer, never positioned in
+		// Conceptual.def: auto-materialized as a "physical" entity (the stacked lights' own
+		// pattern), registered under its frozen Physical.def ID -- on the final pass only, so a
+		// capability another line does position is found first.
+		entityID, ok := resolver.resolveTargeted(event.FromDeviceID, bareCapabilityLabel(event.Ref), event.ForcePhysical, resolver.finalAttempt, true)
 		if !ok {
 			if resolver.deferred {
 				return nil, true
@@ -855,6 +973,9 @@ func registerLogicalDerivedEventCapability(administration *TAdministrationState,
 		return []string{fmt.Sprintf("%s: event %q is already raised elsewhere -- give each event one declaration", provenance, name)}, false
 	}
 	administration.NamedTriggers[name] = sources
+	if onlyDerivesEvents(resolver.logicalDevicesByID[decl.DeviceID]) {
+		administration.EventOnlyDeviceIDs[decl.DeviceID] = true
+	}
 	entityID := namedTriggerEventEntityID(name)
 	administration.RecordSourceKey(entityID, "logical:"+decl.DeviceID+"!"+label)
 	administration.LogicalEntityLinks[entityID] = TLogicalEntityLink{DeviceID: decl.DeviceID, Label: label}

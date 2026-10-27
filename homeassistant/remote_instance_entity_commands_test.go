@@ -12,7 +12,7 @@ func TestEntityCommandAutomationBody(t *testing.T) {
 	command := commandSpec{Name: "start", Service: "vacuum.start", Payload: "start", DiscoveryKey: "payload_start"}
 	body := entityCommandAutomationBody(identity, command, "vacuum.roomba", "homeassistant_instances/protocols-server-2/bridge/vacuum.social_roomba/command")
 
-	if !strings.Contains(body, `alias: "command/vacuum/social/roomba/start"`) {
+	if !strings.Contains(body, `alias: "social/roomba/vacuum/command/start"`) {
 		t.Errorf("body = %s, want the slash-joined alias with the command name appended", body)
 	}
 	if !strings.Contains(body, "platform: mqtt") {

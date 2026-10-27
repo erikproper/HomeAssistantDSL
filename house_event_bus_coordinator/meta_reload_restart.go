@@ -97,10 +97,13 @@ func publishMetaReloadRestartButtons(client mqtt.Client, conceptualPrefix, insta
 		for _, target := range targets {
 			stableID := "meta_" + action + "_" + sanitizeTopicSegment(target)
 			topic := discoveryTopic(conceptualPrefix, "button", stableID)
+			// Infrastructural, not a sphere of its own (PROJECT.md item 18, 2026-10-26): the
+			// unique_id keeps its "meta_" root, so it stays the same entity; name and entity_id
+			// follow the sphere (the generator's registry table renames an existing one).
 			body := map[string]interface{}{
 				"unique_id":       stableID,
-				"object_id":       stableID,
-				"name":            "meta/" + action + "/" + target,
+				"object_id":       "infrastructural_" + action + "_" + sanitizeTopicSegment(target),
+				"name":            "infrastructural/" + action + "/" + target,
 				"icon":            icon,
 				"command_topic":   metaActionTopic(action, target),
 				"payload_press":   "PRESS",
@@ -232,7 +235,7 @@ func subscribeMetaInstanceCloudRelay(client, cloudClient mqtt.Client, installati
 
 // subscribeMetaTopic is the shared subscribe-with-timeout boilerplate every handler above uses.
 func subscribeMetaTopic(client mqtt.Client, topic string, handler mqtt.MessageHandler) error {
-	token := client.Subscribe(topic, 0, handler)
+	token := subscribe(client, topic, 0, handler)
 	if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
 		if err := token.Error(); err != nil {
 			return fmt.Errorf("subscribing to %s: %w", topic, err)

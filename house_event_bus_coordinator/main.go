@@ -118,6 +118,10 @@ type TDevice struct {
 	// handled identically from here on; there is no more separate "native" field/keyword.
 	Cloud        bool   `yaml:"cloud,omitempty"`
 	ImportedFrom string `yaml:"imported_from,omitempty"`
+	// YAML: Home Assistant gets this device's entities from the generator's own YAML "mqtt:"
+	// config (PROJECT.md 19e), so the coordinator publishes no local discovery for it -- and
+	// withdraws what it published before (deviceRoutingPlan).
+	YAML bool `yaml:"yaml,omitempty"`
 }
 
 // TDevicesFile is the top-level shape of a generated devices.yaml file. MQTTDiscoveryConceptualPrefix
@@ -174,6 +178,17 @@ type TDiscoveryEntityLink struct {
 	// or hardware swap at the same conceptual position then no longer changes this entity's own
 	// unique_id/discovery topic. Empty means not yet assigned; falls back to the old computation.
 	StableID string `yaml:"stable_id,omitempty"`
+
+	// Name (PROJECT.md 17h, 2026-10-26) is the entity's conceptual name ("social/apartment/
+	// bedroom/windoor/temperature"), the relayed discovery config's "name" -- see
+	// buildRelayedDiscoveryConfig. Empty for a discovery.yaml written before it existed.
+	Name string `yaml:"name,omitempty"`
+
+	// YAML (PROJECT.md 19c, 2026-10-27) marks an entity Home Assistant now gets from the
+	// generator's own YAML "mqtt:" entities instead of from this relay: its config is still built
+	// (and published in discovery_relayed_configs/state, for the generator), but no longer
+	// relayed -- its relayed discovery topic is withdrawn.
+	YAML bool `yaml:"yaml,omitempty"`
 
 	// SourceDomain (2026-09-15), when non-empty, requires the incoming raw discovery message's
 	// own topic domain component to match this exactly, in addition to (Gateway, Leaf) --
@@ -536,8 +551,18 @@ func main() {
 	// liveinfo.go's own doc comment. deviceID is checked against both devicesFile and
 	// hassBridgeFile since either kind can own it (never both -- device ids are namespaced by
 	// kind, "host.X" vs "hass.X").
+	// A hosts device's live-reported metadata goes into discovery_device_info/state too, for
+	// generate to capture into Physical.def (PROJECT.md 19e): what's known already, then every
+	// change.
+	for deviceID := range devicesFile.Devices {
+		discoveryDeviceInfo.RecordFields(deviceID, store.Snapshot(deviceID))
+	}
+	discoveryDeviceInfo.SchedulePublish(client, cloudClient, devicesFile.Installation)
 	store.SetOnChange(func(deviceID string) {
 		if device, known := devicesFile.Devices[deviceID]; known {
+			if discoveryDeviceInfo.RecordFields(deviceID, store.Snapshot(deviceID)) {
+				discoveryDeviceInfo.SchedulePublish(client, cloudClient, devicesFile.Installation)
+			}
 			if _, err := publishDeviceDiscovery(client, cloudClient, devicesFile.Installation, deviceID, device, store, hostNameToDeviceID, publisher, conceptualPrefix); err != nil {
 				fmt.Printf("[device-info] %s: republishing discovery: %v\n", deviceID, err)
 			}
@@ -600,6 +625,10 @@ func main() {
 	if err := subscribeDiscoverEntityRequests(client, existenceTracker, homeAssistantInstancesFile.Instances); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
+	}
+
+	if err := publishLocalBrokerInstallation(client, devicesFile.Installation); err != nil {
+		fmt.Printf("[installation] %v\n", err)
 	}
 
 	// PROJECT.md item 2: reload/restart meta-commands -- one button per (action, scope), scopes
@@ -672,6 +701,9 @@ func main() {
 		if err := publishMetaReloadRestartButtons(client, conceptualPrefix, devicesFile.Installation, homeAssistantInstancesFile.Instances); err != nil {
 			fmt.Printf("[reconnect] publishMetaReloadRestartButtons: %v\n", err)
 		}
+		if err := publishLocalBrokerInstallation(client, devicesFile.Installation); err != nil {
+			fmt.Printf("[reconnect] publishLocalBrokerInstallation: %v\n", err)
+		}
 		if err := publishMissingDeclaredEntitiesDiscoveryConfig(client, conceptualPrefix, devicesFile.Installation); err != nil {
 			fmt.Printf("[reconnect] publishMissingDeclaredEntitiesDiscoveryConfig: %v\n", err)
 		}
@@ -680,6 +712,10 @@ func main() {
 		}
 	})
 
+	// Every subscription is in place: only now may a deploy's next step send its requests.
+	if err := notifySystemdReady(); err != nil {
+		fmt.Printf("[systemd] %v\n", err)
+	}
 	fmt.Println("coordinator running -- Ctrl-C to stop")
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)

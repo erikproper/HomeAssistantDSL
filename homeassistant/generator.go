@@ -77,6 +77,10 @@ func runGenerationFromDefFile(cwd, defPath string) error {
 	if err := generatePhysicalIntegrationOutputs(definitionDir, cwd, outputDir, admin); err != nil {
 		return err
 	}
+	// Last: every YAML-writing step, the physical layer's included, has recorded its entities.
+	if err := generateRegistryManifest(outputDir, admin); err != nil {
+		return err
+	}
 	fmt.Printf("generated %s\n", label)
 	return nil
 }
@@ -126,6 +130,9 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 		fmt.Printf("[logical] %s\n", w)
 	}
 
+	for _, report := range autoAssignCommandlineFrozenUniqueIDs(definitionDir) {
+		fmt.Printf("[physical] %s\n", report)
+	}
 	commandlineDevicesByID, commandlineDeviceWarnings := collectCommandlineDevicesByID(definitionDir)
 	for _, w := range commandlineDeviceWarnings {
 		fmt.Printf("[physical] %s\n", w)
@@ -142,6 +149,10 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 
 	for _, w := range validateNodeCapabilityRequired(hassBridgeDevicesByID, importedDevicesByID) {
 		fmt.Printf("[physical] %s\n", w)
+	}
+
+	for _, w := range applyEnabledBy(logicalByID, localDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID) {
+		fmt.Printf("[logical] %s\n", w)
 	}
 
 	for _, w := range validateLogicalNodeCapabilityRequired(logicalByID, hostDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, localDevicesByID) {
@@ -201,7 +212,22 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 		if len(topics) > 0 {
 			admin.DependsOnAvailabilityTopics[id] = topics
 		}
+		// A "hosts" device this one depends on, or refers to in a condition (e.g. its node's
+		// "physical appliance.sonos_bathroom and node.sonos_bathroom"): its node is merged here.
+		nodeRefs := append([]string{}, logicalByID[id].DependsOn...)
+		for _, capability := range logicalByID[id].Capabilities {
+			nodeRefs = append(nodeRefs, conditionExprRefs(capability.DerivedCondition)...)
+		}
+		for _, depID := range nodeRefs {
+			if _, isHost := hostDevicesByID[depID]; isHost && !slices.Contains(admin.NodeDependents[depID], id) {
+				if admin.NodeDependents == nil {
+					admin.NodeDependents = map[string][]string{}
+				}
+				admin.NodeDependents[depID] = append(admin.NodeDependents[depID], id)
+			}
+		}
 	}
+	dropShadowedDerivedAggregates(admin)
 	for _, w := range validateNoDuplicateFinalEntityIDs(admin) {
 		fmt.Printf("[conceptual] %s\n", w)
 	}
@@ -243,9 +269,25 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 	}
 
 	loadFrozenUniqueIDs(admin, definitionDir, logicalByID)
+	for _, w := range registerEnablerNodes(admin, logicalByID, discoveryGatewaysByID, hassBridgeDevicesByID, hostDevicesByID, localDevicesByID) {
+		fmt.Printf("[logical] %s\n", w)
+	}
+	for _, w := range registerFirmwareUpdates(admin, definitionDir, discoveryGatewaysByID) {
+		fmt.Printf("[physical] %s\n", w)
+	}
 	attributeAbsorbedEntities(admin, logicalByID)
 	for id := range hassBridgeDevicesByID {
 		admin.BridgedDeviceIDs = append(admin.BridgedDeviceIDs, id)
+	}
+	admin.NativeCapabilities = map[string][]string{}
+	for id, device := range localDevicesByID {
+		for label, capability := range device.Capabilities {
+			// A capability the generator builds itself (an "is available" node, a derived value, a
+			// media switch wrapping a player) is generator-owned YAML, not a native entity.
+			if capability.AvailabilityOf == "" && capability.DerivedFromCapability == "" && capability.DerivedViaTemplate == "" && capability.MediaPlayerEntity == "" {
+				admin.NativeCapabilities[id] = append(admin.NativeCapabilities[id], label)
+			}
+		}
 	}
 	for id, device := range importedDevicesByID {
 		admin.ImportedDeviceIDs = append(admin.ImportedDeviceIDs, id)
@@ -277,6 +319,11 @@ var generatedUniqueID = func(entityID string) string { return entityID }
 
 // generateFromPaths contains the full generation pipeline given resolved directory paths.
 func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutputDir, label string) (*TAdministrationState, error) {
+	// Before parsing: the physical layer's coordinator files (devices.yaml, commandline.yaml) are
+	// written during it, recording their entities for the registry manifest as they go.
+	coordinatorPublishedEntities = nil
+	spaceAggregateMembers = nil
+	positionedEntityIDs = nil
 	admin, err := parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label, true)
 	if err != nil {
 		return nil, err
@@ -324,7 +371,6 @@ func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutput
 		{"derived binary sensors", generateDerivedBinarySensors},
 		{"named trigger events", generateNamedTriggerEvents},
 		{"automations", generateAutomations},
-		{"registry manifest", generateRegistryManifest},
 	}
 	for _, step := range steps {
 		if err := step.fn(outputDir, admin); err != nil {
@@ -341,6 +387,8 @@ func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutput
 			return nil, fmt.Errorf("list files: %w", err)
 		}
 	}
+	warnOccupiedSpaceAggregates()
+	noteNodesAtSpaceNames(admin)
 
 	runPostGenerationChecks(definitionDir, outputDir, label, admin)
 
@@ -396,6 +444,7 @@ var integrationDefs = []struct{ file, domain, content string }{
 	{"input_number.yaml", "input_number", "!include_dir_merge_named ../entities/input_number"},
 	{"input_select.yaml", "input_select", "!include_dir_merge_named ../entities/input_select"},
 	{"light.yaml", "light", "!include_dir_list ../entities/light"},
+	{"mqtt.yaml", "mqtt", "!include_dir_merge_list ../entities/mqtt"},
 	{"scene.yaml", "scene", "!include_dir_merge_list ../scene"},
 	{"script.yaml", "script", "!include_dir_merge_named ../script"},
 	{"sensor.yaml", "sensor", "!include_dir_list ../entities/sensor"},
@@ -551,6 +600,9 @@ func generateTemplateLights(outputDir string, admin *TAdministrationState) error
 		// A light group is used when the base turn-on set equals the base turn-off set
 		// (symmetric on/off, no subset selection).  The group members are the full off list,
 		// which includes any Zigbee physical complements needed for reliable group control.
+		if !recordSpaceAggregate(admin, entityID, entityNamesToIDs(append(append([]string{}, turnOnItems...), offItems...))) {
+			continue
+		}
 		if slices.Equal(sortedCopy(turnOnItems), baseOffItems) {
 			content := buildLightGroupYAML(entityID, displayName, entityNamesToIDs(offItems))
 			dir := filepath.Join(outputDir, "entities", "light", identity.Sphere)
@@ -558,7 +610,7 @@ func generateTemplateLights(outputDir string, admin *TAdministrationState) error
 				return err
 			}
 		} else {
-			content := buildTemplateLightYAML(entityID, displayName, turnOnItems, offItems)
+			content := buildTemplateLightYAML(entityID, displayName, turnOnItems, offItems, admin.SpaceAvailabilityAll[spaceName])
 			dir := filepath.Join(outputDir, "entities", "template", "light", identity.Sphere)
 			if err := writeYAMLFile(filepath.Join(dir, entityID+".yaml"), content); err != nil {
 				return err
@@ -590,7 +642,10 @@ func generateTemplateLights(outputDir string, admin *TAdministrationState) error
 		items := sortedCopy(sphereItems[sphere])
 		entityID := "light." + sphere
 		displayName := sphere
-		content := buildTemplateLightYAML(entityID, displayName, items, items)
+		if !recordSpaceAggregate(admin, entityID, entityNamesToIDs(items)) {
+			continue
+		}
+		content := buildTemplateLightYAML(entityID, displayName, items, items, false)
 		dir := filepath.Join(outputDir, "entities", "template", "light", sphere)
 		if err := writeYAMLFile(filepath.Join(dir, entityID+".yaml"), content); err != nil {
 			return err
@@ -605,7 +660,7 @@ func generateTemplateLights(outputDir string, admin *TAdministrationState) error
 	return nil
 }
 
-func buildTemplateLightYAML(entityID, displayName string, turnOnItems, turnOffItems []string) string {
+func buildTemplateLightYAML(entityID, displayName string, turnOnItems, turnOffItems []string, availabilityAll bool) string {
 	var sb strings.Builder
 	sb.WriteString(generatorHeader)
 	sb.WriteString("light:\n")
@@ -613,6 +668,7 @@ func buildTemplateLightYAML(entityID, displayName string, turnOnItems, turnOffIt
 	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
 	sb.WriteString("  default_entity_id: " + entityID + "\n")
 	sb.WriteString("  icon: mdi:lightbulb-group\n")
+	appendAvailability(&sb, aggregateAvailability(entityNamesToIDs(turnOffItems), availabilityAll))
 
 	sb.WriteString("  turn_on:\n")
 	for _, item := range turnOnItems {
@@ -673,7 +729,10 @@ func generateTemplateSwitches(outputDir string, admin *TAdministrationState) err
 		}
 		offItems = sortedCopy(offItems)
 		explicitOnItems := sortedCopy(admin.SpaceSwitchOnByName[spaceName])
-		content := buildTemplateSwitchYAML(entityID, displayName, onItems, offItems, explicitOnItems)
+		if !recordSpaceAggregate(admin, entityID, entityNamesToIDs(append(append(append([]string{}, onItems...), offItems...), explicitOnItems...))) {
+			continue
+		}
+		content := buildTemplateSwitchYAML(entityID, displayName, onItems, offItems, explicitOnItems, admin.SpaceAvailabilityAll[spaceName])
 		dir := filepath.Join(outputDir, "entities", "template", "switch", identity.Sphere)
 		if err := writeYAMLFile(filepath.Join(dir, entityID+".yaml"), content); err != nil {
 			return err
@@ -710,7 +769,10 @@ func generateTemplateSwitches(outputDir string, admin *TAdministrationState) err
 		onItems := sortedCopy(sphereOnItems[sphere])
 		entityID := toHomeAssistantEntityID("switch." + sphere + "/space")
 		displayName := sphere + "/space"
-		content := buildTemplateSwitchYAML(entityID, displayName, onItems, offItems, nil)
+		if !recordSpaceAggregate(admin, entityID, entityNamesToIDs(append(append([]string{}, onItems...), offItems...))) {
+			continue
+		}
+		content := buildTemplateSwitchYAML(entityID, displayName, onItems, offItems, nil, false)
 		dir := filepath.Join(outputDir, "entities", "template", "switch", sphere)
 		if err := writeYAMLFile(filepath.Join(dir, entityID+".yaml"), content); err != nil {
 			return err
@@ -719,13 +781,14 @@ func generateTemplateSwitches(outputDir string, admin *TAdministrationState) err
 	return nil
 }
 
-func buildTemplateSwitchYAML(entityID, displayName string, onItems, offItems, explicitOnItems []string) string {
+func buildTemplateSwitchYAML(entityID, displayName string, onItems, offItems, explicitOnItems []string, availabilityAll bool) string {
 	var sb strings.Builder
 	sb.WriteString(generatorHeader)
 	sb.WriteString("switch:\n")
 	sb.WriteString("- name: " + displayName + "\n")
 	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
 	sb.WriteString("  default_entity_id: " + entityID + "\n")
+	appendAvailability(&sb, aggregateAvailability(entityNamesToIDs(sortedCopy(deduplicated(append(append([]string{}, onItems...), offItems...)))), availabilityAll))
 	// turn_on: if an explicit "space on:" list is provided it governs turn_on entirely.
 	// Otherwise auto-include child space-aggregate switches (items ending with "/space")
 	// so that activating a parent space switch cascades to its direct children.
@@ -870,19 +933,6 @@ func generateTemplateBinarySensors(outputDir string, admin *TAdministrationState
 		}
 	}
 
-	// Static on/off infrastructure sensors — present in every house.
-	dir := filepath.Join(outputDir, "entities", "template", "binary_sensor", "infrastructural")
-	for _, which := range []string{"on", "off"} {
-		id := "binary_sensor.infrastructural_" + which
-		content := generatorHeader + "binary_sensor:\n" +
-			"- name: infrastructural/" + which + "\n" +
-			"  unique_id: " + generatedUniqueID(id) + "\n" +
-			"  state: \"{{ '" + which + "' }}\"\n"
-		if err := writeYAMLFile(filepath.Join(dir, id+".yaml"), content); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
@@ -918,7 +968,7 @@ func buildTemplateNodeYAML(entityID, displayPath, representativeID string) strin
 	sb.WriteString("- name: " + displayPath + "\n")
 	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
 	sb.WriteString("  device_class: connectivity\n")
-	sb.WriteString("  state: \"{{ states('" + representativeID + "') not in ['unavailable', 'unknown'] }}\"\n")
+	sb.WriteString("  state: \"{{ states('" + representativeID + "') != 'unavailable' }}\"\n")
 	return sb.String()
 }
 
@@ -1053,14 +1103,7 @@ func generateInputBooleans(outputDir string, admin *TAdministrationState) error 
 			}
 		}
 	}
-	const dummyID = "input_boolean.infrastructural_dummy"
-	var sb strings.Builder
-	sb.WriteString(generatorHeader)
-	sb.WriteString("infrastructural_dummy:\n")
-	sb.WriteString("  name: infrastructural/dummy\n")
-	sb.WriteString("  initial: off\n")
-	dir := filepath.Join(outputDir, "entities", "input_boolean", "infrastructural")
-	return writeYAMLFile(filepath.Join(dir, dummyID+".yaml"), sb.String())
+	return nil
 }
 
 func generateInputDatetimes(outputDir string, admin *TAdministrationState) error {
@@ -1129,7 +1172,7 @@ func generateTemplateSensors(outputDir string, admin *TAdministrationState) erro
 				displayName := socialPath + "/" + variant.suffix
 				inputID := toHomeAssistantEntityID("input_number." + variant.inputSphere + "/" + physPath + "/" + variant.suffix)
 				stateExpr := "states('" + inputID + "')"
-				content := buildTemplateSensorYAML(entityID, displayName, "°C", "temperature", "measurement", "mdi:thermometer", stateExpr)
+				content := buildTemplateSensorYAML(entityID, displayName, "°C", "temperature", "measurement", "mdi:thermometer", stateExpr, derivedValueAvailability(stateExpr))
 				dir := filepath.Join(outputDir, "entities", "template", "sensor", "social")
 				if err := writeYAMLFile(filepath.Join(dir, entityID+".yaml"), content); err != nil {
 					return err
@@ -1167,10 +1210,16 @@ func generateConditionEntities(outputDir string, admin *TAdministrationState) er
 				if deviceClass == "" {
 					deviceClass, _, _, _ = resolveCapabilityDefaults(admin.CapabilityDefaults, "binary_sensor", identity.Path)
 				}
-				content = buildConditionBinarySensorYAML(id, displayName, stateExpr, deviceClass, rec.ConditionDelayOn, rec.ConditionDelayOff)
+				availability := ""
+				// A node, a battery alert and the firmware updates summary stay available while one
+				// of their sources is down: reporting exactly that, or ignoring it, is their job.
+				if !strings.HasSuffix(identity.Path, "/node") && !strings.HasSuffix(identity.Path, "/battery_alert") && identity.Path != "firmware_updates" {
+					availability = derivedValueAvailability(stateExpr)
+				}
+				content = buildConditionBinarySensorYAML(id, displayName, stateExpr, deviceClass, rec.ConditionDelayOn, rec.ConditionDelayOff, availability)
 			case "sensor":
 				deviceClass, unit, stateClass, icon := resolveCapabilityDefaults(admin.CapabilityDefaults, "sensor", identity.Path)
-				content = buildTemplateSensorYAML(id, displayName, unit, deviceClass, stateClass, icon, stateExpr)
+				content = buildTemplateSensorYAML(id, displayName, unit, deviceClass, stateClass, icon, stateExpr, derivedValueAvailability(stateExpr))
 			default:
 				continue
 			}
@@ -1188,7 +1237,7 @@ func generateConditionEntities(outputDir string, admin *TAdministrationState) er
 // sourceToJinja2 converts a condition source token to its Jinja2 expression.
 // A plain token produces states('entity_id'); one with "!attr" produces state_attr('entity_id', 'attr');
 // one with a trailing " is available" produces the standard HA liveness check -- sugar for what
-// used to require spelling out `states('$1') not in ['unavailable', 'unknown']` by hand in every
+// used to require spelling out `states('$1') != 'unavailable'` by hand in every
 // Macros.def condition body that needed it (was "forgotten" boilerplate, not a distinct concept).
 // Rendered as the literal strings "on"/"off", not a raw Python boolean: verified against HA's own
 // source (template.result_as_boolean, used by both template binary_sensor's "state:" field and
@@ -1213,7 +1262,7 @@ func generateConditionEntities(outputDir string, admin *TAdministrationState) er
 // first devices to combine this form with the newer availability-gating mechanism).
 func sourceToJinja2(src string) string {
 	if entityID, ok := strings.CutSuffix(src, " is available"); ok {
-		return fmt.Sprintf("'on' if (states('%s') not in ['unavailable', 'unknown']) else 'off'", entityID)
+		return fmt.Sprintf("'on' if (states('%s') != 'unavailable') else 'off'", entityID)
 	}
 	if bangIdx := strings.Index(src, "!"); bangIdx > 0 {
 		entityID := src[:bangIdx]
@@ -1247,7 +1296,7 @@ func buildConditionStateExpr(sources []string, expr string) string {
 	return result
 }
 
-func buildConditionBinarySensorYAML(id, displayName, stateExpr, deviceClass, delayOn, delayOff string) string {
+func buildConditionBinarySensorYAML(id, displayName, stateExpr, deviceClass, delayOn, delayOff, availability string) string {
 	var sb strings.Builder
 	sb.WriteString(generatorHeader)
 	sb.WriteString("binary_sensor:\n")
@@ -1262,11 +1311,12 @@ func buildConditionBinarySensorYAML(id, displayName, stateExpr, deviceClass, del
 	if delayOff != "" {
 		sb.WriteString("  delay_off: " + delayOff + "\n")
 	}
+	appendAvailability(&sb, availability)
 	sb.WriteString("  state: \"{{ " + stateExpr + " }}\"\n")
 	return sb.String()
 }
 
-func buildTemplateSensorYAML(id, displayName, unit, deviceClass, stateClass, icon, stateExpr string) string {
+func buildTemplateSensorYAML(id, displayName, unit, deviceClass, stateClass, icon, stateExpr, availability string) string {
 	var sb strings.Builder
 	sb.WriteString(generatorHeader)
 	sb.WriteString("sensor:\n")
@@ -1281,6 +1331,7 @@ func buildTemplateSensorYAML(id, displayName, unit, deviceClass, stateClass, ico
 	if stateClass != "" {
 		sb.WriteString("  state_class: " + stateClass + "\n")
 	}
+	appendAvailability(&sb, availability)
 	sb.WriteString("  state: \"{{ " + stateExpr + " }}\"\n")
 	return sb.String()
 }
@@ -1391,13 +1442,13 @@ func buildInfraGroupYAML(uniqueID, name string, entities []string, all bool, dev
 
 // generateBinarySensorGroups writes entities/binary_sensor/physical/<id>.yaml for every space
 // with a climate entity or a physical heating switch. The group sensor is true when any listed
-// door/window is open (i.e. in the 'on' state for a binary_sensor); a space with no explicit
-// "heating leak:" entries falls back to the always-off constant sensor, so leakage never fires.
+// door/window is open (i.e. in the 'on' state for a binary_sensor); a space with no "heating
+// leak:" entries has no leakage, and no group.
 func generateBinarySensorGroups(outputDir string, admin *TAdministrationState) error {
 	for _, spaceName := range heatingCapableSocialSpaceNames(admin) {
 		leaks := admin.HeatingLeaksByName[spaceName]
 		if len(leaks) == 0 {
-			leaks = []string{"binary_sensor.infrastructural/off"}
+			continue
 		}
 
 		// Derive the entity name as registered during parsing.
@@ -1424,6 +1475,9 @@ func generateBinarySensorGroups(outputDir string, admin *TAdministrationState) e
 			}
 		}
 
+		if !recordSpaceAggregate(admin, entityID, memberIDs) {
+			continue
+		}
 		content := buildBinarySensorGroupYAML(entityID, displayName, memberIDs)
 		dir := filepath.Join(outputDir, "entities", "binary_sensor", "physical")
 		if err := writeYAMLFile(filepath.Join(dir, entityID+".yaml"), content); err != nil {
@@ -1489,6 +1543,10 @@ func generateBinarySensorSubdomainGroups(outputDir string, admin *TAdministratio
 			}
 			groupID := toHomeAssistantEntityID(groupName)
 			displayName := spaceName + "/" + sub
+			if !recordSpaceAggregate(admin, groupID, entityNamesToIDs(members)) {
+				derivedGroups[sub][spaceName] = groupName
+				continue
+			}
 			content := buildBinarySensorGroupYAML(groupID, displayName, entityNamesToIDs(sortedCopy(members)))
 			dir := filepath.Join(outputDir, "entities", "binary_sensor", "social")
 			if err := writeYAMLFile(filepath.Join(dir, groupID+".yaml"), content); err != nil {
@@ -1499,6 +1557,9 @@ func generateBinarySensorSubdomainGroups(outputDir string, admin *TAdministratio
 	}
 
 	writeBinarySensorSphereGroup := func(groupID, displayName string, members []string) error {
+		if !recordSpaceAggregate(admin, groupID, entityNamesToIDs(members)) {
+			return nil
+		}
 		content := buildBinarySensorGroupYAML(groupID, displayName, entityNamesToIDs(sortedCopy(members)))
 		dir := filepath.Join(outputDir, "entities", "binary_sensor", "social")
 		if err := writeYAMLFile(filepath.Join(dir, groupID+".yaml"), content); err != nil {
@@ -1598,6 +1659,9 @@ var sensorSubdomains = []string{"co2", "humidity", "illuminance", "noise", "pres
 // which is how the old bash system computed space-level climate readings.
 func generateSensorSubdomainGroups(outputDir string, admin *TAdministrationState) error {
 	writeSensorGroup := func(groupID, displayName string, memberIDs []string) error {
+		if !recordSpaceAggregate(admin, groupID, memberIDs) {
+			return nil
+		}
 		content := buildSensorGroupYAML(groupID, displayName, memberIDs)
 		dir := filepath.Join(outputDir, "entities", "sensor", "social")
 		if err := writeYAMLFile(filepath.Join(dir, groupID+".yaml"), content); err != nil {
@@ -1730,6 +1794,9 @@ func generateLightGroups(outputDir string, admin *TAdministrationState) error {
 		// Sort for deterministic output.
 		sort.Strings(memberIDs)
 
+		if !recordSpaceAggregate(admin, entityID, memberIDs) {
+			continue
+		}
 		content := buildLightGroupYAML(entityID, displayName, memberIDs)
 		dir := filepath.Join(outputDir, "entities", "light", identity.Sphere)
 		if err := writeYAMLFile(filepath.Join(dir, entityID+".yaml"), content); err != nil {
@@ -1821,13 +1888,10 @@ func generateCustomizationFiles(outputDir string, admin *TAdministrationState) e
 				continue
 			}
 			// Discovery-implied entities (device.<spec> node/attribute entities, Conceptual_DeviceEntities.go)
-			// are created by the MQTT discovery coordinator, not this generator -- their
-			// friendly_name/icon/device_class are already set directly in the coordinator's own
-			// discovery payload (discovery.go), so a generator-authored customization file here
-			// would be redundant leftover, not a real override.
-			if rec.DiscoveryImplied {
-				continue
-			}
+			// are created by the MQTT discovery coordinator, which sets their icon/device_class in its
+			// own discovery payload -- but HA names such an entity "<device name> <entity name>" (e.g.
+			// "house/kitchen/netatmo humidity"), so they get a friendly_name of their own here, and only
+			// that (PROJECT.md item 17e, 2026-10-26): "<sphere>/<position path>" like every other entity.
 			// Node entities with a representative have their customization emitted by
 			// generateTemplateBinarySensors (possibly under a renamed entity ID such as _light_node).
 			if strings.HasSuffix(rec.Identity.Path, "/node") && resolveNodeRepresentative(rec.Name, rec, admin) != "" {
@@ -1845,7 +1909,10 @@ func generateCustomizationFiles(outputDir string, admin *TAdministrationState) e
 			seen[entityID] = true
 
 			displayName := rec.Name[len(rec.Identity.Domain)+1:] // strip "domain."
-			icon := iconForEntity(rec, admin.CapabilityDefaults)
+			icon := ""
+			if !rec.DiscoveryImplied {
+				icon = iconForEntity(rec, admin.CapabilityDefaults)
+			}
 			content := buildCustomizationYAML(entityID, displayName, icon)
 			dir := filepath.Join(outputDir, "customization", rec.Identity.Domain, rec.Identity.Sphere)
 			if err := writeYAMLFile(filepath.Join(dir, entityID+".yaml"), content); err != nil {
@@ -1895,6 +1962,19 @@ func generateMediaSwitches(outputDir string, admin *TAdministrationState) error 
 		}
 	}
 
+	// wrapperOfPlayer maps each media player's entity_id to the leaf media switch actually
+	// positioned for it, which need not be named after the player: a space's single player's
+	// switch may carry the space's own media switch name and stand for the space (PROJECT.md 17g,
+	// 2026-10-26).
+	wrapperOfPlayer := map[string]string{}
+	for _, records := range admin.EntityRecordsBySpace {
+		for _, rec := range records {
+			if rec.Identity.Domain == "switch" && rec.MediaSwitchPlayerName != "" {
+				wrapperOfPlayer[rec.MediaSwitchPlayerName] = rec.Name
+			}
+		}
+	}
+
 	// Aggregate media switches: for each space that has media players or child media aggregates.
 	for _, spaceName := range admin.SpaceOrder {
 		if spaceName == "root" {
@@ -1933,6 +2013,10 @@ func generateMediaSwitches(outputDir string, admin *TAdministrationState) error 
 			// never actually generated, instead of the real one ("switch.house/sonos/headphones/media").
 			// That had worked by coincidence for every single-segment player (e.g. "garage/sonos"),
 			// where the last segment and the full sub-path are the same string.
+			if wrapper, positioned := wrapperOfPlayer[toHomeAssistantEntityID(player)]; positioned {
+				offItems = append(offItems, wrapper)
+				continue
+			}
 			playerPath := strings.TrimPrefix(player[len("media_player."):], spaceName+"/")
 			switchName := "switch." + spaceName + "/" + playerPath + "/media"
 			offItems = append(offItems, switchName)
@@ -1940,7 +2024,10 @@ func generateMediaSwitches(outputDir string, admin *TAdministrationState) error 
 		offItems = append(offItems, sortedCopy(childMediaSwitches)...)
 
 		displayName := entityName[len("switch."):]
-		content := buildAggregateMediaSwitchYAML(entityID, displayName, offItems)
+		if !recordSpaceAggregate(admin, entityID, entityNamesToIDs(offItems)) {
+			continue
+		}
+		content := buildAggregateMediaSwitchYAML(entityID, displayName, offItems, admin.SpaceAvailabilityAll[spaceName])
 		dir := filepath.Join(outputDir, "entities", "template", "switch", identity.Sphere)
 		if err := writeYAMLFile(filepath.Join(dir, entityID+".yaml"), content); err != nil {
 			return err
@@ -1962,7 +2049,10 @@ func generateMediaSwitches(outputDir string, admin *TAdministrationState) error 
 		offItems := sortedCopy(sphereMediaItems[sphere])
 		entityID := toHomeAssistantEntityID("switch." + sphere + "/media")
 		displayName := sphere + "/media"
-		content := buildAggregateMediaSwitchYAML(entityID, displayName, offItems)
+		if !recordSpaceAggregate(admin, entityID, entityNamesToIDs(offItems)) {
+			continue
+		}
+		content := buildAggregateMediaSwitchYAML(entityID, displayName, offItems, false)
 		dir := filepath.Join(outputDir, "entities", "template", "switch", sphere)
 		if err := writeYAMLFile(filepath.Join(dir, entityID+".yaml"), content); err != nil {
 			return err
@@ -1992,10 +2082,8 @@ func buildLeafMediaSwitchYAML(entityID, displayName, playerID, noPlayInput, avai
 	if availabilityEntityID != "" {
 		sb.WriteString("  availability: \"{{ is_state('" + availabilityEntityID + "', 'on') }}\"\n")
 	}
-	sb.WriteString("  turn_on:\n")
-	sb.WriteString("  - entity_id:\n")
-	sb.WriteString("    - input_boolean.infrastructural_dummy\n")
-	sb.WriteString("    action: input_boolean.turn_on\n")
+	// No turn_on: switching media "on" means nothing (its template switch's turn_on is optional;
+	// this replaces the bash-era dummy input_boolean, 2026-10-26).
 	sb.WriteString("  turn_off:\n")
 	sb.WriteString("  - entity_id:\n")
 	sb.WriteString("    - " + playerID + "\n")
@@ -2021,7 +2109,7 @@ func buildLeafMediaSwitchYAML(entityID, displayName, playerID, noPlayInput, avai
 	return sb.String()
 }
 
-func buildAggregateMediaSwitchYAML(entityID, displayName string, offItems []string) string {
+func buildAggregateMediaSwitchYAML(entityID, displayName string, offItems []string, availabilityAll bool) string {
 	var sb strings.Builder
 	sb.WriteString(generatorHeader)
 	sb.WriteString("switch:\n")
@@ -2029,10 +2117,9 @@ func buildAggregateMediaSwitchYAML(entityID, displayName string, offItems []stri
 	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
 	sb.WriteString("  default_entity_id: " + entityID + "\n")
 	sb.WriteString("  icon: mdi:monitor-speaker\n")
-	sb.WriteString("  turn_on:\n")
-	sb.WriteString("  - entity_id:\n")
-	sb.WriteString("    - input_boolean.infrastructural_dummy\n")
-	sb.WriteString("    action: input_boolean.turn_on\n")
+	appendAvailability(&sb, aggregateAvailability(entityNamesToIDs(offItems), availabilityAll))
+	// No turn_on: switching media "on" means nothing (its template switch's turn_on is optional;
+	// this replaces the bash-era dummy input_boolean, 2026-10-26).
 	sb.WriteString("  turn_off:\n")
 	for _, item := range offItems {
 		itemID := toHomeAssistantEntityID(item)
@@ -2192,7 +2279,7 @@ func coverAwayPathSuffix(rec TEntityRecord) string {
 // same new cover, so nothing ever reads these two positions until a user deliberately switches
 // away from "Ignore" -- at which point they'd naturally set/check the positions too.
 func generateCoverAwayEntities(outputDir string, admin *TAdministrationState) error {
-	for _, rec := range allEntityRecordsByDomain(admin, "cover") {
+	for _, rec := range controlledCovers(admin) {
 		sphere := rec.Identity.Sphere
 		pathSuffix := coverAwayPathSuffix(rec)
 
@@ -2217,6 +2304,23 @@ func generateCoverAwayEntities(outputDir string, admin *TAdministrationState) er
 		}
 	}
 	return nil
+}
+
+// controlledCovers is every cover the generated cover control handles: all cover entities except
+// slow-speed shadows (Physical.def's "slow speed ...;", 2026-10-23), which are the same physical
+// cover as the entity they shadow -- the control uses the shadow for that cover instead.
+func controlledCovers(admin *TAdministrationState) []TEntityRecord {
+	shadows := map[string]bool{}
+	for _, slow := range admin.SlowSpeedShadows {
+		shadows[slow] = true
+	}
+	var covers []TEntityRecord
+	for _, rec := range allEntityRecordsByDomain(admin, "cover") {
+		if !shadows[toHomeAssistantEntityID(rec.Name)] {
+			covers = append(covers, rec)
+		}
+	}
+	return covers
 }
 
 func buildInputSelectYAML(key, displayName string, options []string, icon, initial string) string {
@@ -2244,7 +2348,7 @@ func buildInputSelectYAML(key, displayName string, options []string, icon, initi
 // always move to its closed position; Ignore: skip the cover entirely) of the default
 // Follow behaviour, so per-space granularity is no longer needed.
 func generateCoverAwayScripts(outputDir string, admin *TAdministrationState) error {
-	covers := allEntityRecordsByDomain(admin, "cover")
+	covers := controlledCovers(admin)
 
 	coverScriptKeys := map[string]struct{ closeKey, openKey string }{}
 	sphereCovers := map[string][]TEntityRecord{}
@@ -2256,6 +2360,9 @@ func generateCoverAwayScripts(outputDir string, admin *TAdministrationState) err
 		spheres[sphere] = true
 
 		coverID := toHomeAssistantEntityID(rec.Name)
+		if slow, hasSlow := admin.SlowSpeedShadows[coverID]; hasSlow {
+			coverID = slow // the same cover, moving at slow speed
+		}
 		selectID := toHomeAssistantEntityID("input_select." + sphere + "/" + coverAwayPathSuffix(rec) + "/does_when_away")
 		closedPositionID := toHomeAssistantEntityID("input_number." + sphere + "/" + coverAwayPathSuffix(rec) + "/closed_position_when_away")
 		openedPositionID := toHomeAssistantEntityID("input_number." + sphere + "/" + coverAwayPathSuffix(rec) + "/opened_position_when_away")
@@ -2421,7 +2528,7 @@ func generateCoverBinarySensors(outputDir string, admin *TAdministrationState) e
 		acID := toHomeAssistantEntityID("binary_sensor." + sphere + "/covers/auto_control")
 		acDisplay := sphere + "/covers/auto_control"
 		acState := "is_state('" + autoCtrlInputID + "', 'on') and is_state('" + occupationHomeID + "', 'off')"
-		if err := writeYAMLFile(filepath.Join(dir, acID+".yaml"), buildConditionBinarySensorYAML(acID, acDisplay, acState, "", "", "")); err != nil {
+		if err := writeYAMLFile(filepath.Join(dir, acID+".yaml"), buildConditionBinarySensorYAML(acID, acDisplay, acState, "", "", "", "")); err != nil {
 			return err
 		}
 		if err := writeYAMLFile(filepath.Join(customDir, acID+".yaml"), buildCustomizationYAML(acID, acDisplay, "mdi:home-export-outline")); err != nil {
@@ -2452,7 +2559,7 @@ func generateCoverBinarySensors(outputDir string, admin *TAdministrationState) e
 
 		scID := toHomeAssistantEntityID("binary_sensor." + sphere + "/covers/should_be_closed")
 		scDisplay := sphere + "/covers/should_be_closed"
-		if err := writeYAMLFile(filepath.Join(dir, scID+".yaml"), buildConditionBinarySensorYAML(scID, scDisplay, scState, "", "", "")); err != nil {
+		if err := writeYAMLFile(filepath.Join(dir, scID+".yaml"), buildConditionBinarySensorYAML(scID, scDisplay, scState, "", "", "", "")); err != nil {
 			return err
 		}
 		if err := writeYAMLFile(filepath.Join(customDir, scID+".yaml"), buildCustomizationYAML(scID, scDisplay, "mdi:triangle-down")); err != nil {
@@ -2567,6 +2674,9 @@ func generateHeatingSetToSensors(outputDir string, admin *TAdministrationState) 
 
 func generateHeatingLeakageSensors(outputDir string, admin *TAdministrationState) error {
 	for _, spaceName := range heatingCapableSocialSpaceNames(admin) {
+		if len(admin.HeatingLeaksByName[spaceName]) == 0 {
+			continue
+		}
 		contextPath := spaceNameContextPath(spaceName)
 		var evidenceName string
 		if contextPath == "" {
@@ -2589,7 +2699,7 @@ func generateHeatingLeakageSensors(outputDir string, admin *TAdministrationState
 		entityID := toHomeAssistantEntityID(sensorName)
 		displayName := sensorName[len("binary_sensor."):]
 		stateExpr := "is_state('" + evidenceID + "', 'on')"
-		content := buildConditionBinarySensorYAML(entityID, displayName, stateExpr, "", "00:05:00", "")
+		content := buildConditionBinarySensorYAML(entityID, displayName, stateExpr, "", "00:05:00", "", "")
 		dir := filepath.Join(outputDir, "entities", "template", "binary_sensor", sphere)
 		if err := writeYAMLFile(filepath.Join(dir, entityID+".yaml"), content); err != nil {
 			return err
@@ -2669,7 +2779,7 @@ func generateTimeWindowBinarySensors(outputDir string, admin *TAdministrationSta
 			nightID := toHomeAssistantEntityID("binary_sensor." + sphere + "/is_heating_night_time")
 			nightDisplay := sphere + "/is_heating_night_time"
 			nightState := "is_state('" + dayTimeID + "', 'off')"
-			nightContent := buildConditionBinarySensorYAML(nightID, nightDisplay, nightState, "", "", "")
+			nightContent := buildConditionBinarySensorYAML(nightID, nightDisplay, nightState, "", "", "", "")
 			if err := writeYAMLFile(filepath.Join(dir, nightID+".yaml"), nightContent); err != nil {
 				return err
 			}
@@ -2706,6 +2816,9 @@ func generateHeatingShouldBeOffSensors(outputDir string, admin *TAdministrationS
 
 		entityID := toHomeAssistantEntityID(physEntityName)
 		displayName := physEntityName[len("binary_sensor."):]
+		if len(admin.HeatingLeaksByName[spaceName]) == 0 {
+			leakageIdentifiedID = "" // no doors/windows to watch: only "heating off" counts
+		}
 		content := buildHeatingShouldBeOffYAML(entityID, displayName, leakageIdentifiedID, leakageIgnoreID, heatingEnableID)
 		dir := filepath.Join(outputDir, "entities", "template", "binary_sensor", "physical")
 		if err := writeYAMLFile(filepath.Join(dir, entityID+".yaml"), content); err != nil {
@@ -2726,6 +2839,10 @@ func buildHeatingShouldBeOffYAML(entityID, displayName, leakageIdentifiedID, lea
 	sb.WriteString("binary_sensor:\n")
 	sb.WriteString("- name: " + displayName + "\n")
 	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
+	if leakageIdentifiedID == "" {
+		sb.WriteString("  state: \"{{ is_state('" + heatingEnableID + "', 'off') }}\"\n")
+		return sb.String()
+	}
 	sb.WriteString("  state: >-\n")
 	sb.WriteString("    {{\n")
 	sb.WriteString("      (\n")
@@ -3783,6 +3900,11 @@ func appendStateBlock(sb *strings.Builder, items []string) {
 			sb.WriteString("      or\n")
 		}
 		sb.WriteString("        is_state('" + itemID + "', 'on')\n")
+		// A playing Sonos is "playing", never "on" -- the same check as the leaf media switches.
+		if strings.HasPrefix(item, "media_player.") {
+			sb.WriteString("      or\n")
+			sb.WriteString("        is_state('" + itemID + "', 'playing')\n")
+		}
 	}
 	sb.WriteString("      }}\n")
 }
@@ -3814,6 +3936,10 @@ func domainTurnOffAction(entityName string) string {
 	switch domain {
 	case "cover":
 		return "cover.close"
+	case "media_player":
+		// Not every player supports turn_off (Sonos doesn't), and HA aborts the whole turn_off
+		// sequence on an unsupported action; switching a space off means stopping its media anyway.
+		return "media_player.media_stop"
 	default:
 		return domain + ".turn_off"
 	}
@@ -4070,7 +4196,7 @@ func namedTriggerEventEntityID(name string) string {
 
 // generateNamedTriggerEvents writes one trigger-based template event entity per named trigger
 // (PROJECT.md item 49, 2026-10-22): its triggers are every contributing device's own matching
-// events, its conditions the device-level "and if trigger.<attr> is ..." filters
+// events, its conditions the terms' "and if trigger.<attr> ..." filters
 // (namedTriggerSourceCondition), and it raises namedTriggerEventType whenever one passes. Rules
 // then trigger on that one entity (renderRuleTriggerYAML) -- the same expansion and gating that
 // used to be inlined into every rule, now done once in HA, where hand-made automations can use it
@@ -4385,6 +4511,15 @@ func renderRuleConditionYAML(sb *strings.Builder, indent string, cond TRuleCondi
 
 // renderRuleActionYAML writes one action list item at indent, recursing (at indent+"  ") for an
 // "if" action's own ThenActions/ElseActions.
+// boundedBrightnessTemplate is the brightness_pct a "dim"/"brighten" step sets: entityID's current
+// brightness (0 when off) plus step percentage points, never below dimBrightnessFloorPct and never
+// above 100 -- so dimming a light at its lowest level keeps it on, and either one switches an off
+// light on at the floor level. A plain brightness_step_pct can't do this: from 10% a step of -10
+// reaches 0%, which Home Assistant treats as "off" (found 2026-10-23 on Junglinster's dimmers).
+func boundedBrightnessTemplate(entityID, step string) string {
+	return fmt.Sprintf("\"{{ [[((state_attr('%s', 'brightness') or 0) / 2.55) | round | int + (%s), %d] | max, 100] | min }}\"", entityID, step, dimBrightnessFloorPct)
+}
+
 func renderRuleActionYAML(sb *strings.Builder, indent string, action TRuleAction) {
 	if action.Verb == "if" {
 		condEntityID := toHomeAssistantEntityID(action.CondEntitySpec)
@@ -4426,6 +4561,10 @@ func renderRuleActionYAML(sb *strings.Builder, indent string, action TRuleAction
 		if len(action.Data) > 0 {
 			sb.WriteString(indent + "  data:\n")
 			for _, field := range action.Data {
+				if field.Name == brightnessBoundedStepField {
+					sb.WriteString(indent + "    brightness_pct: " + boundedBrightnessTemplate(entityID, field.Value) + "\n")
+					continue
+				}
 				sb.WriteString(indent + "    " + field.Name + ": " + renderRuleValue(field.Value, field.IsJinja) + "\n")
 			}
 		}
@@ -4599,7 +4738,7 @@ func generateHasStateEntities(outputDir string, admin *TAdministrationState) err
 		displayName := identity.Sphere + "/" + identity.Path
 		stateExpr := hasStateExpr(rel.Source, rel.State)
 		deviceClass, _, _, _ := resolveCapabilityDefaults(admin.CapabilityDefaults, "binary_sensor", identity.Path)
-		content := buildConditionBinarySensorYAML(selfID, displayName, stateExpr, deviceClass, rel.DelayOn, rel.DelayOff)
+		content := buildConditionBinarySensorYAML(selfID, displayName, stateExpr, deviceClass, rel.DelayOn, rel.DelayOff, "")
 		dir := filepath.Join(outputDir, "entities", "template", "binary_sensor", identity.Sphere)
 		if err := writeYAMLFile(filepath.Join(dir, selfID+".yaml"), content); err != nil {
 			return err
@@ -4907,7 +5046,7 @@ func generateSwitchControlledHeatingContent(outputDir string, admin *TAdministra
 		}
 		for _, m := range mirrors {
 			entityID := "binary_sensor." + m.key
-			content := buildConditionBinarySensorYAML(entityID, m.displayName, "is_state('"+m.sourceID+"', 'on')", "", "", "")
+			content := buildConditionBinarySensorYAML(entityID, m.displayName, "is_state('"+m.sourceID+"', 'on')", "", "", "", "")
 			dir := filepath.Join(outputDir, "entities", "template", "binary_sensor", "social")
 			if err := writeYAMLFile(filepath.Join(dir, entityID+".yaml"), content); err != nil {
 				return err

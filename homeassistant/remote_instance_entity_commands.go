@@ -89,7 +89,7 @@ func commandDataKey(command commandSpec) string {
 // named data field rather than a bare no-data call.
 func entityCommandAutomationBody(identity TEntityIdentity, command commandSpec, bareTargetEntity, topic string) string {
 	var sb strings.Builder
-	sb.WriteString("- alias: \"command/" + fullyQualifiedEntityNameSlashed(identity) + "/" + command.Name + "\"\n")
+	sb.WriteString("- alias: \"" + entityAliasBase(identity) + "/command/" + command.Name + "\"\n")
 	sb.WriteString("  trigger:\n")
 	sb.WriteString("  - platform: mqtt\n")
 	sb.WriteString("    topic: \"" + topic + "\"\n")

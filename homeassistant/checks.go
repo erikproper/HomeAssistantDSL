@@ -141,11 +141,13 @@ func RunPostParseChecks(administration *TAdministrationState) {
 		checkRelationEntityRef("timer limits (bound)", rel.SpaceName, rel.BoundEntity, declared)
 	}
 
+	checkNodeSpheres(declared)
+
 	for _, rule := range administration.Rules {
 		for _, trigger := range rule.Triggers {
 			if trigger.Kind == "named_trigger" {
 				if len(administration.NamedTriggers[trigger.Name]) == 0 {
-					Reporter.Warn("Space %q: rule (when) references named trigger %q, which no device declares",
+					Reporter.Warn("Space %q: rule (when) references event %q, which nothing raises",
 						rule.SpaceName, trigger.Name)
 				}
 				continue
@@ -161,6 +163,23 @@ func RunPostParseChecks(administration *TAdministrationState) {
 		for _, action := range rule.Actions {
 			checkRuleActionEntityRef(rule.SpaceName, action, declared)
 		}
+	}
+}
+
+// checkNodeSpheres warns about every node outside the "infrastructural" sphere (2026-10-26, Erik):
+// a node is always about the house's own platform, never about the house itself ("social") or a
+// raw building block of the logical layer ("physical").
+func checkNodeSpheres(declared map[string]bool) {
+	var names []string
+	for name := range declared {
+		identity := extractEntityIdentity(name)
+		if identity.Domain == "binary_sensor" && identity.Sphere != "infrastructural" && (identity.Path == "node" || strings.HasSuffix(identity.Path, "/node")) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		Reporter.Warn("node %q is not in the \"infrastructural\" sphere", name)
 	}
 }
 

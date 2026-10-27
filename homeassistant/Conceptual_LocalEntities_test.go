@@ -26,9 +26,9 @@ import (
 // override check at the top of registerDeviceCapabilityEntityLinkAllowingHidden (2026-09-24 --
 // "node" is no longer auto-registered at positioning time for any kind, so this check now runs on
 // every explicit "node" reference instead), which routes to the Logical.def override rather than
-// the local device's own raw "node" capability, and autoMaterializePhysicalCapability's new local
-// branch (reached via "physical appliance.front_door_ring", auto-materializing the local device's
-// own un-overridden "node" capability on demand).
+// the local device's own raw "node" capability, which "physical appliance.front_door_ring" then
+// inlines into the override's condition (its own "core is available"), so no node entity lands in
+// the "physical" sphere (2026-10-26).
 func TestLocalDeviceNodeOverrideEndToEnd(t *testing.T) {
 	localDevicesByID := map[string]TLocalDevice{
 		"appliance.front_door_ring": {
@@ -95,22 +95,11 @@ end;`
 	if !nodeRec.HasDefinitionOrImport {
 		t.Errorf("node record HasDefinitionOrImport = false, want true (it's a generator-authored condition entity)")
 	}
-	if !strings.Contains(nodeRec.ConditionExpr, "physical_appliance_front_door_ring_node") {
-		t.Errorf("node ConditionExpr = %q, want it to reference the auto-materialized synthetic physical node entity", nodeRec.ConditionExpr)
+	if want := "(states('" + cameraEntityID + "') != 'unavailable')"; nodeRec.ConditionExpr != want {
+		t.Errorf("node ConditionExpr = %q, want the local device's own node inlined: %q", nodeRec.ConditionExpr, want)
 	}
-
-	// The local device's own raw "node" (auto-materialized on demand via the override's "physical
-	// appliance.front_door_ring" reference) must itself be a generator-authored condition entity --
-	// see Conceptual_LogicalEntities.go's own "local" branch in autoMaterializePhysicalCapability.
-	physicalNodeRec, ok := findEntityRecordByName(admin, "binary_sensor.physical/appliance.front_door_ring/node")
-	if !ok {
-		t.Fatalf("no entity record for the auto-materialized synthetic physical node")
-	}
-	if !physicalNodeRec.HasDefinitionOrImport {
-		t.Errorf("synthetic physical node HasDefinitionOrImport = false, want true")
-	}
-	if len(physicalNodeRec.ConditionSources) != 1 || physicalNodeRec.ConditionSources[0] != cameraEntityID {
-		t.Errorf("synthetic physical node ConditionSources = %v, want [%q] (checking the camera's own availability)", physicalNodeRec.ConditionSources, cameraEntityID)
+	if _, ok := findEntityRecordByName(admin, "binary_sensor.physical/appliance.front_door_ring/node"); ok {
+		t.Errorf("found an entity record for a physical-sphere node, want the local device's own node inlined instead")
 	}
 }
 

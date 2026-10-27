@@ -62,7 +62,7 @@ func metaRestartRequestTopic(name string) string { return "meta/restart/" + name
 // every "<domain>.reload" service.
 func metaReloadAutomationBody(name string) string {
 	var sb strings.Builder
-	sb.WriteString("- alias: \"Coordinator meta: reload\"\n")
+	sb.WriteString("- alias: \"infrastructural/coordinator/meta/reload\"\n")
 	sb.WriteString("  id: automation.coordinator_meta_reload_" + name + "\n")
 	sb.WriteString("  mode: single\n")
 	sb.WriteString("  trigger:\n")
@@ -77,7 +77,7 @@ func metaReloadAutomationBody(name string) string {
 // triggered by an MQTT command on metaRestartRequestTopic(name).
 func metaRestartAutomationBody(name string) string {
 	var sb strings.Builder
-	sb.WriteString("- alias: \"Coordinator meta: restart\"\n")
+	sb.WriteString("- alias: \"infrastructural/coordinator/meta/restart\"\n")
 	sb.WriteString("  id: automation.coordinator_meta_restart_" + name + "\n")
 	sb.WriteString("  mode: single\n")
 	sb.WriteString("  trigger:\n")

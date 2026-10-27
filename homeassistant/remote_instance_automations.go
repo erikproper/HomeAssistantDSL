@@ -61,7 +61,7 @@ const entitiesDetailedPayloadTemplate = `{% set ns = namespace(items = []) %}{% 
 // exactly when its entity set is most likely to have changed.
 func bootstrapAutomationBody(name string) string {
 	var sb strings.Builder
-	sb.WriteString("- alias: \"Coordinator bridge: report entities detailed\"\n")
+	sb.WriteString("- alias: \"infrastructural/coordinator/bridge/report_entities_detailed\"\n")
 	sb.WriteString("  id: automation.coordinator_bootstrap_report_detailed_" + name + "\n")
 	sb.WriteString("  trigger:\n")
 	sb.WriteString("  - platform: mqtt\n")
@@ -78,7 +78,7 @@ func bootstrapAutomationBody(name string) string {
 	sb.WriteString("      topic: \"homeassistant_instances/" + name + "/entities_detailed\"\n")
 	sb.WriteString("      retain: true\n")
 	sb.WriteString("      payload: \"" + entitiesDetailedPayloadTemplate + "\"\n")
-	sb.WriteString("- alias: \"Coordinator bridge: reload\"\n")
+	sb.WriteString("- alias: \"infrastructural/coordinator/bridge/reload\"\n")
 	sb.WriteString("  id: automation.coordinator_bootstrap_reload_" + name + "\n")
 	sb.WriteString("  trigger:\n")
 	sb.WriteString("  - platform: mqtt\n")
@@ -134,7 +134,7 @@ func deviceInfoFieldExpr(report THassBridgeDeviceInfoReport, name string) string
 // pre-sorted by the caller for deterministic output.
 func hassBridgeReportingAutomationBody(name string, deviceInfoReports []THassBridgeDeviceInfoReport) string {
 	var sb strings.Builder
-	sb.WriteString("- alias: \"Coordinator bridge: report device info\"\n")
+	sb.WriteString("- alias: \"infrastructural/coordinator/bridge/report_device_info\"\n")
 	sb.WriteString("  id: automation.coordinator_bridge_report_" + name + "\n")
 	sb.WriteString("  trigger:\n")
 	sb.WriteString("  - platform: state\n")

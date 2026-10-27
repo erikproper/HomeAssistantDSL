@@ -40,6 +40,8 @@ type TCommandlineCapability struct {
 	OnScript     string
 	OffScript    string
 	PressScript  string
+	// AssignedID is the frozen "as <id>" -- the unique_id the coordinator publishes it under.
+	AssignedID string
 }
 
 // TCommandlineDevice is one "device <id> <host> with: <kind>.<name>: <quoted-scripts>; ...;

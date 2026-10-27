@@ -67,6 +67,14 @@ func validateNoOverlappingCapabilitySuffixes(discoveryGatewaysByID map[string]TD
 	}
 	for id, device := range hassBridgeDevicesByID {
 		for name := range device.Capabilities {
+			// A slow-speed shadow ("slow/cover" next to "cover", 2026-10-23) is never positioned by
+			// a line of its own -- always implied from the capability it shadows -- so the
+			// shorthand's suffix matching never has to tell the two apart.
+			if shadowed, isShadow := strings.CutPrefix(name, "slow/"); isShadow {
+				if _, hasShadowed := device.Capabilities[shadowed]; hasShadowed {
+					continue
+				}
+			}
 			capsByDevice[id] = append(capsByDevice[id], name)
 		}
 	}

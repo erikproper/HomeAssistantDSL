@@ -124,6 +124,32 @@ end;
 
 The older `<directive>: <item> <item> ...;` form (several items on one line) is still accepted.
 
+A space switch turns its items off per domain: `cover.close` for covers, `media_player.media_stop`
+for media players (a Sonos has no `turn_off`, and HA aborts the whole sequence on an unsupported
+action), `<domain>.turn_off` otherwise. A media player counts as on while `on` or `playing`.
+
+A space aggregate (door/motion/water/window and climate groups, space lights, space and media
+switches) isn't generated when an entity is positioned at its own name: a space's only sensor
+named like the aggregate (`entity sensor.social:humidity;`) stands for the space itself, under the
+same entity_id. When other members would be aggregated too (`binary_sensor.social:door` next to
+`binary_sensor.social:left/door`), generation warns: give the positioned entity a qualifier of its
+own (`right/door`).
+
+Generated template entities carry an `availability:`: a derived value (template sensor, or a
+binary_sensor derived from values) only while all its sources have a value; a template aggregate
+(space light, space or media switch) while any member is available. `availability all;` in a
+space makes that space's own aggregates need every member. Entities that test availability
+themselves (nodes, battery alerts, "is available" conditions) get none.
+
+A device block header is `device <id> with:`, or `device <id> as leaf <leaf> with:` to name the
+entities written with `::` after that leaf (`entity event.physical:: from event.pressed;`). An area
+is declared on a space, never on a device (`space social:xc40 as area with:`); any other device
+header is reported as unrecognised.
+
+Inside a device block, `from DD` with DD the entity's own domain means the device's capability
+`DD.DD`: `entity cover.social:front from cover;` positions `cover.cover` as `cover.social:front`,
+the name rules use too. Any other capability is written with its domain (`from switch.switch_1`).
+
 ### Entities
 
 ```
@@ -237,6 +263,24 @@ straight from the UI, no coordinator-side relay needed.
 entity switch.social:picture_frame from host.frame entity slideshow;
 ```
 
+### Covers with a slow speed
+
+A cover that can also run at slow speed (the Somfy covers in Junglinster) declares the slow
+version as a shadow of the cover, inside the cover capability's own block:
+
+```
+capability cover.cover cover.living_room_front as hassbridge_cover_social_house_living_room_front with:
+  derived value cover.living_room_front!current_position;
+  slow speed cover.living_room_front_low_speed as hassbridge_cover_social_house_living_room_front_slow;
+end;
+```
+
+`slow speed` on capability `cover.XX` creates the shadow capability `cover.slow/XX`, which takes
+over the cover's `derived value` for its own source. It is never positioned by a line of its own:
+`entity cover.social:XX;` in Conceptual.def implies `cover.social:slow/XX` (so `cover.social:cover`
+brings `cover.social:slow`). The generated cover control (the "when away" helpers and scripts)
+handles each cover once and moves its slow shadow.
+
 ### Devices (cross-house import)
 
 `Physical.def`'s `integration import with: ... end;` block pulls in a device another installation
@@ -336,33 +380,50 @@ if binary_sensor.social:/is_vacuuming_day_time is on and
 **`then`** — one action, or `then: <action>; <action>; ...; end;` for several. Action verbs:
 `turn <entity-ref> on|off [with <field> <value>[, <field> <value>]*];`, `toggle <entity-ref> [with
 ...];`, `press <entity-ref>;`, `open|close|stop <entity-ref>;`, `set <entity-ref> to <value>|jinja
-"<expr>";`, `start|pause|return_to_base <entity-ref>;` (vacuum), `delay <duration>;`, and branching:
+"<expr>";`, `start|pause|return_to_base <entity-ref>;` (vacuum), `dim|brighten <light-ref> with <N>%;`
+(a step of N percentage points from the light's current brightness, never below 5% and never above
+100% -- so dimming never switches a light off, and either switches an off light on at 5%),
+`delay <duration>;`, and branching:
 
 ```
-then if cover.social:house/sarah_bedroom is closing:
-  stop cover.social:house/sarah_bedroom;
+then if cover.social:house/office is closing:
+  stop cover.social:house/office;
 else:
-  set cover.social:house/sarah_bedroom to jinja "100 - (states('number.social_house_sarah_bedroom_my_position') | int)";
+  set cover.social:house/office to 20;
 end;
 ```
 
-**Named triggers** keep a device's raw event codes out of the rules. A device block declares when
-an event is raised for that device; every device declaring the same event contributes to it, which
-is why it reads "aggregated":
+**Requests** keep a device's raw event codes out of the rules. A request raised by several buttons
+is a logical device in Logical.def with one derived `event` capability -- its condition lists every
+button event that raises it:
 
 ```
-device buttons.hallway_door_moes at door with:
-  aggregated event.social:main/light/toggle is raised when
-    event.pressed is 'single' and if trigger.button is '2';
+device request.shower_room_light_toggle with:
+  derived capability event.toggle as event.social_apartment_shower_room_light_main_toggle with
+    condition
+      event.pressed from buttons.shower_room_door_moes_1 is 'single' and if
+      trigger.button from buttons.shower_room_door_moes_1 is '1'
+    or
+      event.pressed from buttons.shower_room_mirror_moes is 'single' and if
+      trigger.button from buttons.shower_room_mirror_moes is '1';
 end;
 ```
 
-(or the block form `aggregated event.<name> is raised when: <expr>; ... end;`). A rule then uses
-`when event.social:main/light/toggle is raised`. The older forms (`aggregated trigger.<name> with
-trigger <expr>;`, `trigger <name> when <expr>;`, `when trigger.<name> is triggered`) are still
-accepted. Each such event is a real HA `event` entity (here `event.social_main_light_toggle`, a
-trigger-based template entity that raises `raised` whenever one of its devices matches), so
-hand-made HA automations can use it too.
+Conceptual.def positions it like any other device:
+
+```
+device request.shower_room_light_toggle with:
+  entity event.social:light/main/toggle;
+end;
+```
+
+The buttons' raw events stay out of Conceptual.def: the generator creates them as hidden
+`physical` entities (e.g. `event.physical_buttons_shower_room_mirror_moes_pressed`), as it does for
+stacked lights.
+
+A rule then uses `when event.social:light/main/toggle is raised`. The request is a real HA `event`
+entity (`event.social_apartment_shower_room_light_main_toggle`), so hand-made HA automations can use
+it too.
 
 A leading `/` on an entity-ref's path (e.g. `event.physical:/garage/door/tap`) resolves from the
 sphere root regardless of the rule's own position — needed whenever a trigger/condition/action
@@ -489,6 +550,18 @@ After YAML generation three checks run automatically:
 All three checks are advisory: warnings are printed but generation still completes.
 
 ## Operational notes
+
+**Moving a Zigbee network to a different adapter type (Z-Stack -> EmberZNet, Junglinster
+2026-10-23).** Z2M's EmberZNet driver refuses a Z-Stack `coordinator_backup.json` ("not for
+EmberZNet stack"); with no usable backup it forms a NEW network from the config (same key and PAN,
+but frame counter 0, so devices may ignore it) and resets its device database. What worked:
+(1) write the old coordinator's IEEE onto the new stick (`universal-silabs-flasher --device <dev>
+write-ieee --ieee <ieee>`, one-time on EmberZNet), with Z2M stopped; (2) load the network onto the
+stick with zigpy-cli (`zigpy radio --baudrate 460800 ezsp <dev> restore -c 50000 <backup>`, which
+also raises the frame counter), with the backup's `extended_pan_id` byte-reversed first -- Z2M
+writes it big-endian, zigpy reads it the other way round; (3) set the Z-Stack backup aside, put the
+old `configuration.yaml`/`database.db`/`state.json` in place with the new `serial` settings, start
+Z2M: "Adapter network matches config", "started (resumed)". No device needed re-pairing.
 
 **The coordinator's discovery cleanup must never compute an "expected payload" baseline that
 doesn't reflect live-reported device metadata.** `discoverycleanup.go`'s job is to retract any

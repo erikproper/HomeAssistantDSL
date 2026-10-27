@@ -1123,7 +1123,7 @@ func (t *TEntityExistenceTracker) subscribeExistenceReply(mainClient, cloudClien
 		}
 	}
 	topic := existenceReplyTopic(instance)
-	token := mainClient.Subscribe(topic, 0, handler)
+	token := subscribe(mainClient, topic, 0, handler)
 	if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
 		if err := token.Error(); err != nil {
 			return fmt.Errorf("subscribing to %s: %w", topic, err)

@@ -85,13 +85,13 @@ wasn't always true).
 
 - **Social** — directly relevant to inhabitants: `social/house/living_room/co2`, `social/house/bedroom/temperature`. Stable even when the underlying technology changes; this is the conceptual layer's surface.
 - **Infrastructural** — entities reporting on the state of the automation platform's own IoT infrastructure, not the house itself: `infrastructural/pi4/status`, `infrastructural/mqtt/status`, node/device availability, battery levels, radio/signal strength. These enable infrastructure self-healing (e.g. detect a crashed Pi → power-cycle its smart plug → wait → verify recovery) independently of house semantics.
-- **Meta** (added 2026-09-06) — entities that operate the DSL/generator/coordinator system itself, as opposed to sensing or maintaining the house's own IoT infrastructure: the "Discover entity" bootstrap control (§6.9), the reload/restart meta-commands (PROJECT.md item 2 in its pre-2026-09-06 numbering), a future config-problem/updates-available status (PROJECT.md's own "Installation-level status binary_sensors" item). The social/infrastructural split is about *what the entity is about* (the house vs. its own platform); meta is about a third, reflective case — entities *about the architecture's own operation*, not about anything physical at all. Not yet DSL/Spaces.def-driven in practice: today's meta entities (`text.meta_discover_entity`, `button.meta_reload_*`/`meta_restart_*`) are coordinator-authored with hand-picked stable IDs, not positioned through Spaces.def like a social/infrastructural entity would be — making them genuine Spaces.def citizens under this sphere is future work, not done as part of naming the sphere.
+- **Meta** (2026-09-06 to 2026-10-26, now part of infrastructural) — entities that operate the DSL/generator/coordinator system itself: the "Discover entity" bootstrap control (§6.9) and the reload/restart buttons. Asking whether "meta" is not simply "infrastructural" answered it (PROJECT.md item 18): they are `text.infrastructural_discover_entity` and `button.infrastructural_<reload|restart>_<instance|installation|all>` now, named `infrastructural/...`. Their unique_ids keep the `meta_` root (`meta_discover_entity`, `meta_reload_main`, ...), so they stayed the same entities, and the generator's registry table moves them; their MQTT command topics (`meta/discover_entity/set`, `meta/<action>/<target>/request`) are internal plumbing and kept their names.
 
 **Legacy note**: both real houses' current Spaces.def files also use `physical:` as a sphere
 (206 occurrences combined, confirmed live 2026-09-06) — a naming choice from before the
 conceptual/logical/physical layer split above was established, when "physical" hadn't yet been
 claimed as a layer name and so its reuse as a sphere name wasn't yet a collision. Not part of the
-three-sphere standard above, and deliberately not migrated: retiring it would mean renaming ~200
+sphere standard above, and deliberately not migrated: retiring it would mean renaming ~200
 real, already-deployed HA entity_ids across both houses (dashboards, history, automations), a
 separate migration in its own right, not a side effect of this naming correction. Its own
 description at the time was "implementation detail... not normally exposed as a user-facing
@@ -350,6 +350,25 @@ with: condition ...; end;` capability shape already uses (e.g. Vienna's `apple_t
 The two mechanisms don't share one code path — they're deliberately separate, matching which side
 of the MQTT boundary the entity in question lives on.
 
+**Generated template entities get their availability from their sources (2026-10-25, PROJECT.md
+item 17b, `template_availability.go`).** HA's own groups already turn unavailable with their
+members; a template entity would otherwise keep showing a value (a derived sensor's `| float(0)`
+turning a missing meter into `0`). The rules, per kind:
+
+- a derived value (template sensor, or a binary_sensor whose condition reads values, e.g. `brews`
+  from power > 200): available only while **all** sources have a value -- `has_value(...)` for
+  every entity_id the rendered state expression reads (`templateSourceIDs`);
+- a template aggregate (space light, space switch, space media switch): available while **any**
+  member is, like a group; `availability all;` in a space (`SpaceAvailabilityAll`) makes that
+  space's own aggregates need every member -- not its child spaces, and never the sphere-wide
+  aggregates;
+- no `availability:` for an entity that tests availability itself -- a node, a battery alert, an
+  "is available" condition (an expression containing `'unavailable'`, `'unknown'` or
+  `has_value(`): it has to say `off` exactly when a source is gone, not become unavailable too;
+- none for the request events (they only fire) and, deliberately, none yet for the generator's
+  internal heating/cover logic (`should_be_off`, `leakage_identified`, ...), whose automations
+  would behave differently with an unavailable input.
+
 **`dependency on <id>;` is actually two separate compilation paths, not one (2026-10-04, revised
 2026-10-11).** `integration_logical_storage.go`:
 
@@ -365,6 +384,34 @@ of the MQTT boundary the entity in question lives on.
   existing positioning, or auto-materializing a synthetic "physical/&lt;id&gt;/node" entity if none
   exists yet) and those are folded as literal, already-resolved `is_state(...)` strings directly
   into the capability's own ConditionExpr.
+
+**No node in the "physical" sphere** (2026-10-26, Erik): a node is always infrastructural. When a
+logical node's own condition refers to a node that has no positioning of its own, the generator
+never materializes it as "physical/&lt;id&gt;/node" (`resolveNodeInput`,
+`Conceptual_LogicalEntities.go`). A device's own "&lt;capability&gt; is available" node is inlined
+into the condition; any other node becomes an entity next to the node it feeds,
+"infrastructural/&lt;node path&gt;/&lt;qualifier&gt;/node": the host's integration (`ping`, `cpu`,
+plus the host's own id leaf when the condition pings several, e.g. `sonos/ping/sonos_left/node`),
+else `controller` (the device's own link to its controller, e.g. Vienna's ha2mqtt-bridged washing
+machine). Generate warns about any node outside the infrastructural sphere (`checkNodeSpheres`).
+
+**"enabled by"** (PROJECT.md 17k, 2026-10-26, Erik): a Logical.def device statement
+`enabled by <domain>.<label> from <device> [as <id>] [with delay_off <time>];` says the device is
+powered by that device's switch (`logical_enabled_by.go`). It absorbs the switch as the device's
+`enabler` and implies its node: (its own Physical.def node, if any) and (the node of every device
+it is built from -- absorbed, colocated or `dependency on`) or (the enabler is off); the `as` and
+`with delay_off` belong to that node, and the generator writes the `as` back like any other frozen
+unique_id. A device that declares its own node keeps it, with "or the enabler is off" added --
+never a rebuilt base (the lesson of the earlier sugar removed in item 11a).
+
+**Enabler nodes** (2026-10-26, Erik): a device enabled by another device's switch ("is switched
+by ... from &lt;device&gt;", or `enabled by`) also gets "&lt;its node path&gt;/
+enabler/node", a template following the enabling device's own node, which stays where it is
+positioned (e.g. a relay in the fuse cabinet). Its unique_id is the device node's frozen one plus
+"_enabler", so it needs no line of its own in Logical.def (`logical_enabler_nodes.go`). A
+switched device's own node also counts as up while what switches it is off (a light behind a relay
+is unreachable exactly then) -- added by the generator, the same rule a logical device with an
+absorbed enabler spells out itself as `or jinja "$[switch.enabler] == 'off'"`.
 
 Two `dependency on` lines on one device: the device-level path is repeatable and fully transitive —
 if A depends on B and C, and B itself depends on D, A's own resolved chain is B+C+D, deduped, with a
@@ -419,17 +466,96 @@ PROJECT.md item 11b, 2026-10-11 -- see this file's own note on that item, just b
 "dependency on" writeup, for why.)
 
 (A derived capability holding nothing but its `condition`/`value` may also be written as a
-one-liner, `derived capability binary_sensor.node with condition <expr>;` — 2026-10-21, the same
-shape Physical.def's own derived one-liner has.)
+one-liner, `derived capability binary_sensor.node as <id> with condition <expr>;` — 2026-10-21, the
+same shape Physical.def's own derived one-liner has. The `condition`/`value` may also start on the
+next line.)
+
+**Derived events (PROJECT.md item 49, 2026-10-22).** A request raised by several buttons is a
+logical device of its own, with one derived `event` capability:
+
+```
+device request.shower_room_light_toggle with:
+  derived capability event.toggle as event.social_apartment_shower_room_light_main_toggle with
+    condition
+      event.pressed from buttons.shower_room_door_moes_1 is 'single' and if
+      trigger.button from buttons.shower_room_door_moes_1 is '1'
+    or
+      event.pressed from buttons.shower_room_mirror_moes is 'single' and if
+      trigger.button from buttons.shower_room_mirror_moes is '1';
+end;
+```
+
+Its condition is an `or` of terms, each an `event.<label> from <device> is <value(s)>` match,
+optionally `and if trigger.<attribute> from <device> is <value(s)>` (filtering on the firing event's
+own attribute). Conceptual.def positions it (`device request.… with: entity event.social:light/main/
+toggle; end;`); the buttons' raw events never appear there -- like the stacked lights' plumbing,
+each source is auto-materialized as a `physical` entity (`event.physical_<device-id>_<label>`,
+under its frozen Physical.def ID), on the final resolution pass so an explicit positioning, if any,
+is found first. The generator writes one trigger-based
+template `event` entity (generateNamedTriggerEvents) raising `raised`; rules use `when
+event.social:light/main/toggle is raised`. Such an event-only device has no state, so it needs no
+`node` (Rule 1 and item 8's checks skip it). The condition grammar's `is '<value>'` / `is in [...]`
+works in binary_sensor conditions too (`is_state(...)`).
 
 **Frozen universal IDs (PROJECT.md item 48, 2026-10-21).** Every derived capability, in Physical.def
-or Logical.def, carries its universal ID: `derived capability … as <id>;` (one-liner) or `derived
-capability … as <id> with:` (block). It is the `unique_id` of the template entity generated from
+or Logical.def, carries its universal ID right after its name, before its `with`/`from` part
+(2026-10-22): `derived capability <domain>.<label> as <id> with …;` / `… as <id> from …;` (one-liner)
+or `derived capability … as <id> with:` (block). A bridged capability carries it after its source:
+`capability <domain>.<label> <source> as <id> [with …];`. A commandline capability carries it
+after its name, before its scripts (`capability switch.picture_frame as <id> "<status>" …;`,
+2026-10-22); the coordinator publishes it as the capability's unique_id (`stable_id` in
+commandline.yaml), so the capability can be renamed. Its MQTT topics still follow the label. It is the `unique_id` of the template entity generated from
 it. The generator writes it itself the first time it sees the capability: its entity_id at that
 moment, which is exactly the unique_id it had before IDs were frozen, so freezing changed nothing
 in Home Assistant. It is never recomputed, so renaming the entity or the capability keeps the same
 Home Assistant registry entry (and its history). A capability feeding more than one entity (e.g.
 positioned directly and also absorbed by a logical device) gets no ID; generate reports it.
+
+**Home Assistant's entity identities, and the registry repair at deploy (2026-10-26, Erik).**
+Home Assistant keeps four separate identities per entity, and only one of them follows our defs by
+itself:
+
+| Identity | What it is | Set by | Changes later? |
+|---|---|---|---|
+| unique_id | the entity's permanent identity, the registry's key (per platform and domain) | the integration: our frozen `as <id>` | never |
+| entity_id | the handle automations, templates and our generated YAML refer to | Home Assistant, once, when the unique_id first appears (from the suggested `default_entity_id`/name) | only by a registry rename |
+| name | the entity name the UI shows (registry name / original_name) | the integration (discovery/YAML `name`, PROJECT.md 17h), or the user | when the integration sends another one |
+| friendly_name | a state attribute | Home Assistant, or our customization | with the customization |
+
+Once a unique_id is in the registry, Home Assistant keeps its entity_id: a template or discovery
+config suggesting another one is ignored. That is deliberate on Home Assistant's side (a user's
+rename in the UI must survive the integration), but for a setup whose source is the defs it means
+a moved or renamed entity keeps its old entity_id, while the generator already refers to the new
+one. Reusing the unique_id elsewhere doesn't help (the registry keys on it per platform; a new
+platform is a new entity), and deleting the entry loses its history.
+
+So the deploy repairs the registry, driven only by the generator's own table: every instance's
+`registry_manifest.json` lists, per generator-owned entity, its unique_id and the entity_id it
+should have. `tools/ha_registry_sync.py` (`deploy.d/01_deploy.hass.*`, before Home Assistant
+reloads the new YAML) compares that with the registry and renames each entry whose entity_id isn't
+current -- the same registry entry, so its history and settings stay. It only touches entries it
+can prove are the generator's own (a YAML-platform entry whose unique_id is in the current or the
+previous manifest, or an MQTT entry whose unique_id is a frozen stable_id), and skips and reports a
+rename whose target entity_id is held by anything else. A unique_id that disappears from the
+table goes from Home Assistant too (Erik, 2026-10-26): the repair removes the generator-owned
+entries the generator no longer produces (e.g. replaced wrapper switches). Entities a native
+integration provides (Ring, Sonos, Apple TV, ...: Physical.def "integration local" capabilities
+the generator only refers to) are in the table too, as "native": their unique_id is the
+integration's, unknown to the generator, so each is keyed by its source in the defs
+("<device-id>!<capability>"); when the entity_id expected for a source changes from the previous
+deploy, the entry still holding the previous one is renamed (PROJECT.md 17j). A native entity is
+never removed -- it belongs to its integration. Nothing else edits the registry: no ad-hoc
+or hand-made changes; any other registry change is an explicit, one-off migration.
+
+**This is a real dependency on Home Assistant's internals.** The repair uses Home Assistant's
+websocket API (`config/entity_registry/list`, `…/update` with `new_entity_id`, `…/remove`) -- the
+interface its own UI uses, so more stable than the `.storage/core.entity_registry` file, which
+the repair never reads or writes. But should Home Assistant change how the registry keys entities,
+when it fixes an entity_id, or that API itself, renames in the defs stop reaching Home Assistant
+(entities then keep their old entity_id, and the generated YAML refers to ids that don't exist).
+Not liked, but accepted: there is no other way to move an existing entity's entity_id. PROJECT.md
+item 19 is where this could be avoided altogether -- by freezing entity_ids at birth and letting
+only the name follow the position.
 
 **Every capability-declaring line, in every Physical.def/Logical.def integration kind, now
 carries an explicit `capability` keyword (PROJECT.md item 11b, 2026-10-11).** Before this, a
@@ -583,6 +709,8 @@ own choice and is never in question.
 
 This reframes what each integration kind's check actually needs, and corrects an earlier version of
 this section that wrongly concluded kind-2 needs no existence-tracking machinery at all (see below).
+(The numbering below is this section's own; §6.16 has the five integration kinds as they stand
+since item 19, with a mapping.)
 
 - **Kind 1 (hosts)**: no separate tracking needed — a *direct* link. The coordinator's own scripts
   publish these entities' state themselves, so there is no "does the source exist" question
@@ -1031,6 +1159,14 @@ all. Found live by checking a bootstrapped capability's own `discovery.yaml` out
 one place, `grep -rn "<TypeName>{" --include="*.go" .` for every construction site rather than
 trusting the ones found by reading the obviously-named registration functions.**
 
+**A switch takes its role from its use (2026-10-25).** A relay channel is declared as what the
+device does, `capability switch.switch_2 ...`, whatever it switches. Positioned, its conceptual
+entity decides the domain (`entity light.social:main from switch.switch_1;` is relayed as a
+light). Unpositioned, the role comes from the use: in `light.core is switched by switch.switch_2
+from <device>;` the hidden entity `autoMaterializePhysicalCapability` creates is a light already
+(`coercedDomain`, roles light and fan), so it can be grouped with the light it powers; its name
+and capability defaults are those of the role, and `switch_2` still shortens to `2`.
+
 **Fresh ids, for a capability with no registry history to preserve**, are minted automatically as
 part of ordinary generation (`autoAssignDiscoveryStableIDs`,
 `physical_auto_assign_stable_ids.go`) — the one deliberate exception to this codebase's otherwise
@@ -1139,6 +1275,78 @@ separate detection loop had the identical hardcoding, plus a second bug one leve
 `switch.physical_<context>_heating` regardless of the switch's real sphere — fixed by resolving the
 real entity_id from the same scan (`heatingSwitchEntityIDs`) instead of guessing it from a fixed
 sphere prefix.
+
+### 6.16 The five integration kinds, and the end state of item 19 (2026-10-27, Erik)
+
+The main Home Assistant instance gets the states of almost every integration from the MQTT bus,
+and sends commands back over it. Since item 19 it no longer takes those entities from MQTT
+discovery but from the generator's own YAML `mqtt:` config: which entities exist, and what they
+are called, follows the defs alone. What differs per integration is how much of the MQTT side is
+ours. That gives five kinds, by name rather than number (§6.10's older "kind 1..5" numbering
+predates this and is a different cut -- see the mapping at the end):
+
+| Kind | Integrations | Entities known from | MQTT topics and retain | Coordinator's role |
+|---|---|---|---|---|
+| **controlled** | `hosts`, `commandline`; later `fhem2mqtt` | the defs alone | ours: we choose the topics and set retain | relays/aggregates; nothing to discover |
+| **bridged** | `home_assistant ha2mqtt`, `home_assistant main` | the defs, checked against the hosting HA instance | ours: the generator's reporting automations publish them | checks that exported entities exist there, and suggests unused ones |
+| **local** | `local` (media_player, camera, weather, ...: §6.7) | the defs, checked by positioning | none: no MQTT at all | none; names held by the universal ID and the registry repair |
+| **raw** | future: devices with MQTT but no discovery (e.g. Shelly) | hand-written definitions in Physical.def | theirs: we don't control retain | cross-posts state retained (below) |
+| **discovered** | `discovery`: Zigbee2MQTT, Z-Wave JS UI (zwave2mqtt), EMS-ESP | the gateway's own discovery, collected by the coordinator | theirs: we don't control retain | collects configs, checks assumed entities, writes `suggestions/discovery.txt`; cross-posts state retained |
+
+**Not kinds of their own.** Templates the generator writes itself (derived capabilities, logical
+devices, conceptual aggregates, nodes) are local Home Assistant template entities, built from
+entities of the five kinds. `import` (another house's entities over the cloud broker, PROJECT.md
+19h) is transport rather than a kind: the entity keeps the kind it has in its own house, and the
+transport is the coordinators', so ours -- topics and retain included.
+
+**`home_assistant main` is the odd one out**: the main instance speaks MQTT to itself (a reporting
+automation publishes an entity's state, and the same instance reads it back as an MQTT entity).
+Where an entity is only used by this instance, making it `local` instead removes that round trip
+and the duplicate entity. What it loses is the entity's place on the bus: anything that reads the
+bus (the other house via `export`, other consumers, §7) then no longer sees it. So the choice is
+per entity: on the bus because something else needs it, otherwise local. To be checked per house.
+
+**Retain, for raw and discovered.** After a Home Assistant restart, a reload, or the switch of an
+entity to YAML, Home Assistant only has a value for a state topic the broker retained. Controlled
+and bridged integrations retain because we tell them to; Zigbee2MQTT, Z-Wave JS UI and EMS-ESP
+each have their own option for it, and we don't want integration-specific code (or config) to set
+it. Mosquitto has no "force retain" (a broker with a rule engine, e.g. EMQX, could republish with
+retain, but that would tie us to that broker). So the coordinator steps in: for every state topic
+of a raw or discovered entity, it cross-posts the latest message, unchanged, retained, onto a topic
+of its own, and the entity's YAML `state_topic` points there. Commands keep going straight to the
+integration's own command topic. Seen live: PROJECT.md 20 (was 31c), and Vienna's 19d batch 1 (34 of 51
+entities "unknown" until their device's next report).
+- Only *state* is cross-posted. Events are never retained: an `event` entity, a button or a
+  remote's `action` would fire again on every reload. Where one topic carries both (Zigbee2MQTT
+  puts `action` into the device's state JSON), the event entity keeps reading the original topic,
+  and only the state entities read the retained copy -- a choice per entity, which the generator
+  can make since it writes each entity's YAML.
+- The coordinator then sits on the data path for these states. If it stops, the copies stop
+  changing while the devices go on: values freeze instead of going unavailable. So every
+  cross-posted entity's availability also includes the coordinator's own (its Last Will).
+- A retained value of a device that is really gone stays visible only as long as availability
+  doesn't say otherwise; for discovered gateways their availability topics cover this, for raw
+  devices each definition needs its own availability (Erik: "we also need to detect if they are
+  really down").
+
+**Home Assistant's MQTT schema is a code dependency, isolated in one place.** Item 19 depends on
+how Home Assistant structures MQTT entities in two ways: reading the discovery a gateway publishes
+(abbreviations, `~`, device/origin blocks), and writing YAML entities (which fields each domain and
+light schema accepts). A real change of either needs a code change, so this knowledge belongs in
+one module, shared by generator and coordinator, not spread over both (today:
+`homeassistant/mqtt_yaml_entities.go` with `ha_mqtt_fields.json`, the coordinator's
+`deviceInfoFieldKeys` and `buildRelayedDiscoveryConfig`). The field table is part of the code,
+with the Home Assistant version it was checked against. `tools/ha_mqtt_fields.py` (reading it out
+of Home Assistant's own code) is a migration aid: empirical data next to the documentation and the
+sources, not a step any build or deploy depends on. Structurally, what keeps the table honest is
+the data itself: generate reports, per discovered entity, every field of its discovery config the
+YAML leaves out that isn't a known discovery-only one (`origin`, `object_id`, ...) -- a new field
+from a gateway or a schema change shows up there, and then the table and the code change together.
+
+**Mapping from §6.10's older numbering**: its kind 1 (hosts) is *controlled*; kind 2 (discovery)
+is *discovered*; kind 3 (`home_assistant` bridge) is *bridged*; kind 4 (imports) is the transport
+above; kind 5 (bare "main instance" entities, used directly, without MQTT) is *local* in all but
+its grammar -- a candidate to fold into `local`.
 
 ---
 
@@ -1365,7 +1573,7 @@ No single integration mechanism suits everything — richness of the native API 
 
 | Platform | Mechanism | Why |
 |---|---|---|
-| **Z-Wave** | Native WebSocket to Z-Wave JS UI | Network management, inclusion/exclusion, interviews, firmware updates, configuration parameters, associations — MQTT would lose this richness. |
+| **Z-Wave** | Z-Wave JS UI, MQTT discovery (zwave2mqtt; *discovered*, §6.16) | What runs in Junglinster. The original plan was the native WebSocket to Z-Wave JS UI, for network management, inclusion/exclusion, interviews, firmware updates, configuration parameters and associations; those stay in Z-Wave JS UI's own UI. |
 | **Zigbee** | Zigbee2MQTT, MQTT-native | Z2M deliberately exposes MQTT; excellent interop with HA, FHEM, Node-RED, custom software. |
 | **Matter** | Native, close to HA | Not "just another radio protocol" — has its own device models, commissioning, fabrics, application-level interoperability. Feeds `Matter Devices → Home Assistant` directly, not via MQTT. |
 | **FS20 / legacy** | Via FHEM | One-way, unconfirmed radio. The coordinator tracks `desired_state` and republishes on MQTT periodically; HA is told `switch: optimistic: true` because that's what accurately represents the underlying hardware — the coordinator provides a stable abstraction despite the unreliable link. |
@@ -1382,27 +1590,49 @@ netatmo/module/12/outdoorTemperature →  house/weather/outdoor/temperature
 
 ## 11. Deployment topology
 
+As of 2026-10-23, the same shape in both houses:
+
 ```
-Home Assistant Green (main instance, per house)
-    +-- Home Assistant (Consumer role: automation, dashboards, UI)
-    +-- MQTT broker
+Home Assistant Green ("main", per house)
+    +-- Home Assistant -- Consumer role only: automation, dashboards, UI.
+        No MQTT broker and no Zigbee2MQTT add-on any more; its MQTT integration points at
+        protocols-server-1.
 
-protocols-server-1                        protocols-server-2
-    +-- Z-Wave JS UI (WebSocket)              +-- Home Assistant (Integration/adapter
-    +-- Zigbee2MQTT                                role only): Netatmo, envoy solar, ...
-    +-- Bluetooth, RTL_433, other radio
+protocols-server-1 (Ubuntu 26.04, Podman containers + native services) -- the house's hub
+    +-- mosquitto       the house's MQTT broker (every client: HA main, coordinator, Z2M,
+                        Z-Wave JS UI, ha2mqtt, EMS-ESP, cpu/ping reporters, mqtt_commandline)
+    +-- zigbee2mqtt     Zigbee radio (JLI: Nabu Casa ZBT-2; Vienna: Sonoff dongle)
+    +-- zwave           Z-Wave JS UI (JLI only: Nabu Casa ZWA-2)
+    +-- homeassistant   "ha2mqtt" -- Home Assistant in its Integration/adapter role only
+                        (Netatmo, Envoy, Overkiz/Somfy, ...), bridged by the coordinator
+    +-- caddy           JLI only: public HTTPS endpoint for Netatmo's webhook
+    +-- coordinator     native systemd service (house_event_bus_coordinator)
+    +-- ping/report     cron: liveness of the house's hosts (hosts/<host>/node/state)
+    +-- Samba (+ Plex)  the music collection for the Sonos (JLI: also Plex); Vienna: smtpproxy
 
-FHEM Pi (or host)
-    +-- FHEM: FS20, legacy hardware, cloud experiments, protocol adaptation, MQTT publishing
-    +-- coordinator
+Other hosts
+    +-- frame           picture frame (mqtt_commandline); JLI also runs the BT proxy there
+    +-- xanadu (JLI)    Plex (video) + the RAID backup pool; backups = backup of last resort
+    +-- protocols-server-2 (JLI)  retired, kept for FS20 until FHEM moves
+    +-- protocols-server-3 (JLI)  Raspberry Pi, server-only; planned FHEM/FS20 (FHEM2MQTT)
+    +-- every host      cpu/report (load, temperature, device info) to the house's broker
 
-Other Raspberry Pis
-    +-- power meter reader, photo frame, other specialised local services
+Cloud
+    +-- mqtt.erikproper.eu  shared bridging broker: roaming laptops' cpu reports and the houses'
+                            export/import of devices (§6.12, §12) -- never something a house
+                            depends on to function
 ```
 
-`protocols-server-1`/`-2` naming reflects architectural *role*, not current hardware — the point of that naming discipline is that the next protocol to migrate (or the next cloud service to isolate) has an obvious destination without renaming anything.
+`protocols-server-*` naming reflects architectural *role*, not hardware -- the next protocol to
+migrate (or the next cloud service to isolate) has an obvious destination without renaming
+anything.
 
-**Planned, post-MQTT-migration:** the MQTT broker and the coordinator will co-locate on a dedicated Fedora-based Raspberry Pi 4, once the broader move to MQTT-as-integrator is finished — separating both from Home Assistant Green (today's MQTT broker host) and FHEM Pi (the coordinator's placeholder host in the diagram above). Not yet built; the diagram above still reflects the current/interim topology, and this note is what should update it once the migration lands.
+**How it got here.** Junglinster moved its broker from the Green to protocols-server-1 on
+2026-10-21/22 (clients moved one by one, a temporary two-way bridge carried retained state, then
+the bridge and the Green's Mosquitto add-on were removed), and its Zigbee network on 2026-10-23
+(from the Green's Z2M add-on with a Sonoff dongle to Z2M on protocols-server-1 with the ZBT-2 --
+README.md's Operational notes has the adapter-change procedure). Vienna had made the same moves
+earlier (Zigbee 2026-09-08).
 
 ### 11.1 Why compute nodes are split, not consolidated
 

@@ -35,7 +35,9 @@ var commandlineWithDevicePattern = regexp.MustCompile(`^device\s+(\S+)\s+(\S+)\s
 // dropped here outright) -- see logicalCapabilityPattern's own identical change for the full
 // rationale. Requires the explicit "capability" keyword (PROJECT.md item 11b, 2026-10-11) -- see
 // discoveryCapabilityPattern's own doc comment for the general rationale.
-var commandlineCapabilityPattern = regexp.MustCompile(`^capability\s+(switch|sensor|button)\.([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s*;\s*$`)
+// An optional frozen "as <id>" (PROJECT.md item 48/16) follows the name: the capability's
+// unique_id, kept when the capability is renamed.
+var commandlineCapabilityPattern = regexp.MustCompile(`^capability\s+(switch|sensor|button)\.([A-Za-z_][A-Za-z0-9_]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_.]*))?\s+(.+?)\s*;\s*$`)
 var commandlineScriptPattern = regexp.MustCompile(`"([^"]*)"`)
 
 // commandlineDependencyOnPattern is "dependency on <device-id>;" inside a commandline device
@@ -84,14 +86,14 @@ func parseCommandlineIntegrationBody(bodyLines []string) ([]TCommandlineDevice, 
 				continue
 			}
 			if matches := commandlineCapabilityPattern.FindStringSubmatch(line); matches != nil {
-				kind, name, rawScripts := matches[1], matches[2], matches[3]
+				kind, name, assignedID, rawScripts := matches[1], matches[2], matches[3], matches[4]
 				scripts := commandlineScriptPattern.FindAllStringSubmatch(rawScripts, -1)
 				wantCount := commandlineScriptCountByKind[kind]
 				if len(scripts) != wantCount {
 					warnings = append(warnings, fmt.Sprintf("Physical.def: device %q: %q capability %q wants %d quoted script(s), got %d; ignored", current.DeviceID, kind, name, wantCount, len(scripts)))
 					continue
 				}
-				cap := TCommandlineCapability{Kind: kind}
+				cap := TCommandlineCapability{Kind: kind, AssignedID: assignedID}
 				switch kind {
 				case "sensor":
 					cap.StatusScript = scripts[0][1]

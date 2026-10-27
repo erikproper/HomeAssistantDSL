@@ -30,6 +30,12 @@ import (
 var discoveryDevicePattern = regexp.MustCompile(`^device\s+(\S+)\s+with:\s*$`)
 var discoveryIdentifiersPattern = regexp.MustCompile(`^identifiers\s+"([^"]*)"\s*;\s*$`)
 
+// discoveryMetadataPattern is a device's own metadata line (PROJECT.md 19b, 2026-10-26),
+// "<field>: \"<value>\" [forced];", optionally followed by the generator's own "# discovery:
+// ..." note -- the same shape a hosts device's constant attributes have. The generator writes
+// these itself from the discovered metadata; a forced value is the author's and is kept.
+var discoveryMetadataPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*):\s*"([^"]*)"(?:\s+(forced))?\s*;\s*(?:#.*)?$`)
+
 // Domain is mandatory and explicit, same shape and rationale as the "home_assistant" integration
 // grammar's own capability lines (integration_hassbridge_parser.go): no implicit "always sensor"
 // default. Source captured greedily so a leaf name containing "/" or other punctuation still
@@ -136,6 +142,21 @@ func parseDiscoveryDeviceBody(cur *TLineCursor, deviceID, parentDeviceID string)
 		}
 		if matches := discoveryIdentifiersPattern.FindStringSubmatch(line); matches != nil {
 			current.Identifiers = append(current.Identifiers, matches[1])
+			cur.Advance()
+			continue
+		}
+		if matches := discoveryMetadataPattern.FindStringSubmatch(line); matches != nil && knownConstantDeviceAttributes[matches[1]] {
+			if current.Metadata == nil {
+				current.Metadata = map[string]THostConstantAttribute{}
+			}
+			current.Metadata[matches[1]] = THostConstantAttribute{Value: matches[2], Forced: matches[3] != ""}
+			cur.Advance()
+			continue
+		}
+		if line == "entities via yaml;" {
+			// PROJECT.md 19c (2026-10-27): Home Assistant gets this device's entities from the
+			// generator's own YAML "mqtt:" config, not from the coordinator's relay.
+			current.EntitiesViaYAML = true
 			cur.Advance()
 			continue
 		}

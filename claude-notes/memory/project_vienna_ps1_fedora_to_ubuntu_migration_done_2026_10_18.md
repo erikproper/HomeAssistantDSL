@@ -159,9 +159,11 @@ confirmed same `SMB2_02` default there too, not yet actually relied on for real 
 since the real music disk doesn't land there until Friday, but would have hit the identical wall).
 Relevant to any future Fedora->Ubuntu Samba migration, both houses.
 
-**Explicitly NOT done yet:** moving Let's Encrypt renewal duty (currently a Fedora
-`certbot-renew.timer`) to the new Ubuntu box before the current cert expires 2026-12-06; actually
-decommissioning the old Fedora SSD (user is handling format + music copy themselves, not yet
+**Let's Encrypt renewal: done 2026-10-22** (it had been forgotten in the move): certbot 4.0 via
+apt, standalone HTTP-01 (Fritz!Box port 80 forward still reaches p-s-1), deploy hook
+`/etc/letsencrypt/renewal-hooks/deploy/smtpproxy.sh` (source: smtpproxy repo's
+certbot-deploy-hook.sh), Ubuntu's own `certbot.timer`; certificate valid to 2027-01-20.
+**Explicitly NOT done yet:** actually decommissioning the old Fedora SSD (user is handling format + music copy themselves, not yet
 done as of this memory).
 
 **How to apply:** when Junglinster's own Pi4(s)-to-HP-EliteDesk/Ubuntu consolidation

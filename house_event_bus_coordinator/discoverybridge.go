@@ -341,6 +341,12 @@ func discoveryEntityLinksPerGateway(links map[string]TDiscoveryEntityLink) map[s
 // gateway published (brightness/supported_color_modes/effect_list/schema/availability/device/...)
 // passes through untouched.
 //
+// "name" is the entity's own conceptual name from discovery.yaml (link.Name, PROJECT.md 17h,
+// 2026-10-26): Home Assistant's UI shows an entity by its registry name, which an MQTT entity takes
+// from this field -- not by the friendly_name the generator's customization sets -- so the
+// gateway's own short label ("Temperature") was all the UI showed. The history below is what
+// applies when link.Name is empty (a discovery.yaml from before it existed).
+//
 // "name" -- real bug found live 2026-09-29 (Junglinster's "furnace switch," reported
 // friendly_name "house/laundry_kitchen/heating/furnace_switch social_house_kitchen_workplace_furnace"):
 // this used to unconditionally overwrite "name" with objectID (entityID's own sanitised,
@@ -483,7 +489,10 @@ func buildRelayedDiscoveryConfig(entityID, gatewayID string, rawPayload map[stri
 
 	body["unique_id"] = stableID
 	body["default_entity_id"] = domain + "." + objectID
-	if soleGatewayCapability {
+	switch {
+	case link.Name != "":
+		body["name"] = link.Name
+	case soleGatewayCapability:
 		body["name"] = nil
 	}
 	if payload.StateTopic != "" {
@@ -491,6 +500,12 @@ func buildRelayedDiscoveryConfig(entityID, gatewayID string, rawPayload map[stri
 	}
 	if payload.CommandTopic != "" {
 		body["command_topic"] = payload.CommandTopic
+	}
+	// A firmware update is only shown, never installed from Home Assistant (PROJECT.md 17i,
+	// 2026-10-26, Erik): without a command topic Home Assistant offers no "Install".
+	if domain == "update" {
+		delete(body, "command_topic")
+		delete(body, "payload_install")
 	}
 	body["origin"] = coordinatorOriginMap(installation)
 	if payload.ValueTemplate != "" {
@@ -807,6 +822,9 @@ func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation s
 			fmt.Printf("[discovery-bridge] %s: re-parsing payload as a raw map: %v\n", msg.Topic(), err)
 			return
 		}
+		if discoveryDeviceInfo.Record(gatewayID, rawPayload) {
+			discoveryDeviceInfo.SchedulePublish(client, cloudClient, ownInstallation)
+		}
 
 		for entityID, link := range discoveryFile.EntityLinks {
 			if link.Gateway != gatewayID || link.Leaf != payload.UniqueID {
@@ -823,6 +841,15 @@ func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation s
 			if !ok {
 				continue
 			}
+			if discoveryRelayedConfigs.Record(entityID, body) {
+				discoveryRelayedConfigs.SchedulePublish(client, cloudClient, ownInstallation)
+			}
+			if link.YAML {
+				// Home Assistant gets this entity from the generator's YAML now (PROJECT.md 19c):
+				// withdraw its relayed discovery, never publish it.
+				enqueueDiscoveryRelayJob(relayJobs, TDiscoveryRelayJob{Action: discoveryRelayRetire, Client: client, Broker: "main", Topic: topic})
+				continue
+			}
 			data, err := json.Marshal(body)
 			if err != nil {
 				fmt.Printf("[discovery-bridge] %s: marshalling relayed payload: %v\n", entityID, err)
@@ -834,7 +861,7 @@ func subscribeDiscoveryBridge(client, cloudClient mqtt.Client, ownInstallation s
 	}
 
 	topicFilter := discoveryFile.PhysicalPrefix + "/+/+/+/config"
-	token := client.Subscribe(topicFilter, 0, handler)
+	token := subscribe(client, topicFilter, 0, handler)
 	if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
 		if err := token.Error(); err != nil {
 			return fmt.Errorf("subscribing to %s: %w", topicFilter, err)

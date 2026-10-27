@@ -121,13 +121,12 @@ func extractDeviceWithBlockHeader(line string) (*TDevicePositioningDeclaration, 
 // entity line in the block with an explicit sphere-path, with no way to opt out line by line --
 // exactly the blanket behaviour the user had just finished removing. This one is opt-in per
 // line, via "::" (expandDeviceAtLeafDoubleColon, parser.go) -- a plain single ":" spec inside
-// such a block is completely untouched, only an explicit "::" folds in <leaf>. Motivating case:
-// a device-level "trigger <name> when <capability> is '<value>';" declaration
-// (Conceptual_NamedTriggerEntities.go) implies a hidden raw entity with no author-given local
-// path at all -- <leaf> is what that hidden entity's own path uses, matching whatever the
-// pre-existing live entity's own path already was, so migrating a device to "trigger" form
-// doesn't change the HA entity_id this generator's own files reference.
-var deviceAtLeafWithBlockHeaderPattern = regexp.MustCompile(`^device\s+(\S+)\s+at\s+(\S+)\s+with:$`)
+// such a block is completely untouched, only an explicit "::" folds in <leaf> -- e.g. a button's
+// own event, "entity event.physical:: from event.pressed;", is named after the button's leaf.
+//
+// Written "device <device-id> as leaf <leaf> with:" since 2026-10-26 (Erik: makes the distinction
+// from a space's "as area" explicit; was "at <leaf>").
+var deviceAtLeafWithBlockHeaderPattern = regexp.MustCompile(`^device\s+(\S+)\s+as\s+leaf\s+(\S+)\s+with:$`)
 
 // extractDeviceAtLeafWithBlockHeader recognises a "device <device-id> at <leaf> with:" block
 // header, returning the device id and the leaf separately (deviceAtLeafWithBlockHeaderPattern's

@@ -1,270 +1,106 @@
 ** TODO 
 
-## Extend coverage
+## Manually (Erik) extend coverage
 
-2. Leakage / nomotion on both sites
-
-3. Complement suggested in both locations.
-So, suggested entities of a device we included already.
-
-4. check suggested in both locations
+1. check suggested in both locations
 VIE
 JLI
 
-5. Ensure we have now all the integrations we need.
+2. Ensure we have now all the integrations we need.
 VIE
 JLI
 
-6. Then also (ensure it is re-enable(d) the checking of locally (on main HA) assumed entities via the inquiry process. So, using the three values approach, triggering the inquiry of assumed to exist local entities (on main) via the coordinator. 
+3. Check for more of the existing integrations, like fritzbox, ems-esp, etc.
 
-Also: Check for more of the existing integrations, like fritzbox, ems-esp, etc.
-
-Also: EMS heater device -- not started, design/syntax not yet worked out.
-  
-## Linux and hardware migration
-
-0. Offload xanadu:
-    [ ] Music to p-s-1
-    [ ] Stop samba
-    [ ] Keep printer functional?
-    [ ] Clean xanadu -- survey done 2026-10-16 (read-only, nothing removed yet -- explicitly
-        deferred until xanadu's role is actually down to Plex-video + RAID-backup only).
-        Candidates found, roughly most-to-least confident:
-      - mariadb (hosts "nextcloud"/"nextclouddb" databases) -- a Nextcloud instance's own
-        backend, unrelated to Plex/backup. NEEDS A DECISION, not a safe auto-remove: is this
-        Nextcloud instance itself still wanted anywhere, or is the whole thing dead?
-      - samba-ad-dc.service -- an Active Directory Domain Controller role enabled; a quick
-        `samba-tool domain info` against it failed outright, suggesting it's not actually
-        functioning as one. Likely a stale/accidental enablement, not a deliberate AD setup.
-      - dnsmasq + xinetd -- dnsmasq.conf configures a full PXE network-boot setup (DHCP proxy +
-        TFTP + pxelinux.0), presumably a one-off provisioning tool from an earlier hardware
-        install, not an ongoing service this role needs. Mind that it's DHCP-adjacent -- review
-        before disabling, don't just rip it out.
-      - containerd + the `docker` binary + /opt/containerd -- a second, apparently fully UNUSED
-        container runtime alongside podman (`ctr containers list` came back empty); podman is
-        this project's own established tool here (and already runs xanadu's one real container,
-        below). Strong candidate to drop entirely.
-      - The podman "bt-proxy" container + /opt/bt-proxy (status "Created", not running, ~2
-        months old) -- looks like an earlier/abandoned bt-proxy experiment, predating the
-        actually-deployed one on frame.junglinster (2026-10-15,
-        memory: project_living_room_bt_proxy_plan.md). Not currently running, low risk either
-        way, but worth confirming it's superseded before deleting.
-      - /opt's Oracle VM VirtualBox Extension Pack (.vbox-extpack, 2017) -- no VirtualBox
-        service found enabled; looks like a dead leftover.
-      - Desktop-oriented services that don't fit a headless Plex/backup box: bluetooth.service,
-        blueman-mechanism.service, accounts-daemon.service, switcheroo-control.service,
-        spice-vdagentd.service, console-setup.service, keyboard-setup.service, whoopsie.service,
-        kerneloops.service, cups.service, cups-browsed.service. Lower priority/risk than the
-        above, but consistent with "this box was once a full desktop install."
-      - A large, old, accumulated pile of pip-installed (not apt-managed) single-purpose CLI
-        tools directly under /usr/local/bin (imap-backup, geeknote, airsonos, chromecast-cli,
-        OCR/PDF tools, cpanm, etc.) -- exactly the "not in line with apt-get structures" issue
-        flagged 2026-10-16. Needs its own itemized pass later, not a blind wipe -- too many to
-        vet individually right now.
-      - mosquitto.service -- an MQTT broker running on xanadu itself; PURPOSE UNCLEAR (possibly
-        tied to this project's own multi-broker relay/roaming-devices mechanism, possibly dead) --
-        do NOT assume this one is safe to remove without checking what, if anything, still
-        talks to it.
-      Also to be removed:
-      - Golang
-      - dovecot
-      But keep: cupsd + printer definition.
-    [X] Test plex + samba 4 music with 500G SSD
-    [ ] Check usage of internal disks.
-    mergerfs!s
-
-2. Migration of home automation:
-  [ ] Switch to new Zigbee antenna (planned for the weekend of 2026-10-24/25, not this coming one)
-
-3. Xanadu only for plex ...
-[ ] P-s-1@JLI as plex+samba music server
-[ ] Move music away from Xanadu
-[x] `/Volumes/Media` on Xanadu is a mergerfs pool of `/mnt/disk1..6` (each disk's media under
-    `Plex/`), done 2026-10-21. Old symlink farm kept as `/Volumes/Media.symlinks-2026-10-21`.
-[x] `/Volumes/Backups` on Xanadu is a mergerfs pool of `/mnt/yotta1..7` (`noauto`; mount with
-    `sudo systemctl start Volumes-Backups.mount`), yotta1..5's `Plex.Data/` renamed `Plex/`. Done
-    2026-10-21.
-[x] Plex scripts rewritten for the pools 2026-10-21 (`plex.publish` tested; `plex.collect` removed;
-    originals in Xanadu's `~/bin/plex-scripts.bak-2026-10-21/`).
-[ ] Test `plex.backup` once backups is a mergerfs pool; set its `REMOTE_POOL` (placeholder
-    `/Volumes/Backups`).
-[ ] Update Xanadu's `~/bin/media.backup` (currently disabled, "Requires updating!!"): rsync
-    `/Volumes/Backups/{Media,Photography}` to `erikp@backups:/Volumes` (once backups is a pool),
-    with the same `CheckMounted` guard as the Plex scripts.
-[ ] mergerfs on `backups` (the "backup of last resort" stack of old external disks): survey first.
-    Also update/create its `~/bin/mountall` / `umountall`, like Xanadu's (pool after/before the disks).
-
-4. MQTT (local) broker in container on p-s-1 @JLI: move all clients off the Green's broker
-   (192.168.178.42) to the (already running, still unused) mosquitto container on p-s-1.
-   Clients: HA main + Zigbee2MQTT add-on (Green); coordinator, HA ha2mqtt, zwave-js-ui, test Z2M
-   (`zigbee2test`), ping report (p-s-1); cpu reports (p-s-1, p-s-2, xanadu, frame, imac, backups);
-   mqtt_commandline (frame); EMS-ESP (192.168.178.181).
-   Phase 0 (no impact):
-   [x] Persistence in p-s-1's mosquitto.conf (as Vienna), restart container.
-   [x] Reachable from LAN on 1883 + `carvalhoproper` login works; firewall if needed.
-   [x] Broker address: IP or `protocols-server-1.fritz.box` (not the bare name); fixed DHCP lease.
-   Phase 1:
-   [x] Temporary bridge (`#`, both directions) new <-> Green broker; check retained (~7800) + live flow.
-       Bridge config: p-s-1 `mosquitto/config/conf.d/bridge-green.conf` (+ `include_dir` line).
-   Phase 2 (one by one, each verified; rollback = revert that client):
-   [x] `Settings.def` `${main_mqtt_server}` + generate + deploy: coordinator, ping, cpu
-       (`secrets.junglinster`), commandline/frame. Hosts off during deploy (imac, backups)
-       need a `cpu` redeploy when next on -- before the Green broker goes. Done 2026-10-21 (all hosts
-       were on; `03_deploy.hosts` now also pushes `cpu/secrets.<house>`, `deploy.<house>` pings -4).
-   [x] zwave-js-ui (its web UI, Settings -> MQTT) -> protocols-server-1.fritz.box. Its old host
-       `junglinster` didn't resolve inside the container (bare names don't), so it had published
-       nothing over MQTT since ~2026-10-15; working again 2026-10-21.
-   [x] EMS-ESP (its web UI, via SSH tunnel through p-s-1) -> 192.168.178.85.
-   [x] HA ha2mqtt MQTT integration -> 127.0.0.1 (same host).
-   [x] Z2M add-on on the Green -> mqtt://192.168.178.85:1883 (add-on *options*: they override
-       configuration.yaml at every start, so a Z2M-web-UI-only change would be reverted).
-   [x] HA main MQTT integration -> 192.168.178.85 (via UI reconfigure). All clients moved 2026-10-21.
-   Phase 3:
-   [ ] (2026-10-22, together with item 3a's last point) Watch the Green broker >= 1 day (from 2026-10-21 18:16): only the bridge may remain
-       connected (the test Z2M on p-s-1 doesn't count: not operational, re-pointed in item 3; nor
-       the add-on's own health check from 172.30.32.2 every 2 min).
-   [ ] Remove bridge; stop + disable (not uninstall) the Mosquitto add-on.
-   [ ] Architecture.md topology section, notes.
-
-3a. Discovery churn (JLI coordinator): mostly fixed 2026-10-21 (restart: ~305 -> 11 retirements).
-   Causes found: retained bridge states under the retired instance name "protocols-server-2"
-   (now ignored: hassBridgeAcceptsInstance; leftovers cleared) and Seed re-grouping a borrowed
-   shared entity's whole remote device under the borrower (Netatmo living room / bedroom, Somfy
-   front / rear). Still open:
-   [x] iPhone: `roaming import` dropped in both houses 2026-10-21 (Companion app already reports to
-       both HAs); leftover relay/roaming topics cleared. Code cleanup: item 31.
-   [ ] 2026-10-22, with the Green broker check (item 4, Phase 3): 5 cloud-host discovery entries
-       (junglinster/homeassistant/.../junglinster_node_{mqtt,studio}_*) retired at every restart --
-       not looked at yet. Also confirm no new daytime retire batches since the 2026-10-21 deploys.
-
-3. Migration of Zigbee2MQTT app from Green to p-s-1 in JLI, plus antenna migration.
-   Includes pointing the p-s-1 Z2M (now still the `zigbee2test` test instance, on the Green broker)
-   at the p-s-1 broker (item 4).
-
-    Unlike Vienna's move (same physical Sonoff dongle, just relocated -- DONE + VERIFIED LIVE
-    2026-09-08, real network/73 devices preserved intact), Junglinster is also swapping the radio
-    hardware itself (Sonoff -> Nabu Casa Zigbee antenna), so the network's coordinator IEEE address
-    changes unless explicitly transferred -- extra step Vienna's move didn't need. Checklist,
-    following the same real procedure worked out live on Vienna:
-    - [ ] On Green-equivalent (Junglinster main HA): Settings -> Add-ons -> Zigbee2MQTT -> Settings
-          -> Tools -> "Request Z2M backup" -- downloads a real .zip (configuration.yaml,
-          database.db, coordinator_backup.json, state.json). Double-check which HA instance/browser
-          tab you're actually on first -- this was grabbed from the wrong house once already live
-          today (Junglinster's own backup came back when Vienna's was wanted, since both HA tabs
-          were open at once).
-    - [ ] **IEEE address transfer**: confirmed procedure (2026-09-08), per
-          https://www.zigbee2mqtt.io/guide/adapters/flashing/copy_ieee_addr.html -- for the "Home
-          Assistant Connect ZBT-2" specifically this is NOT a firmware flash, just:
-          `universal-silabs-flasher --device /dev/ttyACM0 write-ieee --ieee 0011223344556677`
-          (https://github.com/NabuCasa/universal-silabs-flasher; substitute the ZBT-2's real device
-          path and the OLD Sonoff coordinator's real IEEE/EUI64, no `0x` prefix on the address).
-          Read the old Sonoff's IEEE address from its own backup/config before it's unplugged and
-          retired. Do this BEFORE first pairing the new adapter to zigbee2mqtt -- otherwise every
-          currently-paired device treats the new radio as a stranger and needs re-joining one at a
-          time.
-    - [ ] Stop Junglinster main's own Zigbee2MQTT add-on (releases the USB device) before unplugging
-          the Sonoff dongle.
-    - [ ] Physically move the Nabu Casa antenna onto protocols-server-1 (the Sonoff comes out
-          instead of relocating, since it's being retired here, unlike Vienna).
-    - [ ] Confirm the new adapter's `/dev/serial/by-id/...` path on p-s-1 (`ls -la
-          /dev/serial/by-id/`), then set that exact path in both `serial.port` (configuration.yaml)
-          and the `zigbee.container` quadlet's `AddDevice=` line -- keep `adapter: ember` (Nabu
-          Casa ZBT-2 is EmberZNet-based, confirmed already staged in p-s-1's own quadlet/config
-          tonight, unlike Vienna's `zstack`).
-    - [ ] Install the real backup's `database.db`/`coordinator_backup.json`/`state.json` into
-          `/var/lib/home-automation/zigbee/` on p-s-1, `chown 1000:1000`, but do NOT blindly copy
-          its `configuration.yaml` wholesale this time -- merge the real `mqtt`/`homeassistant`/
-          `advanced` (network_key/pan_id/ext_pan_id) sections into it while keeping `serial.port`/
-          `adapter` pointed at the NEW Nabu Casa hardware, not the old Sonoff's by-id string.
-    - [ ] Real `base_topic` is `zigbee2mqtt` (confirmed live on both houses' Green-equivalents) --
-          the `zigbee2test` topic already used in p-s-1's staged/placeholder config was only ever a
-          pre-cutover testing value, must be switched to the real one before this goes live, or
-          every existing HA automation/dashboard referencing `zigbee2mqtt/...` topics breaks.
-    - [ ] Open port 8099/tcp in firewalld on Junglinster's p-s-1 (`firewall-cmd --permanent
-          --add-port=8099/tcp && firewall-cmd --reload`) -- forgotten on Vienna's own p-s-1 first
-          time round, only caught after the frontend was reachable locally but refused from the
-          LAN.
-    - [ ] Restart the `zigbee` service, verify in the log that MQTT devices start reporting real
-          (not fresh/empty) state and the frontend actually starts ("Started frontend on port
-          8099"), then load `http://<p-s-1 LAN IP>:8099` from another machine on the LAN to confirm
-          the firewall opening actually took.
-    - [ ] Only decommission/repurpose the old Sonoff dongle once the above is verified stable, not
-          immediately.
-
+4. EMS heater device. More imports?
+ 
 ## Migration & improvements
 
-14. Moes/somfy renames: done for Vienna; still to do for Junglinster (Friday 2026-10-23, on site).
-    Maybe `buttons.*` instead of `moes`, then `_1` etc. Also Junglinster's 3 dimmable lights still
-    declared as `sensors.*` (`living_room_living_main_dimmer`, `living_room_dining_main_dimmer`,
-    `house_kitchen_workplace_dimmer`) -> `lights.*`; this changes their live entity_ids
-    (`light.physical_sensors_*` -> `light.physical_lights_*`), so check the registry impact first.
+19. Discovery versus template: metadata captured into Physical.def (plan agreed 2026-10-24).
+    Metadata (model, manufacturer, sw/hw version, ...) changes rarely, so it no longer argues for
+    discovery. The plan:
+    1. Metadata first: at generate time the generator takes each device's "device" block from the
+       retained discovery it already reads (Definitions/.cache) and writes it into Physical.def
+       itself, pretty-printed. A value flagged as override keeps its listed value; only when
+       discovery reports something different does the discovered value appear next to it, as a
+       comment -- so it stays visible what discovery provided. Syntax, the existing metadata
+       lines with a trailing "override":
+           model:      "Home Assistant Green" override;   # discovery: "Green"
+           sw_version: "1.0 (ESPHome 2026.10.0)";
+    2. Then templates instead of relayed discovery for the main instance, one integration at a time
+       (Zigbee2MQTT first): YAML "mqtt:" entities with unique_id = the frozen stable_id, so registry
+       entries, devices and history stay.
+    3. Discovery between locations (other house, cloud) is published from this captured       information, not by rewriting an internal discovery message. ha2mqtt and fhem2mqtt follow
+       the same pattern.
+    Entity_ids (decided 2026-10-26, Erik: (b)): entity_ids follow the position; a rename in the
+    defs reaches Home Assistant through the deploy's registry repair (table-driven, Architecture.md).
+    Names (from 17h, 2026-10-26): every entity, of every kind, gets its full conceptual name
+    ("sphere/path") as its "name" -- the UI shows the registry name, not the friendly_name. Today
+    only the relayed Zigbee2MQTT/EMS-ESP entities do; the others still get: imported (Netatmo)
+    "apartment/living_room/low_board/co2" (no sphere), bridged (ha2mqtt) a suffix only ("status"),
+    host attributes "apartment/living_room/rack/protocols-server-2/load", host nodes none (the UI
+    shows the device name, e.g. "sony_tv"). Button events: their name holds the device id
+    ("physical/buttons.bedroom_bed_moes/pressed") instead of a position.
+    Steps (agreed 2026-10-26), each built, verified locally (generated output compared), then
+    deployed and checked live in Vienna first, Junglinster after:
+    How a step goes (19b-19d done 2026-10-26/27, both houses; all Zigbee2MQTT devices on YAML):
+    "entities via yaml;" in a discovery device's Physical.def block makes the generator write its
+    entities as YAML "mqtt:" config (mqtt_yaml_entities.go) from the coordinator's relayed configs
+    (discovery_relayed_configs/state), and the coordinator withdraws the relay; batches by device
+    type, Vienna first. Check only after HA's MQTT reload has finished (~45 s); `ha core check`
+    does NOT validate mqtt YAML entities, only a reload does. Compare entity_ids, devices, areas
+    and states with a snapshot taken right before the deploy.
+    19e. Hosts and commandline (cpu/ping nodes and attributes, the picture frame) as YAML too;
+         fixes their names.
+    19f. EMS-ESP (Junglinster only).
+    19g. Z-Wave (Junglinster only).
+    19h. Between locations (plan point 3): imports, cloud hosts, ha2mqtt/fhem2mqtt bridges
+         published from the captured information; fixes the imported/bridged names.
+    19i. Cleanup: the coordinator's unused relay code, documentation. Home Assistant's MQTT schema
+         knowledge into one module shared by generator and coordinator (Architecture.md §6.16:
+         field table, abbreviations, discovery-to-YAML); generate reports discovery fields the
+         YAML drops; tools/ha_mqtt_fields.py stays a migration aid only.
+    The discovery prefix stays homeassistant.physical: next to an existing discovery-driven
+    installation's homeassistant/, it allows migrating such an installation device by device.
 
-15. fix physical. Carefull with taps and moeses because of the manual automations.
-- physical to social; done for vienna
-- final update of bl/ba/node/.. tabs
+20. Retained state for raw and discovered integrations (Architecture.md §6.16): the coordinator
+    cross-posts the latest message of each of their state topics, retained, onto its own topic;
+    state entities read that copy, event entities keep the original; the coordinator's own
+    availability joins theirs. After 19, which also shows which cross-posts are needed. Erik:
+    "we also need to detect if they are really down" (availability, per raw device).
+    Why it matters now: HA's MQTT reload re-creates EVERY YAML mqtt entity, so since 19 every
+    deploy loses every non-retained value (Vienna 2026-10-27: 99 of 162 "unknown" after a deploy).
+    Interim, both houses: deploy.d/06_restart.zigbee2mqtt restarts Zigbee2MQTT once HA main has
+    finished reloading or restarting; it republishes its cached state of every device (cache_state,
+    cache_state_persistent, cache_state_send_on_startup; motion comes back as no motion, buttons
+    with action=null). Side effects: the bridge is offline ~10-30 s, and plugs stay "offline" in its
+    availability for up to ~5 minutes (it re-checks routers one by one), so HA can't switch them
+    meanwhile; the heating automations run on unavailable -> state and send the current setpoints
+    again (no effect seen, heating off). EMS-ESP and Z-Wave (19f/19g) will need their own answer.
+Can we, at discovery time, infer if a device uses retain on its state or not? We only need a "retain wrapper" of the device communicates in a non-retaining way.
 
-16. revisit the "core" usage. Can be more subtle. motion, contact, switch, light, fan, etc.
-    Also general updates:
-        entity cover.social:     from cover.cover;
-        entity cover.social:slow from cover.cover_slow;
-    ==> 
-        entity cover.social:cover;
-        entity cover.social:slow/cover;
+21. "home_assistant main" (Architecture.md §6.16): per entity, can it become local (no MQTT round
+    trip to itself), or does something else on the bus need it?
 
-      device sensors.server_room_main_spots with entity light.social:main from light.core;
-    ==>
-      device sensors.server_room_main_spots with entity light.social:main/light;
+22. Persistent identity of an export, for the importer. An exported capability's cloud identity
+    (exportStableID: installation, device id, capability) follows the exporter's device id, so
+    renaming an exported device breaks the import until the importer's "from <installation>
+    <remote-device-id>" follows (2026-10-27: Junglinster's Vienna Netatmos renamed to
+    sensors.netatmo_vienna_*, five Vienna import lines adjusted). The importer is what needs a
+    persistent reference: e.g. the exporter's frozen "as" ids as the export identity.
+    Found on the way: Vienna's living-room import named Junglinster's own
+    sensors.netatmo_living_room (not exported) instead of sensors.netatmo_livingroom -- stale
+    values since 2026-10-26 12:02, CO2/noise/pressure missing -- without any report from
+    generate: an import of a device the other house doesn't export should be reported.
 
-49. Named triggers as real HA event entities -- DONE 2026-10-22 (Vienna deployed): each
-    `aggregated event.<name> is raised when ...` is a trigger-based template `event` entity
-    (entities/template/event/<sphere>/), its triggers/conditions being the former inline
-    expansion; rules trigger on its `raised` event. Verified equivalent for all 29 Vienna rules.
-    Still open:
-    - its unique_id is the entity_id (Conceptual.def level, like space-level entities -- 17g),
-      so renaming a named trigger yields a new entity (the registry sync removes the old one,
-      so no orphan, but its history doesn't carry over);
-    - whether related triggers (a dimmer's on/off/brighter/dimmer) become ONE entity with several
-      event types; then `when <entity> is <event-type>` could replace `is raised`;
-    - the deeper question (see [[project_discovery_over_yaml_templates]]): with stable IDs
-      everywhere, is the coordinator -> HA MQTT-discovery route still worth its complexity vs.
-      generator-authored YAML? The one remaining argument for discovery: Z2M/Z-Wave JS supply
-      device metadata (manufacturer/model/availability/units) for free. Not decided.
+22a. Vienna's washing-machine plug (switch.washing_machine, ROBB ROB_200-017-0) should be on by
+    default (Erik, 2026-10-27). Check whether Zigbee2MQTT offers a power-on behaviour for it
+    (several bulbs have select.power_on_behavior); otherwise a rule that switches it back on.
+EP: No issue. I always "leave it on", but if it happens to be off, it is no issue switching it on.
 
-17a. We can now update the UIs with the latest lists
-
-17b. Modify availability on template derived entities.
-
-17c. General check of def files. Particularly look for devices that should be combined using e.g. an enabler switch.
-
-17d. TV's with enabled in JLI similar to the one in VIE
-
-17e. General check on path-based device names (UI)
-Also change the generated friendly names to '<sphere>/<path>/<(sub)domain>' for all.
-Also adjust the names of generated automations.
-
-17f. Multi-item list directives on one line (`space off: @light @media;`; 1 in Vienna, 12 in
-     Junglinster) -> the generic block form (`space off:` / `@light;` / `@media;` / `end;`),
-     per the 2026-10-21 notation. Check the output stays byte-identical.
-
-17g. Sensors are positioned uniquely (own name in their space: `wall/temperature`,
-     `shelf/humidity`, never the space's generic `temperature`); a space-level entity
-     (`<space>/temperature`, `/co2`, ...) exists only by a conscious generalisation declared in the
-     defs -- from one sensor (the space's value *is* that sensor) or several (an average) --
-     replacing today's automatic per-space averages (whose names clashed with a sole sensor, e.g.
-     Vienna's bitron/rack cases, 2026-10-21). Notation not yet designed. Several of Vienna's
-     CHANGE renames (bedroom/shower-room Netatmo co2+humidity, frient and signify illuminance,
-     terrace Netatmo/signify temperature+humidity) wait for this.
-
-18. check def files for more syntax changes 
-
-19. reflect on the question if "meta" is not "infra" ...
-
-20. Check area assignments
-
-20b. Split suggestions between physical and conceptual. What is on offer from the identified devices that is not positioned conceptually?
-
-21. depencency versus via ... connexoon. Via is the stronger version of dependency?
-
+22b. Junglinster's 12 Hue Taps (kinetic, battery-less) only send when pressed, so Zigbee2MQTT's
+    availability marks them offline and their events are "unavailable" (they still work when
+    pressed). Exclude them from Zigbee2MQTT's availability, or ignore it for them.
 
 23. Can we trigger, within HA, the reload of an integration?
 The netatmo integration on P-s-2@JLI  often "losed" some connection
@@ -273,11 +109,36 @@ as being unavailable.
 The idea would be to enable the automatic triggering on P-s-2@JLI of a reload when 
 selected "indicator" entities are unavailable.
 
-We should be able to treat these rules as involving the infrastructural sphere, at
-the conceptual layer, while their implementation could run on e.g. ha2mqtt when this 
-is possible. 
+Another case (2026-10-25, Junglinster main): the Sonos headphones
+(media_player.social_house_sonos_headphones) drop out around each deploy's reload; twice they came
+back after two minutes, the third time not -- while their ping node stayed on. A manual reload of
+the Sonos integration brought them back.
+Same on the next deploy (2026-10-25): all 13 Ring entities stayed unavailable after the reload;
+reloading the Ring integration brought them back. 
 
-24. (Enforced) default units for e.g. pressure as well as the precision??
+24. (Enforced) default units for e.g. pressure as well as the precision?? This did work in the "bash" based script approach.
+    (2026-10-27, Erik) Builds on 19: the defaults (Shared/Definitions/Defaults.def, a house's own
+    "defaults:" in Physical.def) set unit/icon/device_class/state_class but only fill gaps, and have
+    no precision. Add "precision:" (a sensor's suggested_display_precision -- display only; HA keeps
+    full precision in state, history and statistics) and "forced" (override a value the gateway
+    supplies, e.g. Zigbee2MQTT's pressure unit). Easy once entities are YAML (Zigbee2MQTT since 19): the
+    generator writes every field itself.
+    The old bash approach's settings (Erik): $HOME/go/src/homeassistant/Old/Junglinster/Modules/
+    Settings.1.hass -- units per quantity (UnitsOf_pressure="mbar", UnitsOf_temperature="°C",
+    illuminance "lux", wind speed "km/h", co2 "ppm", noise "dB", humidity/battery "%") and state
+    classes (StateClassOf_...); no precision found there or in the other old modules.
+    EP: Correct. Once HA started to allow the specification of this in the UI, I dropped that from the bash scripts. However, it is rather tedious to now do it all by hand ...
+    EP: We should at least use "
+25. depencency versus via ... connexoon. 
+
+25b. Test if the meta call to reset HA's works.
+
+25c. (2026-09-24) Zigbee2MQTT liveness check: detect when a house's own Z2M bridge itself is down
+     (not just an individual device), and if so, bulk-mark every Z2M-sourced entity in that house
+     as unavailable, rather than leaving each one showing its own last-known (stale) state.
+
+25a. Nuanced reporting of suggested entries, based on conceptual versus physical positioning.
+So, what is available to be positioned as potential capabilities, and what is available to be positioned at the conceptual layer.
 
 26. Logical layer + available nuances in relation to "via device"  (netatmo radio module via main module) and aggregation.
   
@@ -389,7 +250,7 @@ Should be byte level equivallent.
       whether Junglinster has any Moes-style multi-gang buttons before migrating there, and build
       the trigger declarations with the normalized event_type + button-attribute form from the
       start rather than naively copying raw action values again.
-    - Not all rules need to be "better conceptualised" at once (confirmed with the user) -- migrate
+    - Not all rules need to be "better conceptualised" at once (confirmed with Erik) -- migrate
       rule by rule as time allows, verifying byte/semantic identity against the pre-migration
       baseline each time, same as this batch.
     See /Users/erikproper/.claude/plans/binary-weaving-iverson.md for Step 1's own full design.
@@ -421,7 +282,7 @@ Should be byte level equivallent.
   case) -- every kind now needs an explicit `entity binary_sensor.<sphere>:node;`-shaped line, same
   as any other capability; the Logical.def "node override" mechanism moves from being
   positioning-triggered to a check at the top of the generic per-capability dispatcher instead.
-  Deliberate tradeoff, confirmed with the user: `hosts` becoming explicit is more verbose for the
+  Deliberate tradeoff, confirmed with Erik: `hosts` becoming explicit is more verbose for the
   simple ping/cpu case, accepted anyway to avoid making the mechanism depend on which specific
   integration a device happens to be. Note for later (2026-09-24, refined): rather than reviving the
   old macro mechanism specifically for this, look at a "device type" TEMPLATE construct instead -- a
@@ -573,10 +434,7 @@ Should be byte level equivallent.
   "Availability composition" note above, which already flags the closely related "stacked/
   dependent availability" problem this same design work should solve together, not separately.
 
-27. Further conceptualising the conceptual layer.
-CHeck if node, temperature, etc, are acknowledged as axplicit "sub domains" in the code.
-
-28. Check aggregation of sensors. If one is down, what do we do with data?
+28. Check space level aggregation of sensors. If one is down, what do we do with data?
 
 29. Installation-level status binary_sensors (meta sphere): one (discovery-created) binary_sensor per HA
       instance signalling (1) a configuration problem on that instance, and (2) updates available
@@ -621,7 +479,29 @@ CHeck if node, temperature, etc, are acknowledged as axplicit "sub domains" in t
 
 30. Jointly check the consistency and cleanliness of the DSL.
 
+30a. Review the per-house `generate`/`deploy` scripts (`deploy`, `deploy.d/*`) and decide what to
+     offer as generic infrastructure for other users. The pushes to the main HA and the ha2mqtt
+     instances, the registry sync, and the reload-or-restart choice (`MetaAction`) are the same in
+     both houses apart from host names and ports. Those could be generated from Physical.def, or
+     become a shared tool. Also standardize them on one language, Python or Bash (Erik,
+     2026-10-26) -- today the deploy is Bash with an embedded Python registry repair.
+     Future step (Erik, 2026-10-26): the registry repair as a proper Go app, a "pre-deploy" step
+     driven by the list of expected entries (registry_manifest.json), talking to Home Assistant's
+     websocket API directly instead of running a Python script over SSH inside the HA add-on. Its
+     credentials (a long-lived access token per HA instance) then become explicit secrets in the
+     def files, like the MQTT secrets -- today the script picks up the Supervisor token implicitly
+     inside the add-on.
+     With it (Erik, 2026-10-26): an "as local <domain>.<object>" option on a Physical.def native
+     ("integration local") capability, naming the entity's CURRENT HA entity_id, e.g.
+     "capability media_player.media_player as local media_player.office;". The pre-deploy step
+     looks that entity_id up in HA's registry (read only), and writes the integration's own
+     platform and unique_id back into Physical.def as the capability's frozen id, replacing the
+     "local ..." -- from then on the native entity is identified by its real unique_id, like the
+     generator's own, and the registry repair renames it to its positioned entity_id from the very
+     first deploy (no matching by hand in the HA UI, no previous-manifest comparison by source).
+
 31. Code cleaning (dead code, superseded generator logic, parser)
+==> CHeck if node, temperature, etc, are acknowledged as axplicit "sub domains" in the code.
 ==> Start by checking the dead DSL constructs, and clean the assocuated code.
 - Rename the `homeassistant_instances/...` MQTT topic tree (bootstrap/bridge protocol,
   discoveryhassbridge.go) to `homeassistant.instances/...`, matching this project's own
@@ -673,13 +553,22 @@ on both houses before and after each removal -- see git history for the exact co
 - Still open, unrelated to the above: the `homeassistant_instances/...` topic rename and the
   `isCoordinatorOwnedTopic` legacy branch, both listed above.
 
+31a. Batteries: a date-based assumed charge percentage (plus a reset, e.g. when recharged or
+    replaced), with its own low-battery warning -- works much better for rechargeable batteries
+    than what the devices themselves report. Example: Junglinster's dining Philips dimmer has reported
+    ~1 % for six months while working fine (2026-10-23).
+
+31b. Maybe later: Sarah's bedroom cover rules (open/close from its door tap) "smart": slow speed
+    at night, normal speed otherwise.
+
+
 32. Architectural review, code review and documenting
    - Note (2026-09-05): GO_CONVENTIONS.md §7/§8 specifies a three-layer parser architecture
      (character stream -> tokeniser -> recursive-descent, CDL1 bool-returning style, no `error`
      returns from parse functions). The DSL frontend (Physical.def/Spaces.def parsing) does not
      follow this -- it's line-based `regexp.MustCompile`/`FindStringSubmatch` matching throughout,
      confirmed spanning at least 15 non-test files including the generic layer (`Physical_Parser.go`,
-     `layers.go`, `expander.go`), not just the per-integration parsers. Flagged by the user ahead of
+     `layers.go`, `expander.go`), not just the per-integration parsers. Flagged by Erik ahead of
      the code-review step above; expected to be remedied, but deliberately NOT attempted piecemeal
      inside unrelated feature work (e.g. the 2026-09-05 import-grammar unification, which
      stayed in the existing regexp style rather than migrating just the one file it touched) --
@@ -699,7 +588,7 @@ on both houses before and after each removal -- see git history for the exact co
      requirement/test case for whenever this pass actually happens, not just an aside.
    - Note (2026-10-05): audited both houses' Conceptual.def for any remaining "free floating"
      entity definitions (an `entity ...;` statement not positioned via a `device ... with: ...
-     end;` block) -- the user's own earlier complaint about the `switch.physical:heating_raw`/
+     end;` block) -- Erik's own earlier complaint about the `switch.physical:heating_raw`/
      `flipped` pair (since migrated away). Confirmed clean: Vienna has zero; Junglinster's only
      candidates (7 sites, e.g. `sensors.house_heating_power_meter as furnace`/
      `node.sonos_office_left`) turned out to be the ALREADY-FIXED "wrapped one-liner `device X
@@ -713,22 +602,13 @@ on both houses before and after each removal -- see git history for the exact co
      real character-stream/token-stream rewrite (gate the generic fallback to where the grammar
      actually allows it) rather than a point patch -- not fixed now, since this item's own pass is
      the right place for it, not a drive-by.
+   - Note (2026-10-22, Erik): keep the `entity <spec> from <domain>.<label>;` form usable when
+     cleaning the grammar. Item 16 makes it unnecessary in most lines (a capability named after
+     its entity's last path segment, or after its domain), but it stays for the cases where the
+     capability's name and the entity's path legitimately differ.
 
-33. Test if the meta call to reset HA's works.
 
-34. Check completeness of reported meta data
-
-35. (2026-09-24) Zigbee2MQTT liveness check: detect when a house's own Z2M bridge itself is down
-     (not just an individual device), and if so, bulk-mark every Z2M-sourced entity in that house
-     as unavailable, rather than leaving each one showing its own last-known (stale) state.
-
-36. Maybe introduce some macro mechanism to make standard derivations (like adjustments and battery levels easier and standardized)
-
-37. Check syntax and with/from logic
-
-38. RAW mqtt as integration; also see notes below on MQTT/JSON structures. So, a situation in which we have MQTT topics, but no discovery data. Then this integration needs to combine this into a discovery compliant topic structure. Sometimes easy to do based on topic and payload. But take the vacuum. If the composed state is represented as a different topics these need to be joint by the coordinator.
-
-39. FHEM/FS20 integration
+38. FHEM/FS20 integration
 
     Note (2026-09-22, architectural decision, not yet designed in detail): some integrations
     (FHEM is the motivating case) bridge devices that accept on/off commands but never report
@@ -760,6 +640,9 @@ on both houses before and after each removal -- see git history for the exact co
     shortcomings" -- one of two Logical.def situations (alongside (2), timing-based derivations)
     where the coordinator-vs-separate-component question is still genuinely open.
 
+39. RAW mqtt as integration; also see notes below on MQTT/JSON structures. So, a situation in which we have MQTT topics, but no discovery data. Then this integration needs to combine this into a discovery compliant topic structure. Sometimes easy to do based on topic and payload. But take the vacuum. If the composed state is represented as a different topics these need to be joint by the coordinator.
+Test with shellys?
+
 40. https://github.com/kaiplaketti/matter2mqtt
 
 41. Publish -- Architecture.md should be ready for others to read, alongside an up-to-date
@@ -782,7 +665,7 @@ on both houses before and after each removal -- see git history for the exact co
     "automation_reloaded" event `automation.reload` (called dead last in this same script) is
     supposed to emit -- never fired either time. Not confirmed whether `continue_on_error` is
     genuinely failing to reach the later steps, or whether automation.reload DID run and something
-    else is the reason our automations didn't see the event; parked per the user's own instruction,
+    else is the reason our automations didn't see the event; parked per Erik's own instruction,
     not investigated further this session. Worth checking specifically when this item is picked up.
 
     Third occurrence, 2026-09-22/23 (Junglinster, the `environment.weather` device's
@@ -819,15 +702,6 @@ on both houses before and after each removal -- see git history for the exact co
     128/1078/739/5287 respectively). Full test suite green throughout
     (TestGenerateInstanceAutomationTreesWritesMainAndRemoteTrees updated to assert the new plain-key
     shape instead of the old packages one).
-
-42. Future refinement (2026-09-20, not yet designed, long-run/end-of-list item -- deliberately
-    parked behind publishing): formulate automations themselves in a "conceptual style", akin to
-    SBVR (Semantics of Business Vocabulary and Rules) rules, rather than as HA's own
-    trigger/condition/action YAML trees. Genuinely speculative at this point -- no concrete syntax
-    or mechanism sketched yet, just the observation (prompted by the bj/moes/shortcut event-trigger
-    migration, 2026-09-20) that today's automations.yaml is still hand/generator-authored HA-native
-    shape, one layer less abstracted than the DSL's own physical/conceptual/logical layers already
-    are for entities.
 
 43. Future refinement (2026-08-23, not yet designed): replace the `.def` files with an integrated
     database representing the coordinator+transformer's actual current understanding of the
@@ -933,169 +807,3 @@ on both houses before and after each removal -- see git history for the exact co
     the way `registerExportedHassBridgeDevices`/`crossPostHassBridgeToCloud`
     (Conceptual_DeviceExportRegistration.go/discoveryhassbridge.go) already do for a hassbridge
     device -- not yet designed.
-
----------------
-# Raspberry Pi fleet storage migration strategy
-
-Covers: the storage medium decision for the Pi 3 fleet (2x Junglinster, 1x Vienna), the
-original Model B+ ("the old Pi 2"), and the specific plan for migrating `protocols-server-2`
-off its microSD + external SSD "bunny hop" onto a single USB flash stick.
-
-## 1. Storage medium decision (Pi 3 fleet)
-
-- **Chosen medium: the official Raspberry Pi USB flash drive** (128GB), one per board.
-- **Why not an SSD:** Pi 3B/3B+ only has USB 2.0, and on the 3B+ it's shared internally
-  with onboard Ethernet through one controller — realistic throughput tops out around
-  35–40MB/s regardless of what's attached. An SSD's main selling point (speed) is wasted;
-  it only adds cost, bulk, an enclosure/cable, and potential power-draw issues on the Pi's
-  modest 5V rail.
-- **Why not plain/cheap microSD:** weakest option for a server-type role — prone to
-  corruption from unclean power loss and wear from sustained small writes (logs, journal,
-  container state).
-- **Why the official RPi stick specifically:** genuinely USB 3.0 internally (wasted on a
-  Pi 3's USB2 port, but indicates a decent controller/NAND), advertises resilience to
-  power-loss events and SMART health reporting, and draws modest power — good fit for
-  boxes that are hard to reach physically (especially the Vienna unit).
-- A spare USB3 stick already on hand is a reasonable pilot/test unit before ordering the
-  fleet: a USB3-generation drive, even bottlenecked to USB2 speeds, generally still has a
-  meaningfully better controller/NAND than genuine USB2-era sticks, because small-file
-  random I/O (what actually matters for rootfs duty) is dominated by controller quality,
-  not the interface's rated sequential speed.
-- A short "does it boot and run" pilot confirms functionality, not long-term endurance —
-  wear-related failures typically only show up after months of sustained writes.
-
-## 2. USB-boot capability varies by board — check before assuming
-
-| Board | Native USB boot? | Notes |
-|---|---|---|
-| Pi 3B / 3B+ | Yes, via one-time OTP bit or EEPROM `BOOT_ORDER` | Confirmed already **enabled** on `protocols-server-2`. |
-| Pi 2 (v1.1, BCM2836) | No | Boot ROM predates USB-MSD boot support entirely. |
-| Pi 2 (v1.2, BCM2837) | Yes | Same silicon as Pi 3B — check via `cat /proc/cpuinfo` (`Hardware` line: BCM2836 vs BCM2837). |
-| Original Model B/B+, Pi Zero (BCM2835, ARMv6) | **No, ever** | No OTP/EEPROM workaround exists — boot ROM code simply doesn't support it. Confirmed this is what "the old Pi 2" actually is (`cat /proc/cpuinfo` → `Hardware: BCM2835`, `Model: Raspberry Pi Model B Plus Rev 1.2`, single core). |
-
-## 3. The old "Pi 2" is actually an original Model B+ — separate plan
-
-- **Role:** FS20 protocol experiments, running one radio. Light workload.
-- **OS:** Raspberry Pi OS — but must be the **Legacy, 32-bit** image, not the current
-  default. Fedora is not an option at all (Fedora's 32-bit ARM support always required
-  ARMv7+, excluding this ARMv6 chip from day one; Fedora dropped 32-bit ARM entirely after
-  Fedora 36, and the chip can't run 64-bit Fedora either since it's 32-bit-only silicon).
-  Mainline Raspberry Pi OS has also since narrowed to Zero W/2B onward, hence Legacy.
-- **Storage:** a regular flash stick for rootfs is fine for this workload.
-- **Permanent constraint:** this board can never boot purely from USB — a small SD card
-  carrying the boot partition (`bootcode.bin`/`start.elf`/kernel/`cmdline.txt` with
-  `root=` pointing at the stick) is required forever, not as a stepping stone. Same shape
-  of hybrid as `protocols-server-2`, but for a hardware reason rather than a device/
-  enclosure quirk.
-
-## 4. `protocols-server-2`: current setup and diagnosis
-
-**Current boot chain** (confirmed via `df` and `lsusb`):
-
-- microSD `mmcblk0p1` → EFI System Partition (`/boot/efi`, FAT)
-- microSD `mmcblk0p2` → `/boot` (kernel, initramfs, GRUB)
-- External 1TB Samsung Portable SSD T3 → root filesystem, inside LVM
-  (`/dev/mapper/systemVG-LVRoot`)
-
-This is a full **U-Boot → UEFI → GRUB** chain, not the traditional Raspberry Pi
-firmware-loads-kernel-directly process — meaning *all* boot-critical pieces (RPi
-firmware, U-Boot, ESP, `/boot`) currently live on the SD card; the SSD only ever holds
-root.
-
-**Diagnosis so far:**
-
-- USB boot mode is already enabled on this board.
-- The SSD previously had its own boot partition; it didn't work, and the space was
-  reclaimed for cache. This rules out "never attempted."
-- `lsusb -t` shows the SSD bound to `usb-storage`, **not** `uas` — rules out the common
-  UAS/boot-ROM-incompatibility explanation.
-- Remaining live hypotheses: stale EEPROM/bootloader firmware (fixable via
-  `rpi-eeprom-update`, needs a temporary Raspberry Pi OS boot since Fedora doesn't ship
-  the tool), or something specific to the SSD/enclosure's own power-up/init timing that a
-  bare flash stick simply won't exhibit.
-- **Actual data footprint is tiny:** ~31GB used (30G root + 644M `/boot` + 45M ESP) out of
-  929G — comfortably fits a 128GB stick with room to spare. Rules out a raw block-level
-  `dd` of the SSD (1TB source won't fit on a 128GB destination) — migration must be a
-  proper rebuild/copy, not a block clone.
-
-## 5. Migration plan for `protocols-server-2`
-
-**Update (2026-09-21, planned for this evening):** Step 1 below may end up unnecessary. EP is
-cloning frame@Vienna's already-validated Fedora-on-stick installation (its own stick migration,
-item 1b -- Vienna's frame previously had its HA-container role stripped off it entirely this same
-day, see Architecture.md 11.3) three times: one stays as frame@Vienna's own replacement stick, one
-becomes the base for Frame@Junglinster's Fedora migration (item 2), and one gets its hostname set to
-`protocols-server-2` tonight to serve as the starting point for *this* migration -- already a
-working, validated Fedora/UEFI/GRUB-on-stick image, so Step 1's own "build and validate a test
-stick from scratch" work is likely already done by the time this migration is picked up. What
-remains for this migration at that point: strip the picture-frame-specific pieces (X11/feh,
-`*_slideshow` scripts, `mqtt_commandline`) that came along from the clone, and transfer the actual
-`protocols-server-2`-specific state (its own local HA container + integrations -- Envoy, printer,
-Bermuda BLE cache -- see PROJECT.md's own Vienna/Junglinster protocols-server-2 distinction) from
-the current SSD-based install onto the stick, i.e. go straight to (an adapted) Step 2 onward.
-
-### Step 1 — Build and validate a test stick
-
-1. On a spare/other Pi 3, write a fresh Fedora image to a 128GB Raspberry Pi stick with
-   the full self-contained layout (ESP + `/boot` + LVM root all on the one device).
-2. Grow the root filesystem to fill the stick.
-3. Move that stick to `protocols-server-2`'s actual hardware. Remove the microSD **and**
-   the SSD entirely. Attempt to boot from the stick alone.
-
-This isolates the real question — can *this specific board* natively boot a bare USB
-stick — from anything about the existing SSD/enclosure. If it boots, the SSD's original
-problem was device-specific, and the EEPROM-update path can be skipped entirely.
-
-### Step 2 — Do **not** transplant the old root filesystem onto the stick
-
-Initially considered: boot back on the old microSD+SSD pair, mount the new stick, and
-`rsync -aAX` the SSD's root across (excluding `/etc/fstab`, `/boot`, `/boot/efi`).
-**Rejected in favour of the approach below** — a straight rootfs transplant risks kernel/
-initramfs version mismatches, stale BLS boot entries (keyed by machine-id + kernel
-version), and GRUB/UUID references tied to the old device layout — all fixable, but fiddly
-and easy to get subtly wrong.
-
-### Step 3 — Selective migration onto the clean, already-tested install (preferred)
-
-Keep the stick's own working OS/boot layer untouched. Boot the old pair, mount the stick's
-root partition only (not its `/boot`/`/boot/efi`), and copy across just the things that
-are actually stateful/customised:
-
-- [ ] Hostname
-- [ ] Go toolchain (if manually installed, e.g. `/usr/local/go`)
-- [ ] Podman/Quadlet unit files (`/etc/containers/systemd/` or equivalent)
-- [ ] Container **persistent data**, not just the unit files (e.g.
-      `/var/lib/home-automation/zigbee` — the zigbee2mqtt config/state/database)
-- [ ] crontab / systemd timers (`/var/spool/cron/*`, `/etc/cron.d/*`)
-- [ ] Network configuration — static IP / NetworkManager profiles (check **before** the
-      swap; a fresh image defaulting to DHCP on a box you can't easily reach is the
-      classic way this goes wrong)
-- [ ] udev rules (`/etc/udev/rules.d/` — e.g. the stable `/dev/zigbee`-style symlink used
-      by the container's device passthrough)
-- [ ] SSH host keys (`/etc/ssh/ssh_host_*_key*`) — judgement call: keep for continuity, or
-      let it regenerate and clear the resulting `known_hosts` warnings elsewhere
-- [ ] `/etc/systemd/system/*.d/` overrides, `sysctl.d` tuning
-- [ ] **firewalld** — check `firewall-cmd --list-all-zones` on the old box for open
-      ports/services (MQTT, zigbee2mqtt frontend, etc.), then re-apply the equivalent
-      `firewall-cmd --permanent --add-port=...` / `--add-service=...` commands on the new
-      system rather than copying `/etc/firewalld/zones/*.xml` directly — zones can be
-      bound to a specific interface name, which may differ on the new install and cause
-      the copied rule to silently do nothing
-- [ ] SELinux customisations, if any
-- [ ] Any additional local users/groups and their `authorized_keys`
-
-**Finding what's actually been customised**, rather than relying on memory:
-
-```bash
-rpm -Va                                   # files differing from package defaults
-find /etc -newer /etc/os-release -type f  # rough view of what's been touched since install
-```
-
-Neither is exhaustive, but together they're a useful cross-check against the list above.
-
-### Step 4 — Cut over
-
-Once the checklist items are copied and verified, boot `protocols-server-2` from the
-stick alone. Keep the old microSD + SSD pair as a fallback until the new setup has proven
-itself in normal operation for a while.
-</content>

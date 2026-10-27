@@ -90,7 +90,7 @@ func TestGenerateInstanceAutomationTreesWritesMainAndRemoteTrees(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected protocols-server-2's per-entity reporting automation to be written: %v", err)
 	}
-	if !strings.Contains(string(remoteReporting), `alias: "reporting/sensor/infrastructural/laserjet/status"`) {
+	if !strings.Contains(string(remoteReporting), `alias: "infrastructural/laserjet/status/sensor/reporting"`) {
 		t.Errorf("reporting automation = %q, want the slash-joined alias", remoteReporting)
 	}
 	if !strings.Contains(string(remoteReporting), "sensor.hewlett_packard_hp_laserjet_professional_p1102w") {

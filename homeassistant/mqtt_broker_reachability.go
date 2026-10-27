@@ -32,6 +32,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -66,4 +67,29 @@ func markBrokerUnreachable(secrets TMQTTBrokerSecrets, err error) {
 	brokerReachabilityMu.Lock()
 	defer brokerReachabilityMu.Unlock()
 	brokerUnreachableErrs[brokerKey(secrets)] = err
+}
+
+// localBrokerInstallationTopic is where every coordinator tells, retained on its own local broker,
+// which installation that broker belongs to (house_event_bus_coordinator/main.go).
+const localBrokerInstallationTopic = "coordinator/installation"
+
+// verifyLocalBrokerInstallation checks, once per run, that the house's own broker -- reached by
+// host name, which both houses share (protocols-server-1.fritz.box) -- is really this house's:
+// generated from the other house's network, that name reaches THAT house's broker (found live
+// 2026-10-26: generating Junglinster from Vienna fetched Vienna's device metadata). If its
+// coordinator says another installation, the broker counts as unreachable for this run, so every
+// fetch falls back to the cloud broker or its cache instead of taking another house's data. A
+// broker whose coordinator doesn't tell yet passes.
+func verifyLocalBrokerInstallation(ctx TPhysicalGenerationContext) {
+	if !ctx.HasMQTTSecrets || ctx.Installation == "" {
+		return
+	}
+	payload, err := fetchRetained(ctx.MQTTSecrets, localBrokerInstallationTopic, "homeassistant-generator-installation-check")
+	if err != nil {
+		return
+	}
+	if owner := strings.TrimSpace(string(payload)); owner != "" && owner != ctx.Installation {
+		markBrokerUnreachable(ctx.MQTTSecrets, fmt.Errorf("%s:%s is %s's broker, not %s's (this Mac is on another house's network)", ctx.MQTTSecrets.Server, ctx.MQTTSecrets.Port, owner, ctx.Installation))
+		fmt.Printf("[physical] local broker %s:%s belongs to %s, not %s -- using the cloud broker and caches instead\n", ctx.MQTTSecrets.Server, ctx.MQTTSecrets.Port, owner, ctx.Installation)
+	}
 }

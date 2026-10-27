@@ -480,3 +480,69 @@ end;`
 		t.Errorf("Actions[1] = %+v, want turn-off switch.social/space", rule.Actions[1])
 	}
 }
+
+// TestDimAndBrightenActionsRenderAsTurnOnWithBrightnessStep confirms "dim ... with <N>%;" /
+// "brighten ... with <N>%;" are parsed as a "turn ... on" with a signed, bounded step (2026-10-15;
+// bounded 2026-10-23): rendered as a brightness_pct computed from the light's own brightness,
+// never below dimBrightnessFloorPct and never above 100 -- so dimming never switches a light off.
+func TestDimAndBrightenActionsRenderAsTurnOnWithBrightnessStep(t *testing.T) {
+	const dsl = `space social:wc as area with:
+  entity light.social:main;
+
+  rule social:x with:
+    when every minute
+    then:
+      dim light.social:main with 10%;
+      brighten light.social:main with 15%;
+    end;
+  end;
+end;`
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", nil, &report, nil, nil, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if len(result.Administration.Rules) != 1 {
+		t.Fatalf("got %d Rules, want 1", len(result.Administration.Rules))
+	}
+	rule := result.Administration.Rules[0]
+	if len(rule.Actions) != 2 {
+		t.Fatalf("got %d Actions, want 2: %+v", len(rule.Actions), rule.Actions)
+	}
+	if rule.Actions[0].Verb != "turn" || rule.Actions[0].State != "on" || len(rule.Actions[0].Data) != 1 || rule.Actions[0].Data[0].Name != brightnessBoundedStepField || rule.Actions[0].Data[0].Value != "-10" {
+		t.Errorf("Actions[0] = %+v, want turn-on with a bounded step of -10", rule.Actions[0])
+	}
+	if rule.Actions[1].Verb != "turn" || rule.Actions[1].State != "on" || len(rule.Actions[1].Data) != 1 || rule.Actions[1].Data[0].Name != brightnessBoundedStepField || rule.Actions[1].Data[0].Value != "15" {
+		t.Errorf("Actions[1] = %+v, want turn-on with a bounded step of 15", rule.Actions[1])
+	}
+	var sb strings.Builder
+	renderRuleActionYAML(&sb, "  ", rule.Actions[0])
+	want := "brightness_pct: \"{{ [[((state_attr('light.social_wc_main', 'brightness') or 0) / 2.55) | round | int + (-10), 5] | max, 100] | min }}\"\n"
+	if !strings.Contains(sb.String(), want) || strings.Contains(sb.String(), "brightness_step_pct") {
+		t.Errorf("rendered dim action:\n%s\nwant it to contain %q", sb.String(), want)
+	}
+}
+
+// TestDefaultBrightnessDataFieldSugar confirms "with [default] brightness <N>%;" is sugar for
+// "with brightness_pct <N>;" (2026-10-15) -- "default" and "%" are both optional and cosmetic.
+func TestDefaultBrightnessDataFieldSugar(t *testing.T) {
+	const dsl = `space social:wc as area with:
+  entity light.social:main;
+
+  rule social:x with:
+    when every minute
+    then turn light.social:main on with default brightness 70%;
+  end;
+end;`
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", nil, &report, nil, nil, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	rule := result.Administration.Rules[0]
+	if len(rule.Actions) != 1 || len(rule.Actions[0].Data) != 1 || rule.Actions[0].Data[0].Name != "brightness_pct" || rule.Actions[0].Data[0].Value != "70" {
+		t.Fatalf("Actions = %+v, want one turn-on with brightness_pct 70", rule.Actions)
+	}
+}

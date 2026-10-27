@@ -38,7 +38,7 @@ import (
 
 // fullyQualifiedEntitySegments returns identity's Domain, Sphere, and each "/"-split Path segment,
 // in order -- the one lossless source both fullyQualifiedEntityNameUnderscored (filenames) and
-// fullyQualifiedEntityNameSlashed (HA automation aliases) are built from. Reconstructing this from
+// entityAliasBase (HA automation aliases) are built from. Reconstructing this from
 // an already-flattened HA entity_id (toHomeAssistantEntityID's underscore-joined object_id) isn't
 // possible -- segment boundaries and underscores that were already part of a segment's own name
 // (e.g. "wi_fi_strength") become indistinguishable once joined, so this must be built from the
@@ -61,12 +61,12 @@ func fullyQualifiedEntityNameUnderscored(identity TEntityIdentity) string {
 	return strings.Join(fullyQualifiedEntitySegments(identity), "_")
 }
 
-// fullyQualifiedEntityNameSlashed is the HA-friendly-name form, e.g.
-// "sensor/infrastructural/netatmo/co2" -- used as the generated automation's own alias: (HA's own
-// notion of "friendly name" -- confirmed with the user 2026-08-28 this is what PROJECT.md 1.1
-// means by "friendly name", not an MQTT topic segment).
-func fullyQualifiedEntityNameSlashed(identity TEntityIdentity) string {
-	return strings.Join(fullyQualifiedEntitySegments(identity), "/")
+// entityAliasBase is the "<sphere>/<path>/<domain>" stem of a bridge automation's alias, e.g.
+// "infrastructural/netatmo/co2/sensor": the order of the generated friendly names (PROJECT.md 17e,
+// 2026-10-26), so these automations sort with the entities they serve.
+func entityAliasBase(identity TEntityIdentity) string {
+	segments := fullyQualifiedEntitySegments(identity)
+	return strings.Join(append(segments[1:], segments[0]), "/")
 }
 
 // entityReportingAutomationBody is the "report this one entity's state" automation: fires at HA
@@ -97,7 +97,7 @@ func fullyQualifiedEntityNameSlashed(identity TEntityIdentity) string {
 // though functionally harmless, so this avoids it outright rather than living with it.
 func entityReportingAutomationBody(identity TEntityIdentity, bareTriggerEntities []string, topic, payloadExpr, aliasSuffix string) string {
 	var sb strings.Builder
-	sb.WriteString("- alias: \"reporting/" + fullyQualifiedEntityNameSlashed(identity) + aliasSuffix + "\"\n")
+	sb.WriteString("- alias: \"" + entityAliasBase(identity) + "/reporting" + aliasSuffix + "\"\n")
 	sb.WriteString("  trigger:\n")
 	sb.WriteString("  - platform: state\n")
 	sb.WriteString("    entity_id:\n")

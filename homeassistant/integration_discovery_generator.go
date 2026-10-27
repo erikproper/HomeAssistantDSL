@@ -105,6 +105,15 @@ func generateDiscoveryIntegrationOutputs(bodyLines []string, ctx TPhysicalGenera
 			if link.StableID != "" {
 				sb.WriteString("    stable_id: " + link.StableID + "\n")
 			}
+			if _, viaYAML := ctx.Admin.YAMLEntities[id]; viaYAML {
+				sb.WriteString("    yaml: true\n")
+			}
+			// The entity's conceptual name, for the relayed discovery config's "name": Home
+			// Assistant's UI shows the entity by it, not by the customized friendly_name (PROJECT.md
+			// 17h, 2026-10-26).
+			if identity, found := entityIdentityByID(ctx.Admin, id); found && identity.Sphere != "" {
+				sb.WriteString("    name: \"" + friendlyEntityName(identity) + "\"\n")
+			}
 			if link.SourceDomain != "" {
 				sb.WriteString("    source_domain: " + link.SourceDomain + "\n")
 			}

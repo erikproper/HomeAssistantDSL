@@ -12,9 +12,12 @@ tokens, or passwords are included anywhere below.
 Host *
   HostKeyAlgorithms=+ssh-rsa
 
-Host junglinster.homelinux.org
+Host junglinster.homelinux.org vienna.homelinux.org
   ProxyJump erikp@mqtt.erikproper.eu:80
 ```
+
+(2026-10-22: this Mac had no `~/.ssh/config` at all; recreated as above, with Vienna added -- the
+airport WiFi blocked both houses' SSH ports.)
 
 The `ProxyJump` block is flagged **TEMPORARY** by its own comment (added 2026-09-25, to route
 around a restrictive WiFi that blocked Junglinster's non-standard SSH ports but allowed outbound

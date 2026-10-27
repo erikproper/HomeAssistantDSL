@@ -11,8 +11,9 @@ Built 2026-08-20, deployed and confirmed live 2026-08-21/22.
 
 **Junglinster — done, running in production.** `Junglinster/deploy` (renamed from `update`)
 rsyncs `hass/junglinster/`, `Integrations/cpu/`, `Integrations/ping/`, and
-`~/go/src/homeassistant` + `Integrations/coordinator/` through the two-hop relay (operator's
-laptop → xanadu → protocols-server-1, `ssh -p 1969`/`1970`), landing `coordinator/devices.yaml` +
+`~/go/src/homeassistant` + `Integrations/coordinator/` to protocols-server-1 (`ssh -p 1970`,
+which since 2026-10-26 also distributes `Integrations/cpu/` to the other hosts -- xanadu, port
+1969, did that until it became off by default), landing `coordinator/devices.yaml` +
 `secrets.yaml` alongside `Integrations/coordinator/`'s `coordinator.service` +
 `deploy.coordinator` on protocols-server-1. `deploy.coordinator` runs locally there: `go build`s
 the coordinator, installs the binary to `/usr/local/bin` (not the source checkout under `$HOME` —

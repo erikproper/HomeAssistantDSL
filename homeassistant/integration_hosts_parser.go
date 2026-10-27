@@ -48,6 +48,7 @@ func parseHostsIntegrationBody(bodyLines []string) ([]THostDevice, []string) {
 	constantAttributePattern := regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*):\s*"([^"]*)"(?:\s+(forced))?\s*;\s*$`)
 
 	inDeviceCapabilities := false
+	viaYAML := false
 	var current THostDevice
 
 	for lineIdx, rawLine := range bodyLines {
@@ -84,6 +85,10 @@ func parseHostsIntegrationBody(bodyLines []string) ([]THostDevice, []string) {
 			continue
 		}
 
+		if line == "entities via yaml;" {
+			viaYAML = true
+			continue
+		}
 		strippedLine, cloud, selfImport := parseRoutingKeywords(line)
 
 		if matches := withDevicePattern.FindStringSubmatch(strippedLine); matches != nil {
@@ -106,5 +111,8 @@ func parseHostsIntegrationBody(bodyLines []string) ([]THostDevice, []string) {
 		warnings = append(warnings, fmt.Sprintf("Physical.def: unrecognised line in \"integration hosts\" block (body line %d): %q", lineIdx+1, line))
 	}
 
+	for i := range devices {
+		devices[i].EntitiesViaYAML = viaYAML
+	}
 	return devices, warnings
 }

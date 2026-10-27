@@ -49,9 +49,9 @@ func TestOpenSpaceAreaNameStripsSphereColonPrefix(t *testing.T) {
 	admin.OpenSpace("space", "social:kitchen", true)
 
 	got := admin.CurrentArea()
-	want := "social/house/kitchen"
+	want := "house/kitchen" // no sphere prefix (2026-10-26) and no embedded "social:" colon-prefix
 	if got != want {
-		t.Errorf("CurrentArea() = %q, want %q (no embedded \"social:\" colon-prefix left over)", got, want)
+		t.Errorf("CurrentArea() = %q, want %q (no sphere, no embedded \"social:\" colon-prefix left over)", got, want)
 	}
 }
 

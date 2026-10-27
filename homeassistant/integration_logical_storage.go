@@ -161,6 +161,19 @@ type TLogicalDevice struct {
 	// applyColocatedPositioning (device_friendly_name.go) resolves this, generator-side, once
 	// Conceptual.def parsing completes; see that function's own doc comment for the full mechanics.
 	Colocated []TLogicalColocatedFact
+	// EnabledBy (PROJECT.md 17k, 2026-10-26) is the device's "enabled by ...;" fact, nil if it has
+	// none -- see applyEnabledBy (logical_enabled_by.go).
+	EnabledBy *TLogicalEnabledByFact
+}
+
+// TLogicalEnabledByFact is one "enabled by <domain>.<label> from <device-id> [as <id>] [with
+// delay_off <time>];" line: the device is powered by that device's <label> switch.
+type TLogicalEnabledByFact struct {
+	Domain     string // the enabling capability's domain (e.g. "switch")
+	Label      string // the enabling capability's label on DeviceID (e.g. "switch")
+	DeviceID   string // the enabling device (e.g. "switch.house_server_room_xanadu")
+	AssignedID string // the implied node's frozen unique_id, "" until the generator assigns one
+	DelayOff   string // the implied node's delay_off, "" for none
 }
 
 // TLogicalColocatedFact is one "colocated <device-id> as <leaf>;" line -- see

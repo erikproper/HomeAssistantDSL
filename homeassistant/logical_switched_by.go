@@ -79,17 +79,17 @@ import (
 // "light.physical/switches.zwave_048/2") -- required by generateSwitchedDeviceEntities
 // (generator.go), which parses this via extractEntityIdentity to build the helper group's own name;
 // a plain sanitised entity_id would not survive that round-trip (no colon/slash left to split on).
-func resolveSwitchedByEndpoint(administration *TAdministrationState, deviceID, label, domain string, finalAttempt bool, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, hostDevicesByID map[string]THostDevice, localDevicesByID map[string]TLocalDevice, provenance string) (fullName string, ok bool) {
+func resolveSwitchedByEndpoint(administration *TAdministrationState, deviceID, label, domain, role string, finalAttempt bool, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, hostDevicesByID map[string]THostDevice, localDevicesByID map[string]TLocalDevice, provenance string) (fullName string, ok bool) {
 	if existing, found := administration.ConceptualUseBySource[deviceID+"!"+label]; found {
 		return existing.EntityName, true
 	}
 	if !finalAttempt {
 		return "", false
 	}
-	if _, materialized := autoMaterializePhysicalCapability(administration, deviceID, label, discoveryGatewaysByID, hassBridgeDevicesByID, hostDevicesByID, localDevicesByID, provenance); !materialized {
+	if _, materialized := autoMaterializePhysicalCapability(administration, deviceID, label, role, TEntityIdentity{}, discoveryGatewaysByID, hassBridgeDevicesByID, hostDevicesByID, localDevicesByID, provenance); !materialized {
 		return "", false
 	}
-	return autoMaterializedFullName(domain, TEntityIdentity{Sphere: "physical", Path: deviceID}, label), true
+	return autoMaterializedFullName(coercedDomain(domain, role), domain, TEntityIdentity{Sphere: "physical", Path: deviceID}, label), true
 }
 
 // switchedBySuppressesEntity reports whether decl's own capability (already resolved to bareName)
@@ -186,14 +186,14 @@ func maybeRegisterSwitchedByRelation(administration *TAdministrationState, decl 
 	// already exists to prevent, just for a different pair of legitimate dual uses.
 	administration.RegisterDiscoveryImpliedEntity(administration.CurrentSpaceName(), fullName, provenance, decl.DeviceID+"!"+bareName+"!selfentity", decl.NoCollect)
 
-	deviceFullName, deviceOK := resolveSwitchedByEndpoint(administration, decl.DeviceID, bareName, fact.OwnDomain, finalAttempt, discoveryGatewaysByID, hassBridgeDevicesByID, hostDevicesByID, localDevicesByID, provenance)
+	deviceFullName, deviceOK := resolveSwitchedByEndpoint(administration, decl.DeviceID, bareName, fact.OwnDomain, "", finalAttempt, discoveryGatewaysByID, hassBridgeDevicesByID, hostDevicesByID, localDevicesByID, provenance)
 	if !deviceOK {
 		if !finalAttempt {
 			return nil, true
 		}
 		return []string{fmt.Sprintf("%s: %q's own %q capability could not be materialized at the physical layer for \"is switched by\" (declare it in Physical.def first)", provenance, decl.DeviceID, bareName)}, true
 	}
-	mainFullName, mainOK := resolveSwitchedByEndpoint(administration, fact.SourceDeviceID, fact.SourceLabel, fact.SourceDomain, finalAttempt, discoveryGatewaysByID, hassBridgeDevicesByID, hostDevicesByID, localDevicesByID, provenance)
+	mainFullName, mainOK := resolveSwitchedByEndpoint(administration, fact.SourceDeviceID, fact.SourceLabel, fact.SourceDomain, fact.OwnDomain, finalAttempt, discoveryGatewaysByID, hassBridgeDevicesByID, hostDevicesByID, localDevicesByID, provenance)
 	if !mainOK {
 		if !finalAttempt {
 			return nil, true
@@ -203,6 +203,7 @@ func maybeRegisterSwitchedByRelation(administration *TAdministrationState, decl 
 
 	administration.SwitchedDeviceRelations = append(administration.SwitchedDeviceRelations, TSwitchedDeviceRelation{
 		SpaceName:  administration.CurrentSpaceName(),
+		DeviceID:   decl.DeviceID,
 		SelfEntity: fullName,
 		Device:     deviceFullName,
 		MainEntity: mainFullName,

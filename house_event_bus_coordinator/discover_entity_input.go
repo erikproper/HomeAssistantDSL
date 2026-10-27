@@ -64,12 +64,11 @@ func publishDiscoverEntityInput(client mqtt.Client, conceptualPrefix, installati
 	topic := discoveryTopic(conceptualPrefix, "text", discoverEntityStableID)
 	body := map[string]interface{}{
 		"unique_id": discoverEntityStableID,
-		// object_id pins the entity_id itself (text.meta_discover_entity) independent of "name" --
-		// HA would otherwise slugify "name" into the entity_id, which previously left this at
-		// text.discover_entity (no "meta_" prefix) even though every other meta control's own
-		// entity_id already carries it.
-		"object_id":       discoverEntityStableID,
-		"name":            "meta/discover_entity",
+		// object_id pins the entity_id itself (text.infrastructural_discover_entity, PROJECT.md
+		// item 18 -- the unique_id keeps its "meta_" root) independent of "name" -- HA would
+		// otherwise slugify "name" into the entity_id.
+		"object_id":       "infrastructural_discover_entity",
+		"name":            "infrastructural/discover_entity",
 		"icon":            "mdi:text-search",
 		"command_topic":   discoverEntityCommandTopic(),
 		"optimistic":      true,
@@ -164,7 +163,7 @@ func subscribeDiscoverEntityRequests(client mqtt.Client, tracker *TEntityExisten
 		}
 	}
 	topic := discoverEntityCommandTopic()
-	token := client.Subscribe(topic, 0, handler)
+	token := subscribe(client, topic, 0, handler)
 	if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
 		if err := token.Error(); err != nil {
 			return fmt.Errorf("subscribing to %s: %w", topic, err)

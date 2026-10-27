@@ -281,16 +281,11 @@ func deviceDisplayName(spaceName, path string) string {
 }
 
 // spaceAreaDisplayName is deviceDisplayName's own counterpart for a "space <spec> as area with:"
-// block's HA Area name (OpenSpace, administration.go) -- unlike a device, a SPACE's own sphere is
-// real, meaningful location semantics (almost always "social" for an "as area" space), so it keeps
-// prefixing sphere when non-"infrastructural", exactly as deviceDisplayName itself used to before
-// the user's 2026-09-24 clarification that devices (unlike spaces) don't have a sphere of their own.
+// block's HA Area name (OpenSpace, administration.go): the space's position path, never prefixed
+// with its sphere (2026-10-26, Erik: "unlike the friendly name of entities, areas should not be
+// prefixed with the sphere") -- "house/office", "house/laundry_kitchen/rack", "cloud".
 func spaceAreaDisplayName(spaceName, sphere, path string) string {
-	suffix := deviceDisplayName(spaceName, path)
-	if sphere == "infrastructural" {
-		return suffix
-	}
-	return sphere + "/" + suffix
+	return deviceDisplayName(spaceName, path)
 }
 
 // registerHostAttributeEntity registers one named attribute (e.g. "cpu/load", full "<group>/<leaf>"

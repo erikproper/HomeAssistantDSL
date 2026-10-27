@@ -30,8 +30,11 @@ func TestPublishMetaReloadRestartButtonsPublishesEveryScope(t *testing.T) {
 		if body["command_topic"] != "meta/reload/main/request" {
 			t.Errorf("command_topic = %v, want %q", body["command_topic"], "meta/reload/main/request")
 		}
-		if body["name"] != "meta/reload/main" {
-			t.Errorf("name = %v, want %q", body["name"], "meta/reload/main")
+		if body["name"] != "infrastructural/reload/main" {
+			t.Errorf("name = %v, want %q", body["name"], "infrastructural/reload/main")
+		}
+		if body["unique_id"] != "meta_reload_main" || body["object_id"] != "infrastructural_reload_main" {
+			t.Errorf("unique_id/object_id = %v/%v, want the unchanged meta_reload_main and infrastructural_reload_main", body["unique_id"], body["object_id"])
 		}
 	}
 	if !found {

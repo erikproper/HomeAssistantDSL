@@ -319,43 +319,23 @@ func (p *TRuleParser) EntityAnchoredClause(trigger *TRuleTrigger) bool {
 			p.ReportParsingError("expected \"turns\", \"changes\", or \"is\"") && p.Fail())) {
 		return false
 	}
-	return resolveNamedTriggerReference(trigger, p)
+	resolveNamedTriggerReference(trigger)
+	return true
 }
 
-// resolveNamedTriggerReference reinterprets a "trigger.<sphere>:<path> is triggered" clause
-// (2026-10-15, superseding the earlier "[a] <sphere>:<path> is triggered" form) -- EntityRef
-// above already parses "trigger.social:main/light/toggle_request" as an ordinary entity-ref
-// (domain "trigger"), and EventClause already parses "is triggered" as an ordinary event-type
-// match, so no separate grammar branch is needed at all: this just notices the domain was
-// "trigger" and swaps Kind "event"/EntitySpec for "named_trigger"/Name, naming a device-level
-// "trigger <name> when ...;" declaration (Conceptual_NamedTriggerEntities.go) rather than a real
-// HA entity -- see TAdministrationState.NamedTriggers' own doc comment (administration.go). The
-// "trigger." prefix deliberately echoes "trigger.<attr>" (ConditionTemplateClause's own template
-// condition against the firing trigger's context) -- conceptually the same idea, just at a
-// different level: a named trigger IS a derived trigger, built from the conjunction of every
-// device's own "trigger <name> when ...;" declaration for that name.
-func resolveNamedTriggerReference(trigger *TRuleTrigger, p *TRuleParser) bool {
-	// "event.<name> is raised" (2026-10-22) is the same reference in the notation matching the
-	// declaration "aggregated event.<name> is raised when ...;" (Conceptual_NamedTriggerEntities.go).
+// resolveNamedTriggerReference reinterprets "event.<name> is raised" (PROJECT.md item 49) as a
+// reference to a request: an event a Logical.def device derives ("derived capability event.<label>
+// ... with condition ...;"), positioned in Conceptual.def under <name> -- see
+// TAdministrationState.NamedTriggers' own doc comment (administration.go). EntityRef and
+// EventClause already parse it as an ordinary event-type match; this only swaps Kind "event"/
+// EntitySpec for "named_trigger"/Name.
+func resolveNamedTriggerReference(trigger *TRuleTrigger) {
 	if name, isEvent := strings.CutPrefix(trigger.EntitySpec, "event."); isEvent && trigger.Kind == "event" && trigger.EventType == "raised" {
 		trigger.Kind = "named_trigger"
 		trigger.EntitySpec = ""
 		trigger.EventType = ""
 		trigger.Name = name
-		return true
 	}
-	name, ok := strings.CutPrefix(trigger.EntitySpec, "trigger.")
-	if !ok {
-		return true
-	}
-	if trigger.Kind != "event" || trigger.EventType != "triggered" {
-		return p.ReportParsingError("a named trigger reference must read \"trigger.<name> is triggered\"") && p.Fail()
-	}
-	trigger.Kind = "named_trigger"
-	trigger.EntitySpec = ""
-	trigger.EventType = ""
-	trigger.Name = name
-	return true
 }
 
 // StateClause parses "turns <state> [for <duration>]" into *trigger (Kind "state"). <state> is
@@ -630,8 +610,10 @@ func (p *TRuleParser) BrightenAction(action *TRuleAction) bool {
 }
 
 // brightnessStepAction is DimAction/BrightenAction's shared body -- verb is "dim"/"brighten",
-// sign is -1/1. Produces an ordinary Verb "turn"/State "on" action with one "brightness_step_pct"
-// Data field, so generator.go's existing "turn" rendering needs no changes at all for this sugar.
+// sign is -1/1. Produces an ordinary Verb "turn"/State "on" action with one
+// brightnessBoundedStepField Data field: a step that never takes the light below
+// dimBrightnessFloorPct (so dimming never switches it off) or above 100% -- rendered by
+// generator.go from the light's own current brightness (2026-10-23).
 func (p *TRuleParser) brightnessStepAction(action *TRuleAction, verb string, sign int) bool {
 	if !p.ThisWordWas(verb) {
 		return false
@@ -650,7 +632,7 @@ func (p *TRuleParser) brightnessStepAction(action *TRuleAction, verb string, sig
 	if err != nil {
 		return p.ReportParsingError("expected a plain number, got %q", magnitude) && p.Fail()
 	}
-	action.Data = append(action.Data, TRuleDataField{Name: "brightness_step_pct", Value: strconv.Itoa(sign * n)})
+	action.Data = append(action.Data, TRuleDataField{Name: brightnessBoundedStepField, Value: strconv.Itoa(sign * n)})
 	return p.ForcedThisPunctuationWas(';')
 }
 
@@ -754,3 +736,10 @@ func (p *TRuleParser) IfActionHeader(action *TRuleAction) bool {
 		p.ForcedThisWordWas("is") &&
 		p.ForcedThisWord(&action.CondState)
 }
+
+// brightnessBoundedStepField is the Data field "dim"/"brighten" record their signed step in
+// (brightnessStepAction); dimBrightnessFloorPct is the lowest brightness either ever sets.
+const (
+	brightnessBoundedStepField = "brightness_bounded_step_pct"
+	dimBrightnessFloorPct      = 5
+)

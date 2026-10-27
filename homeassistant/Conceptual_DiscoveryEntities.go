@@ -203,7 +203,7 @@ func registerDiscoveryDerivedFromRawLeafEntityLink(administration *TAdministrati
 
 // registerDiscoveryAvailabilityEntityLink resolves an "<domain>.<label>: <sibling> is available;"
 // capability (capability.AvailabilityOf names a sibling capability of the SAME gateway device) into
-// a plain condition-based entity -- "$1 not in ['unavailable', 'unknown']" over whatever entity_id
+// a plain condition-based entity -- "$1 != 'unavailable'" over whatever entity_id
 // the sibling capability itself resolved to, exactly the same shape "condition <source> is
 // available;" (expander.go's own sugar) already produces for a hand-written Macros.def condition.
 //

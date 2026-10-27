@@ -10,7 +10,7 @@ import (
 // "core" label produces no trailing segment at all, matching what an explicit "entity ...: from
 // core;" positioning would already omit elsewhere.
 func TestAutoMaterializedFullNameOmitsCore(t *testing.T) {
-	got := autoMaterializedFullName("light", TEntityIdentity{Sphere: "physical", Path: "sensors.server_room_main_spots"}, "core")
+	got := autoMaterializedFullName("light", "light", TEntityIdentity{Sphere: "physical", Path: "sensors.server_room_main_spots"}, "core")
 	want := "light.physical/sensors.server_room_main_spots"
 	if got != want {
 		t.Errorf("autoMaterializedFullName(...) = %q, want %q", got, want)
@@ -21,7 +21,7 @@ func TestAutoMaterializedFullNameOmitsCore(t *testing.T) {
 // (2026-09-27): a label whose own leading word duplicates the domain (e.g. "light_2" under domain
 // "light") shortens to just the remainder.
 func TestAutoMaterializedFullNameShortensDomainMatchingTail(t *testing.T) {
-	got := autoMaterializedFullName("light", TEntityIdentity{Sphere: "physical", Path: "switches.zwave_048"}, "light_2")
+	got := autoMaterializedFullName("light", "light", TEntityIdentity{Sphere: "physical", Path: "switches.zwave_048"}, "light_2")
 	want := "light.physical/switches.zwave_048/2"
 	if got != want {
 		t.Errorf("autoMaterializedFullName(...) = %q, want %q", got, want)
@@ -32,7 +32,7 @@ func TestAutoMaterializedFullNameShortensDomainMatchingTail(t *testing.T) {
 // relationship to the domain is kept verbatim (e.g. node 67's own "core_2"/"carport"-style labels
 // that don't happen to start with the domain word).
 func TestAutoMaterializedFullNameKeepsUnrelatedLabel(t *testing.T) {
-	got := autoMaterializedFullName("light", TEntityIdentity{Sphere: "physical", Path: "switches.zwave_067"}, "core_2")
+	got := autoMaterializedFullName("light", "light", TEntityIdentity{Sphere: "physical", Path: "switches.zwave_067"}, "core_2")
 	want := "light.physical/switches.zwave_067/core_2"
 	if got != want {
 		t.Errorf("autoMaterializedFullName(...) = %q, want %q", got, want)
@@ -498,5 +498,38 @@ end;`
 	}
 	if len(result.Administration.SwitchedDeviceRelations) != 0 {
 		t.Errorf("expected no SwitchedDeviceRelations for a device with no \"is switched by\" fact, got %v", result.Administration.SwitchedDeviceRelations)
+	}
+}
+
+// TestSwitchCoercedIntoLight: a "switch" capability switching a light gets the light role, and its
+// own "switch_" label prefix is still shortened -- the name is the one a "light_2" label gave.
+func TestSwitchCoercedIntoLight(t *testing.T) {
+	if got := coercedDomain("switch", "light"); got != "light" {
+		t.Errorf("coercedDomain(switch, light) = %q", got)
+	}
+	if got := coercedDomain("switch", "climate"); got != "switch" {
+		t.Errorf("coercedDomain(switch, climate) = %q, want switch (no such role)", got)
+	}
+	if got := coercedDomain("sensor", "light"); got != "sensor" {
+		t.Errorf("coercedDomain(sensor, light) = %q, want sensor (only a switch is coerced)", got)
+	}
+	got := autoMaterializedFullName(coercedDomain("switch", "light"), "switch", TEntityIdentity{Sphere: "physical", Path: "switches.zwave_048"}, "switch_2")
+	if want := "light.physical/switches.zwave_048/2"; got != want {
+		t.Errorf("autoMaterializedFullName(...) = %q, want %q", got, want)
+	}
+}
+
+// TestDomainNamedCapability: "from DD" with DD the entity's own domain means DD.DD; any other bare
+// capability stays bare.
+func TestDomainNamedCapability(t *testing.T) {
+	for _, c := range []struct{ spec, capability, want string }{
+		{"cover.social:front", "cover", "cover.cover"},
+		{"cover.social:", "cover", "cover.cover"},
+		{"light.social:main", "core", "core"},
+		{"light.social:main", "switch.switch_1", "switch.switch_1"},
+	} {
+		if got := domainNamedCapability(c.spec, c.capability); got != c.want {
+			t.Errorf("domainNamedCapability(%q, %q) = %q, want %q", c.spec, c.capability, got, c.want)
+		}
 	}
 }

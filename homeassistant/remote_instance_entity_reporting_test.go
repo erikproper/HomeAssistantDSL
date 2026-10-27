@@ -33,8 +33,8 @@ func TestFullyQualifiedEntityNameForms(t *testing.T) {
 	if got := fullyQualifiedEntityNameUnderscored(identity); got != "sensor_infrastructural_netatmo_co2" {
 		t.Errorf("fullyQualifiedEntityNameUnderscored = %q, want %q", got, "sensor_infrastructural_netatmo_co2")
 	}
-	if got := fullyQualifiedEntityNameSlashed(identity); got != "sensor/infrastructural/netatmo/co2" {
-		t.Errorf("fullyQualifiedEntityNameSlashed = %q, want %q", got, "sensor/infrastructural/netatmo/co2")
+	if got := entityAliasBase(identity); got != "infrastructural/netatmo/co2/sensor" {
+		t.Errorf("entityAliasBase = %q, want %q", got, "infrastructural/netatmo/co2/sensor")
 	}
 }
 
@@ -49,7 +49,7 @@ func TestEntityReportingAutomationBody(t *testing.T) {
 	identity := TEntityIdentity{Domain: "sensor", Sphere: "infrastructural", Path: "netatmo/co2"}
 	body := entityReportingAutomationBody(identity, []string{"sensor.davids_bedroom_carbon_dioxide"}, "homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_netatmo_co2/state", "states('sensor.davids_bedroom_carbon_dioxide')", "")
 
-	if !strings.Contains(body, `alias: "reporting/sensor/infrastructural/netatmo/co2"`) {
+	if !strings.Contains(body, `alias: "infrastructural/netatmo/co2/sensor/reporting"`) {
 		t.Errorf("body = %s, want the slash-joined alias", body)
 	}
 	// entity_id is now always a YAML list (2026-09-21, to support the attributes-reporting
@@ -380,7 +380,7 @@ end;`
 	// -- otherwise HA auto-suffixes one entity_id with "_2" on load, confusing in the UI even
 	// though functionally harmless (real lesson from this same session's netatmo battery_alert
 	// collision).
-	if !strings.Contains(string(body), `alias: "reporting/vacuum/physical/living_room/attributes"`) {
+	if !strings.Contains(string(body), `alias: "physical/living_room/vacuum/reporting/attributes"`) {
 		t.Errorf("attributes automation = %q, want a distinct \"/attributes\"-suffixed alias", body)
 	}
 }

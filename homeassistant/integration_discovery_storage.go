@@ -130,6 +130,14 @@ type TDiscoveryGatewayDevice struct {
 	ParentDeviceID string
 	Identifiers    []string
 	Capabilities   map[string]TDiscoveryCapability
+	// Metadata (PROJECT.md 19b, 2026-10-26) is the device's own metadata lines -- manufacturer,
+	// model, model_id, hw_version, sw_version, ... -- written by the generator from the discovered
+	// device info (discovery_device_info.go), a forced one by the author.
+	Metadata map[string]THostConstantAttribute
+	// EntitiesViaYAML (PROJECT.md 19c, 2026-10-27), from an "entities via yaml;" body line: Home
+	// Assistant gets this device's entities from the generator's YAML "mqtt:" config
+	// (mqtt_yaml_entities.go) instead of from the coordinator's relay.
+	EntitiesViaYAML bool
 
 	// IgnoreOtherCapabilities (2026-09-21), from an "ignore other capabilities;" body line, tells
 	// the coordinator's own matchingGateway (house_event_bus_coordinator/discoverybridge.go) to

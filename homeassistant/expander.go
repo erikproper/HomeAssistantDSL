@@ -649,8 +649,12 @@ func parseConditionSpec(spec string, spacePath []string) string {
 
 // parseConditionDirective extracts sources and expression from a "condition ..." directive
 // string. Also recognises the unquoted "condition <source> is available;" sugar -- shorthand for
-// the standard "states('$1') not in ['unavailable', 'unknown']" liveness-check boilerplate that
+// the standard "states('$1') != 'unavailable'" liveness-check boilerplate that
 // used to have to be spelled out by hand in every Macros.def condition body needing it.
+// "unknown" counts as available (2026-10-27, found live in Junglinster: both Luminea drain
+// sensors' nodes "off" while Zigbee2MQTT reported them online): it only means no value arrived
+// since the entity was (re)created -- a rarely reporting device's state isn't retained -- while
+// "unavailable" is exactly what HA sets when the device's own availability says it is gone.
 func parseConditionDirective(t string, spacePath []string) (sources []string, expr string) {
 	if rest, ok := strings.CutPrefix(t, "condition "); ok {
 		trimmed := strings.TrimSuffix(strings.TrimSpace(rest), ";")
@@ -659,7 +663,7 @@ func parseConditionDirective(t string, spacePath []string) (sources []string, ex
 				// $1 gets substituted with sourceToJinja2(sources[0]) -- already a full
 				// states('...')/state_attr('...') call -- so this must NOT pre-wrap $1 itself
 				// (that would double-wrap into states('states('...')')).
-				return []string{tok}, "$1 not in ['unavailable', 'unknown']"
+				return []string{tok}, "$1 != 'unavailable'"
 			}
 			return nil, ""
 		}

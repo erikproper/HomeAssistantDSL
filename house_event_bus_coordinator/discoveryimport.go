@@ -758,7 +758,7 @@ func subscribeImportedDevices(mainClient, cloudClient mqtt.Client, ownInstallati
 		}
 
 		configFilter := remoteInstallation + "/" + conceptualPrefix + "/+/+/+/config"
-		token := cloudClient.Subscribe(configFilter, 0, configHandler)
+		token := subscribe(cloudClient, configFilter, 0, configHandler)
 		if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
 			if err := token.Error(); err != nil {
 				return fmt.Errorf("subscribing to %s: %w", configFilter, err)
@@ -789,7 +789,7 @@ func subscribeImportedDevices(mainClient, cloudClient mqtt.Client, ownInstallati
 		}
 
 		stateFilter := remoteInstallation + "/homeassistant_instances/+/bridge/+/state"
-		token = cloudClient.Subscribe(stateFilter, 0, stateHandler)
+		token = subscribe(cloudClient, stateFilter, 0, stateHandler)
 		if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
 			if err := token.Error(); err != nil {
 				return fmt.Errorf("subscribing to %s: %w", stateFilter, err)
@@ -833,7 +833,7 @@ func subscribeImportedDevices(mainClient, cloudClient mqtt.Client, ownInstallati
 	}
 
 	hostsStateFilter := "hosts/+/+/state"
-	token := cloudClient.Subscribe(hostsStateFilter, 0, hostsStateHandler)
+	token := subscribe(cloudClient, hostsStateFilter, 0, hostsStateHandler)
 	if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
 		if err := token.Error(); err != nil {
 			return fmt.Errorf("subscribing to %s: %w", hostsStateFilter, err)

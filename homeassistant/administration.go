@@ -17,6 +17,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -33,7 +34,9 @@ type TPendingEntityCollection struct {
 type TAdministrationState struct {
 	SpacePath                []string
 	OpenBlocks               []string
-	AreaStack                []string // parallel to SpacePath; see OpenSpace/CurrentArea
+	AreaStack                []string            // parallel to SpacePath; see OpenSpace/CurrentArea
+	SpaceAreas               map[string]string   // space name -> its (nearest enclosing) "as area" area, "" for none
+	NodeDependents           map[string][]string // "hosts" node device -> the Logical.def devices with a "dependency on" it
 	PendingEntityCollections []TPendingEntityCollection
 
 	SpaceOrder              []string
@@ -65,7 +68,15 @@ type TAdministrationState struct {
 	ImportedDeviceIDs []string
 	// BridgedDeviceIDs lists the devices of Physical.def's "integration home_assistant" blocks,
 	// for the registry manifest and the frozen-ID write-back.
-	BridgedDeviceIDs        []string
+	BridgedDeviceIDs []string
+	// NativeCapabilities lists, per Physical.def "integration local" device, the capabilities an
+	// HA integration of its own provides (the generator only refers to them, it never writes
+	// them), for the registry manifest's "native" part (PROJECT.md 17j).
+	NativeCapabilities      map[string][]string
+	// YAMLEntities (PROJECT.md 19c) maps every entity Home Assistant gets from the generator's own
+	// YAML "mqtt:" config to the exact discovery config the coordinator built for it
+	// (mqtt_yaml_entities.go) -- the coordinator no longer relays these.
+	YAMLEntities map[string]map[string]interface{}
 	ExternalEntitiesBySpace map[string][]string
 	SpaceDepthByName        map[string]int
 	SpaceOffByName          map[string][]string // Entities/aggregations to turn off
@@ -79,7 +90,8 @@ type TAdministrationState struct {
 
 	SpaceLightOffByName map[string][]string // explicit "light off:" list per space (used by generator)
 
-	HeatingLeaksByName map[string][]string // entities listed in "heating leak:" directives per space
+	HeatingLeaksByName   map[string][]string // entities listed in "heating leak:" directives per space
+	SpaceAvailabilityAll map[string]bool     // spaces with "availability all;": their template aggregates need every member (item 17b)
 
 	// Follows/switched_device/timer-limits/when relations, populated by
 	// ParseEntitiesAndFillAdministration.
@@ -89,14 +101,13 @@ type TAdministrationState struct {
 	Rules                   []TRule
 	RuleNamesSeen           map[string]bool                  // every resolved TRule.Name seen so far, to warn on a repeat
 	NamedTriggers           map[string][]TNamedTriggerSource // see NamedTriggers' own doc comment above
-	// NamedTriggerEntityIDByDeviceCapability remembers, per "<deviceID>!<bareCapability>", the
-	// entity_id already resolved for it by an EARLIER "trigger ...;" line -- a real bug found
-	// live 2026-10-15 migrating Vienna's hallway_door_moes device: TWO "trigger" lines sharing
-	// the SAME device+capability (one per raw value they each match) must resolve to the SAME
-	// underlying entity, not be registered twice (registerDeviceCapabilityEntityLink's own
-	// "declared twice" duplicate-capability check, correct for a genuine copy-paste mistake,
-	// fires incorrectly otherwise).
-	NamedTriggerEntityIDByDeviceCapability map[string]string
+	// EventOnlyDeviceIDs holds the logical devices whose only capabilities are derived events
+	// (PROJECT.md item 49, e.g. request.shower_room_light_toggle): no state, so no "node" and no HA
+	// device of their own to name -- item 8's node checks skip them.
+	EventOnlyDeviceIDs map[string]bool
+	// SlowSpeedShadows maps a cover's entity_id to its slow-speed shadow's entity_id ("slow
+	// speed ...;" in Physical.def, 2026-10-23) -- the generated cover control moves the shadow.
+	SlowSpeedShadows map[string]string
 
 	// "definition as <type> ...;" relations for entity bodies that generate their own content
 	// (as opposed to switched_device/timer-limits above, which describe cross-entity behaviour).
@@ -480,20 +491,19 @@ type TRuleTrigger struct {
 	Name       string // "named_trigger" kind only: the bare "sphere:path" name (NamedTriggers key)
 }
 
-// TNamedTriggerSource is one device's own contribution to a named trigger (NamedTriggers) --
-// "trigger <name> when <capability> is '<value>'[, or in ['<value>', ...]];" inside a "device
-// ... with:" block (Conceptual.def). EntityID is the real HA entity_id the capability resolved
-// to (same resolution path as an "entity ... from <capability>;" line); EventTypes holds one or
-// more raw event_type values that, on THIS entity, mean the named trigger fired.
+// TNamedTriggerSource is one term of a request's condition (NamedTriggers) -- "event.<label> from
+// <device> is '<value>'[ or in ['<value>', ...]]" in a Logical.def "derived capability
+// event.<label>". EntityID is the HA entity_id the device's event capability is positioned as;
+// EventTypes holds one or more raw event_type values that, on THIS entity, raise the request.
 type TNamedTriggerSource struct {
 	EntityID   string
 	EventTypes []string
 	// TriggerAttr/TriggerAttrValues (2026-10-15, Step 2; list-value extended 2026-10-19) are ""/nil
-	// unless this source's own "trigger ...;" line carried an embedded "and if trigger.<attr> is
-	// '<value>'[in [...]]" suffix (the Signify dimmer's press/hold + button-direction case: a
+	// unless this term carries an "and if trigger.<attr> from <device> is '<value>'[in [...]]"
+	// filter (the Signify dimmer's press/hold + button-direction case: a
 	// single physical event covers several logically distinct named triggers, told apart only by
 	// the firing event's own attribute, not by a different raw event_type). Folded into the
-	// generated automation's own gating condition at generation time
+	// generated event entity's own gating condition at generation time
 	// (namedTriggerSourceCondition, generator.go) -- when every contributing source agrees on
 	// exactly one (attr, valueset) pair, that's the same template-condition shape a rule's own
 	// top-level "if trigger.<attr> is \"...\";" clause already renders; when sources DISAGREE
@@ -504,13 +514,11 @@ type TNamedTriggerSource struct {
 	TriggerAttrValues []string
 }
 
-// NamedTriggers (TAdministrationState) maps a bare "sphere:path" trigger name to every device
-// that declared it (2026-10-15, PROJECT.md's device-level trigger-abstraction step: a rule's own
-// "when" clause should never see a raw, device-level protocol code like "2_single" -- that
-// belongs in the device declaration, not the rule). Multiple devices may declare the SAME name;
-// the generator ORs all of them together into one HA automation trigger list (generateRuleAutomations)
-// -- exactly what a hand-written multi-clause "when A is X or B is Y or ...;" chain already
-// renders today, just sourced from device declarations instead of rule text.
+// NamedTriggers (TAdministrationState) maps a request's positioned name ("sphere/path", e.g.
+// "social/apartment/shower_room/light/main/toggle") to the terms of its Logical.def condition
+// (registerLogicalDerivedEventCapability) -- a rule's own "when" clause never sees a raw,
+// device-level protocol code like "2_single". generateNamedTriggerEvents ORs the terms into one
+// template event entity; rules trigger on it ("when event.<name> is raised").
 
 // TRuleCondition is one "condition ...;" statement inside a rule body -- either a plain state
 // check ("<entity-ref> is <state>"), a template check against the firing trigger's own context
@@ -615,6 +623,7 @@ type TRule struct {
 // TSwitchedDeviceRelation records a "definition as switched_device <device> <main>" entity directive.
 type TSwitchedDeviceRelation struct {
 	SpaceName  string
+	DeviceID   string // the switched device's own DSL device-id (logical_switched_by.go)
 	SelfEntity string // fully qualified DSL entity name of the declaring entity, e.g. "light.social/house/bathroom/main"
 	Device     string // fully qualified DSL entity name (first arg), e.g. "light.physical/house/bathroom/main_disc"
 	MainEntity string // fully qualified DSL entity name (second arg), e.g. "light.physical/house/bathroom/main"
@@ -746,45 +755,47 @@ type TConceptualSourceUse struct {
 
 func newAdministrationState() *TAdministrationState {
 	state := &TAdministrationState{
-		SpacePath:                              []string{},
-		OpenBlocks:                             []string{},
-		AreaStack:                              []string{},
-		PendingEntityCollections:               []TPendingEntityCollection{},
-		SpaceOrder:                             []string{},
-		SpaceKindByName:                        map[string]string{"root": SpaceKindRegular},
-		EntitiesBySpace:                        map[string][]string{},
-		EntityRecordsBySpace:                   map[string][]TEntityRecord{},
-		EntityRecordSeenBySpace:                map[string]map[string]string{},
-		ExternalEntitiesBySpace:                map[string][]string{},
-		SpaceDepthByName:                       map[string]int{},
-		SpaceOffByName:                         map[string][]string{},
-		SpaceOnByName:                          map[string][]string{},
-		SpaceOnExplicitByName:                  map[string][]string{},
-		SpaceLightsByName:                      map[string][]string{},
-		SpaceMediaByName:                       map[string][]string{},
-		SpaceLightOffByName:                    map[string][]string{},
-		HeatingLeaksByName:                     map[string][]string{},
-		SpaceHasExplicitOn:                     map[string]bool{},
-		SpaceHasExplicitOff:                    map[string]bool{},
-		SpaceNoMotionDelayByName:               map[string]int{},
-		SpaceMembersByName:                     map[string][]string{},
-		SpaceMemberEntitiesByName:              map[string][]string{},
-		SpaceSwitchOnByName:                    map[string][]string{},
-		NodeRepresentativeByEntityID:           map[string]string{},
-		DeviceConceptualLinks:                  map[string]TDeviceConceptualLink{},
-		DevicePositioningOccurrences:           map[string][]TDevicePositioningOccurrence{},
-		DeviceNodeEntityID:                     map[string]string{},
-		EntityNameOwnerBySpace:                 map[string]map[string]string{},
-		DiscoveryEntityLinks:                   map[string]TDiscoveryEntityLink{},
-		DependsOnAvailabilityTopics:            map[string][]string{},
-		LogicalEntityLinks:                     map[string]TLogicalEntityLink{},
-		ConceptualUseBySource:                  map[string]TConceptualSourceUse{},
-		FrozenUniqueIDs:                        map[string]string{},
-		SourceKeyByEntityID:                    map[string]string{},
-		SharedSourceKeys:                       map[string]bool{},
-		RuleNamesSeen:                          map[string]bool{},
-		NamedTriggers:                          map[string][]TNamedTriggerSource{},
-		NamedTriggerEntityIDByDeviceCapability: map[string]string{},
+		SpacePath:                    []string{},
+		OpenBlocks:                   []string{},
+		AreaStack:                    []string{},
+		PendingEntityCollections:     []TPendingEntityCollection{},
+		SpaceOrder:                   []string{},
+		SpaceKindByName:              map[string]string{"root": SpaceKindRegular},
+		EntitiesBySpace:              map[string][]string{},
+		EntityRecordsBySpace:         map[string][]TEntityRecord{},
+		EntityRecordSeenBySpace:      map[string]map[string]string{},
+		ExternalEntitiesBySpace:      map[string][]string{},
+		SpaceDepthByName:             map[string]int{},
+		SpaceOffByName:               map[string][]string{},
+		SpaceOnByName:                map[string][]string{},
+		SpaceOnExplicitByName:        map[string][]string{},
+		SpaceLightsByName:            map[string][]string{},
+		SpaceMediaByName:             map[string][]string{},
+		SpaceLightOffByName:          map[string][]string{},
+		HeatingLeaksByName:           map[string][]string{},
+		SpaceAvailabilityAll:         map[string]bool{},
+		SpaceHasExplicitOn:           map[string]bool{},
+		SpaceHasExplicitOff:          map[string]bool{},
+		SpaceNoMotionDelayByName:     map[string]int{},
+		SpaceMembersByName:           map[string][]string{},
+		SpaceMemberEntitiesByName:    map[string][]string{},
+		SpaceSwitchOnByName:          map[string][]string{},
+		NodeRepresentativeByEntityID: map[string]string{},
+		DeviceConceptualLinks:        map[string]TDeviceConceptualLink{},
+		DevicePositioningOccurrences: map[string][]TDevicePositioningOccurrence{},
+		DeviceNodeEntityID:           map[string]string{},
+		EntityNameOwnerBySpace:       map[string]map[string]string{},
+		DiscoveryEntityLinks:         map[string]TDiscoveryEntityLink{},
+		DependsOnAvailabilityTopics:  map[string][]string{},
+		LogicalEntityLinks:           map[string]TLogicalEntityLink{},
+		ConceptualUseBySource:        map[string]TConceptualSourceUse{},
+		FrozenUniqueIDs:              map[string]string{},
+		SourceKeyByEntityID:          map[string]string{},
+		SharedSourceKeys:             map[string]bool{},
+		RuleNamesSeen:                map[string]bool{},
+		NamedTriggers:                map[string][]TNamedTriggerSource{},
+		EventOnlyDeviceIDs:           map[string]bool{},
+		SlowSpeedShadows:             map[string]string{},
 	}
 
 	state.EnsureSpaceRegistered(nil, SpaceKindRegular)
@@ -948,6 +959,10 @@ func (state *TAdministrationState) OpenSpace(spaceKind, spaceName string, isArea
 	} else {
 		state.SpacePath = append(state.SpacePath, spaceName)
 	}
+	if state.SpaceAreas == nil {
+		state.SpaceAreas = map[string]string{}
+	}
+	state.SpaceAreas[formatNestedSpaceName(state.SpacePath)] = areaName
 	state.EnsureSpaceRegistered(state.SpacePath, spaceKind)
 }
 
@@ -1022,6 +1037,17 @@ func (state *TAdministrationState) HandleEndToken(onSpaceClosed func(string)) {
 		// contributed entries via propagation (matches bash: light_on @all / space_off @all defaults).
 		if len(state.SpaceOnByName[spaceName]) == 0 {
 			state.SpaceOnByName[spaceName] = append([]string{}, state.SpaceLightsByName[spaceName]...)
+		}
+		// A space with a collected light always switches at least one light on with its space
+		// light; an explicit "light on" naming its one light, and nothing else, just repeats the
+		// default (2026-10-26, Erik).
+		if lights := state.SpaceLightsByName[spaceName]; len(lights) > 0 {
+			explicitOn := state.SpaceOnExplicitByName[spaceName]
+			if len(state.SpaceOnByName[spaceName]) == 0 || (state.SpaceHasExplicitOn[spaceName] && len(explicitOn) == 0) {
+				Reporter.Warn("Space %q has lights, but its space light switches none of them on", spaceName)
+			} else if len(lights) == 1 && len(explicitOn) == 1 && explicitOn[0] == lights[0] && slices.Equal(state.SpaceOnByName[spaceName], lights) {
+				fmt.Printf("[conceptual] note: space %q has one light, so its \"light on\" is redundant -- drop it\n", spaceName)
+			}
 		}
 		if len(state.SpaceOffByName[spaceName]) == 0 {
 			offDefault := append([]string{}, state.SpaceLightsByName[spaceName]...)
@@ -1439,15 +1465,6 @@ func (state *TAdministrationState) deriveTimeInputDatetime(spaceName, entityName
 	})
 }
 
-// deriveConstantBinarySensor registers an implied binary_sensor whose state is a fixed 'on' or
-// 'off' literal, reusing the generic condition-entity generator (empty ConditionSources means the
-// expression is emitted verbatim).
-func (state *TAdministrationState) deriveConstantBinarySensor(spaceName, entityName, constant string) {
-	state.deriveEntityIfAbsent(spaceName, entityName, "implied: constant", func(rec *TEntityRecord) {
-		rec.ConditionExpr = "'" + constant + "'"
-	})
-}
-
 // deriveTimeWindowDatetimePair registers the four input_datetime entities (workday/holiday ×
 // start_day/start_night) that back an is_<domain>_day_time / is_<domain>_night_time sensor pair.
 func (state *TAdministrationState) deriveTimeWindowDatetimePair(workdayPrefix, holidayPrefix string) {
@@ -1469,8 +1486,6 @@ func (state *TAdministrationState) DeriveImpliedHeatingEntities() {
 	state.deriveInputBoolean("root", "input_boolean.social/occupation/around", "mdi:city", "implied: occupation")
 	state.deriveInputBoolean("root", "input_boolean.social/occupation/away", "mdi:airplane", "implied: occupation")
 
-	state.deriveConstantBinarySensor("root", "binary_sensor.infrastructural/on", "on")
-	state.deriveConstantBinarySensor("root", "binary_sensor.infrastructural/off", "off")
 
 	climateSpaces, switchSpaces := heatingCapableSpaces(state)
 	heatingSpaces := map[string]bool{}
@@ -1484,7 +1499,10 @@ func (state *TAdministrationState) DeriveImpliedHeatingEntities() {
 	for _, physPath := range sortedStringSlice(heatingSpaces) {
 		socialSpace := "social/" + physPath
 		state.deriveInputBoolean(socialSpace, "input_boolean.social/"+physPath+"/heating/enable", "mdi:radiator", "implied: heating control")
-		state.deriveInputBoolean(socialSpace, "input_boolean.social/"+physPath+"/heating/leakage/ignore", "mdi:radiator", "implied: heating control")
+		// Only a space with doors/windows to watch ("heating leak:") has a leakage to ignore.
+		if len(state.HeatingLeaksByName[socialSpace]) > 0 {
+			state.deriveInputBoolean(socialSpace, "input_boolean.social/"+physPath+"/heating/leakage/ignore", "mdi:radiator", "implied: heating control")
+		}
 
 		if climateSpaces[physPath] {
 			state.deriveTemperatureInputNumber(socialSpace, "input_number.social/"+physPath+"/temperature_desired")

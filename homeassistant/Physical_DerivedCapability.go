@@ -240,6 +240,16 @@ var bridgedCapabilityAssignedIDPattern = regexp.MustCompile(`^(\s*(?:hidden\s+)?
 // header's "with:", as in Logical.def's block form. Group 1 is the header up to (excluding) the ID.
 var bridgedCapabilityBlockAssignedIDPattern = regexp.MustCompile(`^(\s*(?:capability\s+)?[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s+\S.*?)\s+as\s+([A-Za-z_][A-Za-z0-9_.]*)\s+with:\s*$`)
 
+// slowSpeedAssignedIDPattern matches a "slow speed <source> as <id>;" line inside a bridged
+// capability's "with:" block -- the frozen ID of its slow-speed shadow capability "slow/<label>"
+// (integration_hassbridge_parser.go). Group 1 is the line without the ID, group 2 the ID.
+var slowSpeedAssignedIDPattern = regexp.MustCompile(`^(\s*slow\s+speed\s+\S+)\s+as\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;\s*$`)
+
+// bridgedCapabilityBlockHeaderPattern captures the label of any bridged capability block header
+// ("[capability] <domain>.<label> <source> [as <id>] with:") -- the capability a following
+// "slow speed ...;" line shadows.
+var bridgedCapabilityBlockHeaderPattern = regexp.MustCompile(`^\s*(?:capability\s+)?[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s+\S.*\swith:\s*$`)
+
 // physicalIntegrationHeaderPattern captures the integration kind of an "integration <kind> ..."
 // block header.
 var physicalIntegrationHeaderPattern = regexp.MustCompile(`^\s*integration\s+(\S+)`)
@@ -249,7 +259,7 @@ var physicalIntegrationHeaderPattern = regexp.MustCompile(`^\s*integration\s+(\S
 // an "integration home_assistant" block -- with the device it belongs to, the capability's label,
 // the line without the ID, and the ID.
 func frozenIDLines(content string, visit func(i int, deviceID, label, stripped, id string)) {
-	deviceID, integration := "", ""
+	deviceID, integration, blockLabel := "", "", ""
 	for i, line := range strings.Split(content, "\n") {
 		if m := physicalIntegrationHeaderPattern.FindStringSubmatch(line); m != nil {
 			integration, deviceID = m[1], ""
@@ -264,6 +274,13 @@ func frozenIDLines(content string, visit func(i int, deviceID, label, stripped, 
 			continue
 		}
 		if integration == "home_assistant" {
+			if m := bridgedCapabilityBlockHeaderPattern.FindStringSubmatch(line); m != nil {
+				blockLabel = m[1]
+			}
+			if m := slowSpeedAssignedIDPattern.FindStringSubmatch(line); m != nil && blockLabel != "" {
+				visit(i, deviceID, slowSpeedCapabilityLabel(blockLabel), m[1]+";", m[2])
+				continue
+			}
 			if m := bridgedCapabilityAssignedIDPattern.FindStringSubmatch(line); m != nil {
 				visit(i, deviceID, m[2], m[1]+m[4], m[3])
 			} else if m := bridgedCapabilityBlockAssignedIDPattern.FindStringSubmatch(line); m != nil {
