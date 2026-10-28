@@ -91,7 +91,35 @@ func formatDefContent(content string) string {
 			depth++
 		}
 	}
-	return strings.Join(out, "\n")
+	return strings.Join(alignSettings(out), "\n")
+}
+
+// defSettingLinePattern matches a setting line, "${<name>} = <value>;" (with its indentation).
+var defSettingLinePattern = regexp.MustCompile(`^(\s*)(\$\{[^}]+\})\s*=\s*(.*)$`)
+
+// alignSettings aligns the "=" of each run of consecutive setting lines (a blank line, a comment or
+// any other statement ends a run) -- the table layout Settings.def has always had (Erik, 2026-10-28).
+func alignSettings(lines []string) []string {
+	for start := 0; start < len(lines); {
+		if !defSettingLinePattern.MatchString(lines[start]) {
+			start++
+			continue
+		}
+		end, width := start, 0
+		for ; end < len(lines); end++ {
+			m := defSettingLinePattern.FindStringSubmatch(lines[end])
+			if m == nil {
+				break
+			}
+			width = max(width, len(m[2]))
+		}
+		for i := start; i < end; i++ {
+			m := defSettingLinePattern.FindStringSubmatch(lines[i])
+			lines[i] = m[1] + fmt.Sprintf("%-*s", width, m[2]) + " = " + m[3]
+		}
+		start = end
+	}
+	return lines
 }
 
 // defMetadataLinePattern matches a metadata line ("<field>: <value>[ forced];"), whose colons the

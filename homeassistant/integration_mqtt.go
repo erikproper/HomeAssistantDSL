@@ -37,6 +37,18 @@ import (
 
 var mqttTopicCapabilityPattern = regexp.MustCompile(`^capability\s+(binary_sensor)\.([A-Za-z_][A-Za-z0-9_/]*)\s+topic\s+"([^"]+)"\s+on\s+"([^"]*)"(?:\s+as\s+([A-Za-z_][A-Za-z0-9_.]*))?\s*;\s*$`)
 
+// mqttMetadataTopicPattern matches 'metadata <field> from topic "<topic>"[ value "<key>"];' (PROJECT.md
+// 22d, Erik, 2026-10-28): where the coordinator reads a raw device's metadata field -- <key> the
+// JSON field, none for the whole message.
+var mqttMetadataTopicPattern = regexp.MustCompile(`^metadata\s+([a-z_]+)\s+from\s+topic\s+"([^"]+)"(?:\s+value\s+"([^"]*)")?\s*;\s*$`)
+
+// TRawMetadataTopic is one "metadata ... from topic ..." line of an integration mqtt device.
+type TRawMetadataTopic struct {
+	Field string `yaml:"field"`
+	Topic string `yaml:"topic"`
+	Key   string `yaml:"value,omitempty"`
+}
+
 // TRawTopicCapability is one "capability ... topic "<topic>" on "<value>";" of an integration mqtt
 // device.
 type TRawTopicCapability struct {
@@ -78,6 +90,20 @@ func parseMQTTIntegrationBody(bodyLines []string) ([]TDiscoveryGatewayDevice, []
 			current.Retain = retainDeclared
 		case line == "is not retained;":
 			current.Retain = retainNotDeclared
+		case mqttMetadataTopicPattern.MatchString(line):
+			m := mqttMetadataTopicPattern.FindStringSubmatch(line)
+			if !knownConstantDeviceAttributes[m[1]] {
+				warnings = append(warnings, fmt.Sprintf("Physical.def: mqtt device %q: %q is no metadata field (manufacturer, model, model_id, hw_version, sw_version, serial_number, ...)", current.DeviceID, m[1]))
+				continue
+			}
+			current.RawMetadata = append(current.RawMetadata, TRawMetadataTopic{Field: m[1], Topic: m[2], Key: m[3]})
+		case discoveryMetadataPattern.MatchString(quoteDeviceReference(line)):
+			// The value generate captured (writeDiscoveryMetadata), or a forced one.
+			m := discoveryMetadataPattern.FindStringSubmatch(quoteDeviceReference(line))
+			if current.Metadata == nil {
+				current.Metadata = map[string]THostConstantAttribute{}
+			}
+			current.Metadata[m[1]] = THostConstantAttribute{Value: m[2], Forced: m[3] != ""}
 		default:
 			m := mqttTopicCapabilityPattern.FindStringSubmatch(line)
 			if m == nil {
@@ -182,4 +208,11 @@ func splitInstanceIntegrationDevices(bodyLines []string, instance string) (rest 
 		devices = append(devices, *current)
 	}
 	return rest, devices, warnings
+}
+
+// TMetadataTopicsFile is coordinator/metadata_topics.yaml (PROJECT.md 22d): per device, the topics
+// its metadata fields are read from -- the coordinator subscribes to each, and feeds what it reads
+// into discovery_device_info/state, which generate captures into Physical.def.
+type TMetadataTopicsFile struct {
+	Devices map[string][]TRawMetadataTopic `yaml:"devices"`
 }

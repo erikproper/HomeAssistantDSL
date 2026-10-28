@@ -56,3 +56,13 @@ func stripComments(content string) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// TestFormatDefAlignsSettings: the "=" of consecutive settings lines aligned; a blank line starts
+// a new run.
+func TestFormatDefAlignsSettings(t *testing.T) {
+	in := "${a} = \"1\";\n${longer_name}   =   \"2\";\n\n${x} = \"3\";"
+	want := "${a}           = \"1\";\n${longer_name} = \"2\";\n\n${x} = \"3\";"
+	if got := formatDefContent(in); got != want {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+}

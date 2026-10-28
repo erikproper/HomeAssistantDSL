@@ -246,6 +246,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	metadataTopicsFile, err := loadMetadataTopicsFile(filepath.Join(coordinatorDir, "metadata_topics.yaml"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
 	retainShadowsFile, err := loadRetainShadowsFile(filepath.Join(coordinatorDir, "retain_shadows.yaml"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -469,6 +474,11 @@ func main() {
 		discoveryDeviceInfo.RecordFields(deviceID, store.Snapshot(deviceID))
 	}
 	discoveryDeviceInfo.SchedulePublish(client, cloudClient, devicesFile.Installation)
+	// PROJECT.md 22d: the metadata topics the generator names per device.
+	if err := startMetadataTopics(client, cloudClient, devicesFile.Installation, metadataTopicsFile); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
 	store.SetOnChange(func(deviceID string) {
 		if device, known := devicesFile.Devices[deviceID]; known {
 			if discoveryDeviceInfo.RecordFields(deviceID, store.Snapshot(deviceID)) {

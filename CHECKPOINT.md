@@ -1,13 +1,13 @@
 # Checkpoint — Home Assistant DSL Generator + Coordinator
 
 **Frozen:** 2026-10-28, midday.
-**Status:** all three Go packages build/vet/test clean. Both houses deployed 2026-10-28 with items
-20 (retained shadows "<topic>/retain" for state topics that can't be trusted as retained), 21
-(the main instance's own devices moved to "integration local") and 22 (an export's persistent
-identity, "export_id"; Architecture.md §6.12) complete -- Architecture.md §6.16
--- on top of item 19 (every entity from the generator's YAML). Durable detail lives in
-`PROJECT.md` (open items), `README.md`/`Architecture.md` (how things work) and the Claude memory
-directory (synced via Nextcloud). This file is only the pointer to where to pick up.
+**Status:** all three Go packages build/vet/test clean. Both houses deployed 2026-10-28 with
+items 20 (retained shadows), 21 (the main instance's own devices local), 22 (export identity),
+22b (ignore own availability; Hue Taps), 22c (the .def formatter, "homeassistant -format") and 22d
+(metadata topics per device) complete, plus the start of 26 (integration devices with nodes,
+incl. ha2mqtt's ping-pong) and 39 ("integration mqtt") -- Architecture.md §6.16/§6.17. Durable
+detail lives in `PROJECT.md` (open items), `README.md`/`Architecture.md` (how things work) and the
+Claude memory directory (synced via Nextcloud). This file is only the pointer to where to pick up.
 
 **Git:** uncommitted changes since Erik's last commit (item 21: local native sources, the registry
 repair's seed and pending removals; item 22: export_id). No new files.
@@ -16,7 +16,7 @@ repair's seed and pending removals; item 22: export_id). No new files.
 
 Pick up with:
 
-1. The next open item in PROJECT.md (22b onward), as Erik chooses.
+1. The next open item in PROJECT.md (22f onward), as Erik chooses.
 
 Notes from 2026-10-28:
 - Deploy step 06 is now `06_check.ha_reload` in both houses: it waits for HA to finish its reload

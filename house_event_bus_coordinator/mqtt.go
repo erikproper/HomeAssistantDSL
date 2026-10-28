@@ -284,12 +284,13 @@ func subscribeDeviceInfo(mainClient, cloudClient mqtt.Client, ownInstallation st
 			fmt.Printf("[device-info] %s: republishing discovery: %v\n", deviceID, err)
 		}
 	}
-	token := subscribe(mainClient, "hosts/+/device/state", 0, handler)
-	if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
-		if err := token.Error(); err != nil {
-			return fmt.Errorf("subscribing to hosts/+/device/state: %w", err)
+	// Each device's own device_info_topic, as its integration states it (devices.yaml, PROJECT.md
+	// 22d) -- no longer a hardcoded "hosts/+/device/state".
+	for topic := range topicToDeviceID {
+		token := subscribe(mainClient, topic, 0, handler)
+		if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
+			return fmt.Errorf("subscribing to %s: %v", topic, token.Error())
 		}
-		return fmt.Errorf("subscribing to hosts/+/device/state: timed out")
 	}
 	return nil
 }

@@ -16,16 +16,6 @@ JLI
  
 ## Migration & improvements
 
-22d. Metadata topics per device, provided by the integration (Erik, 2026-10-27): the coordinator
-    isn't aware of each (non-discovery) integration's peculiarities, so every integration gives
-    it, per device, the list of topics that carry that device's metadata (manufacturer, model,
-    sw_version, ...), which it collects into discovery_device_info/state for generate to weave
-    into Physical.def (Architecture.md §6.16). Half there: the hosts integration's type definition
-    (THostsEntityMaterialization.DeviceInfoTopic) already sets each device's device_info_topic
-    in devices.yaml, but the coordinator ignores it and subscribes to hosts/+/device/state,
-    hardcoded. Generalise to a "metadata topics" list per device, for every integration kind
-    (hosts, home_assistant bridges, commandline, later fhem2mqtt and raw MQTT).
-
 22f. Vienna's TV ping node (hosts/sony_tv/node/state) never gets a message: the ping reporter
     publishes nothing for sony_tv (seen 2026-10-27, not caused by the YAML switch).
 

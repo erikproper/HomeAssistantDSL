@@ -313,6 +313,18 @@ func generateYAMLMQTTEntities(definitionDir string, gateways map[string]TDiscove
 	for _, filter := range unmatchedRetainFilters(retainFilters, seenList) {
 		reports = append(reports, fmt.Sprintf("retained topics: filter %q matches none of the discovered entities' state topics (a typo?)", filter))
 	}
+	// PROJECT.md 22d: where the coordinator reads each raw device's metadata.
+	metadataTopics := TMetadataTopicsFile{Devices: map[string][]TRawMetadataTopic{}}
+	for id, gateway := range gateways {
+		if len(gateway.RawMetadata) > 0 {
+			metadataTopics.Devices[id] = gateway.RawMetadata
+		}
+	}
+	if data, err := yaml.Marshal(metadataTopics); err == nil {
+		if err := writeYAMLFile(filepath.Join(ctx.OutputRoot, "coordinator", "metadata_topics.yaml"), generatorHeader+string(data)); err != nil {
+			reports = append(reports, fmt.Sprintf("metadata topics: %v", err))
+		}
+	}
 	data, err := yaml.Marshal(TRetainShadowsFile{Topics: shadowedList})
 	if err == nil {
 		err = writeYAMLFile(filepath.Join(ctx.OutputRoot, "coordinator", "retain_shadows.yaml"), generatorHeader+string(data))

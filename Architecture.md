@@ -1519,6 +1519,17 @@ Where the node's topic comes from depends on who controls it:
   pong within 30 s is `offline`. The status is retained and the node's availability includes the
   coordinator's own (without it, nobody keeps the status).
 
+Device metadata from the integrations (PROJECT.md 22d, 2026-10-28). The coordinator knows no
+integration's peculiarities; the generator tells it, per device, where that device's metadata is.
+For topics we control, by convention: a hosts device's `device_info_topic` (devices.yaml) -- the
+coordinator now subscribes to exactly those, no longer to a hardcoded `hosts/+/device/state` -- and
+a bridged device's reporting automation. For topics we don't control, the device says it in
+`integration mqtt`: `metadata sw_version from topic "ems-esp/info" value "version";` (the JSON
+field; without `value`, the whole message). The generator lists them in
+`coordinator/metadata_topics.yaml`; the coordinator subscribes, takes the field and records it like
+discovered metadata (`discovery_device_info/state`), which generate captures into Physical.def --
+`forced` and the `# discovery: ...` comment work as for discovered devices.
+
 Node positioning, a fix (2026-10-28): a derived node whose condition refers to another device's
 node ("condition node from integration.zigbee2mqtt") materializes that node itself when it isn't
 positioned -- but now only when nothing positions it explicitly further down Conceptual.def

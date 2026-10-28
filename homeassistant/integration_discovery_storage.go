@@ -167,6 +167,9 @@ type TDiscoveryGatewayDevice struct {
 	// CoordinatorStatus: its topic is kept by the coordinator (an instance's ping-pong status), so
 	// its entities also depend on the coordinator's availability.
 	CoordinatorStatus bool
+	// RawMetadata (PROJECT.md 22d): where the coordinator reads this raw device's metadata
+	// ("metadata <field> from topic ..."); what it reads comes back as Metadata, captured by generate.
+	RawMetadata []TRawMetadataTopic
 }
 
 // inferredDiscoveryIdentifier derives a device's default HA device identifier from its own DSL
