@@ -1892,6 +1892,19 @@ func iconForEntity(rec TEntityRecord, capabilityDefaults []TCapabilityDefaultRul
 func generateCustomizationFiles(outputDir string, admin *TAdministrationState) error {
 	// Collect all unique entities to avoid duplicates across spaces.
 	seen := map[string]bool{}
+	// A native entity (a local capability whose entity its own integration provides, PROJECT.md
+	// 17j/21) only gets the defaults' typing through customization: device_class and state_class,
+	// so e.g. a battery level keeps its long-term statistics (2026-10-28: the iPhone's lost them when
+	// it moved from the bridge to "local" -- the Mobile App gives it no state class). Not the unit:
+	// the integration states its own, and a different one would confuse the statistics.
+	native := map[string]bool{}
+	for deviceID, labels := range admin.NativeCapabilities {
+		for _, label := range labels {
+			if id := admin.DeviceConceptualLinks[deviceID].AttributeEntityIDs[label].EntityID; id != "" {
+				native[id] = true
+			}
+		}
+	}
 	for _, spaceName := range admin.SpaceOrder {
 		for _, rec := range admin.EntityRecordsBySpace[spaceName] {
 			if rec.Identity.Domain == "" || rec.Identity.Sphere == "" {
@@ -1924,6 +1937,16 @@ func generateCustomizationFiles(outputDir string, admin *TAdministrationState) e
 				icon = iconForEntity(rec, admin.CapabilityDefaults)
 			}
 			content := buildCustomizationYAML(entityID, displayName, icon)
+			if native[entityID] && rec.Identity.Path != "" {
+				if deviceClass, _, stateClass, _ := resolveCapabilityDefaults(admin.CapabilityDefaults, rec.Identity.Domain, rec.Identity.Path); deviceClass != "" || stateClass != "" {
+					if deviceClass != "" {
+						content += "  device_class: " + deviceClass + "\n"
+					}
+					if stateClass != "" {
+						content += "  state_class: " + stateClass + "\n"
+					}
+				}
+			}
 			dir := filepath.Join(outputDir, "customization", rec.Identity.Domain, rec.Identity.Sphere)
 			if err := writeYAMLFile(filepath.Join(dir, entityID+".yaml"), content); err != nil {
 				return err
