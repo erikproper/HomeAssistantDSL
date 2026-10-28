@@ -33,7 +33,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -181,11 +180,10 @@ func discoveryCapabilityLinePattern(domain, label, sourceDomain, leaf, rawTopic 
 // certainly a hand-edit mid-flight) is resolved.
 func rewritePhysicalDefWithAssignedIDs(definitionDir string, assignments []tStableIDAssignment) (assigned []tStableIDAssignment, warnings []string) {
 	path := filepath.Join(definitionDir, "Physical.def")
-	raw, err := os.ReadFile(path)
+	lines, err := readDefStatementLines(path) // one line per statement (PROJECT.md 22c)
 	if err != nil {
 		return nil, []string{fmt.Sprintf("could not read %s to assign stable ids: %v", path, err)}
 	}
-	lines := strings.Split(string(raw), "\n")
 
 	type pendingEdit struct {
 		lineIdx int
@@ -213,7 +211,7 @@ func rewritePhysicalDefWithAssignedIDs(definitionDir string, assignments []tStab
 		assigned = append(assigned, edit.a)
 	}
 
-	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+	if err := writeDefFormatted(path, lines); err != nil {
 		return nil, []string{fmt.Sprintf("could not write %s with assigned stable ids: %v", path, err)}
 	}
 	return assigned, warnings

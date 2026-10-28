@@ -211,11 +211,11 @@ func captureDiscoveryMetadata(definitionDir string, gateways map[string]TDiscove
 		return []string{fmt.Sprintf("device metadata: %v -- Physical.def left as it is", err)}
 	}
 	path := filepath.Join(definitionDir, "Physical.def")
-	raw, err := os.ReadFile(path)
+	lines, err := readDefStatementLines(path) // one line per statement (PROJECT.md 22c)
 	if err != nil {
 		return []string{fmt.Sprintf("device metadata: %v", err)}
 	}
-	updated, changed := writeDiscoveryMetadata(string(raw), gateways, info)
+	updated, changed := writeDiscoveryMetadata(strings.Join(lines, "\n"), gateways, info)
 	updated, hostsChanged := writeHostMetadata(updated, hostDevices, info)
 	changed += hostsChanged
 	updated, bridgeChanged := writeBridgeMetadata(updated, bridgeDevices, info)
@@ -223,7 +223,7 @@ func captureDiscoveryMetadata(definitionDir string, gateways map[string]TDiscove
 	if changed == 0 {
 		return nil
 	}
-	if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
+	if err := writeDefFormatted(path, strings.Split(updated, "\n")); err != nil {
 		return []string{fmt.Sprintf("device metadata: %v", err)}
 	}
 	return []string{fmt.Sprintf("device metadata: updated %d device(s) in Physical.def", changed)}

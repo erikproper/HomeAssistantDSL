@@ -16,10 +16,6 @@ JLI
  
 ## Migration & improvements
 
-22c. we need a pretty printer for the def files. Especially the ones that are updated by the generator.
-    It should also try to keep lines to about 80 characters (Erik, 2026-10-27) -- e.g. the long
-    "capability ... as <id>;" lines and the metadata blocks generate now writes (Architecture.md §6.16).
-
 22d. Metadata topics per device, provided by the integration (Erik, 2026-10-27): the coordinator
     isn't aware of each (non-discovery) integration's peculiarities, so every integration gives
     it, per device, the list of topics that carry that device's metadata (manufacturer, model,
@@ -41,7 +37,7 @@ JLI
     carries no export_id), so generate's "doesn't export" ERROR fires.
 
 23. Can we trigger, within HA, the reload of an integration?
-The netatmo integration on P-s-2@JLI  often "losed" some connection
+The netatmo integration on P-s-2@JLI  often "lost" some connection
 leading to entities of especially the "Smart Indoor Air Quality Monitor" to report
 as being unavailable.
 The idea would be to enable the automatic triggering on P-s-2@JLI of a reload when 
@@ -792,14 +788,6 @@ Test with shellys?
     instance at a Zigbee2MQTT broker. MQTT was designed for exactly this kind of IoT device
     integration -- worth leaning into that as far as it goes, rather than building another
     project-specific adapter shape.
-
-46. Future refinement (2026-09-15, not yet designed): a "pretty printing" option for the `.def`
-    files themselves -- both houses' Physical.def/Conceptual.def have drifted into inconsistent
-    column-alignment/spacing by hand over many editing sessions (e.g. the ad hoc aligned-colon
-    padding used for `device ... with:` blocks). A generator-provided formatter would make the DSL
-    source itself presentable alongside the generated output, and might need integration-specific
-    layout preferences (e.g. column-aligning a hosts/discovery device's own capability table
-    differently from a plain entity list).
 
 47. Future refinement (2026-10-04, not yet designed): neither the Logical layer nor any Physical.def
     integration kind other than `home_assistant` (hassbridge, kind-3) can be "exported" to the cloud

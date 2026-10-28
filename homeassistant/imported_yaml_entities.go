@@ -155,11 +155,10 @@ var importDeviceHeaderPattern = regexp.MustCompile(`^(\s*device\s+(\S+)\s+from\s
 // the rename either way -- the coordinator matches on the export_id -- this keeps the declaration
 // telling the truth. A capability line not found exactly once in its device is reported.
 func writeImportRemoteIdentities(path string, remoteIDs, renamedRemotes map[string]string) []string {
-	raw, err := os.ReadFile(path)
+	lines, err := readDefStatementLines(path) // one line per statement (PROJECT.md 22c)
 	if err != nil {
 		return []string{fmt.Sprintf("could not read %s to write import identities: %v", path, err)}
 	}
-	lines := strings.Split(string(raw), "\n")
 	var reports []string
 	pending := map[string]bool{}
 	for key := range remoteIDs {
@@ -201,7 +200,7 @@ func writeImportRemoteIdentities(path string, remoteIDs, renamedRemotes map[stri
 		reports = append(reports, fmt.Sprintf("import identity for %s not written: its capability line wasn't found", key))
 	}
 	sort.Strings(reports)
-	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+	if err := writeDefFormatted(path, lines); err != nil {
 		return append(reports, fmt.Sprintf("could not write %s: %v", path, err))
 	}
 	return reports

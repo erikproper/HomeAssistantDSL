@@ -23,7 +23,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -189,11 +188,11 @@ var commandlineAssignedIDHeadPattern = regexp.MustCompile(`^\s*capability\s+(?:s
 // capability's source, before a block header's "with:", or else before the statement's own ";". The statement is looked up within its
 // own device's declaration; one that isn't found exactly once there is reported and left alone.
 func writeFrozenUniqueIDs(path string, assignments map[string]string) []string {
-	raw, err := os.ReadFile(path)
+	// One line per statement (PROJECT.md 22c): a statement may be broken over lines.
+	lines, err := readDefStatementLines(path)
 	if err != nil {
 		return []string{fmt.Sprintf("could not read %s to assign frozen unique_ids: %v", path, err)}
 	}
-	lines := strings.Split(string(raw), "\n")
 	var reports []string
 	changed := false
 
@@ -280,7 +279,7 @@ func writeFrozenUniqueIDs(path string, assignments map[string]string) []string {
 	}
 
 	if changed {
-		if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		if err := writeDefFormatted(path, lines); err != nil {
 			return []string{fmt.Sprintf("could not write %s with frozen unique_ids: %v", path, err)}
 		}
 	}

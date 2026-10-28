@@ -100,7 +100,7 @@ func TestWriteFrozenUniqueIDs(t *testing.T) {
 		"    end;\n" +
 		"  end;\n" +
 		"end;"
-	if string(got) != want {
+	if defStatements(string(got)) != defStatements(want) {
 		t.Errorf("file =\n%s\nwant\n%s", got, want)
 	}
 }

@@ -20,7 +20,7 @@ func readPhysicalDefFixture(t *testing.T, dir string) string {
 	if err != nil {
 		t.Fatalf("reading Physical.def fixture: %v", err)
 	}
-	return string(data)
+	return defStatements(string(data)) // as the parser reads it, whatever the layout (PROJECT.md 22c)
 }
 
 // TestAutoAssignDiscoveryStableIDsAssignsFreshIDForLiveCapability covers the core "born after"
@@ -160,7 +160,7 @@ func TestAutoAssignDiscoveryStableIDsWarnsOnOrphanedID(t *testing.T) {
 	if !found {
 		t.Errorf("expected an orphaned-id warning, got: %v", warnings)
 	}
-	if got := readPhysicalDefFixture(t, dir); got != content {
+	if got := readPhysicalDefFixture(t, dir); got != defStatements(content) {
 		t.Errorf("Physical.def should be untouched for an orphaned-id-only run, got:\n%s", got)
 	}
 }
@@ -244,7 +244,7 @@ func TestBootstrapDiscoveryStableIDsWarnsOnMissingRegistryEntry(t *testing.T) {
 	if !found {
 		t.Errorf("expected a \"no matching entry\" warning, got: %v", warnings)
 	}
-	if got := readPhysicalDefFixture(t, dir); got != content {
+	if got := readPhysicalDefFixture(t, dir); got != defStatements(content) {
 		t.Errorf("Physical.def should be untouched when the registry mapping has no entry, got:\n%s", got)
 	}
 }
@@ -279,7 +279,7 @@ func TestAutoAssignDiscoveryStableIDsRefusesAmbiguousMatch(t *testing.T) {
 	if !found {
 		t.Errorf("expected a \"found 0 matching\" warning, got: %v", warnings)
 	}
-	if got := readPhysicalDefFixture(t, dir); got != content {
+	if got := readPhysicalDefFixture(t, dir); got != defStatements(content) {
 		t.Errorf("Physical.def should be untouched when a match can't be found, got:\n%s", got)
 	}
 }

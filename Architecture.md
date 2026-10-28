@@ -1552,6 +1552,30 @@ its grammar -- a candidate to fold into `local`.
 
 ---
 
+### 6.17 One layout for the .def files (PROJECT.md 22c, 2026-10-28)
+
+`homeassistant -format <path/to/any.def>` formats every `.def` file in that folder
+(`homeassistant/def_format.go`); generate formats the files it writes into (Physical.def,
+Logical.def) as it writes them. The layout, uniform for all files:
+- indentation by nesting, 2 spaces a level -- a statement ending in `:` opens a level, `end;`
+  closes it;
+- single spaces between a statement's words (outside quoted strings) -- except a metadata line
+  (`model:        "Bridge";`), whose colons the generator aligns within its block;
+- a finished statement (`...;`) longer than 80 characters is broken before its clause keywords
+  (`as`, `from`, `via`, `topic`, `with` -- never `with:`), each continuation 4 deeper, packed
+  greedily; never after a `:` or `;` (that line would read as a statement of its own);
+- comment lines, blank lines and trailing comments stay as written; a `when`/`if` rule clause, a
+  `${...}` setting and a statement with a comment inside are never broken.
+
+The DSL already reads a broken statement as one (`joinWrappedStatementContinuations`), so
+formatting changes no meaning: both houses generate byte-identical output before and after, and a
+second pass changes nothing. The generator's own writers into the defs (frozen IDs, stable IDs,
+metadata, import identities) read a file with each statement joined onto one line
+(`readDefStatementLines`) and write it back through the formatter (`writeDefFormatted`), so they
+work whatever the layout. What stays long is what can't be broken: comments (by choice), and an
+`as <id>` or `entity ...` line whose ID alone is long. Per-integration layouts (the old item 46's
+idea) only if one turns out to be wanted.
+
 ## 7. Home Assistant's two roles
 
 A Home Assistant instance is not inherently the centre of the architecture — it's one possible implementation of a platform adapter, optionally combined with user-facing capabilities. It can fulfil either or both of two independent roles:

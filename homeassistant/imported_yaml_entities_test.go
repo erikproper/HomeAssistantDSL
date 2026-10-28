@@ -70,10 +70,10 @@ func TestWriteImportRemoteIdentities(t *testing.T) {
     end;
   end;
 `
-	if string(got) != want {
+	if defStatements(string(got)) != defStatements(want) {
 		t.Errorf("got\n%s\nwant\n%s", got, want)
 	}
-	devices, warnings := parseImportIntegrationBody(strings.Split(strings.TrimSpace(string(got)), "\n")[1:11])
+	devices, warnings := parseImportIntegrationBody(strings.Split(defStatements(string(got)), "\n")[1:11])
 	if len(warnings) != 0 {
 		t.Errorf("re-parse warnings: %v", warnings)
 	}

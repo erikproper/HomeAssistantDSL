@@ -103,7 +103,7 @@ func TestWriteFrozenUniqueIDsOnEnabledByLine(t *testing.T) {
 		"    enabled by switch.switch from switch.imac as binary_sensor.imac_node;\n",
 		"    enabled by switch.switch from switch.tv as binary_sensor.tv_node with delay_off 00:01:00;\n",
 	} {
-		if !strings.Contains(string(got), want) {
+		if !strings.Contains(defStatements(string(got)), strings.TrimSpace(want)) {
 			t.Errorf("Logical.def lacks %q:\n%s", want, got)
 		}
 	}
