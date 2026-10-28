@@ -88,6 +88,7 @@ type TPhysicalGenerationContext struct {
 var integrationBodyParsers = map[string]func(bodyLines []string, ctx TPhysicalGenerationContext) error{
 	"hosts":       generateHostsIntegrationOutputs,
 	"discovery":   generateDiscoveryIntegrationOutputs,
+	"mqtt":        generateMQTTIntegrationOutputs, // PROJECT.md 39: raw MQTT, integration_mqtt.go
 	"commandline": generateCommandlineIntegrationOutputs,
 	// "import" is a no-op here deliberately -- generatePhysicalIntegrationOutputs pre-collects
 	// every "import" block into ctx.ImportedDevices before this generic dispatch loop runs (see

@@ -642,6 +642,14 @@ func (r *logicalConditionResolver) resolveNodeInput(node *TConditionExpr) (expr 
 			return fmt.Sprintf("(states('%s') != 'unavailable')", sibling.EntityID), true, true
 		}
 	}
+	// A node Conceptual.def positions explicitly further down is waited for, not materialized: a
+	// Hue Tap's node "from integration.zigbee2mqtt" positioned before the bridge itself made the
+	// bridge's own node the Tap's "controller" node, and every other Tap's node then pointed at it
+	// (found 2026-10-28, PROJECT.md 22b). A node nothing positions is materialized at once, as before.
+	if r.administration.ExplicitNodeDevices[targetDeviceID] && !r.finalAttempt {
+		r.deferred = true
+		return "", true, false
+	}
 	qualifier := "controller"
 	if host, isHost := r.hostDevicesByID[targetDeviceID]; isHost {
 		qualifier = host.IntegrationType
@@ -989,4 +997,29 @@ func flattenConditionExpr(node *TConditionExpr, kind TConditionExprKind) []*TCon
 		return []*TConditionExpr{node}
 	}
 	return append(flattenConditionExpr(node.Left, kind), flattenConditionExpr(node.Right, kind)...)
+}
+
+var (
+	explicitNodeDevicePattern = regexp.MustCompile(`^\s*device\s+(\S+)\s+with\b`)
+	explicitNodeEntityPattern = regexp.MustCompile(`^\s*entity\s+binary_sensor\.[A-Za-z_]+:\S*/node\s*;`)
+)
+
+// explicitNodeDevices returns the devices whose block in Conceptual.def's lines positions a node
+// ("entity binary_sensor.<sphere>:<path>/node;").
+func explicitNodeDevices(lines []string) map[string]bool {
+	devices := map[string]bool{}
+	current := ""
+	for _, line := range lines {
+		if m := explicitNodeDevicePattern.FindStringSubmatch(line); m != nil {
+			current = m[1]
+			continue
+		}
+		if current != "" && explicitNodeEntityPattern.MatchString(line) {
+			devices[current] = true
+		}
+		if strings.TrimSpace(line) == "end;" {
+			current = ""
+		}
+	}
+	return devices
 }

@@ -83,6 +83,9 @@ func generateImportedDeviceFile(outputRoot string, devices []TImportedDevice, ad
 			if id := device.Capabilities[name].AssignedID; id != "" {
 				capLines.WriteString("        stable_id: " + id + "\n")
 			}
+			if id := device.Capabilities[name].RemoteID; id != "" {
+				capLines.WriteString("        remote_id: " + id + "\n")
+			}
 			// domain/derived_from/derived_via (added 2026-09-10, plans/
 			// derived-capability-mechanism.md Phase 2): only ever set for a "derived ...
 			// from ... via ...;" capability (Physical_DerivedCapability.go) -- an ordinary imported

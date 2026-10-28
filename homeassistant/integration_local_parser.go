@@ -52,13 +52,18 @@ var localWithDeviceOneLinerPattern = regexp.MustCompile(`^device\s+(\S+)\s+with\
 // two-group-plus-greedy-rest shape as discoveryCapabilityPattern, except <rest> is optional here
 // (a bare capability has nothing after its own "<domain>.<label>"). Requires the explicit
 // "capability" keyword (PROJECT.md item 11b, 2026-10-11) -- see discoveryCapabilityPattern's own
-// doc comment for the general rationale.
-var localCapabilityPattern = regexp.MustCompile(`^capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)(?:\s+(.+?))?\s*;\s*$`)
+// doc comment for the general rationale. A label may hold "/" (e.g. "cpu/load", 2026-10-28,
+// PROJECT.md 21), as a hosts or hassbridge capability's does.
+var localCapabilityPattern = regexp.MustCompile(`^capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)(?:\s+(.+?))?\s*;\s*$`)
+
+// localNativeSourcePattern matches a native entity named as a capability's source:
+// "<domain>.<object id>".
+var localNativeSourcePattern = regexp.MustCompile(`^([a-z_]+)\.([a-z0-9_]+)$`)
 
 // localAvailabilitySuffix mirrors discoveryAvailabilitySuffix exactly.
 const localAvailabilitySuffix = " is available"
 
-var localAvailabilitySiblingPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$`)
+var localAvailabilitySiblingPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)$`)
 
 // localCapabilityWithPattern opens a "switch.<label> <media-player-entity> with: ... end;" block
 // (2026-09-27, the media_player->switch coercion relocated here from Logical.def -- see
@@ -134,8 +139,15 @@ func applyLocalCapabilityLine(dev *TLocalDevice, deviceID, line string) (warning
 		dev.Capabilities[label] = TLocalCapability{Domain: domain, AvailabilityOf: siblingMatch[2], AvailabilityOfDomain: siblingMatch[1]}
 		return "", true
 	}
+	// A native entity of the capability's own domain as its source (PROJECT.md 21, 2026-10-28):
+	// "capability sensor.cpu/load sensor.processor_use;" -- the entity_id its integration gave
+	// it, from which the registry repair renames it to its positioned id the first time.
+	if source := localNativeSourcePattern.FindStringSubmatch(rest); source != nil && source[1] == domain {
+		dev.Capabilities[label] = TLocalCapability{Domain: domain, NativeEntity: rest}
+		return "", true
+	}
 	if domain != "switch" {
-		return fmt.Sprintf("device %q's %q capability has unrecognised trailing text %q -- only \"<domain>.<label> is available;\" or (domain \"switch\" only) a literal media_player entity is supported after a capability's own name", deviceID, label, rest), true
+		return fmt.Sprintf("device %q's %q capability has unrecognised trailing text %q -- only \"<domain>.<label> is available;\", a native entity of the same domain (\"%s.<object id>\"), or (domain \"switch\" only) a literal media_player entity is supported after a capability's own name", deviceID, label, rest, domain), true
 	}
 	dev.Capabilities[label] = TLocalCapability{Domain: domain, MediaPlayerEntity: rest}
 	return "", true

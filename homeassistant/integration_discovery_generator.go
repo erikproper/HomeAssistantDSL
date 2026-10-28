@@ -102,6 +102,9 @@ func generateDiscoveryIntegrationOutputs(bodyLines []string, ctx TPhysicalGenera
 		sort.Strings(entityIDs)
 		for _, id := range entityIDs {
 			link := ctx.Admin.DiscoveryEntityLinks[id]
+			if ctx.Admin.RawGatewayIDs[link.GatewayDeviceID] {
+				continue // an "integration mqtt" device: nothing for the coordinator (PROJECT.md 39)
+			}
 			sb.WriteString("  " + id + ":\n")
 			sb.WriteString("    gateway: " + link.GatewayDeviceID + "\n")
 			sb.WriteString("    leaf: " + link.Leaf + "\n")

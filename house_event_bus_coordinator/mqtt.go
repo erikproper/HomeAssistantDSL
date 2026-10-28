@@ -191,7 +191,7 @@ func publishDeviceDiscovery(mainClient, cloudClient mqtt.Client, ownInstallation
 			// cloud broker -- see TDiscoveryDevice.withoutSuggestedArea's own doc comment. Marshalled
 			// separately from the local payload above (this used to reuse the exact same bytes),
 			// since the two payloads can now genuinely differ.
-			cloudData, err := json.Marshal(cloudSafePayload(cfg.Payload))
+			cloudData, err := withExportID(cloudSafePayload(cfg.Payload), hostExportID(device.Host, cfg.Capability))
 			if err != nil {
 				return published, fmt.Errorf("marshalling cloud discovery payload for %s: %w", cfg.Topic, err)
 			}
@@ -292,4 +292,18 @@ func subscribeDeviceInfo(mainClient, cloudClient mqtt.Client, ownInstallation st
 		return fmt.Errorf("subscribing to hosts/+/device/state: timed out")
 	}
 	return nil
+}
+
+// withExportID marshals a cloud discovery payload with its "export_id" (PROJECT.md 22) added.
+func withExportID(payload interface{}, exportID string) ([]byte, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(data, &body); err != nil {
+		return nil, err
+	}
+	body["export_id"] = exportID
+	return json.Marshal(body)
 }

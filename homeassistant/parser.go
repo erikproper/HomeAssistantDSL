@@ -55,6 +55,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 	}
 	administration := newAdministrationState()
 	administration.CapabilityDefaults = capabilityDefaults
+	administration.ExplicitNodeDevices = explicitNodeDevices(entityLines)
 	onSpaceClosed := func(_ string) {
 		// Space-close hooks are centralized in administration; aggregate derivation stays a separate pass.
 	}

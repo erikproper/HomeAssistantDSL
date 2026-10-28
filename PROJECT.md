@@ -16,31 +16,7 @@ JLI
  
 ## Migration & improvements
 
-21. "home_assistant main" (Architecture.md §6.16): per entity, can it become local (no MQTT round
-    trip to itself), or does something else on the bus need it?
-
-22. Persistent identity of an export, for the importer. An exported capability's cloud identity
-    (exportStableID: installation, device id, capability) follows the exporter's device id, so
-    renaming an exported device breaks the import until the importer's "from <installation>
-    <remote-device-id>" follows (2026-10-27: Junglinster's Vienna Netatmos renamed to
-    sensors.netatmo_vienna_*, five Vienna import lines adjusted). The importer is what needs a
-    persistent reference: e.g. the exporter's frozen "as" ids as the export identity.
-    Found on the way: Vienna's living-room import named Junglinster's own
-    sensors.netatmo_living_room (not exported) instead of sensors.netatmo_livingroom -- stale
-    values since 2026-10-26 12:02, CO2/noise/pressure missing -- without any report from
-    generate: an import of a device the other house doesn't export should be reported
-
-22a. Vienna's washing-machine plug (switch.washing_machine, ROBB ROB_200-017-0) should be on by
-    default (Erik, 2026-10-27). Check whether Zigbee2MQTT offers a power-on behaviour for it
-    (several bulbs have select.power_on_behavior); otherwise a rule that switches it back on.
-EP: No issue. I always "leave it on", but if it happens to be off, it is no issue switching it on.
-So, skip this item.
-
-22b. Junglinster's 12 Hue Taps (kinetic, battery-less) only send when pressed, so Zigbee2MQTT's
-    availability marks them offline and their events are "unavailable" (they still work when
-    pressed). Exclude them from Zigbee2MQTT's availability, or ignore it for them.
-
-22c. we need a pretty printer for the def files. Especially the ones that are updated with the unique IDs.
+22c. we need a pretty printer for the def files. Especially the ones that are updated by the generator.
     It should also try to keep lines to about 80 characters (Erik, 2026-10-27) -- e.g. the long
     "capability ... as <id>;" lines and the metadata blocks generate now writes (Architecture.md §6.16).
 
@@ -56,6 +32,14 @@ So, skip this item.
 
 22f. Vienna's TV ping node (hosts/sony_tv/node/state) never gets a message: the ping reporter
     publishes nothing for sony_tv (seen 2026-10-27, not caused by the YAML switch).
+
+22g. An export that stops is not noticed by the importer (found 2026-10-28, with item 22): the
+    exporter clears its retained cloud config, but the importing coordinator skips an empty message
+    ("retraction handling: not built yet", discoveryimport.go), so the entry stays in its
+    import_catalogue and generate reports nothing. Needs: on a cleared config, drop the catalogue
+    entry it fed (the coordinator has to remember topic -> local entity, since an empty message
+    carries no export_id), so generate's "doesn't export" ERROR fires.
+
 23. Can we trigger, within HA, the reload of an integration?
 The netatmo integration on P-s-2@JLI  often "losed" some connection
 leading to entities of especially the "Smart Indoor Air Quality Monitor" to report
@@ -83,13 +67,27 @@ reloading the Ring integration brought them back.
     classes (StateClassOf_...); no precision found there or in the other old modules.
     EP: Correct. Once HA started to allow the specification of this in the UI, I dropped that from the bash scripts. However, it is rather tedious to now do it all by hand ...
     EP: We should at least use "
-25. depencency versus via ... connexoon. 
+
+25. depencency versus via ... also include e.g. the connexoon for the somfy's
+- somfy => ha2mqtt => connexoon
+  --> Does the relevant integration on ha2mqtt have availabilty as well? 
+      We do ping connexoon.
+- netatmo's => ha2mqtt => netatmo??
+  --> Similar question. We do ping some of the netatmo units.
+- xc40 => ha2mqtt => volvo??
+- zwave's => zwave2mqtt
+- zigbees's => zigbee2mqtt
+Note: zwave2mqtt, zigbee2mqtt, and ha2mqtt (and its local integrations) depend on p-s-1 to be up.
 
 25b. Test if the meta call to reset HA's works.
 
 25c. (2026-09-24) Zigbee2MQTT liveness check: detect when a house's own Z2M bridge itself is down
      (not just an individual device), and if so, bulk-mark every Z2M-sourced entity in that house
      as unavailable, rather than leaving each one showing its own last-known (stale) state.
+     Mostly covered (2026-10-28): every Zigbee2MQTT entity's availability includes
+     zigbee2mqtt/bridge/state, which Zigbee2MQTT's Last Will sets offline when it stops; with the
+     retained shadows (item 20) the values stay but show unavailable. Left: a Zigbee2MQTT that hangs
+     without dropping its connection (no Last Will), and an actual test (a planned short stop).
 
 25a. Nuanced reporting of suggested entries, based on conceptual versus physical positioning.
 So, what is available to be positioned as potential capabilities, and what is available to be positioned at the conceptual layer.
@@ -107,6 +105,36 @@ So, what is available to be positioned as potential capabilities, and what is av
     Also integrations as devices: e.g. "integration.ha2mqtt" as a device of its own, and a device
     it integrates gets "via_device: integration.ha2mqtt;" ("roof/envoy" is integrated via
     ha2mqtt); the same for Zigbee2MQTT, Z-Wave JS UI, EMS-ESP, hosts. To think through carefully.
+    Plan (Erik, 2026-10-28, with 22b):
+    - Integration devices (integration.zigbee2mqtt, integration.zwave_js_ui, integration.ems_esp,
+      integration.ha2mqtt, ...), each with a node from its gateway-level availability topic --
+      every gateway already puts one into each of its devices' discovery configs:
+      zigbee2mqtt/bridge/state; zwave/driver/status + zwave/_CLIENTS/<client>/status; ems-esp/status
+      (ha2mqtt: its bridge reporting) -- ANDed with a "dependency on" its compute host, and
+      positioned next to that host (the rack).
+    - Which device belongs to which integration: via_device where the gateway reports one (only
+      Zigbee2MQTT does); otherwise from the shared availability topics -- a device whose configs
+      carry the integration's topic belongs to it. That inference is a suggestion only (gateways
+      provide what they "happen" to provide): written as a comment ("# suggested via_device:
+      integration.zwave_js_ui (shares zwave/driver/status)"), never as a value. The value is the
+      captured via_device or a manual one, overridable as any metadata line: "via_device: <device>
+      forced;". A device with no shared topic at all is reported (needs human input).
+    - Then a device's availability follows its integration's node (incl. the host dependency);
+      22b's "ignore own availability;" (keep only the shared, gateway-level entries) is the first
+      step of that.
+    - Built 2026-10-28 (Architecture.md §6.16, "Integration devices"): integration.zigbee2mqtt
+      (renamed from node.zigbee2mqtt_bridge), integration.zwave2mqtt and integration.ems2mqtt (in
+      "integration mqtt"), integration.ha2mqtt (ping-pong) -- positioned next to their hosts, with
+      their hosts as dependency. Still open: the devices' own availability following their
+      integration's node, and the via_device suggestions from shared topics (both above); the
+      Hue Taps' nodes already follow integration.zigbee2mqtt (Logical.def).
+    - Note for later (Erik, 2026-10-28), when the via_device relations are designed: "via"
+      probably means "data flows via", which is not "depends on" -- and it can branch. Example:
+      somfy_1 via ha2mqtt via Overkiz via connexoon, while ha2mqtt and Overkiz depend on 
+      protocols-server-1. 
+      So the data path
+      (via_device chain) and the dependency graph (what must be up) are two different relations;
+      availability should follow the dependencies, not simply the via chain, while the via chain should not mix in the "what must be up" hierarchy. 
   
   Capability level mapping of values at logical level?
   Tap 1,2,3,4 => 1,2 = event.event_1 { toggle }
@@ -614,6 +642,10 @@ on both houses before and after each removal -- see git history for the exact co
     where the coordinator-vs-separate-component question is still genuinely open.
 
 39. RAW mqtt as integration; also see notes below on MQTT/JSON structures. So, a situation in which we have MQTT topics, but no discovery data. Then this integration needs to combine this into a discovery compliant topic structure. Sometimes easy to do based on topic and payload. But take the vacuum. If the composed state is represented as a different topics these need to be joint by the coordinator.
+    Started 2026-10-28 as "integration mqtt" (Architecture.md §6.16): so far only binary_sensor
+    capabilities from a topic ("capability binary_sensor.<label> topic "<topic>" on "<value>";"),
+    used for the gateways' status nodes. To come: other domains, a value template for JSON, the
+    vacuum's state from several topics, and availability per raw device.
     Retain (from item 20, 2026-10-28; Architecture.md §6.16): a raw device's declaration says
     "is retained;" when its topics are retained; without it its state entities read the
     coordinator's shadow, as for discovered devices. Each raw definition also needs its own

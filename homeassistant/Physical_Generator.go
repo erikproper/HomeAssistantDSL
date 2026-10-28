@@ -247,15 +247,9 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 	for _, report := range captureDiscoveryMetadata(definitionDir, discoveryGatewaysByID, hostDevicesByID, hassBridgeDevicesByID, ctx) {
 		fmt.Printf("[physical] %s\n", report)
 	}
-	for _, report := range generateYAMLMQTTEntities(definitionDir, discoveryGatewaysByID, ctx) {
-		fmt.Printf("[physical] %s\n", report)
-	}
-	for _, report := range generateYAMLCoordinatorEntities(instanceNames, ctx) {
-		fmt.Printf("[physical] %s\n", report)
-	}
-	for _, report := range generateYAMLHassBridgeEntities(definitionDir, hassBridgeDevicesByID, ctx) {
-		fmt.Printf("[physical] %s\n", report)
-	}
+	printYAMLReports("[physical]", generateYAMLMQTTEntities(definitionDir, discoveryGatewaysByID, ctx))
+	printYAMLReports("[physical]", generateYAMLCoordinatorEntities(instanceNames, ctx))
+	printYAMLReports("[physical]", generateYAMLHassBridgeEntities(definitionDir, hassBridgeDevicesByID, ctx))
 	if err := generateDiscoverySuggestions(definitionDir, outputRoot, discoveryGatewaysByID, admin.DiscoveryEntityLinks, discoveryPassthroughRules, ctx); err != nil {
 		return err
 	}
@@ -274,9 +268,7 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 	if err := generateImportedDeviceFile(outputRoot, importedDevices, ctx.Admin); err != nil {
 		return err
 	}
-	for _, report := range generateYAMLImportedEntities(definitionDir, importedDevices, ctx) {
-		fmt.Printf("[physical] %s\n", report)
-	}
+	printYAMLReports("[physical]", generateYAMLImportedEntities(definitionDir, importedDevices, ctx))
 	// PROJECT.md 1 (2026-09-07): kind-4's own passive counterpart to kind-2/kind-3 above -- same
 	// rule, a confirmed known-not-to-exist remote stable id is reported for a shorthand-declared
 	// import capability, not-known-to-exist/known-to-exist both generate optimistically. Explicit-ref

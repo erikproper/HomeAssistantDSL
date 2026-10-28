@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -89,11 +90,29 @@ func generateYAMLImportedEntities(definitionDir string, devices []TImportedDevic
 	}
 	var reports []string
 	seen := map[string]bool{}
+	remoteIDs := map[string]string{}      // "<device-id>!<capability>" -> the exporter's export_id
+	renamedRemotes := map[string]string{} // device id -> the exporter's current device id
 	for _, device := range devices {
 		if seen[device.DeviceID] {
 			continue
 		}
 		seen[device.DeviceID] = true
+		// PROJECT.md 22: the exporter's persistent identity of each capability, from the catalogue,
+		// into the declaration -- and a rename on the exporting side noticed.
+		if link, ok := ctx.Admin.DeviceConceptualLinks[device.DeviceID]; ok {
+			for name, capability := range device.Capabilities {
+				remote, found := catalogue[link.AttributeEntityIDs[name].EntityID]
+				if !found {
+					continue
+				}
+				if capability.RemoteID == "" && remote.ExportID != "" {
+					remoteIDs[device.DeviceID+"!"+name] = remote.ExportID
+				}
+				if remote.RemoteDeviceID != "" && remote.RemoteDeviceID != device.RemoteDeviceID {
+					renamedRemotes[device.DeviceID] = remote.RemoteDeviceID
+				}
+			}
+		}
 		entities, missing := importedYAMLEntityBodies(device, ctx.Admin, catalogue)
 		if len(entities) == 0 && len(missing) == 0 {
 			continue
@@ -114,12 +133,83 @@ func generateYAMLImportedEntities(definitionDir string, devices []TImportedDevic
 		}
 		report := fmt.Sprintf("%s: %d entities via YAML", device.DeviceID, written) + droppedFieldsNote(entities)
 		if len(missing) > 0 {
-			report += "; ERROR, no catalogue entry from " + device.RemoteInstallation + " (not exported, nothing cached): " + strings.Join(missing, ", ")
+			report += "; ERROR, " + device.RemoteInstallation + " doesn't export these (no catalogue entry, nothing cached -- check its \"export\" and this device's \"from " + device.RemoteInstallation + " " + device.RemoteDeviceID + "\"): " + strings.Join(missing, ", ")
 		}
 		reports = append(reports, report)
 	}
+	if len(remoteIDs) > 0 || len(renamedRemotes) > 0 {
+		reports = append(reports, writeImportRemoteIdentities(filepath.Join(definitionDir, "Physical.def"), remoteIDs, renamedRemotes)...)
+	}
 	return reports
 }
+
+// importDeviceHeaderPattern matches an import's device line, long ("device <id> from <installation>
+// <remote-device-id> with:") or short ("device <id> from <installation> with:", the remote device
+// id being the same as the local one).
+var importDeviceHeaderPattern = regexp.MustCompile(`^(\s*device\s+(\S+)\s+from\s+\S+)(?:\s+(\S+))?(\s+with:\s*)$`)
+
+// writeImportRemoteIdentities writes into path (Physical.def, keeping its layout) each imported
+// capability's "from <export-id>" (remoteIDs, "<device-id>!<capability>" -> export_id), right
+// after the capability's name, and each renamed remote device's new id into its "device <id> from
+// <installation> <remote-device-id> with:" line (PROJECT.md 22). The import keeps working through
+// the rename either way -- the coordinator matches on the export_id -- this keeps the declaration
+// telling the truth. A capability line not found exactly once in its device is reported.
+func writeImportRemoteIdentities(path string, remoteIDs, renamedRemotes map[string]string) []string {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return []string{fmt.Sprintf("could not read %s to write import identities: %v", path, err)}
+	}
+	lines := strings.Split(string(raw), "\n")
+	var reports []string
+	pending := map[string]bool{}
+	for key := range remoteIDs {
+		pending[key] = true
+	}
+	device := ""
+	for i, line := range lines {
+		if m := importDeviceHeaderPattern.FindStringSubmatch(line); m != nil {
+			device = m[2]
+			oldID := m[3]
+			if oldID == "" {
+				oldID = device
+			}
+			if newID, renamed := renamedRemotes[device]; renamed && newID != oldID {
+				lines[i] = m[1] + " " + newID + m[4]
+				reports = append(reports, fmt.Sprintf("%s: the exporting house renamed %s to %s -- the declaration follows", device, oldID, newID))
+			}
+			continue
+		}
+		if strings.TrimSpace(line) == "end;" {
+			device = ""
+			continue
+		}
+		if device == "" {
+			continue
+		}
+		m := importCapabilityLinePattern.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		key := device + "!" + m[2]
+		if id, ok := remoteIDs[key]; ok && pending[key] {
+			lines[i] = m[1] + " from " + id + m[3]
+			delete(pending, key)
+			reports = append(reports, fmt.Sprintf("%s: capability %s from %s (the exporter's persistent identity, written into Physical.def)", device, m[2], id))
+		}
+	}
+	for key := range pending {
+		reports = append(reports, fmt.Sprintf("import identity for %s not written: its capability line wasn't found", key))
+	}
+	sort.Strings(reports)
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		return append(reports, fmt.Sprintf("could not write %s: %v", path, err))
+	}
+	return reports
+}
+
+// importCapabilityLinePattern splits an import capability line without "from" into its head
+// ("capability <domain>.<label>"), its label, and the rest (" as <id>;" or ";").
+var importCapabilityLinePattern = regexp.MustCompile(`^(\s*capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*))((?:\s+as\s+\S+)?\s*;.*)$`)
 
 // importedYAMLEntityBodies returns device's YAML entities, built from exactly what
 // generateImportedDeviceFile writes for the coordinator, and the entities missing a catalogue

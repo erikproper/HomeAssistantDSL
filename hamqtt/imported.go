@@ -51,6 +51,12 @@ type ImportedRemote struct {
 	Icon         string `json:"icon,omitempty"`
 	PayloadOn    string `json:"payload_on,omitempty"`
 	PayloadOff   string `json:"payload_off,omitempty"`
+	// ExportID is the exporter's persistent identity for the capability (PROJECT.md 22): its
+	// frozen universal ID, or "host_<hostname>_<attribute>" for a host; RemoteDeviceID the
+	// exporter's current device id for it. The generator writes ExportID into the importer's
+	// declaration ("from <export-id>") and reports a RemoteDeviceID that differs from it.
+	ExportID       string `json:"export_id,omitempty"`
+	RemoteDeviceID string `json:"remote_device_id,omitempty"`
 }
 
 // ImportedEntity is what an imported entity's config is built from.

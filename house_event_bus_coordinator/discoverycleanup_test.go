@@ -607,7 +607,7 @@ func TestExpectedCloudHostsPayloadsMatchesCloudSafePayload(t *testing.T) {
 		if !strings.Contains(string(local), "suggested_area") {
 			t.Fatalf("fixture should carry a suggested_area locally, got %s", local)
 		}
-		cloud, _ := json.Marshal(cloudSafePayload(cfg.Payload))
+		cloud, _ := withExportID(cloudSafePayload(cfg.Payload), hostExportID(device.Host, cfg.Capability))
 		topic := "junglinster/" + discoveryTopic(prefix, cfg.Component, exportStableID("junglinster", "host.smarty", cfg.Capability))
 		if got[topic] != string(cloud) {
 			t.Errorf("expected cloud payload for %s =\n%s\nwant what the cloud leg publishes\n%s", topic, got[topic], cloud)

@@ -462,9 +462,7 @@ func generateHostsIntegrationOutputs(bodyLines []string, ctx TPhysicalGeneration
 	if err := generateCoordinatorDevicesFile(ctx.OutputRoot, devices, ctx.Admin, ctx.MQTTDiscoveryConceptualPrefix, ctx.Installation); err != nil {
 		return err
 	}
-	for _, report := range generateYAMLHostsEntities(devices, ctx) {
-		fmt.Printf("[integration hosts] %s\n", report)
-	}
+	printYAMLReports("[integration hosts]", generateYAMLHostsEntities(devices, ctx))
 	if ctx.HasMQTTSecrets {
 		// generatePhysicalIntegrationOutputs already warns once if MQTT settings are missing
 		// (it resolves them before dispatching here) -- no need to repeat that here. ping/report

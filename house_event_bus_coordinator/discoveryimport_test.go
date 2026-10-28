@@ -34,7 +34,7 @@ func TestMatchImportedCapabilityByStableID(t *testing.T) {
 	}}
 
 	topic := "junglinster/homeassistant/sensor/coordinator/junglinster_hass_vienna_livingroom_co2/config"
-	match, matched := matchImportedCapabilityByStableID(importFile, "junglinster", topic)
+	match, matched := matchImportedCapabilityByStableID(importFile, "junglinster", topic, "")
 	if !matched {
 		t.Fatalf("expected a match")
 	}
@@ -43,12 +43,12 @@ func TestMatchImportedCapabilityByStableID(t *testing.T) {
 	}
 
 	// Wrong installation must not match, even with an otherwise-identical stable id.
-	if _, matched := matchImportedCapabilityByStableID(importFile, "vienna", topic); matched {
+	if _, matched := matchImportedCapabilityByStableID(importFile, "vienna", topic, ""); matched {
 		t.Errorf("expected no match for a different remote installation")
 	}
 	// A topic whose stable id doesn't correspond to any declared capability must not match.
 	unrelatedTopic := "junglinster/homeassistant/sensor/coordinator/junglinster_hass_vienna_livingroom_humidity/config"
-	if _, matched := matchImportedCapabilityByStableID(importFile, "junglinster", unrelatedTopic); matched {
+	if _, matched := matchImportedCapabilityByStableID(importFile, "junglinster", unrelatedTopic, ""); matched {
 		t.Errorf("expected no match for an unrelated stable id")
 	}
 }
@@ -65,7 +65,7 @@ func TestMatchImportedCapabilityByStableIDSkipsUnresolvedCapability(t *testing.T
 		},
 	}}
 	topic := "junglinster/homeassistant/sensor/coordinator/junglinster_hass_vienna_shower_room_humidity/config"
-	if _, matched := matchImportedCapabilityByStableID(importFile, "junglinster", topic); matched {
+	if _, matched := matchImportedCapabilityByStableID(importFile, "junglinster", topic, ""); matched {
 		t.Errorf("expected no match for a capability with no resolved LocalEntity")
 	}
 }
@@ -87,7 +87,7 @@ func TestMatchImportedCapabilityByStableIDCoercesAcrossDomains(t *testing.T) {
 	}}
 	// The exporter actually published this stable id under "switch", not "binary_sensor".
 	topic := "junglinster/homeassistant/switch/coordinator/junglinster_hass_frame_node/config"
-	match, matched := matchImportedCapabilityByStableID(importFile, "junglinster", topic)
+	match, matched := matchImportedCapabilityByStableID(importFile, "junglinster", topic, "")
 	if !matched {
 		t.Fatalf("expected a match despite the domain mismatch -- coercion should not block it")
 	}
@@ -111,7 +111,7 @@ func TestMatchImportedCapabilityByStableIDMatchesGroupPrefixedHostsCapability(t 
 		},
 	}}
 	topic := "junglinster/homeassistant/sensor/coordinator/junglinster_host_pro-1_cpu_load/config"
-	match, matched := matchImportedCapabilityByStableID(importFile, "junglinster", topic)
+	match, matched := matchImportedCapabilityByStableID(importFile, "junglinster", topic, "")
 	if !matched {
 		t.Fatalf("expected a match for the group-prefixed \"cpu/load\" capability")
 	}
@@ -256,7 +256,7 @@ func TestBuildImportedDiscoveryBodyAppliesLocalSuggestedArea(t *testing.T) {
 		},
 	}}
 	stableID := exportStableID("junglinster", "hass.vienna_livingroom", "co2")
-	match, ok := matchImportedCapabilityByStableID(importFile, "junglinster", "homeassistant/sensor/coordinator/"+stableID+"/config")
+	match, ok := matchImportedCapabilityByStableID(importFile, "junglinster", "homeassistant/sensor/coordinator/"+stableID+"/config", "")
 	if !ok {
 		t.Fatalf("expected a match")
 	}
@@ -808,5 +808,29 @@ func TestImportedUniqueIDPrefersFrozenStableID(t *testing.T) {
 	}
 	if got := importedUniqueID("sensor.social_bedroom_bed_co2", ""); got != "imported_sensor_social_bedroom_bed_co2" {
 		t.Errorf("unfrozen: got %q", got)
+	}
+}
+
+// TestMatchImportedCapabilityByExportID: a capability with a RemoteID matches on the payload's
+// export_id, whatever the exporter's device is now called (the topic's stable id follows the name);
+// a different export_id doesn't match (PROJECT.md 22).
+func TestMatchImportedCapabilityByExportID(t *testing.T) {
+	importFile := TImportedFile{Devices: map[string]TImportedDevice{
+		"sensors.netatmo_bedroom": {
+			RemoteInstallation: "junglinster",
+			RemoteDeviceID:     "sensors.netatmo_vienna_bedroom",
+			Capabilities: map[string]TImportedCapability{
+				"co2": {LocalEntity: "sensor.physical_apartment_bedroom_netatmo_co2", RemoteID: "hassbridge_sensor_infrastructural_netatmo_bedroom_co2"},
+			},
+		},
+	}}
+	renamedTopic := "junglinster/homeassistant/sensor/coordinator/junglinster_sensors_netatmo_renamed_co2/config"
+	match, ok := matchImportedCapabilityByStableID(importFile, "junglinster", renamedTopic, "hassbridge_sensor_infrastructural_netatmo_bedroom_co2")
+	if !ok || match.LocalEntity != "sensor.physical_apartment_bedroom_netatmo_co2" || match.ExistenceKey != "hassbridge_sensor_infrastructural_netatmo_bedroom_co2" {
+		t.Errorf("rename: match = %+v, %v", match, ok)
+	}
+	oldTopic := "junglinster/homeassistant/sensor/coordinator/junglinster_sensors_netatmo_vienna_bedroom_co2/config"
+	if _, ok := matchImportedCapabilityByStableID(importFile, "junglinster", oldTopic, "hassbridge_sensor_other"); ok {
+		t.Errorf("a different export_id matched")
 	}
 }

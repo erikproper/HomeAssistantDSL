@@ -92,7 +92,8 @@ func collectHassBridgeDevicesByID(definitionDir string) (map[string]THassBridgeD
 		if _, known := instances[instanceQualifier]; !known {
 			warnings = append(warnings, fmt.Sprintf("Physical.def:%d: \"integration home_assistant %s with:\" references instance %q, which has no matching \"home_assistant %s: ...;\" declaration", startLine, instanceQualifier, instanceQualifier, instanceQualifier))
 		}
-		devices, bodyWarnings := parseHassBridgeIntegrationBody(block.BodyLines, instanceQualifier)
+		bodyLines, _, _ := splitInstanceIntegrationDevices(block.BodyLines, instanceQualifier) // integration_mqtt.go
+		devices, bodyWarnings := parseHassBridgeIntegrationBody(bodyLines, instanceQualifier)
 		warnings = append(warnings, bodyWarnings...)
 		for _, d := range devices {
 			if d.selfImport {

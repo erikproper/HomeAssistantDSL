@@ -53,6 +53,9 @@ type TRegistryManifestEntry struct {
 type TRegistryManifestNative struct {
 	Source   string `json:"source"`
 	EntityID string `json:"entity_id"`
+	// Seed (PROJECT.md 21, 2026-10-28) is the entity_id its integration gave it, when the defs name
+	// it: the repair renames that entity the first time, when no previous deploy knows the source.
+	Seed string `json:"seed,omitempty"`
 }
 
 // TRegistryManifestOther is one generated automation, script or input_* helper: the platform and
@@ -154,7 +157,7 @@ func generateRegistryManifest(outputDir string, admin *TAdministrationState) err
 	for deviceID, labels := range admin.NativeCapabilities {
 		for _, label := range labels {
 			if attribute := admin.DeviceConceptualLinks[deviceID].AttributeEntityIDs[label]; attribute.EntityID != "" {
-				manifest.Native = append(manifest.Native, TRegistryManifestNative{Source: deviceID + "!" + label, EntityID: attribute.EntityID})
+				manifest.Native = append(manifest.Native, TRegistryManifestNative{Source: deviceID + "!" + label, EntityID: attribute.EntityID, Seed: admin.NativeSeeds[deviceID+"!"+label]})
 			}
 		}
 	}

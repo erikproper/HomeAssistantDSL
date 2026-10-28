@@ -178,7 +178,8 @@ func expectedCloudHostsPayloads(devicesFile TDevicesFile, ownInstallation string
 			// comparing against the local payload made the orphan watcher retire every cloud copy
 			// carrying a suggested_area at each restart, and publishDiscovery republish it right
 			// after (found 2026-10-22: Junglinster's 5 studio/mqtt cloud entries, PROJECT.md 3a).
-			data, err := json.Marshal(cloudSafePayload(cfg.Payload))
+			// With its export_id (PROJECT.md 22), as publishDeviceDiscovery sends it.
+			data, err := withExportID(cloudSafePayload(cfg.Payload), hostExportID(device.Host, cfg.Capability))
 			if err != nil {
 				return nil, fmt.Errorf("marshalling discovery payload for %s: %w", cfg.Topic, err)
 			}

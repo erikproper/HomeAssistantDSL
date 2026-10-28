@@ -73,6 +73,17 @@ type TAdministrationState struct {
 	// HA integration of its own provides (the generator only refers to them, it never writes
 	// them), for the registry manifest's "native" part (PROJECT.md 17j).
 	NativeCapabilities      map[string][]string
+	// NativeSeeds (PROJECT.md 21): "<device-id>!<capability>" -> the entity_id its integration
+	// gave it, for a local capability that names it ("capability sensor.cpu/load
+	// sensor.processor_use;"): where the registry repair finds it the first time.
+	NativeSeeds map[string]string
+	// RawGatewayIDs (PROJECT.md 39): the "integration mqtt" devices, which ride on the discovery
+	// machinery but are left out of coordinator/discovery.yaml -- nothing to collect or relay.
+	RawGatewayIDs map[string]bool
+	// ExplicitNodeDevices (2026-10-28): the devices whose node Conceptual.def positions explicitly
+	// somewhere -- a node condition referring to one waits for that positioning instead of
+	// materializing the node itself (resolveNodeInput).
+	ExplicitNodeDevices map[string]bool
 	// YAMLEntities (PROJECT.md 19c) maps every entity Home Assistant gets from the generator's own
 	// YAML "mqtt:" config to the exact discovery config the coordinator built for it
 	// (mqtt_yaml_entities.go) -- the coordinator no longer relays these.

@@ -353,6 +353,10 @@ func generateInstanceAutomationTrees(haOutputDir string, instances map[string]TH
 		if err := writeAutomationFile(instanceHAOutputDir, "infrastructural", "coordinator_meta_restart", generatorHeader+metaRestartAutomationBody(name)); err != nil {
 			return err
 		}
+		// PROJECT.md 26: the coordinator's ping-pong, the instance's liveness.
+		if err := writeAutomationFile(instanceHAOutputDir, "infrastructural", "coordinator_ping_pong", generatorHeader+pingPongAutomationBody(name)); err != nil {
+			return err
+		}
 	}
 	return nil
 }

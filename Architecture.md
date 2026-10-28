@@ -1054,6 +1054,25 @@ scenario this was built ahead of; 1.2d is the import mechanism itself. Command t
 for the same-broker case (§6.13) but not yet across this `export`/import cloud-broker link —
 that's §6.13's own "Phase 2" note, not built yet either.
 
+**An export's persistent identity (PROJECT.md 22, 2026-10-28).** The cloud config topic of an
+exported capability is keyed by a name-based id (`exportStableID`: installation, device id,
+capability), so renaming the exporter's device or capability used to break the import until the
+importer's declaration followed (2026-10-27: Junglinster's Vienna Netatmos renamed, five Vienna
+import lines adjusted by hand). Now every cloud config also carries an `export_id`, which no
+rename changes:
+- a bridged capability: its frozen universal ID (`hassbridge_sensor_infrastructural_netatmo_bedroom_co2`);
+- a host: `host_<hostname>_<attribute>` (`host_pro1_cpu_load`) -- the machine's own name, already
+  in all its topics and independent of its device id; hosts declare no capability `as` IDs.
+
+The importer names it per capability -- `capability sensor.co2 from <export-id> as <id>;` -- and
+its coordinator matches on the payload's `export_id` (a capability without `from` still matches
+the old way). Nobody types it: generate writes the `from` from the import catalogue (which
+carries each entry's `export_id` and the exporter's current device id), and when the exporting
+house renamed the device it updates the importer's `device <id> from <house> <remote-id> with:`
+line and reports it. The config topics themselves didn't change: only the other house's
+coordinator reads them, so the identity travels in the message. An import of something the other
+house doesn't export is an ERROR in generate's output ("<house> doesn't export these").
+
 ### 6.13 Command routing for hassbridge entities (PROJECT.md item 11)
 
 **hassbridge was one-way (state only) until 2026-09-09.** Every mechanism §6/§6.12 document —
@@ -1304,7 +1323,30 @@ automation publishes an entity's state, and the same instance reads it back as a
 Where an entity is only used by this instance, making it `local` instead removes that round trip
 and the duplicate entity. What it loses is the entity's place on the bus: anything that reads the
 bus (the other house via `export`, other consumers, §7) then no longer sees it. So the choice is
-per entity: on the bus because something else needs it, otherwise local. To be checked per house.
+per entity: on the bus because something else needs it, otherwise local.
+
+Checked and done for both houses 2026-10-28 (PROJECT.md 21): their `integration home_assistant
+main` held only the instance's own host (`node.vienna`/`node.junglinster`: CPU load and
+temperature from System Monitor, a node) and the iPhone (battery from the Mobile App, a node, a
+battery alert). Nothing else on the bus needed them -- not exported, not imported, no "dependency
+on" -- and a bus copy of the main instance's own host is useless anyway: when it is down, nothing
+works (Erik). Both moved to `integration local`; the block is gone. What made that possible:
+
+- A local capability may name its native entity: `capability sensor.cpu/load
+  sensor.processor_use;` -- a source of the capability's own domain (labels may hold `/`). The
+  generator records it in the registry manifest's native entry as `seed`; the repair renames that
+  entity to the positioned id the first time no previous deploy knows the source, and afterwards
+  as any native entry. A derived node names its sibling (`with condition sensor.cpu/load is
+  available`), not the native entity, whose name changes.
+- The switch takes two deploys, because the repair runs before HA's reload: in the first the
+  bridge entities are still live, so they stay (as orphans after the reload) and the native
+  renames wait; the node templates come up as `..._2`. The second removes the orphans and does the
+  renames. A stale mqtt entry still live at the sync is kept as `pending_removal` in the saved
+  state -- before, it was forgotten and stayed an orphan for good.
+- The positioned ids kept their history (HA's recorder doesn't merge into an id that has history
+  already); the native entities' older history stays under their former names. The device with
+  captured metadata (e.g. "Home Assistant Green", its OS version) is gone: the entities belong to
+  their native integrations' devices.
 
 **Retain, for raw and discovered.** After a Home Assistant restart, a reload, or the switch of an
 entity to YAML, Home Assistant only has a value for a state topic the broker retained. Controlled
@@ -1424,6 +1466,65 @@ the UI shows the registry name, not the friendly_name).
   (commented out in both houses' Settings.def; its default is the same).
 - *Suggestions* (`suggestions/discovery.txt`) are copy-paste-ready capability lines
   (`capability <domain>.<label> <leaf>;`).
+
+**A device's own availability versus its gateway's (PROJECT.md 22b, 2026-10-28).** A discovered
+device's entities take their availability from its gateway's discovery configs, which mix two
+kinds of entries: the gateway's own, shared by all its devices (Zigbee2MQTT's
+`zigbee2mqtt/bridge/state`; Z-Wave JS UI's `zwave/driver/status` and
+`zwave/_CLIENTS/<client>/status`; EMS-ESP's `ems-esp/status`), and the device's own (Zigbee2MQTT's
+`zigbee2mqtt/<device>/availability`, a Z-Wave node's status). Which is which is read from the
+data, never from gateway names: a topic the configs of more than one device carry is shared, one
+only this device carries is its own (`homeassistant/shared_availability.go`). There is no single
+"bridge/state" per gateway and no reliable way to name a device's gateway (only Zigbee2MQTT
+reports via_device), and neither is needed.
+
+A device that only sends when used -- Junglinster's 19 battery-less Hue Taps -- gets marked
+offline by its gateway after a while (Zigbee2MQTT: 25 h without a message), though it works when
+pressed. Its declaration says `ignore own availability;` (in its device block, like `ignore other
+capabilities;`): its entities keep only the shared entries, so they are available exactly as long
+as the gateway is. Generate reports what it drops, and warns -- leaving the availability as it was
+-- when nothing shared would remain. The Taps' nodes were already that: Logical.def derived nodes with
+"condition node from node.zigbee2mqtt_bridge", positioned implicitly. A device flag may sit
+among its metadata lines, with a trailing comment; generate's metadata writer keeps it (it once
+left a second metadata block behind when a flag came before the identifiers). This is a first step towards integration devices (PROJECT.md
+26): integration.zigbee2mqtt and the like, with a node from that shared topic and a dependency on
+their compute host, which the devices' availability will then follow; the same topic sharing
+suggests (as a comment, never a value) which devices belong to which integration, where the gateway
+reports no via_device -- a "via_device: ... forced;" line overrides.
+
+**Integration devices, and `integration mqtt` (PROJECT.md 26/39, 2026-10-28).** Each gateway and
+bridged instance is a device of its own, positioned next to the compute host it runs on, with a
+node that says whether it is up (Erik): `integration.zigbee2mqtt` (renamed from
+`node.zigbee2mqtt_bridge`; its node is Zigbee2MQTT's own discovered connection state),
+`integration.zwave2mqtt`, `integration.ems2mqtt` (realised by the EMS-ESP board, hosted by
+`node.ems_esp`) and `integration.ha2mqtt`. A Logical.def "dependency on" its host is ANDed into the
+node's availability -- the discovery YAML writer now applies dependencies like every other kind's.
+Where the node's topic comes from depends on who controls it:
+- *Topics we don't control, without discovery* -- Z-Wave JS UI's `zwave/driver/status`, EMS-ESP's
+  `ems-esp/status` -- are declared in `integration mqtt`, the start of the raw MQTT integration:
+  `capability binary_sensor.node topic "zwave/driver/status" on "true" [as <id>];` ("on" for that
+  value, "off" for any other). Such a device rides on the discovery machinery: the generator writes
+  its "raw config" itself (`homeassistant/integration_mqtt.go`), so positioning, frozen IDs, YAML
+  entity and retain decision are a discovered device's; the coordinator gets nothing. Retain: the
+  same default as for discovery (not retained, so a shadow), the installation's `retained topics`
+  filters (written in either block) and `is retained;`/`is not retained;` apply -- Junglinster's
+  `zwave/#`/`ems-esp/#` cover these two.
+- *Topics we control* -- a bridged Home Assistant instance, later fhem2mqtt -- declare the node in
+  their own integration: `integration home_assistant ha2mqtt with: device integration.ha2mqtt
+  with: capability binary_sensor.node; end; ...`. Its topic is `homeassistant_instances/<instance>/
+  status`, kept by the coordinator's ping-pong (`house_event_bus_coordinator/
+  instance_liveness.go`, Erik's design): every message from the instance is a sign of life; only
+  after 5 minutes of quiet does the coordinator send `ping` on `homeassistant_instances/<instance>/
+  ping`, which a generated automation on the instance answers with `pong` on the same topic; no
+  pong within 30 s is `offline`. The status is retained and the node's availability includes the
+  coordinator's own (without it, nobody keeps the status).
+
+Node positioning, a fix (2026-10-28): a derived node whose condition refers to another device's
+node ("condition node from integration.zigbee2mqtt") materializes that node itself when it isn't
+positioned -- but now only when nothing positions it explicitly further down Conceptual.def
+(`ExplicitNodeDevices`, from a scan of the device blocks before resolving); otherwise it waits.
+Before, a Hue Tap's node positioned explicitly before the bridge made the bridge's node the Tap's
+"controller" node, and every other Tap's node pointed at it.
 
 **Deploying YAML entities: what the live rollout taught.**
 - One field Home Assistant doesn't know makes the WHOLE MQTT reload fail, while the deploy still

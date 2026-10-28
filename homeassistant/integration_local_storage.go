@@ -68,6 +68,11 @@ type TLocalCapability struct {
 	NoPlayInput           string
 	DerivedFromCapability string
 	DerivedViaTemplate    string
+	// NativeEntity (PROJECT.md 21, 2026-10-28): the entity_id the native integration gave this
+	// capability's entity ("capability sensor.cpu/load sensor.processor_use;"). The registry repair
+	// renames that entity to the capability's positioned id the first time (TRegistryManifestNative
+	// .Seed); afterwards the positioned id is its name, and this one only identifies it.
+	NativeEntity string
 }
 
 // TLocalDevice is one "device <id> with: <domain>.<label>; ...; end;" declaration inside

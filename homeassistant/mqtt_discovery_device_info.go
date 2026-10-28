@@ -230,8 +230,13 @@ func captureDiscoveryMetadata(definitionDir string, gateways map[string]TDiscove
 }
 
 // discoveryDeviceFlags are a discovery device's own device-level lines that may sit among its
-// metadata (integration_discovery_parser.go).
-var discoveryDeviceFlags = map[string]bool{"ignore other capabilities;": true}
+// metadata (integration_discovery_parser.go), compared without a trailing comment.
+var discoveryDeviceFlags = map[string]bool{
+	"ignore other capabilities;": true,
+	"ignore own availability;":   true, // PROJECT.md 22b
+	"is retained;":               true, // PROJECT.md 20
+	"is not retained;":           true,
+}
 
 var (
 	metadataDeviceHeaderPattern = regexp.MustCompile(`^(\s*)device\s+([A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*)\s+with:\s*$`)
@@ -275,7 +280,7 @@ func writeDiscoveryMetadata(content string, gateways map[string]TDiscoveryGatewa
 				oldBlock = append(oldBlock, lines[j])
 				continue
 			}
-			if discoveryDeviceFlags[trimmed] {
+			if discoveryDeviceFlags[stripLineComment(trimmed)] {
 				flags = append(flags, lines[j])
 				continue
 			}

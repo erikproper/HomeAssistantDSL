@@ -144,7 +144,7 @@ func (t *TImportExistenceTracker) Seed(importFile TImportedFile) {
 			continue
 		}
 		for capability := range device.Capabilities {
-			stableID := exportStableID(device.RemoteInstallation, device.RemoteDeviceID, capability)
+			stableID := importExistenceKey(device, capability)
 			if _, ok := t.entries[device.RemoteInstallation]; !ok {
 				t.entries[device.RemoteInstallation] = map[string]TEntityExistenceStatus{}
 			}

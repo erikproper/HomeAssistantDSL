@@ -50,6 +50,9 @@ type tStableIDAssignment struct {
 	sourceDomain string
 	leaf         string
 	newID        string
+	// rawTopic: an "integration mqtt" capability's topic (PROJECT.md 39) -- its line names that,
+	// not a leaf.
+	rawTopic string
 }
 
 // autoAssignDiscoveryStableIDs walks every discovery gateway's every plain raw-leaf capability
@@ -127,7 +130,7 @@ func autoAssignDiscoveryStableIDs(definitionDir string, discoveryGatewaysByID ma
 			usedIDs[newID] = true
 			toAssign = append(toAssign, tStableIDAssignment{
 				gatewayID: gatewayID, domain: cap.Domain, label: label,
-				sourceDomain: cap.SourceDomain, leaf: cap.Leaf, newID: newID,
+				sourceDomain: cap.SourceDomain, leaf: cap.Leaf, newID: newID, rawTopic: rawTopicForLineSearch(gw.RawTopics[label]),
 			})
 		}
 	}
@@ -152,12 +155,21 @@ func autoAssignDiscoveryStableIDs(definitionDir string, discoveryGatewaysByID ma
 // excludes a line that already has its own trailing "as ...", by construction (the pattern ends
 // right after the leaf) -- an already-assigned capability's line simply won't match, which is
 // exactly the behaviour wanted (never assign twice).
-func discoveryCapabilityLinePattern(domain, label, sourceDomain, leaf string) *regexp.Regexp {
+//
+// The "capability" keyword (PROJECT.md item 11b) is allowed in front; an "integration mqtt"
+// capability (raw, PROJECT.md 39) is matched by its topic form instead of a leaf.
+func discoveryCapabilityLinePattern(domain, label, sourceDomain, leaf, rawTopic string) *regexp.Regexp {
 	source := regexp.QuoteMeta(leaf)
 	if sourceDomain != "" {
 		source = regexp.QuoteMeta(sourceDomain) + ":" + source
 	}
-	return regexp.MustCompile(`^\s*(?:hidden\s+|inverted\s+){0,2}` + regexp.QuoteMeta(domain) + `\.` + regexp.QuoteMeta(label) + `\s+` + source + `\s*;\s*$`)
+	if rawTopic == impliedRawTopic {
+		return regexp.MustCompile(`^\s*capability\s+` + regexp.QuoteMeta(domain) + `\.` + regexp.QuoteMeta(label) + `\s*;\s*$`)
+	}
+	if rawTopic != "" {
+		source = `topic\s+"` + regexp.QuoteMeta(rawTopic) + `"\s+on\s+"[^"]*"`
+	}
+	return regexp.MustCompile(`^\s*(?:capability\s+)?(?:hidden\s+|inverted\s+){0,2}` + regexp.QuoteMeta(domain) + `\.` + regexp.QuoteMeta(label) + `\s+` + source + `\s*;\s*$`)
 }
 
 // rewritePhysicalDefWithAssignedIDs locates each assignment's own capability line in the real,
@@ -181,7 +193,7 @@ func rewritePhysicalDefWithAssignedIDs(definitionDir string, assignments []tStab
 	}
 	var pending []pendingEdit
 	for _, a := range assignments {
-		pattern := discoveryCapabilityLinePattern(a.domain, a.label, a.sourceDomain, a.leaf)
+		pattern := discoveryCapabilityLinePattern(a.domain, a.label, a.sourceDomain, a.leaf, a.rawTopic)
 		matchIdx, matchCount := -1, 0
 		for i, line := range lines {
 			if pattern.MatchString(line) {
@@ -288,4 +300,12 @@ func appendAssignedIDToLine(line, id string) string {
 		return line
 	}
 	return strings.TrimSuffix(trimmed, ";") + " as " + id + ";"
+}
+
+// rawTopicForLineSearch is what discoveryCapabilityLinePattern looks for in a raw capability's line.
+func rawTopicForLineSearch(raw TRawTopicCapability) string {
+	if raw.Implied {
+		return impliedRawTopic
+	}
+	return raw.Topic
 }

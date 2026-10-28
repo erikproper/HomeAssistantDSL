@@ -318,6 +318,23 @@ func exportStableID(qualifier, deviceID, capability string) string {
 	return qualifier + "_" + sanitizeTopicSegment(deviceID) + "_" + strings.ReplaceAll(capability, "/", "_")
 }
 
+// hassBridgeExportID is an exported bridge capability's persistent identity, the cloud config's
+// "export_id" (PROJECT.md 22, 2026-10-28): its frozen universal ID, which renaming the device or
+// capability doesn't change -- else, while it has none yet, the name-based stableID. An importer
+// matches on it once its declaration names it ("capability ... from <export-id>").
+func hassBridgeExportID(frozenID, stableID string) string {
+	if frozenID != "" {
+		return frozenID
+	}
+	return stableID
+}
+
+// hostExportID is an exported host capability's persistent identity (PROJECT.md 22): the machine's
+// own host name -- already in all its topics, independent of its device id -- and the attribute.
+func hostExportID(host, capability string) string {
+	return "host_" + host + "_" + strings.ReplaceAll(capability, "/", "_")
+}
+
 // hassBridgeCloudDiscoveryTopic is exportStableID's own topic counterpart -- the discovery CONFIG
 // topic an exported capability's cloud copy is published under, keyed by domain (extracted from
 // localEntity, since the capability's declared Domain always matches it) and the stable id above.
@@ -691,6 +708,7 @@ func subscribeHassBridge(client, cloudClient mqtt.Client, ownInstallation string
 			// see TDiscoveryDevice.withoutSuggestedArea's own doc comment.
 			cloudBody := buildHassBridgeEntityDiscoveryBody(stableID, localEntity, found, qualifier+"/"+cloudBareTopic, qualifier+"/"+cloudAttributesBareTopic, devBlock.withoutSuggestedArea(), cloudAvailabilityTopics, liveUnit, liveDeviceClass, liveIcon, "", false, ownInstallation)
 			cloudBody["installation"] = qualifier
+			cloudBody["export_id"] = hassBridgeExportID(found.StableID, stableID)
 			cloudData, err := json.Marshal(cloudBody)
 			if err != nil {
 				fmt.Printf("[hass-bridge:export] marshalling cloud discovery payload for %s: %v\n", localEntity, err)
@@ -779,6 +797,7 @@ func republishHassBridgeDeviceCapabilities(client, cloudClient mqtt.Client, ownI
 			// own handler above.
 			cloudBody := buildHassBridgeEntityDiscoveryBody(stableID, cap.LocalEntity, found, cloudStateTopic, cloudAttributesTopic, devBlock.withoutSuggestedArea(), cloudAvailabilityTopics, liveUnit, liveDeviceClass, liveIcon, "", false, ownInstallation)
 			cloudBody["installation"] = qualifier
+			cloudBody["export_id"] = hassBridgeExportID(found.StableID, stableID)
 			cloudData, err := json.Marshal(cloudBody)
 			if err != nil {
 				fmt.Printf("[hass-bridge:export] marshalling cloud discovery payload for %s: %v\n", cap.LocalEntity, err)

@@ -152,6 +152,12 @@ func generateYAMLMQTTEntities(definitionDir string, gateways map[string]TDiscove
 	if err != nil {
 		return []string{fmt.Sprintf("YAML mqtt entities: %v -- ERROR: no YAML entities for the discovery devices", err)}
 	}
+	// PROJECT.md 39: an "integration mqtt" device's raw configs are the generator's own.
+	for id, gateway := range gateways {
+		if gateway.Raw {
+			configs[id] = rawMQTTConfigs(gateway)
+		}
+	}
 
 	spaceArea := map[string]string{}
 	for spaceName, records := range admin.EntityRecordsBySpace {
@@ -166,10 +172,20 @@ func generateYAMLMQTTEntities(definitionDir string, gateways map[string]TDiscove
 	var reports []string
 	// PROJECT.md 20: state topics that can't be trusted as retained read the coordinator's shadow.
 	retainFilters := collectDiscoveryRetainedTopics(definitionDir)
+	// PROJECT.md 22b: the gateway-level availability topics, for "ignore own availability;".
+	var sharedAvailability map[string]bool
+	for _, gateway := range gateways {
+		if gateway.IgnoreOwnAvailability {
+			sharedAvailability = sharedAvailabilityTopics(configs)
+			break
+		}
+	}
 	seenStateTopics := map[string]bool{}
 	shadowedTopics := map[string]bool{}
 	for _, gatewayID := range marked {
 		var gatewaySeen []string
+		ownDropped := map[string]bool{}
+		ownKeptAll := false
 		var entityIDs []string
 		for entityID, link := range admin.DiscoveryEntityLinks {
 			if link.GatewayDeviceID == gatewayID {
@@ -218,6 +234,31 @@ func generateYAMLMQTTEntities(definitionDir string, gateways map[string]TDiscove
 			}
 			domain := entityID[:strings.Index(entityID, ".")]
 			body := yamlEntityBody(relayed, domain, gateways[gatewayID], area)
+			// A Logical.def "dependency on" (e.g. an integration device on its compute host):
+			// ANDed into the availability, as for every other kind's entities.
+			if topics := admin.DependsOnAvailabilityTopics[gatewayID]; len(topics) > 0 {
+				addAvailabilityEntries(body, hamqtt.NodeAvailabilityEntries(topics...))
+			}
+			if gateways[gatewayID].CoordinatorStatus {
+				addCoordinatorAvailability(body)
+			}
+			if gateways[gatewayID].Raw {
+				// An "integration mqtt" device's name is its positioned one: nothing reports one.
+				if device, isMap := body["device"].(map[string]interface{}); isMap {
+					if name := admin.DeviceConceptualLinks[gatewayID].DisplayName; name != "" {
+						device["name"] = name
+					}
+				}
+			}
+			if gateways[gatewayID].IgnoreOwnAvailability {
+				dropped, kept := keepSharedAvailability(body, sharedAvailability)
+				for _, topic := range dropped {
+					ownDropped[topic] = true
+				}
+				if !kept {
+					ownKeptAll = true
+				}
+			}
 			seen, shadowed := applyRetainShadows(body, domain, gateways[gatewayID].Retain, retainFilters)
 			gatewaySeen = append(gatewaySeen, seen...)
 			for _, topic := range seen {
@@ -241,6 +282,17 @@ func generateYAMLMQTTEntities(definitionDir string, gateways map[string]TDiscove
 			written++
 		}
 		report := fmt.Sprintf("%s: %d entities via YAML", gatewayID, written) + droppedFieldsNote(noted)
+		if len(ownDropped) > 0 {
+			topics := make([]string, 0, len(ownDropped))
+			for topic := range ownDropped {
+				topics = append(topics, topic)
+			}
+			sort.Strings(topics)
+			report += "; own availability ignored: " + strings.Join(topics, ", ")
+		}
+		if ownKeptAll {
+			report += "; WARNING, \"ignore own availability;\" but an entity has no availability its gateway shares with other devices -- left as it was"
+		}
 		if declaration := gateways[gatewayID].Retain; declaration != retainUndeclared && len(gatewaySeen) > 0 && !retainDeclarationEffect(gatewaySeen, declaration, retainFilters) {
 			report += "; its \"is retained;\"/\"is not retained;\" line has no effect (the \"retained topics\" filters already say the same)"
 		}
@@ -268,7 +320,6 @@ func generateYAMLMQTTEntities(definitionDir string, gateways map[string]TDiscove
 	if err != nil {
 		reports = append(reports, fmt.Sprintf("retain shadows: %v", err))
 	}
-	reports = append(reports, fmt.Sprintf("retain shadows: %d of %d state topics shadowed", len(shadowedList), len(seenList)))
 	return reports
 }
 
@@ -348,4 +399,29 @@ func validateYAMLMQTTEntities(haOutputDir string) []string {
 		}
 	}
 	return problems
+}
+
+// addAvailabilityEntries ANDs entries into body's availability (availability_mode "all"), turning a
+// single "availability_topic" into the list form first.
+func addAvailabilityEntries(body map[string]interface{}, entries []map[string]interface{}) {
+	var list []interface{}
+	if existing, isList := body["availability"].([]interface{}); isList {
+		list = existing
+	}
+	if topic, ok := body["availability_topic"].(string); ok && topic != "" {
+		entry := map[string]interface{}{"topic": topic}
+		for _, key := range []string{"payload_available", "payload_not_available"} {
+			if value, has := body[key]; has {
+				entry[key] = value
+				delete(body, key)
+			}
+		}
+		delete(body, "availability_topic")
+		list = append(list, entry)
+	}
+	for _, entry := range entries {
+		list = append(list, entry)
+	}
+	body["availability"] = list
+	body["availability_mode"] = "all"
 }

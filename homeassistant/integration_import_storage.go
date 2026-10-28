@@ -75,6 +75,11 @@ type TImportedCapability struct {
 	// <id>;") -- the unique_id its coordinator-published entity keeps across local renames. "" until
 	// the generator assigns one (frozen_unique_ids.go).
 	AssignedID string
+	// RemoteID (PROJECT.md 22, 2026-10-28) is the exporter's persistent identity for this
+	// capability ("capability ... from <remote-id>"), its cloud config's "export_id": what the
+	// coordinator matches on, so a rename on the exporting side doesn't break the import. ""
+	// until the generator writes it from the import catalogue.
+	RemoteID string
 }
 
 // TImportedDevice is one "device <local-id> from <remote-installation> <remote-device-id> with:

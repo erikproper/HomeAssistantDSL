@@ -153,6 +153,20 @@ type TDiscoveryGatewayDevice struct {
 	// "retained topics" filters (retain_shadows.go). Unset, the filters decide. Not inherited by
 	// nested devices.
 	Retain TRetainDeclaration
+	// IgnoreOwnAvailability (PROJECT.md 22b, 2026-10-28), from an "ignore own availability;" body
+	// line: this device's entities keep only the availability entries its gateway shares with its
+	// other devices (e.g. zigbee2mqtt/bridge/state), not the ones that are its own (e.g.
+	// zigbee2mqtt/<device>/availability) -- for a device that only sends when used, like a
+	// battery-less Hue Tap, which its gateway would otherwise mark offline (shared_availability.go).
+	IgnoreOwnAvailability bool
+	// Raw (PROJECT.md 39, 2026-10-28): a device of an "integration mqtt" block, whose capabilities
+	// read MQTT topics nobody publishes discovery for (RawTopics, by capability); its raw configs
+	// are the generator's own (rawMQTTConfigs), and the coordinator gets nothing about it.
+	Raw       bool
+	RawTopics map[string]TRawTopicCapability
+	// CoordinatorStatus: its topic is kept by the coordinator (an instance's ping-pong status), so
+	// its entities also depend on the coordinator's availability.
+	CoordinatorStatus bool
 }
 
 // inferredDiscoveryIdentifier derives a device's default HA device identifier from its own DSL
@@ -182,10 +196,13 @@ func collectDiscoveryGatewaysByID(definitionDir string) (map[string]TDiscoveryGa
 
 	byID := map[string]TDiscoveryGatewayDevice{}
 	for _, block := range blocks {
-		if block.Name != "discovery" {
+		if block.Name != "discovery" && block.Name != "mqtt" {
 			continue
 		}
 		devices, bodyWarnings := parseDiscoveryIntegrationBody(block.BodyLines)
+		if block.Name == "mqtt" {
+			devices, bodyWarnings = parseMQTTIntegrationBody(block.BodyLines)
+		}
 		warnings = append(warnings, bodyWarnings...)
 		for _, d := range devices {
 			if _, exists := byID[d.DeviceID]; !exists {
@@ -195,6 +212,18 @@ func collectDiscoveryGatewaysByID(definitionDir string) (map[string]TDiscoveryGa
 				// the real incident (2026-09-10) that prompted adding this across every
 				// integration kind's own collector, not just hassbridge's (which already had it).
 				warnings = append(warnings, fmt.Sprintf("Physical.def: device %q declared more than once within the \"discovery\" integration; keeping the first declaration", d.DeviceID))
+			}
+		}
+	}
+	// An instance's own integration device (PROJECT.md 26), declared inside its "integration
+	// home_assistant <instance>" block.
+	hassBridgeBlocks, _ := scanGroupClauseBlocks(splitLines(physicalContent), "Physical.def", hassBridgeIntegrationHeaderPattern)
+	for _, block := range hassBridgeBlocks {
+		_, devices, instanceWarnings := splitInstanceIntegrationDevices(block.BodyLines, block.HeaderMatch[1])
+		warnings = append(warnings, instanceWarnings...)
+		for _, d := range devices {
+			if _, exists := byID[d.DeviceID]; !exists {
+				byID[d.DeviceID] = d
 			}
 		}
 	}
@@ -209,7 +238,7 @@ func collectDiscoveryRetainedTopics(definitionDir string) []string {
 	blocks, _ := parseIntegrationBlocks(physicalContent, mergedLineNos)
 	var filters []string
 	for _, block := range blocks {
-		if block.Name == "discovery" {
+		if block.Name == "discovery" || block.Name == "mqtt" {
 			blockFilters, _ := parseDiscoveryRetainedTopics(block.BodyLines)
 			filters = append(filters, blockFilters...)
 		}

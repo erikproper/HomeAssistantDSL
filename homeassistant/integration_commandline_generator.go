@@ -169,8 +169,6 @@ func generateCommandlineIntegrationOutputs(bodyLines []string, ctx TPhysicalGene
 		}
 	}
 	recordCommandlineRegistryEntries(devices, ctx.Admin)
-	for _, report := range generateYAMLCommandlineEntities(devices, ctx) {
-		fmt.Printf("[integration commandline] %s\n", report)
-	}
+	printYAMLReports("[integration commandline]", generateYAMLCommandlineEntities(devices, ctx))
 	return nil
 }

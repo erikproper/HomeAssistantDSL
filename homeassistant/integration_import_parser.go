@@ -80,8 +80,12 @@ var importHeaderShorthandPattern = regexp.MustCompile(`^device\s+(\S+)\s+from\s+
 
 // importCapabilityPattern matches "<domain>.<capability>;" -- see this file's own header comment
 // for the full rationale. Requires the explicit "capability" keyword (PROJECT.md item 11b,
-// 2026-10-11) -- see discoveryCapabilityPattern's own doc comment for the general rationale.
-var importCapabilityPattern = regexp.MustCompile(`^capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_.]*))?\s*;\s*$`)
+// 2026-10-11) -- see discoveryCapabilityPattern's own doc comment for the general rationale. An
+// optional "from <remote-id>" names the exporter's persistent identity for it (PROJECT.md 22: its
+// "export_id", written by the generator from the import catalogue); "as <id>" its frozen universal
+// ID (PROJECT.md item 48). A remote id may hold "-": a host's export_id holds its host name
+// ("host_eriks-macbook-pro-2_node").
+var importCapabilityPattern = regexp.MustCompile(`^capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)(?:\s+from\s+([A-Za-z_][A-Za-z0-9_.-]*))?(?:\s+as\s+([A-Za-z_][A-Za-z0-9_.]*))?\s*;\s*$`)
 
 // importConstantAttributeShapePattern recognizes the same "<name>: "<value>" [forced];" shape
 // integration_hosts_parser.go/integration_hassbridge_parser.go's own constantAttributePattern
@@ -127,7 +131,7 @@ func parseImportIntegrationBody(bodyLines []string) ([]TImportedDevice, []string
 				continue
 			}
 			if matches := importCapabilityPattern.FindStringSubmatch(line); matches != nil {
-				current.Capabilities[matches[1]] = TImportedCapability{AssignedID: matches[2]}
+				current.Capabilities[matches[1]] = TImportedCapability{RemoteID: matches[2], AssignedID: matches[3]}
 				continue
 			}
 			warnings = append(warnings, fmt.Sprintf("Physical.def: unrecognised line inside imported device %q's capability block (body line %d): %q", current.DeviceID, lineIdx+1, line))

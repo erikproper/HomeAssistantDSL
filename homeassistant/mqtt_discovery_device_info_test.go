@@ -67,3 +67,32 @@ end;`
 		t.Errorf("with a flag in between, changed=%d:\n%s", changedAgain, again)
 	}
 }
+
+// TestWriteDiscoveryMetadataMergesAroundCommentedFlag: metadata above and below a device flag that
+// carries a comment ends up as one block, after the identifiers, the flag kept (PROJECT.md 22b,
+// found when "ignore own availability;" was written right after the header).
+func TestWriteDiscoveryMetadataMergesAroundCommentedFlag(t *testing.T) {
+	content := `integration discovery with:
+    device buttons.tap with:
+      manufacturer: "EnOcean";
+      ignore own availability;   # sends only when pressed
+      identifiers "zigbee2mqtt_0x01";
+      manufacturer: "EnOcean";
+      capability event.pressed event:0x01_action_zigbee2mqtt;
+    end;
+end;`
+	gateways := map[string]TDiscoveryGatewayDevice{"buttons.tap": {DeviceID: "buttons.tap"}}
+	info := map[string]map[string]string{"buttons.tap": {"manufacturer": "EnOcean"}}
+	got, _ := writeDiscoveryMetadata(content, gateways, info)
+	want := `integration discovery with:
+    device buttons.tap with:
+      identifiers "zigbee2mqtt_0x01";
+      manufacturer: "EnOcean";
+      ignore own availability;   # sends only when pressed
+      capability event.pressed event:0x01_action_zigbee2mqtt;
+    end;
+end;`
+	if got != want {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+}

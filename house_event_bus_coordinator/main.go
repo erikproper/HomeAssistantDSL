@@ -587,6 +587,12 @@ func main() {
 		}
 	})
 
+	// PROJECT.md 26: each bridged instance's liveness, by ping-pong.
+	if err := startInstanceLiveness(client, homeAssistantInstancesFile.Instances); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
 	// PROJECT.md 20: retained copies of the state topics that can't be trusted as retained.
 	if err := startRetainShadows(client, retainShadowsFile); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)

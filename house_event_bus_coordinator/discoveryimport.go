@@ -102,6 +102,11 @@ type TImportedCapability struct {
 	// "capability ... as <id>;"), its unique_id -- "" until assigned, falling back to the
 	// name-based importedUniqueID formula.
 	StableID string `yaml:"stable_id"`
+	// RemoteID (PROJECT.md 22, 2026-10-28) is the exporter's persistent identity for this
+	// capability (Physical.def's "capability ... from <remote-id>"), matched against a cloud
+	// config's "export_id" -- so renaming the exporter's device or capability doesn't break the
+	// import. Empty: matched by the name-based exportStableID, as before.
+	RemoteID string `yaml:"remote_id,omitempty"`
 }
 
 // TImportedDevice is one declared import from coordinator/imported.yaml.
@@ -171,6 +176,8 @@ func importedStateTopic(localEntity string) string {
 // before the 2026-09-05 unification (a gap this generalization closes for "home_assistant"-kind
 // imports too).
 type importedDiscoveryPayload struct {
+	// ExportID: the exporter's persistent identity for the capability (PROJECT.md 22).
+	ExportID        string `json:"export_id"`
 	DefaultEntityID string `json:"default_entity_id"`
 	StateTopic      string `json:"state_topic"`
 	ValueTemplate   string `json:"value_template"`
@@ -231,6 +238,8 @@ type importCapabilityMatch struct {
 	// -- see TImportedDevice's own doc comment for why this is the one constant attribute an
 	// import carries locally, rather than learning it from the exporter like manufacturer/model.
 	SuggestedArea string
+	// ExistenceKey: importExistenceKey's, for the import existence tracker.
+	ExistenceKey string
 }
 
 // matchImportedCapabilityByStableID finds which declared import capability (if any) a topic
@@ -249,7 +258,11 @@ type importCapabilityMatch struct {
 // payload's own default_entity_id instead (matchImportedCapability, content-based) -- removed
 // 2026-09-07 once the explicit form itself was removed (no real Physical.def still used it; see
 // homeassistant/integration_import_parser.go's own header comment).
-func matchImportedCapabilityByStableID(importFile TImportedFile, remoteInstallation, topic string) (importCapabilityMatch, bool) {
+//
+// A capability with a RemoteID (PROJECT.md 22, 2026-10-28) matches on the payload's "export_id"
+// instead: the exporter's persistent identity, which a rename of its device or capability doesn't
+// change (the topic's segment does).
+func matchImportedCapabilityByStableID(importFile TImportedFile, remoteInstallation, topic, exportID string) (importCapabilityMatch, bool) {
 	parts := strings.Split(topic, "/")
 	if len(parts) < 3 || parts[len(parts)-1] != "config" || parts[len(parts)-3] != "coordinator" {
 		return importCapabilityMatch{}, false
@@ -263,13 +276,26 @@ func matchImportedCapabilityByStableID(importFile TImportedFile, remoteInstallat
 			if cap.LocalEntity == "" {
 				continue
 			}
-			if exportStableID(device.RemoteInstallation, device.RemoteDeviceID, capability) != stableID {
+			if cap.RemoteID != "" {
+				if cap.RemoteID != exportID {
+					continue
+				}
+			} else if exportStableID(device.RemoteInstallation, device.RemoteDeviceID, capability) != stableID {
 				continue
 			}
-			return importCapabilityMatch{LocalDeviceID: localDeviceID, Capability: capability, LocalEntity: cap.LocalEntity, StableID: cap.StableID, DisplayName: device.DisplayName, SuggestedArea: device.ConstantAttributes["suggested_area"].Value}, true
+			return importCapabilityMatch{LocalDeviceID: localDeviceID, Capability: capability, LocalEntity: cap.LocalEntity, StableID: cap.StableID, DisplayName: device.DisplayName, SuggestedArea: device.ConstantAttributes["suggested_area"].Value, ExistenceKey: importExistenceKey(device, capability)}, true
 		}
 	}
 	return importCapabilityMatch{}, false
+}
+
+// importExistenceKey is how the import existence tracker knows one imported capability: its
+// RemoteID when it has one, else the name-based exportStableID.
+func importExistenceKey(device TImportedDevice, capability string) string {
+	if remoteID := device.Capabilities[capability].RemoteID; remoteID != "" {
+		return remoteID
+	}
+	return exportStableID(device.RemoteInstallation, device.RemoteDeviceID, capability)
 }
 
 // importRemoteDeviceKey identifies one remote device by (exporting installation, that
@@ -306,6 +332,10 @@ func importedRemote(payload importedDiscoveryPayload, remoteInstallation string,
 		HwVersion: payload.Device.HwVersion, SwVersion: payload.Device.SwVersion, SerialNumber: payload.Device.SerialNumber,
 		DeviceClass: payload.DeviceClass, Unit: payload.Unit, StateClass: payload.StateClass, Icon: payload.Icon,
 		PayloadOn: payload.PayloadOn, PayloadOff: payload.PayloadOff,
+		ExportID: payload.ExportID,
+	}
+	if len(payload.Device.Identifiers) > 0 {
+		remote.RemoteDeviceID = payload.Device.Identifiers[0]
 	}
 	if payload.Device.ViaDevice != "" {
 		remote.ViaDevice = viaDeviceIndex[importRemoteDeviceKey{RemoteInstallation: remoteInstallation, RemoteDeviceID: payload.Device.ViaDevice}]
@@ -426,15 +456,13 @@ func subscribeImportedDevices(mainClient, cloudClient mqtt.Client, ownInstallati
 				fmt.Printf("[discovery-import] %s: cannot parse payload: %v\n", msg.Topic(), err)
 				return
 			}
-			match, matched := matchImportedCapabilityByStableID(importFile, remoteInstallation, msg.Topic())
+			match, matched := matchImportedCapabilityByStableID(importFile, remoteInstallation, msg.Topic(), payload.ExportID)
 			if !matched {
 				return
 			}
 			if existenceTracker != nil {
-				parts := strings.Split(msg.Topic(), "/")
-				stableID := parts[len(parts)-2]
-				if existenceTracker.MarkKnown(remoteInstallation, stableID) {
-					fmt.Printf("[import-existence] %s: %s -> known-to-exist\n", remoteInstallation, stableID)
+				if existenceTracker.MarkKnown(remoteInstallation, match.ExistenceKey) {
+					fmt.Printf("[import-existence] %s: %s -> known-to-exist\n", remoteInstallation, match.ExistenceKey)
 					if err := existenceTracker.publishStatus(mainClient, cloudClient, ownInstallation, remoteInstallation); err != nil {
 						fmt.Printf("[import-existence] %v\n", err)
 					}

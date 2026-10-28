@@ -173,6 +173,11 @@ func parseDiscoveryDeviceBody(cur *TLineCursor, deviceID, parentDeviceID string)
 			cur.Advance()
 			continue
 		}
+		if line == "ignore own availability;" {
+			current.IgnoreOwnAvailability = true
+			cur.Advance()
+			continue
+		}
 		if line == "is retained;" || line == "is not retained;" {
 			declaration := retainDeclared
 			if line == "is not retained;" {

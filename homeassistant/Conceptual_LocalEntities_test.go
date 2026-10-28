@@ -196,3 +196,30 @@ end;`
 		t.Fatalf("no entity record for the pure Logical.def \"battery_alert\" capability; report:\n%s", report.String())
 	}
 }
+
+// TestLocalNativeSourceCapability: "capability <domain>.<label> <native entity>;" records the
+// native entity (the registry repair's seed), labels may hold "/", a sibling condition may name
+// one, and another domain's entity as source is still refused (PROJECT.md 21).
+func TestLocalNativeSourceCapability(t *testing.T) {
+	devices, warnings := parseLocalIntegrationBody([]string{
+		"device node.vienna with:",
+		"capability sensor.cpu/load sensor.processor_use;",
+		"capability sensor.cpu/temperature sensor.processor_temperature;",
+		"capability binary_sensor.node sensor.cpu/load is available;",
+		"capability sensor.bad switch.something;",
+		"end;",
+	})
+	if len(devices) != 1 {
+		t.Fatalf("devices = %v", devices)
+	}
+	caps := devices[0].Capabilities
+	if caps["cpu/load"].NativeEntity != "sensor.processor_use" || caps["cpu/temperature"].NativeEntity != "sensor.processor_temperature" {
+		t.Errorf("native entities = %+v", caps)
+	}
+	if caps["node"].AvailabilityOf != "cpu/load" {
+		t.Errorf("node = %+v, want availability of cpu/load", caps["node"])
+	}
+	if len(warnings) != 1 {
+		t.Errorf("warnings = %v, want one, for the other-domain source", warnings)
+	}
+}

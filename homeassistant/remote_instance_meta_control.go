@@ -87,3 +87,29 @@ func metaRestartAutomationBody(name string) string {
 	sb.WriteString("  - service: homeassistant.restart\n")
 	return sb.String()
 }
+
+// instancePingTopic is where the coordinator pings a bridged instance and the instance answers
+// (PROJECT.md 26, Erik's ping-pong, 2026-10-28): "ping" from the coordinator, "pong" back.
+func instancePingTopic(name string) string {
+	return "homeassistant_instances/" + name + "/ping"
+}
+
+// pingPongAutomationBody returns the instance's answer to the coordinator's ping: "pong" on the same
+// topic. The coordinator only pings after a quiet spell, so this proves the instance's automations
+// and MQTT are working, end to end (house_event_bus_coordinator/instance_liveness.go).
+func pingPongAutomationBody(name string) string {
+	var sb strings.Builder
+	sb.WriteString("- alias: \"infrastructural/coordinator/ping_pong\"\n")
+	sb.WriteString("  id: automation.coordinator_ping_pong_" + name + "\n")
+	sb.WriteString("  mode: queued\n")
+	sb.WriteString("  trigger:\n")
+	sb.WriteString("  - platform: mqtt\n")
+	sb.WriteString("    topic: \"" + instancePingTopic(name) + "\"\n")
+	sb.WriteString("    payload: \"ping\"\n")
+	sb.WriteString("  action:\n")
+	sb.WriteString("  - service: mqtt.publish\n")
+	sb.WriteString("    data:\n")
+	sb.WriteString("      topic: \"" + instancePingTopic(name) + "\"\n")
+	sb.WriteString("      payload: \"pong\"\n")
+	return sb.String()
+}

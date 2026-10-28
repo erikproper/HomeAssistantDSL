@@ -128,6 +128,30 @@ def is_yaml_entry(entry):
     return entry["platform"] in YAML_PLATFORMS and not entry.get("config_entry_id")
 
 
+MQTT_KINDS = ("mqtt", "imported", "hassbridge", "pending_removal")
+
+
+def stale_mqtt_keys(manifest, previous):
+    """The mqtt entries generated before -- or still pending removal -- but no longer."""
+    current = {manifest_key(m) for kind in MQTT_KINDS for m in manifest.get(kind, [])}
+    earlier = {manifest_key(m) for kind in MQTT_KINDS for m in previous.get(kind, [])}
+    return earlier - current
+
+
+def pending_removals(registry, manifest, previous, live_entity_ids):
+    """The no longer generated mqtt entries that were still live, so not removed this time: kept in
+    the saved state ("pending_removal") so the next run removes them (2026-10-28, found when a
+    bridged entity moved to "local": the sync runs before HA's reload, so a dropped YAML mqtt
+    entity is always still live then, and was forgotten -- an orphan for good)."""
+    stale = stale_mqtt_keys(manifest, previous)
+    pending = []
+    for entry in registry:
+        key = (domain_of(entry["entity_id"]), entry["unique_id"])
+        if entry["platform"] == "mqtt" and key in stale and entry["entity_id"] in live_entity_ids:
+            pending.append({"unique_id": entry["unique_id"], "entity_id": entry["entity_id"]})
+    return sorted(pending, key=lambda p: p["entity_id"])
+
+
 def plan(registry, manifest, previous, live_entity_ids=frozenset()):
     """Returns (renames, removals, reports). renames: [(entry, new_entity_id)], removals: [entry]."""
     reports = []
@@ -158,9 +182,7 @@ def plan(registry, manifest, previous, live_entity_ids=frozenset()):
                 and key in previous_other and key not in current_other:
             removals.append(entry)
 
-    current_mqtt = {manifest_key(m) for kind in ("mqtt", "imported", "hassbridge") for m in manifest.get(kind, [])}
-    previous_mqtt = {manifest_key(m) for kind in ("mqtt", "imported", "hassbridge") for m in previous.get(kind, [])}
-    for key in sorted(previous_mqtt - current_mqtt):
+    for key in sorted(stale_mqtt_keys(manifest, previous)):
         for entry in mqtt_by_unique_id.get(key, []):
             if entry["entity_id"] not in live_entity_ids:
                 removals.append(entry)
@@ -183,10 +205,17 @@ def plan(registry, manifest, previous, live_entity_ids=frozenset()):
     # unique_id it doesn't know, is identified by its source in the defs ("<device-id>!<capability>").
     # When the entity_id expected for a source changed since the previous deploy, the entry still
     # holding the previous one is renamed. Never removed: it belongs to its integration.
+    # The first time (PROJECT.md 21, 2026-10-28), when the defs name the entity_id its integration
+    # gave it ("seed") and no previous deploy renamed it yet, that entity is renamed.
     previous_native = {n["source"]: n["entity_id"] for n in previous.get("native", [])}
     for item in manifest.get("native", []):
+        holder = by_entity_id.get(item["entity_id"])
+        if holder is not None and not is_yaml_entry(holder) and holder["platform"] != "mqtt":
+            continue  # already under its expected name
         old = previous_native.get(item["source"])
         if old is None or old == item["entity_id"]:
+            old = item.get("seed")
+        if not old or old == item["entity_id"]:
             continue
         entry = by_entity_id.get(old)
         if entry is None:
@@ -269,8 +298,10 @@ def main():
             print(f"  ERROR {error}")
         if errors:
             raise SystemExit(1)
+        saved = dict(manifest)
+        saved["pending_removal"] = pending_removals(registry, manifest, previous, live)
         with open(state_path, "w") as state:
-            json.dump(manifest, state)
+            json.dump(saved, state)
 
 
 if __name__ == "__main__":

@@ -204,6 +204,12 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 		return nil, err
 	}
 	admin := parseResult.Administration
+	admin.RawGatewayIDs = map[string]bool{}
+	for id, gateway := range discoveryGatewaysByID {
+		if gateway.Raw {
+			admin.RawGatewayIDs[id] = true
+		}
+	}
 	for id := range logicalByID {
 		topics, w := resolveDependencyAvailabilityTopics(id, logicalByID, hostDevicesByID)
 		for _, warning := range w {
@@ -280,12 +286,16 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 		admin.BridgedDeviceIDs = append(admin.BridgedDeviceIDs, id)
 	}
 	admin.NativeCapabilities = map[string][]string{}
+	admin.NativeSeeds = map[string]string{}
 	for id, device := range localDevicesByID {
 		for label, capability := range device.Capabilities {
 			// A capability the generator builds itself (an "is available" node, a derived value, a
 			// media switch wrapping a player) is generator-owned YAML, not a native entity.
 			if capability.AvailabilityOf == "" && capability.DerivedFromCapability == "" && capability.DerivedViaTemplate == "" && capability.MediaPlayerEntity == "" {
 				admin.NativeCapabilities[id] = append(admin.NativeCapabilities[id], label)
+				if capability.NativeEntity != "" {
+					admin.NativeSeeds[id+"!"+label] = capability.NativeEntity
+				}
 			}
 		}
 	}
