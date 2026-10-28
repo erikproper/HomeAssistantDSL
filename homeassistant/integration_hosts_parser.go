@@ -20,7 +20,6 @@ package main
 import (
 	"fmt"
 	"regexp"
-	"strings"
 )
 
 // parseHostsIntegrationBody parses the body lines of an "integration hosts with: ...
@@ -51,10 +50,7 @@ func parseHostsIntegrationBody(bodyLines []string) ([]THostDevice, []string) {
 	var current THostDevice
 
 	for lineIdx, rawLine := range bodyLines {
-		line := strings.TrimSpace(rawLine)
-		if commentIdx := strings.Index(line, "#"); commentIdx >= 0 {
-			line = strings.TrimSpace(line[:commentIdx])
-		}
+		line := stripLineComment(rawLine)
 		if line == "" {
 			continue
 		}

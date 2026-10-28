@@ -20,7 +20,6 @@ package main
 import (
 	"fmt"
 	"regexp"
-	"strings"
 )
 
 var commandlineWithDevicePattern = regexp.MustCompile(`^device\s+(\S+)\s+(\S+)\s+with:\s*$`)
@@ -67,10 +66,7 @@ func parseCommandlineIntegrationBody(bodyLines []string) ([]TCommandlineDevice, 
 	var current TCommandlineDevice
 
 	for lineIdx, rawLine := range bodyLines {
-		line := strings.TrimSpace(rawLine)
-		if commentIdx := strings.Index(line, "#"); commentIdx >= 0 {
-			line = strings.TrimSpace(line[:commentIdx])
-		}
+		line := stripLineComment(rawLine)
 		if line == "" {
 			continue
 		}

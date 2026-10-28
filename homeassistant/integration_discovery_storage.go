@@ -148,6 +148,11 @@ type TDiscoveryGatewayDevice struct {
 	// only -- this device's OWN declared capabilities still resolve normally either way, since
 	// those already match via direct Identifiers, never needing the one-hop rule at all.
 	IgnoreOtherCapabilities bool
+	// Retain (PROJECT.md 20, 2026-10-28), from an "is retained;"/"is not retained;" body line:
+	// whether this device's state topics can be trusted as retained, overriding the installation's
+	// "retained topics" filters (retain_shadows.go). Unset, the filters decide. Not inherited by
+	// nested devices.
+	Retain TRetainDeclaration
 }
 
 // inferredDiscoveryIdentifier derives a device's default HA device identifier from its own DSL
@@ -194,4 +199,20 @@ func collectDiscoveryGatewaysByID(definitionDir string) (map[string]TDiscoveryGa
 		}
 	}
 	return byID, warnings
+}
+
+// collectDiscoveryRetainedTopics re-parses Physical.def's "discovery" integration block for its
+// 'retained topics ...;' filters (PROJECT.md 20, retain_shadows.go). Their warnings are reported
+// by generateDiscoveryIntegrationOutputs, not here.
+func collectDiscoveryRetainedTopics(definitionDir string) []string {
+	physicalContent, mergedLineNos, _ := collectLayerContent(definitionDir, []string{"Physical.def"}, LayerPhysical)
+	blocks, _ := parseIntegrationBlocks(physicalContent, mergedLineNos)
+	var filters []string
+	for _, block := range blocks {
+		if block.Name == "discovery" {
+			blockFilters, _ := parseDiscoveryRetainedTopics(block.BodyLines)
+			filters = append(filters, blockFilters...)
+		}
+	}
+	return filters
 }

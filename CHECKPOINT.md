@@ -1,22 +1,27 @@
 # Checkpoint — Home Assistant DSL Generator + Coordinator
 
-**Frozen:** 2026-10-27, evening (pause of a few days: session and weekly limits).
-**Status:** all three Go packages (generator, coordinator, shared `hamqtt`) build/vet/test clean.
-Both houses deployed 2026-10-27 with item 19 complete (discovery to the main HA ends; every
-entity from the generator's YAML `mqtt:` config; its lasting content is in Architecture.md
-§6.16). Durable detail lives in `PROJECT.md` (open items), `README.md`/`Architecture.md` (how
-things work) and the Claude memory directory (synced via Nextcloud). This file is only the
-pointer to where to pick up.
+**Frozen:** 2026-10-28, midday.
+**Status:** all three Go packages build/vet/test clean. Both houses deployed 2026-10-28 with item
+20 complete (retained shadows "<topic>/retain" for state topics that can't be trusted as retained;
+Architecture.md §6.16), on top of item 19 (every entity from the generator's YAML). Durable detail
+lives in `PROJECT.md` (open items), `README.md`/`Architecture.md` (how things work) and the Claude
+memory directory (synced via Nextcloud). This file is only the pointer to where to pick up.
 
-**Git:** a large uncommitted changeset spans both modules (`git status`). Don't discard any of it.
+**Git:** uncommitted changes since Erik's commit of 2026-10-27 (item 20: generator, coordinator,
+the quote-aware comment rule). New files to add: homeassistant/retain_shadows*.go,
+house_event_bus_coordinator/retain_shadows*.go.
 
 ## Next
 
 Pick up with:
 
-1. Item 20 (retained state via "<topic>/retain" shadow topics): the design is agreed and written
-   down there; one choice is open for Erik (wildcard on topics or on identifiers), then steps
-   (a)-(e).
+1. The next open item in PROJECT.md (21 onward), as Erik chooses.
+
+Notes from 2026-10-28:
+- Deploy step 06 is now `06_check.ha_reload` in both houses: it waits for HA to finish its reload
+  and reports reload errors; it no longer restarts Zigbee2MQTT (the shadows keep the values).
+- Fixed in Zigbee2MQTT's UI: negative "debounce" values (Vienna's washing-machine plug, two
+  Junglinster devices) made it drop reports ("`wait` must not be negative").
 
 Notes from 2026-10-27:
 - Deploy order and checks: Vienna first; check the defs against the last verified generate right

@@ -246,6 +246,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	retainShadowsFile, err := loadRetainShadowsFile(filepath.Join(coordinatorDir, "retain_shadows.yaml"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
 	mainEntitiesFile, err := loadMainEntitiesFile(filepath.Join(coordinatorDir, "main_entities.yaml"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -258,7 +263,7 @@ func main() {
 	// no-op.
 	reconnectHook := &TReconnectHook{}
 
-	client, err := connectMQTT(secrets.MQTT, "house_event_bus_coordinator-"+devicesFile.Installation, reconnectHook)
+	client, err := connectMQTT(secrets.MQTT, "house_event_bus_coordinator-"+devicesFile.Installation, reconnectHook, coordinatorAvailabilityTopic)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -289,7 +294,7 @@ func main() {
 			// tight enough, a real crash loop (a disconnect landing in the narrow window between
 			// this Connect and main()'s early cloud-broker Subscribe calls, which treat any
 			// subscribe failure as fatal).
-			cloudClient, err = connectMQTT(brokerSecrets, "house_event_bus_coordinator-"+devicesFile.Installation+"-"+name, reconnectHook)
+			cloudClient, err = connectMQTT(brokerSecrets, "house_event_bus_coordinator-"+devicesFile.Installation+"-"+name, reconnectHook, "")
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "error: connecting to %q broker: %v\n", name, err)
 				os.Exit(1)
@@ -581,6 +586,12 @@ func main() {
 			fmt.Printf("[reconnect] missingDeclaredEntitiesPublisher.PublishNow: %v\n", err)
 		}
 	})
+
+	// PROJECT.md 20: retained copies of the state topics that can't be trusted as retained.
+	if err := startRetainShadows(client, retainShadowsFile); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Every subscription is in place: only now may a deploy's next step send its requests.
 	if err := notifySystemdReady(); err != nil {

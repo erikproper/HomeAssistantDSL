@@ -16,59 +16,6 @@ JLI
  
 ## Migration & improvements
 
-20. Retained state for raw and discovered integrations (Architecture.md §6.16; design agreed with
-    Erik 2026-10-27). Why: Home Assistant's MQTT reload re-creates EVERY YAML mqtt entity, so every
-    deploy loses every value whose topic isn't retained (Vienna 2026-10-27: 99 of 162 "unknown").
-    Principle: a device's retain status can't be known, certainly not at discovery time (a
-    retained message at subscribe proves the publisher retains, its absence proves nothing; a
-    discovery config doesn't say). So assume the worst, without gateway-specific code, and let
-    the defs say otherwise.
-    Mechanism:
-    - Shadow topic "<original topic>/retain" (decided; neither broker has any "/retain" topic
-      today): the coordinator cross-posts the latest message of each shadowed state topic,
-      unchanged, retained; the state entities' YAML state_topic points there. Commands keep going
-      to the integration's own command topic. Event entities (event, button/remote "action") never
-      read a shadow, even where one topic carries both (Zigbee2MQTT's action in the state JSON).
-    - The generator decides, per state topic, and gives the coordinator the list to shadow; the
-      coordinator never decides itself. It keeps a manifest of the shadows it owns and clears the
-      retained message of every one no longer listed, at deploy and at every start (the pattern of
-      discoverycleanup.go's TTopicManifest/RetireMissing). A new shadow fills at once from the
-      original's retained message, if there is one; otherwise at the device's next report.
-    - Switching a device either way only changes its entities' state_topic in the YAML: unique_id
-      and entity_id stay, so registry and history do.
-    - Every entity that reads a shadow also gets the coordinator's own availability (its Last
-      Will): if the coordinator stops, values must not freeze.
-    Declaration, in the defs:
-    - Default, for every device: not retained, so a shadow. This holds for discovered devices even
-      where the gateway does retain (EMS-ESP retains all its 146 state topics, Z-Wave JS UI all
-      1428): no gateway-specific knowledge in the code.
-    - A device's own line, in either form, always wins: "is retained" or "is not retained" (the
-      way out of a wildcard that says retained). For discovered devices it is an override; for raw
-      MQTT devices (item 39), whose declaration says everything anyway, it is the normal way.
-    - A wildcard, once per installation, for all devices of a gateway; applies when a device has no
-      line of its own. OPEN, Erik to choose: on topics, in MQTT's own filter syntax ('retained
-      topics "zwave/#", "ems-esp/#";' -- what retain is a property of, and the same for raw
-      devices, which have no identifiers), or on device identifiers ("zwavejs2mqtt_*",
-      "ems-esp*" -- stable per gateway). via_device can't carry it: only Zigbee2MQTT sets it on
-      every device (Z-Wave JS UI never, EMS-ESP on one device).
-    Still to do before building: Zigbee2MQTT subscribes to all of zigbee2mqtt/#; check on one
-    device that it ignores ".../retain" (it should only act on /set and /get). Availability per
-    raw device: "we also need to detect if they are really down" (Erik) -- each raw definition
-    needs its own availability.
-    Steps: (a) grammar ("is retained"/"is not retained", the wildcard) and the generator's per-topic
-    decision; (b) coordinator: shadow list, cross-posting, manifest cleanup; (c) the YAML writers
-    point state entities at the shadow and add the coordinator's availability; (d) Vienna first,
-    then Junglinster; check values survive a deploy; (e) then remove the interim below.
-    Interim, both houses: deploy.d/06_restart.zigbee2mqtt restarts Zigbee2MQTT once HA main has
-    finished reloading or restarting; it republishes its cached state of every device (cache_state,
-    cache_state_persistent, cache_state_send_on_startup; motion comes back as no motion, buttons
-    with action=null). Side effects: the bridge is offline ~10-30 s; plugs and battery devices
-    stay "offline" in its availability up to ~5 minutes or until their next check-in (seen
-    2026-10-27: Vienna's Signify dimmer, Junglinster's kitchen Go), so HA can't switch them
-    meanwhile; template sensors with a delay show "unknown" until the delay has passed after a
-    reload; the heating automations run on unavailable -> state and send the current setpoints
-    again (no effect seen, heating off). EMS-ESP's and Z-Wave JS UI's values survive (retained).
-
 21. "home_assistant main" (Architecture.md §6.16): per entity, can it become local (no MQTT round
     trip to itself), or does something else on the bus need it?
 
@@ -667,6 +614,10 @@ on both houses before and after each removal -- see git history for the exact co
     where the coordinator-vs-separate-component question is still genuinely open.
 
 39. RAW mqtt as integration; also see notes below on MQTT/JSON structures. So, a situation in which we have MQTT topics, but no discovery data. Then this integration needs to combine this into a discovery compliant topic structure. Sometimes easy to do based on topic and payload. But take the vacuum. If the composed state is represented as a different topics these need to be joint by the coordinator.
+    Retain (from item 20, 2026-10-28; Architecture.md §6.16): a raw device's declaration says
+    "is retained;" when its topics are retained; without it its state entities read the
+    coordinator's shadow, as for discovered devices. Each raw definition also needs its own
+    availability -- "we also need to detect if they are really down" (Erik).
 Test with shellys?
 
 40. https://github.com/kaiplaketti/matter2mqtt

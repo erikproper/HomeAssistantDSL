@@ -148,10 +148,7 @@ func misplacedContentWarnings(block TLayerBlock) []string {
 	var warnings []string
 	depth := 0
 	for _, rawLine := range block.BodyLines {
-		line := strings.TrimSpace(rawLine)
-		if commentIdx := strings.Index(line, "#"); commentIdx >= 0 {
-			line = strings.TrimSpace(line[:commentIdx])
-		}
+		line := stripLineComment(rawLine)
 		if line == "" {
 			continue
 		}

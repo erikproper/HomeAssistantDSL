@@ -345,10 +345,7 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 	}
 
 	for lineIdx, rawLine := range bodyLines {
-		line := strings.TrimSpace(rawLine)
-		if commentIdx := strings.Index(line, "#"); commentIdx >= 0 {
-			line = strings.TrimSpace(line[:commentIdx])
-		}
+		line := stripLineComment(rawLine)
 		if line == "" {
 			continue
 		}

@@ -164,7 +164,12 @@ func generateYAMLMQTTEntities(definitionDir string, gateways map[string]TDiscove
 		linksPerGateway[link.GatewayDeviceID]++
 	}
 	var reports []string
+	// PROJECT.md 20: state topics that can't be trusted as retained read the coordinator's shadow.
+	retainFilters := collectDiscoveryRetainedTopics(definitionDir)
+	seenStateTopics := map[string]bool{}
+	shadowedTopics := map[string]bool{}
 	for _, gatewayID := range marked {
+		var gatewaySeen []string
 		var entityIDs []string
 		for entityID, link := range admin.DiscoveryEntityLinks {
 			if link.GatewayDeviceID == gatewayID {
@@ -213,6 +218,14 @@ func generateYAMLMQTTEntities(definitionDir string, gateways map[string]TDiscove
 			}
 			domain := entityID[:strings.Index(entityID, ".")]
 			body := yamlEntityBody(relayed, domain, gateways[gatewayID], area)
+			seen, shadowed := applyRetainShadows(body, domain, gateways[gatewayID].Retain, retainFilters)
+			gatewaySeen = append(gatewaySeen, seen...)
+			for _, topic := range seen {
+				seenStateTopics[topic] = true
+			}
+			for _, topic := range shadowed {
+				shadowedTopics[topic] = true
+			}
 			noted = append(noted, THostYAMLEntity{Domain: domain, EntityID: entityID, Dropped: hamqtt.DroppedFields(relayed, domain)})
 			data, err := yaml.Marshal([]map[string]interface{}{{domain: body}})
 			if err != nil {
@@ -228,11 +241,34 @@ func generateYAMLMQTTEntities(definitionDir string, gateways map[string]TDiscove
 			written++
 		}
 		report := fmt.Sprintf("%s: %d entities via YAML", gatewayID, written) + droppedFieldsNote(noted)
+		if declaration := gateways[gatewayID].Retain; declaration != retainUndeclared && len(gatewaySeen) > 0 && !retainDeclarationEffect(gatewaySeen, declaration, retainFilters) {
+			report += "; its \"is retained;\"/\"is not retained;\" line has no effect (the \"retained topics\" filters already say the same)"
+		}
 		if len(missing) > 0 {
 			report += fmt.Sprintf("; ERROR, no raw discovery config (not published by the gateway, not cached): %s", strings.Join(missing, ", "))
 		}
 		reports = append(reports, report)
 	}
+
+	var seenList, shadowedList []string
+	for topic := range seenStateTopics {
+		seenList = append(seenList, topic)
+	}
+	for topic := range shadowedTopics {
+		shadowedList = append(shadowedList, topic)
+	}
+	sort.Strings(shadowedList)
+	for _, filter := range unmatchedRetainFilters(retainFilters, seenList) {
+		reports = append(reports, fmt.Sprintf("retained topics: filter %q matches none of the discovered entities' state topics (a typo?)", filter))
+	}
+	data, err := yaml.Marshal(TRetainShadowsFile{Topics: shadowedList})
+	if err == nil {
+		err = writeYAMLFile(filepath.Join(ctx.OutputRoot, "coordinator", "retain_shadows.yaml"), generatorHeader+string(data))
+	}
+	if err != nil {
+		reports = append(reports, fmt.Sprintf("retain shadows: %v", err))
+	}
+	reports = append(reports, fmt.Sprintf("retain shadows: %d of %d state topics shadowed", len(shadowedList), len(seenList)))
 	return reports
 }
 

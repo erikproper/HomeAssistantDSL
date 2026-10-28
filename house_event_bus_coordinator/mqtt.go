@@ -121,8 +121,10 @@ func (h *TReconnectHook) call() {
 // the cloud broker's own setup) without needing a custom CA file; nothing here supports a
 // privately-issued/self-signed cloud broker certificate. Every (re)connect first renews the
 // client's subscriptions (TSubscriptionRegistry), then calls hook -- a safe no-op until main()
-// has set a real function on it, see TReconnectHook's own doc comment.
-func connectMQTT(secrets TMQTTBrokerSecrets, clientID string, hook *TReconnectHook) (mqtt.Client, error) {
+// has set a real function on it, see TReconnectHook's own doc comment. A non-empty
+// availabilityTopic gets "online", retained, on every connect, and "offline" as the client's Last
+// Will (retain_shadows.go).
+func connectMQTT(secrets TMQTTBrokerSecrets, clientID string, hook *TReconnectHook, availabilityTopic string) (mqtt.Client, error) {
 	opts := mqtt.NewClientOptions()
 	scheme := "tcp"
 	if secrets.TLS {
@@ -136,7 +138,13 @@ func connectMQTT(secrets TMQTTBrokerSecrets, clientID string, hook *TReconnectHo
 	opts.SetAutoReconnect(true)
 	opts.SetResumeSubs(true)
 	opts.SetConnectTimeout(10 * time.Second)
+	if availabilityTopic != "" {
+		opts.SetWill(availabilityTopic, coordinatorOffline, 1, true)
+	}
 	opts.SetOnConnectHandler(func(c mqtt.Client) {
+		if availabilityTopic != "" {
+			c.Publish(availabilityTopic, 1, true, coordinatorOnline)
+		}
 		subscriptionRegistry.renew(c)
 		if hook != nil {
 			hook.call()

@@ -62,7 +62,10 @@ func generateDiscoveryPrefixBaselineFile(outputRoot, physicalPrefix string) erro
 // MQTTDiscoveryPhysicalPrefix is not an error -- the coordinator just has nothing to bridge yet.
 func generateDiscoveryIntegrationOutputs(bodyLines []string, ctx TPhysicalGenerationContext) error {
 	gateways, warnings := parseDiscoveryIntegrationBody(bodyLines)
-	for _, w := range warnings {
+	// The filters themselves are read by generateYAMLMQTTEntities (collectDiscoveryRetainedTopics),
+	// which runs before this; their warnings are reported here, once.
+	_, filterWarnings := parseDiscoveryRetainedTopics(bodyLines)
+	for _, w := range append(warnings, filterWarnings...) {
 		fmt.Printf("[integration discovery] %s\n", w)
 	}
 	if len(gateways) == 0 {

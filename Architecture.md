@@ -1308,20 +1308,44 @@ per entity: on the bus because something else needs it, otherwise local. To be c
 
 **Retain, for raw and discovered.** After a Home Assistant restart, a reload, or the switch of an
 entity to YAML, Home Assistant only has a value for a state topic the broker retained. Controlled
-and bridged integrations retain because we tell them to; Zigbee2MQTT, Z-Wave JS UI and EMS-ESP
-each have their own option for it, and we don't want integration-specific code (or config) to set
-it. Mosquitto has no "force retain" (a broker with a rule engine, e.g. EMQX, could republish with
-retain, but that would tie us to that broker). So the coordinator steps in: for every state topic
-of a raw or discovered entity, it cross-posts the latest message, unchanged, retained, onto a topic
-of its own -- a shadow topic, "<original topic>/retain" (Erik, 2026-10-27) -- and the entity's YAML `state_topic` points
-there. A device's retain status can't be observed (a retained message at subscribe proves the
-publisher retains, its absence proves nothing) and a discovery config doesn't say it, so for
-*discovered* devices the worst is always assumed: every state topic gets its shadow, even where the
-gateway does retain (EMS-ESP, by its own setting) -- no gateway-specific code. For *raw* devices the
-defs declare everything anyway: an "is retained" option on the declaration lets their entities read
-the device's own topics; without it (the default) they read the shadow. Commands keep going straight to the
-integration's own command topic. Seen live: PROJECT.md 20 (was 31c), and Vienna's 19d batch 1 (34 of 51
-entities "unknown" until their device's next report).
+and bridged integrations retain because we tell them to; Zigbee2MQTT, Z-Wave JS UI and EMS-ESP each
+have their own option for it, and we don't want integration-specific code (or config) to set it.
+Mosquitto has no "force retain" (a broker with a rule engine, e.g. EMQX, could republish with
+retain, but that would tie us to that broker). So the coordinator steps in: for every state topic of
+a raw or discovered entity that isn't declared retained (below), it cross-posts the latest message,
+unchanged, retained, onto a topic of its own -- a shadow topic, "<original topic>/retain" (Erik,
+2026-10-27) -- and the entity's YAML `state_topic` points there. The generator decides which topics
+get one and gives the coordinator the list; the coordinator keeps a manifest of its shadows and
+clears the retained message of every one no longer listed (at deploy and at every start), so
+switching a device either way only changes its entities' `state_topic` (unique_id and entity_id
+stay). A device's retain status can't be observed (a retained message at subscribe proves the
+publisher retains, its absence proves nothing) and a discovery config doesn't say it, so the worst
+is assumed unless the defs say otherwise -- no gateway-specific code (Erik, 2026-10-27/28):
+
+- **Default: not retained.** A device or topic no line mentions gets a shadow -- for every topic its
+  entities read state from (`state_topic` and the per-feature ones, e.g. a climate device's
+  `mode_state_topic`, `current_temperature_topic`), never for command or availability topics. A
+  wrong "not retained" only costs a redundant shadow; a wrong "retained" loses values on every
+  reload.
+- **Wildcard, per installation**: `retained topics "<filter>", ...;` in the `integration discovery
+  with:` block, in MQTT's own filter syntax (`+`, `#`), e.g. Junglinster's
+  `retained topics "zwave/#", "ems-esp/#";`. Topics matching it get no shadow. The prefixes are the
+  installation's own gateway settings (Z-Wave JS UI's and EMS-ESP's base topics and their own
+  retain settings), so they live in its defs, never in the code; the claim must hold for every
+  state topic under the filter.
+- **Per device**, in its block (like `ignore other capabilities;`), always winning over the
+  wildcard: `is retained;` -- no shadow, the entities read the device's own topics (e.g. a
+  Zigbee2MQTT device with Zigbee2MQTT's own retain option on; for raw devices, item 39, the normal
+  way to say it); `is not retained;` -- a shadow after all: the way to back out of a wildcard that
+  claims more than is true (e.g. a device whose own retain setting differs from its gateway's). It
+  never stops a device from retaining; a redundant shadow is harmless.
+- So each device line only does something against the default around it: `is retained;` where no
+  wildcard covers the device, `is not retained;` where one does. Generate reports a line without
+  effect, and a filter that matches none of the installation's state topics (a typo).
+- Zigbee2MQTT gets no wildcard by default: its state message carries `action`, so a retained
+  button message could fire again after each reload, and its retain setting and the defs would
+  have to be kept in sync by hand.
+- Commands keep going straight to the integration's own command topic.
 - Only *state* is cross-posted. Events are never retained: an `event` entity, a button or a
   remote's `action` would fire again on every reload. Where one topic carries both (Zigbee2MQTT
   puts `action` into the device's state JSON), the event entity keeps reading the original topic,
@@ -1333,7 +1357,18 @@ entities "unknown" until their device's next report).
 - A retained value of a device that is really gone stays visible only as long as availability
   doesn't say otherwise; for discovered gateways their availability topics cover this, for raw
   devices each definition needs its own availability (Erik: "we also need to detect if they are
-  really down").
+  really down"; PROJECT.md 39).
+- Built 2026-10-28 (PROJECT.md 20): generator `homeassistant/retain_shadows.go` (the decision,
+  the grammar's filters; `applyRetainShadows` in the discovery YAML writer, which also writes
+  `coordinator/retain_shadows.yaml`), coordinator `house_event_bus_coordinator/retain_shadows.go`
+  (the copies, the retained manifest `coordinator/retain_shadows/state`, the Last Will
+  `coordinator/availability`). A `#` inside a quoted string is no comment (`stripLineComment`),
+  for the filters. Why it matters: HA's MQTT reload re-creates every YAML mqtt entity, and before
+  the shadows a deploy left Vienna with 99 of 162 Zigbee entities "unknown" (2026-10-27). Tested
+  live 2026-10-28 with a full reload and no other refill: none of Vienna's 129 or Junglinster's
+  289 shadowed entities lost its value. Zigbee2MQTT ignores the `/retain` topics inside its own
+  namespace (tested). Still expected after a reload: a template with `delay_on`/`delay_off` shows
+  "unknown" until its delay has passed, an event entity until its next event.
 
 **Home Assistant's MQTT schema is a code dependency, isolated in one place.** Item 19 depends on
 how Home Assistant structures MQTT entities in two ways: reading the discovery a gateway publishes
@@ -1398,10 +1433,12 @@ the UI shows the registry name, not the friendly_name).
   (`tools/ha_reload_errors.py`). `ha core check` does not validate MQTT YAML entities; only a
   reload does.
 - The MQTT reload takes ~45 s and recreates every YAML entity: check only after it. Values of
-  topics that aren't retained are lost (Zigbee2MQTT's state topics; EMS-ESP's and Z-Wave JS UI's
-  are retained): deploy step 06 restarts Zigbee2MQTT, whose `cache_state_send_on_startup`
-  republishes every state (Zigbee plugs can stay unavailable up to ~5 minutes). The lasting answer
-  is the retained shadow topic above (PROJECT.md 20).
+  topics that aren't retained would be lost (Zigbee2MQTT's state topics); the retained shadows
+  above keep them. Until 2026-10-28 deploy step 06 restarted Zigbee2MQTT instead, whose
+  `cache_state_send_on_startup` republishes every state -- with side effects (the bridge offline
+  ~10-30 s, plugs and battery devices "offline" in its availability for minutes, until their next
+  check-in). The first deploy that introduces shadows still needs one such refill: the shadows
+  start empty.
 - The coordinator runs as systemd `Type=notify`, sending `READY=1` once every subscription is in
   place, so a reload request the deploy sends right after a restart isn't lost.
 - A retained cloud message is no sign of life: a cloud host's liveness only counts live messages

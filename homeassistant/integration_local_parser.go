@@ -153,10 +153,7 @@ func parseLocalIntegrationBody(bodyLines []string) ([]TLocalDevice, []string) {
 	pendingCapabilityLabel := "" // "" when not inside a media-switch capability's own "with: ... end;" block
 
 	for lineIdx, rawLine := range bodyLines {
-		line := strings.TrimSpace(rawLine)
-		if commentIdx := strings.Index(line, "#"); commentIdx >= 0 {
-			line = strings.TrimSpace(line[:commentIdx])
-		}
+		line := stripLineComment(rawLine)
 		if line == "" {
 			continue
 		}

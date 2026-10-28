@@ -69,7 +69,6 @@ package main
 import (
 	"fmt"
 	"regexp"
-	"strings"
 )
 
 var importHeaderPattern = regexp.MustCompile(`^device\s+(\S+)\s+from\s+(\S+)\s+(\S+)\s+with:\s*$`)
@@ -102,10 +101,7 @@ func parseImportIntegrationBody(bodyLines []string) ([]TImportedDevice, []string
 	var current TImportedDevice
 
 	for lineIdx, rawLine := range bodyLines {
-		line := strings.TrimSpace(rawLine)
-		if commentIdx := strings.Index(line, "#"); commentIdx >= 0 {
-			line = strings.TrimSpace(line[:commentIdx])
-		}
+		line := stripLineComment(rawLine)
 		if line == "" {
 			continue
 		}

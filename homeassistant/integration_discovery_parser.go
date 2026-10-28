@@ -115,6 +115,11 @@ func parseDiscoveryIntegrationBody(bodyLines []string) ([]TDiscoveryGatewayDevic
 			warnings = append(warnings, w...)
 			continue
 		}
+		if _, _, isRetainedTopics := parseRetainedTopicsLine(line); isRetainedTopics {
+			// Read by parseDiscoveryRetainedTopics (retain_shadows.go).
+			cur.Advance()
+			continue
+		}
 		warnings = append(warnings, fmt.Sprintf("Physical.def: unrecognised line in \"integration discovery\" block (body line %d): %q", cur.ThisLineNumber(), line))
 		cur.Advance()
 	}
@@ -165,6 +170,18 @@ func parseDiscoveryDeviceBody(cur *TLineCursor, deviceID, parentDeviceID string)
 		}
 		if line == "ignore other capabilities;" {
 			current.IgnoreOtherCapabilities = true
+			cur.Advance()
+			continue
+		}
+		if line == "is retained;" || line == "is not retained;" {
+			declaration := retainDeclared
+			if line == "is not retained;" {
+				declaration = retainNotDeclared
+			}
+			if current.Retain != retainUndeclared && current.Retain != declaration {
+				warnings = append(warnings, fmt.Sprintf("Physical.def: device %q says both \"is retained;\" and \"is not retained;\"; keeping the last", deviceID))
+			}
+			current.Retain = declaration
 			cur.Advance()
 			continue
 		}

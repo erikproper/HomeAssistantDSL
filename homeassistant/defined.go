@@ -69,10 +69,7 @@ func resolveMQTTBrokerProfiles(definitionDir string) (map[string]TMQTTBrokerSecr
 		name := block.HeaderMatch[1]
 		var secrets TMQTTBrokerSecrets
 		for _, rawLine := range block.BodyLines {
-			line := strings.TrimSpace(rawLine)
-			if commentIdx := strings.Index(line, "#"); commentIdx >= 0 {
-				line = strings.TrimSpace(line[:commentIdx])
-			}
+			line := stripLineComment(rawLine)
 			if line == "" {
 				continue
 			}
@@ -336,6 +333,31 @@ func lineEndsStatement(line string) bool {
 		}
 	}
 	return !inQuote && (last == ';' || last == ':')
+}
+
+// stripLineComment returns line, trimmed, without its trailing comment: everything from the first
+// "#" outside a quoted string. A quoted "#" belongs to the string (PROJECT.md 20, 2026-10-28: the
+// MQTT filter "zwave/#" in 'retained topics "zwave/#";'); no def had one before, so this changed
+// no existing line's meaning. Quotes are tracked as lineEndsStatement does: per line, "\"" inside
+// a string doesn't end it.
+func stripLineComment(line string) string {
+	inQuote := false
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		if inQuote {
+			if c == '"' && line[i-1] != '\\' {
+				inQuote = false
+			}
+			continue
+		}
+		if c == '#' {
+			return strings.TrimSpace(line[:i])
+		}
+		if c == '"' {
+			inQuote = true
+		}
+	}
+	return strings.TrimSpace(line)
 }
 
 // unquoteShellValue strips surrounding double or single quotes from a value string.
@@ -621,10 +643,7 @@ type TLineCursor struct {
 func newLineCursor(rawLines []string) *TLineCursor {
 	cur := &TLineCursor{}
 	for idx, rawLine := range rawLines {
-		line := strings.TrimSpace(rawLine)
-		if commentIdx := strings.Index(line, "#"); commentIdx >= 0 {
-			line = strings.TrimSpace(line[:commentIdx])
-		}
+		line := stripLineComment(rawLine)
 		if line == "" {
 			continue
 		}

@@ -109,10 +109,7 @@ func parseCapabilityDefaultsBody(bodyLines []string, vars map[string]string) ([]
 	var currentLabel string // for warning messages, e.g. "sensor.*/total_power, sensor.*/current_power"
 
 	for _, rawLine := range bodyLines {
-		line := strings.TrimSpace(rawLine)
-		if commentIdx := strings.Index(line, "#"); commentIdx >= 0 {
-			line = strings.TrimSpace(line[:commentIdx])
-		}
+		line := stripLineComment(rawLine)
 		if line == "" {
 			continue
 		}
