@@ -33,6 +33,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -356,6 +357,20 @@ func generateInstanceAutomationTrees(haOutputDir string, instances map[string]TH
 		// PROJECT.md 26: the coordinator's ping-pong, the instance's liveness.
 		if err := writeAutomationFile(instanceHAOutputDir, "infrastructural", "coordinator_ping_pong", generatorHeader+pingPongAutomationBody(name)); err != nil {
 			return err
+		}
+		// PROJECT.md 23: reload an integration whose indicator entities stay unavailable.
+		guards, problems := bridgeReloadGuards(name, hassBridgeDevicesByID)
+		if name == "main" {
+			guards = append(guards, admin.MainReloadGuards...)
+		}
+		for _, problem := range problems {
+			fmt.Printf("[physical] %s\n", problem)
+		}
+		guardBody, hasGuards := reloadGuardAutomationBody(name, guards)
+		if hasGuards {
+			if err := writeAutomationFile(instanceHAOutputDir, "infrastructural", "coordinator_reload_guard", generatorHeader+guardBody); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

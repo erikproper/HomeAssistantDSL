@@ -287,6 +287,11 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 	}
 	admin.NativeCapabilities = map[string][]string{}
 	admin.NativeSeeds = map[string]string{}
+	mainGuards, guardProblems := localReloadGuards(localDevicesByID, admin)
+	admin.MainReloadGuards = mainGuards
+	for _, problem := range guardProblems {
+		fmt.Printf("[physical] %s\n", problem)
+	}
 	for id, device := range localDevicesByID {
 		for label, capability := range device.Capabilities {
 			// A capability the generator builds itself (an "is available" node, a derived value, a

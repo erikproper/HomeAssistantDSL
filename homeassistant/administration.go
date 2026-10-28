@@ -84,6 +84,8 @@ type TAdministrationState struct {
 	// somewhere -- a node condition referring to one waits for that positioning instead of
 	// materializing the node itself (resolveNodeInput).
 	ExplicitNodeDevices map[string]bool
+	// MainReloadGuards (PROJECT.md 23): the local devices' reload guards, resolved -- run on main.
+	MainReloadGuards []TResolvedReloadGuard
 	// YAMLEntities (PROJECT.md 19c) maps every entity Home Assistant gets from the generator's own
 	// YAML "mqtt:" config to the exact discovery config the coordinator built for it
 	// (mqtt_yaml_entities.go) -- the coordinator no longer relays these.

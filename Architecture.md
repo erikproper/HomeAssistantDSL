@@ -625,6 +625,21 @@ entity, a "hosts" device's hardwired attribute typing):
    `radio`, ...) remain, since they don't fit a single settled domain to write a `defaults:` rule
    against.
 
+
+**Display precision and display unit (PROJECT.md 24, 2026-10-28).** A defaults rule may also give
+`precision: <decimals>;`. Precision and unit are not written into any YAML, but set as Home
+Assistant's own per-entity display options -- the same as the UI's "Display precision" and "Unit of
+measurement" -- by the deploy's registry repair: the generator lists them per positioned sensor in
+the registry manifest (`display`), and the repair sets them where they differ, keeping every other
+option key. That reaches every kind of sensor alike -- discovered, bridged, imported, native, and the
+generated templates (aggregates, averages), which have no `suggested_display_precision` in YAML at
+all. Rounding is for display only: state, history and statistics keep full precision. A display
+unit is only set for a sensor with a device class whose shown unit differs; Home Assistant converts
+the value itself (pressure: `hPa`, the SI form -- mbar is the same value under another name). The
+defs win: a precision set by hand in the UI is overwritten wherever a default applies. A failed
+update is a warning, never a failed deploy. Defaults (Shared/Definitions/Defaults.def): temperature
+and wind speed 1 decimal, energy 2, humidity, pressure, CO2, illuminance, noise, load, power and
+battery 0.
 ### 6.9 Entity-existence discovery always needs a seed
 
 PROJECT.md 1.1's entity-existence mechanism (three-state known-to-exist / not-known-to-exist /
@@ -1071,7 +1086,12 @@ carries each entry's `export_id` and the exporter's current device id), and when
 house renamed the device it updates the importer's `device <id> from <house> <remote-id> with:`
 line and reports it. The config topics themselves didn't change: only the other house's
 coordinator reads them, so the identity travels in the message. An import of something the other
-house doesn't export is an ERROR in generate's output ("<house> doesn't export these").
+house doesn't export is an ERROR in generate's output ("<house> doesn't export these"). That holds
+when an export stops too (PROJECT.md 22g, 2026-10-28): the exporter clears its retained cloud
+config, and the importing coordinator -- which remembers which topic fed which capability, since
+an empty message carries no `export_id` -- drops the catalogue entry and marks the capability
+known-not-to-exist ("missing declared entities" turns on). A rename on the exporting side clears
+the old topic too; the entry stays when the new topic already feeds the same capability.
 
 ### 6.13 Command routing for hassbridge entities (PROJECT.md item 11)
 
@@ -1529,6 +1549,23 @@ field; without `value`, the whole message). The generator lists them in
 `coordinator/metadata_topics.yaml`; the coordinator subscribes, takes the field and records it like
 discovered metadata (`discovery_device_info/state`), which generate captures into Physical.def --
 `forced` and the `# discovery: ...` comment work as for discovered devices.
+
+Reload guards (PROJECT.md 23, 2026-10-28). An integration on a bridged instance that loses its
+connection now and then (Junglinster's Netatmo on ha2mqtt) comes back with a reload. The bridged
+device declares it in its own integration section (PROJECT.md 29 (3)): `reload integration when
+sensor.co2 is unavailable for 00:05:00;` -- a capability of the device, whose source entity on the
+instance the generator knows. One generated automation per instance
+(`homeassistant/remote_instance_reload_guard.go`) triggers on any indicator staying unavailable that
+long, notes it in the logbook, reloads that entity's integration (`homeassistant.reload_config_entry`)
+and then waits 15 minutes (`mode: single`) -- at most 4 reloads an hour, never a reload storm when
+the integration is really down. A local device's guard (`integration local`) runs on main, the
+same way. `while <device> is up` makes a guard reload only while that device's node is on -- a
+portable speaker switched off must not reload the whole Sonos integration every 15 minutes. After a
+start or an automation reload (a deploy), when an entity may already be unavailable without a
+change to trigger on, the guard waits the longest guard time once and reloads for every guarded
+entity still unavailable (with its while-condition). In Junglinster: the three Netatmo Smart Indoor
+Air Quality Monitors' CO2 (on ha2mqtt), the two Ring cameras and the Sonos headphones (on main,
+each while its ping node is up).
 
 Node positioning, a fix (2026-10-28): a derived node whose condition refers to another device's
 node ("condition node from integration.zigbee2mqtt") materializes that node itself when it isn't

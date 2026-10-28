@@ -76,6 +76,19 @@ type TRegistryManifest struct {
 	// Areas maps every listed or positioned entity_id to its area (PROJECT.md item 17e, 2026-10-26): its device's
 	// area, else the area of the space it is positioned in, else defaultArea.
 	Areas map[string]string `json:"areas"`
+	// Display (PROJECT.md 24, 2026-10-28): per sensor, the display precision and display unit its
+	// defaults give it -- Home Assistant's own per-entity display options (the UI's "Display
+	// precision" and "Unit of measurement"), which the repair sets: rounding only for display, a
+	// unit change converted by Home Assistant itself, history and statistics unaffected.
+	Display []TRegistryManifestDisplay `json:"display"`
+}
+
+// TRegistryManifestDisplay is one sensor's display options; Precision nil for none, Unit "" for
+// none.
+type TRegistryManifestDisplay struct {
+	EntityID  string `json:"entity_id"`
+	Precision *int   `json:"precision,omitempty"`
+	Unit      string `json:"unit,omitempty"`
 }
 
 // defaultArea is the area of everything not positioned inside an "as area" space.
@@ -153,6 +166,7 @@ func generateRegistryManifest(outputDir string, admin *TAdministrationState) err
 			}
 		}
 	}
+	manifest.Display = registryDisplayOptions(admin)
 	manifest.Native = []TRegistryManifestNative{}
 	for deviceID, labels := range admin.NativeCapabilities {
 		for _, label := range labels {
@@ -450,4 +464,34 @@ func sortedMapKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// registryDisplayOptions returns every positioned sensor's display options from the defaults: the
+// precision of the first rule setting one, and the unit of the first rule setting one (only a
+// "defaults:" rule's, never the code's own fallback tables -- those only fill gaps).
+func registryDisplayOptions(admin *TAdministrationState) []TRegistryManifestDisplay {
+	seen := map[string]bool{}
+	display := []TRegistryManifestDisplay{}
+	for _, spaceName := range admin.SpaceOrder {
+		for _, rec := range admin.EntityRecordsBySpace[spaceName] {
+			if rec.Identity.Domain != "sensor" || rec.Identity.Path == "" {
+				continue
+			}
+			entityID := toHomeAssistantEntityID(rec.Name)
+			if entityID == "" || seen[entityID] {
+				continue
+			}
+			seen[entityID] = true
+			item := TRegistryManifestDisplay{EntityID: entityID}
+			if precision, ok := capabilityPrecisionFor(admin.CapabilityDefaults, "sensor", rec.Identity.Path); ok {
+				item.Precision = &precision
+			}
+			_, item.Unit, _, _ = capabilityDefaultsFor(admin.CapabilityDefaults, "sensor", rec.Identity.Path)
+			if item.Precision != nil || item.Unit != "" {
+				display = append(display, item)
+			}
+		}
+	}
+	sort.Slice(display, func(i, j int) bool { return display[i].EntityID < display[j].EntityID })
+	return display
 }

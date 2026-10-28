@@ -834,3 +834,46 @@ func TestMatchImportedCapabilityByExportID(t *testing.T) {
 		t.Errorf("a different export_id matched")
 	}
 }
+
+// TestSubscribeImportedDevicesRetractsStoppedExport: a cleared cloud config drops the catalogue
+// entry it fed (PROJECT.md 22g) -- unless another topic feeds the same capability now, as after a
+// rename on the exporting side (new topic first, old one cleared after).
+func TestSubscribeImportedDevicesRetractsStoppedExport(t *testing.T) {
+	const localEntity = "sensor.infrastructural_retract_co2"
+	importFile := TImportedFile{Devices: map[string]TImportedDevice{
+		"import.retract": {
+			RemoteInstallation: "junglinster", RemoteDeviceID: "sensors.netatmo_old",
+			Capabilities: map[string]TImportedCapability{"co2": {LocalEntity: localEntity, RemoteID: "hassbridge_sensor_x_co2"}},
+		},
+	}}
+	payload, _ := json.Marshal(map[string]interface{}{"export_id": "hassbridge_sensor_x_co2", "state_topic": "junglinster/x/state", "device": map[string]interface{}{"identifiers": []string{"sensors.netatmo_old"}}})
+	oldTopic := "junglinster/" + testPrefix + "/sensor/coordinator/junglinster_sensors_netatmo_old_co2/config"
+	newTopic := "junglinster/" + testPrefix + "/sensor/coordinator/junglinster_sensors_netatmo_new_co2/config"
+	cloudClient := &fakeClient{retained: []fakeMessage{{topic: oldTopic, payload: payload}}}
+	if err := subscribeImportedDevices(&fakeClient{}, cloudClient, "junglinster", importFile, newDiscoveryPublisher(filepath.Join(t.TempDir(), "t.json")), testPrefix, nil); err != nil {
+		t.Fatal(err)
+	}
+	deliver := func(topic string, data []byte) {
+		for _, h := range cloudClient.subscribedHandlersSnapshot() {
+			h(cloudClient, fakeMessage{topic: topic, payload: data})
+		}
+	}
+	catalogued := func() bool {
+		importCatalogue.mu.Lock()
+		defer importCatalogue.mu.Unlock()
+		_, ok := importCatalogue.byEntity[localEntity]
+		return ok
+	}
+	if !catalogued() {
+		t.Fatalf("not catalogued after the config")
+	}
+	deliver(newTopic, payload) // renamed: the new topic first ...
+	deliver(oldTopic, nil)     // ... then the old one cleared
+	if !catalogued() {
+		t.Errorf("a rename's cleared old topic removed the entry the new topic feeds")
+	}
+	deliver(newTopic, nil) // now the export really stops
+	if catalogued() {
+		t.Errorf("a stopped export is still in the catalogue")
+	}
+}

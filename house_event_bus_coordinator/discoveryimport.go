@@ -445,11 +445,40 @@ func subscribeImportedDevices(mainClient, cloudClient mqtt.Client, ownInstallati
 	hostsRelayIndex := newImportedHostsRelayIndex()
 	viaDeviceIndex := buildImportViaDeviceIndex(importFile)
 
+	// Which cloud config topic fed which imported capability: a cleared (empty) config carries no
+	// export_id, so its retraction is traced back by topic (PROJECT.md 22g).
+	var fedMu sync.Mutex
+	fedBy := map[string]importCapabilityMatch{}
+
 	for remoteInstallation := range remoteInstallations {
 		remoteInstallation := remoteInstallation
 		configHandler := func(_ mqtt.Client, msg mqtt.Message) {
 			if len(msg.Payload()) == 0 {
-				return // retraction handling: not built yet, see PROJECT.md 1.2d follow-ups.
+				// The exporting house cleared this config: its export stopped. Drop what it fed, so
+				// the importer's generate reports "doesn't export" (PROJECT.md 22g, 2026-10-28).
+				fedMu.Lock()
+				match, fed := fedBy[msg.Topic()]
+				delete(fedBy, msg.Topic())
+				stillFed := false // a rename: the new topic may already feed the same entity
+				for _, other := range fedBy {
+					if other.LocalEntity == match.LocalEntity {
+						stillFed = true
+					}
+				}
+				fedMu.Unlock()
+				if !fed || stillFed {
+					return
+				}
+				fmt.Printf("[discovery-import] %s: export of %s stopped\n", remoteInstallation, match.LocalEntity)
+				if importCatalogue.Remove(match.LocalEntity) {
+					importCatalogue.SchedulePublish(mainClient, cloudClient, ownInstallation)
+				}
+				if existenceTracker != nil && existenceTracker.MarkRetracted(remoteInstallation, match.ExistenceKey) {
+					if err := existenceTracker.publishStatus(mainClient, cloudClient, ownInstallation, remoteInstallation); err != nil {
+						fmt.Printf("[import-existence] %v\n", err)
+					}
+				}
+				return
 			}
 			var payload importedDiscoveryPayload
 			if err := json.Unmarshal(msg.Payload(), &payload); err != nil {
@@ -460,6 +489,9 @@ func subscribeImportedDevices(mainClient, cloudClient mqtt.Client, ownInstallati
 			if !matched {
 				return
 			}
+			fedMu.Lock()
+			fedBy[msg.Topic()] = match
+			fedMu.Unlock()
 			if existenceTracker != nil {
 				if existenceTracker.MarkKnown(remoteInstallation, match.ExistenceKey) {
 					fmt.Printf("[import-existence] %s: %s -> known-to-exist\n", remoteInstallation, match.ExistenceKey)

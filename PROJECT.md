@@ -16,44 +16,6 @@ JLI
  
 ## Migration & improvements
 
-22f. Vienna's TV ping node (hosts/sony_tv/node/state) never gets a message: the ping reporter
-    publishes nothing for sony_tv (seen 2026-10-27, not caused by the YAML switch).
-
-22g. An export that stops is not noticed by the importer (found 2026-10-28, with item 22): the
-    exporter clears its retained cloud config, but the importing coordinator skips an empty message
-    ("retraction handling: not built yet", discoveryimport.go), so the entry stays in its
-    import_catalogue and generate reports nothing. Needs: on a cleared config, drop the catalogue
-    entry it fed (the coordinator has to remember topic -> local entity, since an empty message
-    carries no export_id), so generate's "doesn't export" ERROR fires.
-
-23. Can we trigger, within HA, the reload of an integration?
-The netatmo integration on P-s-2@JLI  often "lost" some connection
-leading to entities of especially the "Smart Indoor Air Quality Monitor" to report
-as being unavailable.
-The idea would be to enable the automatic triggering on P-s-2@JLI of a reload when 
-selected "indicator" entities are unavailable.
-
-Another case (2026-10-25, Junglinster main): the Sonos headphones
-(media_player.social_house_sonos_headphones) drop out around each deploy's reload; twice they came
-back after two minutes, the third time not -- while their ping node stayed on. A manual reload of
-the Sonos integration brought them back.
-Same on the next deploy (2026-10-25): all 13 Ring entities stayed unavailable after the reload;
-reloading the Ring integration brought them back. 
-
-24. (Enforced) default units for e.g. pressure as well as the precision?? This did work in the "bash" based script approach.
-    (2026-10-27, Erik) Builds on 19: the defaults (Shared/Definitions/Defaults.def, a house's own
-    "defaults:" in Physical.def) set unit/icon/device_class/state_class but only fill gaps, and have
-    no precision. Add "precision:" (a sensor's suggested_display_precision -- display only; HA keeps
-    full precision in state, history and statistics) and "forced" (override a value the gateway
-    supplies, e.g. Zigbee2MQTT's pressure unit). Easy now that entities are YAML (Architecture.md §6.16): the
-    generator writes every field itself.
-    The old bash approach's settings (Erik): $HOME/go/src/homeassistant/Old/Junglinster/Modules/
-    Settings.1.hass -- units per quantity (UnitsOf_pressure="mbar", UnitsOf_temperature="°C",
-    illuminance "lux", wind speed "km/h", co2 "ppm", noise "dB", humidity/battery "%") and state
-    classes (StateClassOf_...); no precision found there or in the other old modules.
-    EP: Correct. Once HA started to allow the specification of this in the UI, I dropped that from the bash scripts. However, it is rather tedious to now do it all by hand ...
-    EP: We should at least use "
-
 25. depencency versus via ... also include e.g. the connexoon for the somfy's
 - somfy => ha2mqtt => connexoon
   --> Does the relevant integration on ha2mqtt have availabilty as well? 
@@ -65,7 +27,8 @@ reloading the Ring integration brought them back.
 - zigbees's => zigbee2mqtt
 Note: zwave2mqtt, zigbee2mqtt, and ha2mqtt (and its local integrations) depend on p-s-1 to be up.
 
-25b. Test if the meta call to reset HA's works.
+25b. Test if the meta call to restart HA's works.
+
 
 25c. (2026-09-24) Zigbee2MQTT liveness check: detect when a house's own Z2M bridge itself is down
      (not just an individual device), and if so, bulk-mark every Z2M-sourced entity in that house
@@ -75,7 +38,7 @@ Note: zwave2mqtt, zigbee2mqtt, and ha2mqtt (and its local integrations) depend o
      retained shadows (item 20) the values stay but show unavailable. Left: a Zigbee2MQTT that hangs
      without dropping its connection (no Last Will), and an actual test (a planned short stop).
 
-25a. Nuanced reporting of suggested entries, based on conceptual versus physical positioning.
+25d. Nuanced reporting of suggested entries, based on conceptual versus physical positioning.
 So, what is available to be positioned as potential capabilities, and what is available to be positioned at the conceptual layer.
 
 26. Logical layer + available nuances in relation to "via device"  (netatmo radio module via main module) and aggregation.

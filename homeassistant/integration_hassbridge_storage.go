@@ -201,6 +201,8 @@ type THassBridgeDevice struct {
 	// generator-side report filtering, nothing coordinator-side), same directive text and same
 	// underlying idea: "I already know what else is here; stop suggesting it."
 	IgnoreOtherCapabilities bool
+	// ReloadGuards (PROJECT.md 23): "reload integration when ... is unavailable for ...;" lines.
+	ReloadGuards []TReloadGuard
 }
 
 // formatInstanceSources renders a capability's per-instance sources as "<instance>=<source>" pairs
@@ -231,4 +233,15 @@ func representativeSource(sources map[string]string) string {
 	}
 	sort.Strings(instances)
 	return sources[instances[0]]
+}
+
+// TReloadGuard is one "reload integration when <domain>.<label> is unavailable for <duration>;" of a
+// bridged device (PROJECT.md 23): when that capability's source entity on the instance stays
+// unavailable that long, the instance reloads the entity's integration (its config entry).
+type TReloadGuard struct {
+	Capability string
+	For        string
+	Instance   string
+	// WhileUp: "while <device-id> is up" -- only while that device's node is on.
+	WhileUp string
 }

@@ -240,6 +240,43 @@ def plan(registry, manifest, previous, live_entity_ids=frozenset()):
     return feasible, removals, reports
 
 
+def display_updates(ha, manifest, states):
+    """PROJECT.md 24: the sensors whose display options (precision, display unit) differ from what the
+    defaults give them, as (entity_id, new sensor options) -- every other key of those options kept.
+    A display unit is only set for a sensor with a device class whose shown unit differs (Home
+    Assistant converts it); one it can't convert is reported by the update, not fatal."""
+    attributes = {s["entity_id"]: s.get("attributes", {}) for s in states}
+    updates = []
+    for item in manifest.get("display", []):
+        entity_id = item["entity_id"]
+        if entity_id not in attributes:
+            continue  # not there (yet): the next deploy
+        reply = ha.call({"type": "config/entity_registry/get", "entity_id": entity_id})
+        if not reply.get("success"):
+            continue  # no registry entry (an entity without unique_id): nothing to set
+        current = dict((reply["result"].get("options") or {}).get("sensor") or {})
+        wanted = dict(current)
+        if "precision" in item:
+            wanted["display_precision"] = item["precision"]
+        unit, shown = item.get("unit"), attributes[entity_id].get("unit_of_measurement")
+        if unit and attributes[entity_id].get("device_class") and shown and shown != unit:
+            wanted["unit_of_measurement"] = unit
+        if wanted != current:
+            updates.append((entity_id, wanted))
+    return updates
+
+
+def apply_display(ha, updates):
+    """Sets the display options; a failure is a warning, never a failed deploy."""
+    warnings = []
+    for entity_id, options in updates:
+        reply = ha.call({"type": "config/entity_registry/update", "entity_id": entity_id,
+                         "options_domain": "sensor", "options": options})
+        if not reply.get("success"):
+            warnings.append(f"display options of {entity_id}: {reply.get('error')}")
+    return warnings
+
+
 def apply(ha, renames, removals):
     errors = []
     for entry in removals:
@@ -292,7 +329,11 @@ def main():
     for report in reports:
         print(f"  {report}")
 
+    displays = display_updates(ha, manifest, states)
+    print(f"display options ({mode}): {len(displays)} sensor(s)")
     if do_apply:
+        for warning in apply_display(ha, displays):
+            print(f"  WARNING {warning}")
         errors = apply(ha, renames, removals)
         for error in errors:
             print(f"  ERROR {error}")

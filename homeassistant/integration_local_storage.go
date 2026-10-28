@@ -80,6 +80,8 @@ type TLocalCapability struct {
 type TLocalDevice struct {
 	DeviceID     string
 	Capabilities map[string]TLocalCapability
+	// ReloadGuards (PROJECT.md 23): "reload integration when ...;" lines -- run on main.
+	ReloadGuards []TReloadGuard
 }
 
 // collectLocalDevicesByID re-parses Physical.def's "local" integration block and returns every

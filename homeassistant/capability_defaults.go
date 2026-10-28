@@ -43,6 +43,8 @@ type TCapabilityDefaultRule struct {
 	Unit        string
 	StateClass  string
 	Icon        string
+	// Precision: display decimals ("0".."9"), "" when the rule sets none (PROJECT.md 24).
+	Precision string
 }
 
 var capabilityDefaultsHeaderPattern = regexp.MustCompile(`^defaults:\s*$`)
@@ -53,6 +55,11 @@ var capabilityDefaultsHeaderPattern = regexp.MustCompile(`^defaults:\s*$`)
 var capabilityDefaultsForPattern = regexp.MustCompile(`^for\s+(.+):\s*$`)
 var capabilityDefaultsTargetPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.(\S+)$`)
 var capabilityDefaultsMetadataPattern = regexp.MustCompile(`^(unit|icon|device_class|state_class):\s*"([^"]*)"\s*;\s*$`)
+
+// capabilityDefaultsPrecisionPattern matches "precision: <decimals>;" (PROJECT.md 24, 2026-10-28):
+// the display precision Home Assistant shows the sensor with -- state, history and statistics keep
+// full precision (set through the registry repair, registry_manifest.go's "display").
+var capabilityDefaultsPrecisionPattern = regexp.MustCompile(`^precision:\s*(\d)\s*;\s*$`)
 
 // collectCapabilityDefaults scans for every "defaults: ... end;" block and parses their
 // "for <domain>.<pattern>: ...; end;" rules -- both sharedDefinitionDir's own Defaults.def
@@ -121,9 +128,14 @@ func parseCapabilityDefaultsBody(bodyLines []string, vars map[string]string) ([]
 						Domain: t.Domain, PatternPath: t.PatternPath,
 						DeviceClass: currentMetadata.DeviceClass, Unit: currentMetadata.Unit,
 						StateClass: currentMetadata.StateClass, Icon: currentMetadata.Icon,
+						Precision: currentMetadata.Precision,
 					})
 				}
 				inFor = false
+				continue
+			}
+			if matches := capabilityDefaultsPrecisionPattern.FindStringSubmatch(line); matches != nil {
+				currentMetadata.Precision = matches[1]
 				continue
 			}
 			if matches := capabilityDefaultsMetadataPattern.FindStringSubmatch(line); matches != nil {
@@ -246,4 +258,15 @@ func resolveCapabilityDefaults(rules []TCapabilityDefaultRule, domain, path stri
 		icon = domainDefaultIcons[domain]
 	}
 	return
+}
+
+// capabilityPrecisionFor returns the display precision the rules give a capability, first match
+// wins; ok is false when none sets one.
+func capabilityPrecisionFor(rules []TCapabilityDefaultRule, domain, path string) (precision int, ok bool) {
+	for _, rule := range rules {
+		if rule.Precision != "" && matchesCapabilityPattern(domain, path, rule.Domain, rule.PatternPath) {
+			return int(rule.Precision[0] - '0'), true
+		}
+	}
+	return 0, false
 }

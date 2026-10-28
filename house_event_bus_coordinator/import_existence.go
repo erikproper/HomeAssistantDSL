@@ -193,6 +193,28 @@ func (t *TImportExistenceTracker) MarkKnown(remoteInstallation, stableID string)
 	return true
 }
 
+// MarkRetracted records key as known-not-to-exist on remoteInstallation -- called when the
+// exporting house cleared the cloud config that fed it (PROJECT.md 22g, 2026-10-28): its export
+// stopped. Returns false when it already was.
+func (t *TImportExistenceTracker) MarkRetracted(remoteInstallation, key string) bool {
+	t.mu.Lock()
+	if _, ok := t.entries[remoteInstallation]; !ok {
+		t.entries[remoteInstallation] = map[string]TEntityExistenceStatus{}
+	}
+	if t.entries[remoteInstallation][key] == StatusKnownNotToExist {
+		t.mu.Unlock()
+		return false
+	}
+	t.entries[remoteInstallation][key] = StatusKnownNotToExist
+	t.persist()
+	onChange := t.onChange
+	t.mu.Unlock()
+	if onChange != nil {
+		onChange()
+	}
+	return true
+}
+
 // PublishAll immediately (re-)publishes every remote installation importFile declares -- called
 // once right after Seed, mirroring discovery_existence.go's own PublishAll (see its doc comment for
 // the full "no periodic self-heal loop, so a coordinator restart needs an immediate publish" reasoning,

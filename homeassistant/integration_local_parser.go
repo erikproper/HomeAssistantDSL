@@ -108,6 +108,11 @@ var localCapabilityWithOneLinerPattern = regexp.MustCompile(`^capability\s+([A-Z
 // but the "block form and one-liner fold call the SAME logic" principle still applies) by both
 // the block form's own loop below and localWithDeviceOneLinerPattern's folded one-liner.
 func applyLocalCapabilityLine(dev *TLocalDevice, deviceID, line string) (warning string, matched bool) {
+	// PROJECT.md 23: a reload guard, run on main (remote_instance_reload_guard.go).
+	if m := reloadGuardPattern.FindStringSubmatch(line); m != nil {
+		dev.ReloadGuards = append(dev.ReloadGuards, TReloadGuard{Capability: m[2], For: m[3], Instance: "main", WhileUp: m[4]})
+		return "", true
+	}
 	// Checked first, before localCapabilityPattern: "derived" is a distinct leading keyword,
 	// unambiguous against "<domain>.<label>...;" -- same ordering rationale as
 	// integration_discovery_parser.go/integration_hassbridge_parser.go's own dispatch

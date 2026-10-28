@@ -349,6 +349,18 @@ func (c *TImportCatalogue) Record(localEntity string, remote hamqtt.ImportedRemo
 
 // SchedulePublish publishes the catalogue, retained, locally and on the cloud broker, after
 // DiscoveryDeviceInfoDebounceDelay without further changes.
+// Remove drops localEntity's entry -- its export stopped (PROJECT.md 22g) -- and reports whether
+// there was one.
+func (c *TImportCatalogue) Remove(localEntity string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, known := c.byEntity[localEntity]; !known {
+		return false
+	}
+	delete(c.byEntity, localEntity)
+	return true
+}
+
 func (c *TImportCatalogue) SchedulePublish(mainClient, cloudClient mqtt.Client, ownInstallation string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
