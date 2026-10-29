@@ -133,7 +133,7 @@ func validateHassBridgeAvailabilitySources(hassBridgeDevicesByID map[string]THas
 			for _, instance := range instances {
 				source := device.Capabilities[label].Sources[instance]
 				entityID, isAvailability := strings.CutSuffix(source, discoveryAvailabilitySuffix)
-				if !isAvailability || knownEntities[entityID] {
+				if !isAvailability || knownEntities[entityID] || strings.HasPrefix(entityID, integrationSourcePrefix) {
 					continue
 				}
 				warnings = append(warnings, fmt.Sprintf("device %q's %q capability's \"%s is available;\" doesn't match any of this device's OWN other capability sources -- likely a typo in the entity_id", deviceID, label, entityID))

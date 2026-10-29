@@ -174,7 +174,7 @@ var (
 	instanceNodeCapabilityPattern = regexp.MustCompile(`^capability\s+binary_sensor\.node(?:\s+as\s+([A-Za-z_][A-Za-z0-9_.]*))?\s*;\s*$`)
 )
 
-// splitInstanceIntegrationDevices takes the "device integration.<instance> with: ... end;" blocks
+// splitInstanceIntegrationDevices takes the "device integration.<instance> with: ... end;" block
 // out of a "home_assistant <instance>" integration's body: the bridge parser gets the rest, and each
 // such block becomes a raw gateway device whose node reads instanceStatusTopic.
 func splitInstanceIntegrationDevices(bodyLines []string, instance string) (rest []string, devices []TDiscoveryGatewayDevice, warnings []string) {
@@ -182,7 +182,9 @@ func splitInstanceIntegrationDevices(bodyLines []string, instance string) (rest 
 	for _, raw := range bodyLines {
 		line := stripLineComment(raw)
 		if current == nil {
-			if m := instanceDeviceHeaderPattern.FindStringSubmatch(line); m != nil {
+			// Only integration.<instance> itself; another integration device on the instance (e.g.
+			// integration.overkiz, PROJECT.md 25) is an ordinary bridged device.
+			if m := instanceDeviceHeaderPattern.FindStringSubmatch(line); m != nil && m[1] == "integration."+instance {
 				current = &TDiscoveryGatewayDevice{DeviceID: m[1], Identifiers: []string{m[1]}, Capabilities: map[string]TDiscoveryCapability{}, Raw: true, RawTopics: map[string]TRawTopicCapability{}, Retain: retainDeclared, CoordinatorStatus: true}
 				continue
 			}

@@ -99,10 +99,25 @@ func entityReportingAutomationBody(identity TEntityIdentity, bareTriggerEntities
 	var sb strings.Builder
 	sb.WriteString("- alias: \"" + entityAliasBase(identity) + "/reporting" + aliasSuffix + "\"\n")
 	sb.WriteString("  trigger:\n")
-	sb.WriteString("  - platform: state\n")
-	sb.WriteString("    entity_id:\n")
+	var entities []string
 	for _, entity := range bareTriggerEntities {
-		sb.WriteString("      - " + entity + "\n")
+		if name, isIntegration := integrationSourceName(entity); isIntegration {
+			// An integration's node (PROJECT.md 25): no entity to watch, so its two edges.
+			available := "integration_entities('" + name + "') | reject('is_state', 'unavailable') | list | count > 0"
+			sb.WriteString("  - platform: template\n")
+			sb.WriteString("    value_template: \"{{ " + available + " }}\"\n")
+			sb.WriteString("  - platform: template\n")
+			sb.WriteString("    value_template: \"{{ not (" + available + ") }}\"\n")
+			continue
+		}
+		entities = append(entities, entity)
+	}
+	if len(entities) > 0 {
+		sb.WriteString("  - platform: state\n")
+		sb.WriteString("    entity_id:\n")
+		for _, entity := range entities {
+			sb.WriteString("      - " + entity + "\n")
+		}
 	}
 	sb.WriteString("  - platform: homeassistant\n")
 	sb.WriteString("    event: start\n")

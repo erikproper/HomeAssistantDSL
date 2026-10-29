@@ -1539,6 +1539,23 @@ Where the node's topic comes from depends on who controls it:
   pong within 30 s is `offline`. The status is retained and the node's availability includes the
   coordinator's own (without it, nobody keeps the status).
 
+**Via versus dependency (PROJECT.md 25, 2026-10-29).** `via_device` (Physical.def metadata,
+captured or `forced`) means data flows through that device; `dependency on` (Logical.def) means it
+needs that device up. A via link implies a dependency, so a device's availability ANDs in every node
+along both, transitively (`availabilityGraph`, `resolveDependencyAvailabilityTopics`): a Netatmo
+module via its base station follows the base station's ping without a line of its own. A target's
+node is a "hosts" device's, an integration device's raw node (`rawNodeTopics`: "on", "true" or
+"online"), or a bridged device's positioned node (`hassBridgeNodeTopics`); a target without one just
+passes its own chain on. A "hosts" device's own `via_device` counts too. Junglinster's Somfys
+(Erik, 2026-10-29): somfy via node.connexoon (the box, its host and bridge roles as one device) via
+integration.overkiz, which depends on integration.ha2mqtt, which depends on protocols-server-1.
+An integration on a bridged instance is a device of its own (`device integration.overkiz with:
+derived capability binary_sensor.node with condition integration overkiz is available; end;`): its
+node is on while any entity of that integration (its domain) is available, reported by the
+instance from two template triggers (no entity to watch); it depends on (Logical.def) the instance's
+integration device, so it follows ha2mqtt's ping-pong and host. Only `integration.<instance>` itself in a
+`home_assistant <instance>` block is the instance's node device.
+
 Device metadata from the integrations (PROJECT.md 22d, 2026-10-28). The coordinator knows no
 integration's peculiarities; the generator tells it, per device, where that device's metadata is.
 For topics we control, by convention: a hosts device's `device_info_topic` (devices.yaml) -- the

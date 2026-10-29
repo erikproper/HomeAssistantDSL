@@ -44,7 +44,12 @@
 
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+
+	"homeassistant/hamqtt"
+)
 
 // TLogicalCapability is one "<domain>.<label> <value>;" declaration inside a TLogicalDevice's own
 // body (integration_logical_parser.go). Fields below serve several unrelated capability shapes
@@ -243,7 +248,12 @@ func resolveTransitiveDependencies(deviceID string, logicalByID map[string]TLogi
 // should never be silently treated as "always available," but nor should it block generation --
 // same warn-and-continue discipline every other Physical.def authoring mistake in this codebase
 // gets) -- extend this dispatch the next time a real dependency on one of those kinds is needed.
-func resolveDependencyAvailabilityTopics(deviceID string, logicalByID map[string]TLogicalDevice, hostDevicesByID map[string]THostDevice) ([]string, []string) {
+//
+// PROJECT.md 25 (2026-10-29): logicalByID is the availability graph (availabilityGraph: the
+// "dependency on" edges plus each device's via_device), and a target may also be an integration
+// device with a raw node (nodeTopics, rawNodeTopics). A target with neither, but known to the
+// graph (a via parent, e.g. utility.envoy), adds no topic of its own and passes its own chain on.
+func resolveDependencyAvailabilityTopics(deviceID string, logicalByID map[string]TLogicalDevice, hostDevicesByID map[string]THostDevice, nodeTopics map[string]string) ([]string, []string) {
 	logical, ok := logicalByID[deviceID]
 	if !ok || len(logical.DependsOn) == 0 {
 		return nil, nil
@@ -259,7 +269,14 @@ func resolveDependencyAvailabilityTopics(deviceID string, logicalByID map[string
 	for _, depID := range chain {
 		host, ok := hostDevicesByID[depID]
 		if !ok {
-			warnings = append(warnings, fmt.Sprintf("Logical.def: device %q depends on %q, which isn't a \"hosts\" integration device (dependency resolution isn't built for any other kind yet) -- ignoring this dependency", deviceID, depID))
+			if topic, isNode := nodeTopics[depID]; isNode {
+				topics = append(topics, topic)
+				continue
+			}
+			if _, known := logicalByID[depID]; known {
+				continue
+			}
+			warnings = append(warnings, fmt.Sprintf("Logical.def: device %q depends on %q, which has no node to follow (a \"hosts\" device, or an integration device's node) -- ignoring this dependency", deviceID, depID))
 			continue
 		}
 		mat, ok := MaterializationForIntegrationType(host.IntegrationType)
@@ -303,4 +320,76 @@ func applyResolvedDependencyTopicsToHassBridge(hassBridgeDevicesByID map[string]
 			hassBridgeDevicesByID[id] = device
 		}
 	}
+}
+
+// availabilityGraph returns logicalByID's "dependency on" edges plus each positioned device's
+// via_device (PROJECT.md 25: data flowing via a device depends on it) -- a via parent is an entry
+// of its own, so resolveDependencyAvailabilityTopics knows it even without edges.
+//
+// A "hosts" device's via_device is its own (e.g. node.connexoon via integration.overkiz), which its
+// link doesn't carry.
+func availabilityGraph(logicalByID map[string]TLogicalDevice, admin *TAdministrationState, hosts map[string]THostDevice) map[string]TLogicalDevice {
+	graph := map[string]TLogicalDevice{}
+	for id, logical := range logicalByID {
+		graph[id] = TLogicalDevice{DeviceID: id, DependsOn: append([]string{}, logical.DependsOn...)}
+	}
+	vias := map[string]string{}
+	for id, link := range admin.DeviceConceptualLinks {
+		vias[id] = link.ConstantAttributes["via_device"].Value
+	}
+	for id, host := range hosts {
+		if via := host.ConstantAttributes["via_device"].Value; via != "" {
+			vias[id] = via
+		}
+	}
+	for id, via := range vias {
+		if via == "" || via == id {
+			continue
+		}
+		device := graph[id]
+		device.DeviceID = id
+		if !slices.Contains(device.DependsOn, via) {
+			device.DependsOn = append(device.DependsOn, via)
+		}
+		graph[id] = device
+		if _, known := graph[via]; !known {
+			graph[via] = TLogicalDevice{DeviceID: via}
+		}
+	}
+	return graph
+}
+
+// rawNodeTopics returns, per "integration mqtt"/bridged-instance device, its node's topic -- when
+// its "on" value is one the node availability entries read as up (hamqtt.NodeAvailabilityEntries);
+// problems names one that isn't.
+func rawNodeTopics(gateways map[string]TDiscoveryGatewayDevice) (topics map[string]string, problems []string) {
+	topics = map[string]string{}
+	for id, gateway := range gateways {
+		node, ok := gateway.RawTopics["node"]
+		if !gateway.Raw || !ok || node.Topic == "" {
+			continue
+		}
+		if node.On != hamqtt.StateOn && node.On != hamqtt.BoolTrue && node.On != hamqtt.StateOnline {
+			problems = append(problems, fmt.Sprintf("%s: node on %q -- a device depending on it can't follow it (only \"on\", \"true\", \"online\")", id, node.On))
+			continue
+		}
+		topics[id] = node.Topic
+	}
+	return topics, problems
+}
+
+// hassBridgeNodeTopics returns, per bridged device with a positioned node (e.g. integration.overkiz,
+// PROJECT.md 25), its node's bridge state topic ("on"/"off") -- a dependency or via target like any
+// other node.
+func hassBridgeNodeTopics(devices map[string]THassBridgeDevice, admin *TAdministrationState) map[string]string {
+	topics := map[string]string{}
+	for id, device := range devices {
+		if _, declared := device.Capabilities["node"]; !declared || len(device.Instances) != 1 {
+			continue
+		}
+		if node := admin.DeviceConceptualLinks[id].AttributeEntityIDs["node"].EntityID; node != "" {
+			topics[id] = hamqtt.BridgeStateTopic(device.Instances[0], node)
+		}
+	}
+	return topics
 }

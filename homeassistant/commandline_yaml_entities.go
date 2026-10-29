@@ -96,7 +96,7 @@ func commandlineYAMLEntityBodies(d TCommandlineDevice, admin *TAdministrationSta
 	for _, topic := range append([]string{nodeTopic}, d.DependsOnAvailabilityTopics...) {
 		availability = append(availability, map[string]interface{}{
 			"topic":                 topic,
-			"value_template":        "{{ 'on' if value in ['on', 'true'] else 'off' }}",
+			"value_template":        "{{ 'on' if value in ['on', 'true', 'online'] else 'off' }}",
 			"payload_available":     "on",
 			"payload_not_available": "off",
 		})

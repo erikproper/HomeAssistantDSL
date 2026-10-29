@@ -10,15 +10,14 @@ incl. ha2mqtt's ping-pong) and 39 ("integration mqtt") -- Architecture.md §6.16
 detail lives in `PROJECT.md` (open items), `README.md`/`Architecture.md` (how things work) and the
 Claude memory directory (synced via Nextcloud). This file is only the pointer to where to pick up.
 
-**Git:** uncommitted changes since Erik's last commit (item 21: local native sources, the registry
-repair's seed and pending removals; item 22: export_id). New, possibly not yet added:
-homeassistant/registry_manifest_test.go, remote_instance_reload_guard.go and its test.
+**Git:** everything committed and pushed by Erik (2026-10-28, after item 24).
 
 ## Next
 
 Pick up with:
 
-1. The next open item in PROJECT.md (25 onward), as Erik chooses.
+1. Item 25 (via versus dependency): designed 2026-10-29; steps 1-4 done, both houses deployed
+   2026-10-29; open: Vienna's ha2mqtt integrations as devices, then remove item 25; then steps 2-4 (PROJECT.md 25, "Steps").
 
 Notes from 2026-10-28:
 - Deploy step 06 is now `06_check.ha_reload` in both houses: it waits for HA to finish its reload

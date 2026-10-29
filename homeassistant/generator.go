@@ -210,14 +210,26 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 			admin.RawGatewayIDs[id] = true
 		}
 	}
-	for id := range logicalByID {
-		topics, w := resolveDependencyAvailabilityTopics(id, logicalByID, hostDevicesByID)
+	// A device's availability follows its dependencies and its via_device, transitively
+	// (PROJECT.md 25).
+	nodeTopics, problems := rawNodeTopics(discoveryGatewaysByID)
+	for _, problem := range problems {
+		fmt.Printf("[logical] %s\n", problem)
+	}
+	for id, topic := range hassBridgeNodeTopics(hassBridgeDevicesByID, admin) {
+		nodeTopics[id] = topic
+	}
+	graph := availabilityGraph(logicalByID, admin, hostDevicesByID)
+	for id := range graph {
+		topics, w := resolveDependencyAvailabilityTopics(id, graph, hostDevicesByID, nodeTopics)
 		for _, warning := range w {
 			fmt.Printf("[logical] %s\n", warning)
 		}
 		if len(topics) > 0 {
 			admin.DependsOnAvailabilityTopics[id] = topics
 		}
+	}
+	for id := range logicalByID {
 		// A "hosts" device this one depends on, or refers to in a condition (e.g. its node's
 		// "physical appliance.sonos_bathroom and node.sonos_bathroom"): its node is merged here.
 		nodeRefs := append([]string{}, logicalByID[id].DependsOn...)
@@ -1275,7 +1287,13 @@ func generateConditionEntities(outputDir string, admin *TAdministrationState) er
 // every sibling capability's availability at "unavailable" for any device using this "is
 // available" node-sourcing form (confirmed live 2026-09-02: hass.envoy + its 10 inverters, the
 // first devices to combine this form with the newer availability-gating mechanism).
+//
+// "integration <name> is available" (PROJECT.md 25, 2026-10-29) is an integration device's node on
+// a bridged instance: on while any entity of that integration (its domain, e.g. overkiz) is.
 func sourceToJinja2(src string) string {
+	if name, ok := integrationSourceName(src); ok {
+		return fmt.Sprintf("'on' if (integration_entities('%s') | reject('is_state', 'unavailable') | list | count > 0) else 'off'", name)
+	}
 	if entityID, ok := strings.CutSuffix(src, " is available"); ok {
 		return fmt.Sprintf("'on' if (states('%s') != 'unavailable') else 'off'", entityID)
 	}
@@ -1285,6 +1303,20 @@ func sourceToJinja2(src string) string {
 		return fmt.Sprintf("state_attr('%s', '%s')", entityID, attr)
 	}
 	return fmt.Sprintf("states('%s')", src)
+}
+
+// integrationSourcePrefix starts an integration source ("integration overkiz is available");
+// bareEntityFromSource leaves it as "integration overkiz", which a trigger can't watch as an entity.
+const integrationSourcePrefix = "integration "
+
+// integrationSourceName returns the integration an "integration <name> is available" source (or its
+// bare form) names.
+func integrationSourceName(src string) (string, bool) {
+	rest, ok := strings.CutPrefix(strings.TrimSuffix(src, " is available"), integrationSourcePrefix)
+	if !ok || rest == "" || strings.ContainsAny(rest, " .'") {
+		return "", false
+	}
+	return rest, true
 }
 
 // jinjaStringLiteral renders s as a single-quoted Jinja2 string literal, escaping any embedded

@@ -26,13 +26,16 @@ import (
 )
 
 // Payloads of the bridge's topics: a node/liveness topic carries "true"/"false" (hosts,
-// commandline) or a proxied entity's own "on"/"off"; a proxied entity's state may be "unavailable".
+// commandline) or a proxied entity's own "on"/"off", an integration device's node "online"
+// (PROJECT.md 25: EMS-ESP's status, a bridged instance's status); a proxied entity's state may be
+// "unavailable".
 const (
 	StateOn          = "on"
 	StateOff         = "off"
 	StateAvailable   = "available"
 	StateUnavailable = "unavailable"
 	BoolTrue         = "true"
+	StateOnline      = "online"
 )
 
 // BridgeStateTopic and its siblings are a bridge entity's topics, as the reporting automations
@@ -116,7 +119,7 @@ func NodeAvailabilityEntries(nodeTopics ...string) []map[string]interface{} {
 		}
 		entries = append(entries, map[string]interface{}{
 			"topic":                 nodeTopic,
-			"value_template":        fmt.Sprintf("{{ '%s' if value in ['%s', '%s'] else '%s' }}", StateOn, StateOn, BoolTrue, StateOff),
+			"value_template":        fmt.Sprintf("{{ '%s' if value in ['%s', '%s', '%s'] else '%s' }}", StateOn, StateOn, BoolTrue, StateOnline, StateOff),
 			"payload_available":     StateOn,
 			"payload_not_available": StateOff,
 		})

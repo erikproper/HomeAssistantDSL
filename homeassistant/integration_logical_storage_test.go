@@ -70,7 +70,7 @@ func TestResolveDependencyAvailabilityTopicsHostsKind(t *testing.T) {
 	hostDevicesByID := map[string]THostDevice{
 		"host.netatmo": {DeviceID: "host.netatmo", HostName: "netatmo", IntegrationType: "ping"},
 	}
-	topics, warnings := resolveDependencyAvailabilityTopics("node.vienna_livingroom", logicalByID, hostDevicesByID)
+	topics, warnings := resolveDependencyAvailabilityTopics("node.vienna_livingroom", logicalByID, hostDevicesByID, nil)
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
@@ -84,7 +84,7 @@ func TestResolveDependencyAvailabilityTopicsUnsupportedKindWarns(t *testing.T) {
 	logicalByID := map[string]TLogicalDevice{
 		"node.x": {DeviceID: "node.x", DependsOn: []string{"hass.y"}},
 	}
-	topics, warnings := resolveDependencyAvailabilityTopics("node.x", logicalByID, map[string]THostDevice{})
+	topics, warnings := resolveDependencyAvailabilityTopics("node.x", logicalByID, map[string]THostDevice{}, nil)
 	if len(topics) != 0 {
 		t.Errorf("topics = %v, want none (hass.y isn't a hosts device)", topics)
 	}
@@ -102,7 +102,7 @@ func TestResolveDependencyAvailabilityTopicsCycleWarnsAndIgnoresEntirely(t *test
 		"a": {DeviceID: "a", HostName: "a", IntegrationType: "ping"},
 		"b": {DeviceID: "b", HostName: "b", IntegrationType: "ping"},
 	}
-	topics, warnings := resolveDependencyAvailabilityTopics("a", logicalByID, hostDevicesByID)
+	topics, warnings := resolveDependencyAvailabilityTopics("a", logicalByID, hostDevicesByID, nil)
 	if len(topics) != 0 {
 		t.Errorf("topics = %v, want none -- a cycle must never partially apply", topics)
 	}
@@ -112,7 +112,7 @@ func TestResolveDependencyAvailabilityTopicsCycleWarnsAndIgnoresEntirely(t *test
 }
 
 func TestResolveDependencyAvailabilityTopicsNoDependencyDeclaration(t *testing.T) {
-	topics, warnings := resolveDependencyAvailabilityTopics("node.unrelated", map[string]TLogicalDevice{}, map[string]THostDevice{})
+	topics, warnings := resolveDependencyAvailabilityTopics("node.unrelated", map[string]TLogicalDevice{}, map[string]THostDevice{}, nil)
 	if topics != nil || warnings != nil {
 		t.Errorf("topics=%v warnings=%v, want both nil for a device with no Logical.def declaration at all", topics, warnings)
 	}
@@ -133,5 +133,46 @@ func TestApplyResolvedDependencyTopics(t *testing.T) {
 	}
 	if len(devices[1].DependsOnAvailabilityTopics) != 0 {
 		t.Errorf("devices[1].DependsOnAvailabilityTopics = %v, want none (no matching admin entry)", devices[1].DependsOnAvailabilityTopics)
+	}
+}
+
+// TestAvailabilityFollowsViaDevice is PROJECT.md 25's chain: a Somfy via the Connexoon (a ping
+// host), the Connexoon via Overkiz (no node of its own here), Overkiz via ha2mqtt (an instance
+// node), ha2mqtt depending on its compute host -- one link per device, all four topics followed.
+func TestAvailabilityFollowsViaDevice(t *testing.T) {
+	admin := newAdministrationState()
+	via := func(parent string) TDeviceConceptualLink {
+		return TDeviceConceptualLink{ConstantAttributes: map[string]TDeviceAttributeConstant{"via_device": {Value: parent}}}
+	}
+	admin.DeviceConceptualLinks["utility.somfy_kitchen"] = via("node.connexoon")
+	admin.DeviceConceptualLinks["node.connexoon"] = via("integration.overkiz")
+	admin.DeviceConceptualLinks["integration.overkiz"] = via("integration.ha2mqtt")
+	logicalByID := map[string]TLogicalDevice{
+		"integration.ha2mqtt": {DeviceID: "integration.ha2mqtt", DependsOn: []string{"node.protocols_server_1"}},
+	}
+	hosts := map[string]THostDevice{
+		"node.connexoon":          {DeviceID: "node.connexoon", HostName: "connexoon", IntegrationType: "ping"},
+		"node.protocols_server_1": {DeviceID: "node.protocols_server_1", HostName: "protocols-server-1", IntegrationType: "ping"},
+	}
+	nodeTopics, problems := rawNodeTopics(map[string]TDiscoveryGatewayDevice{
+		"integration.ha2mqtt": {Raw: true, RawTopics: map[string]TRawTopicCapability{"node": {Topic: "homeassistant_instances/ha2mqtt/status", On: "online"}}},
+		"integration.odd":     {Raw: true, RawTopics: map[string]TRawTopicCapability{"node": {Topic: "odd/status", On: "up"}}},
+	})
+	if len(problems) != 1 || !strings.Contains(problems[0], "integration.odd") {
+		t.Errorf("problems = %v, want one naming integration.odd", problems)
+	}
+	graph := availabilityGraph(logicalByID, admin, nil)
+	topics, warnings := resolveDependencyAvailabilityTopics("utility.somfy_kitchen", graph, hosts, nodeTopics)
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	want := map[string]bool{"hosts/connexoon/node/state": true, "homeassistant_instances/ha2mqtt/status": true, "hosts/protocols-server-1/node/state": true}
+	if len(topics) != len(want) {
+		t.Fatalf("topics = %v, want %v", topics, want)
+	}
+	for _, topic := range topics {
+		if !want[topic] {
+			t.Errorf("unexpected topic %q in %v", topic, topics)
+		}
 	}
 }
