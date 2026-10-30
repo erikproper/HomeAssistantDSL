@@ -38,6 +38,14 @@ JLI
           bridge itself overwrites that topic when it recovers, which is wanted.
        Then ha2mqtt's coordinator ping-pong (instance_liveness.go) could become one instance of the
        same mechanism.
+     - To reflect on first (Erik, 2026-10-30): one generic strategy for all liveness checks, rather
+       than one mechanism per gateway. Today there are three shapes: a Last Will (Zigbee2MQTT,
+       Z-Wave JS UI's client status, the coordinator itself), our own ping-pong (ha2mqtt,
+       instance_liveness.go) and a request/response health check (Zigbee2MQTT's health_check,
+       Z-Wave JS UI's MQTT API); plus the hosts' ping. A generic strategy would say per gateway, in
+       the defs: which topics show its traffic, how to ask it (request topic, payload), what counts
+       as an answer and within how long, and which topic carries the verdict -- with the
+       coordinator only watching for silence and the rules doing the asking.
 
 25d. Nuanced reporting of suggested entries, based on conceptual versus physical positioning.
 So, what is available to be positioned as potential capabilities, and what is available to be positioned at the conceptual layer.
