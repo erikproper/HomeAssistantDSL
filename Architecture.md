@@ -1963,6 +1963,29 @@ Not everything needs Docker/Podman — the decision is whether a service is an *
 - **Appliance** (→ containerize, e.g. Podman/Quadlets or Docker): Z-Wave JS UI, Zigbee2MQTT, MQTT bridge services, other radio services. Reproducible deployment, easy migration between hosts (copy the compose/quadlet directory + persistent storage, plug in the hardware, start), isolated dependencies, simple upgrades.
 - **Workbench** (→ native install): FHEM. Easier module installation, easier debugging, natural integration with host Linux tooling — containerizing something under active, exploratory development mostly gets in the way.
 
+**Updating the containers (2026-10-30).** On both hubs (protocols-server-1) every container is a
+Podman Quadlet, `/etc/containers/systemd/<name>.container` → `<name>.service`, none with
+`AutoUpdate`:
+
+| Quadlet | Vienna | Junglinster |
+|---|---|---|
+| `zigbee` | `ghcr.io/koenkk/zigbee2mqtt:latest` (container `zigbee2mqtt`) | the same (unpinned from 2.14.2 on 2026-10-30) |
+| `zwave` | – | `ghcr.io/zwave-js/zwave-js-ui:latest` |
+| `homeassistant` (ha2mqtt) | `ghcr.io/home-assistant/home-assistant:stable` | the same |
+| `mosquitto` | `docker.io/library/eclipse-mosquitto:2` | the same |
+| `caddy` | – | `docker.io/library/caddy:latest` |
+
+`bash ./update.containers [--dry-run] [--no-backup]` in a house folder runs
+`Integrations/containers/update.containers` on that house's hub (uploaded to the hub's home directory by
+deploy step `04_deploy.containers`). It backs up first (`backup-home-automation`, §11.3), pulls
+each Quadlet's image, restarts only the services whose image changed (mosquitto last) and checks
+they come back; `--dry-run` only reports the running versions. A pinned version tag gets no newer
+version (none is pinned now): change the tag in its `.container` file, then `sudo systemctl
+daemon-reload` and run the script. By hand, per container: `sudo podman pull
+<image>`, then `sudo systemctl restart <name>.service`. Read Zigbee2MQTT's release notes before a
+major version. During a restart the devices go unavailable for a moment; the retained shadows (§6.16)
+keep their values, and a new `sw_version` reaches Physical.def at the next generate.
+
 ### 11.3 Backup strategy
 
 Every containerized appliance (§11.2) keeps its persistent state under one uniform path,

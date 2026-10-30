@@ -16,62 +16,6 @@ JLI
  
 ## Migration & improvements
 
-25. depencency versus via ... also include e.g. the connexoon for the somfy's
-    TODO (Erik, 2026-10-29, pick up later): Vienna's ha2mqtt integrations (roomba, candy, fritz,
-    zha) as integration devices, each with one node, as Junglinster's overkiz/netatmo/volvo.
-- somfy => ha2mqtt => connexoon
-  --> Does the relevant integration on ha2mqtt have availabilty as well? 
-      We do ping connexoon.
-- netatmo's => ha2mqtt => netatmo??
-  --> Similar question. We do ping some of the netatmo units.
-- xc40 => ha2mqtt => volvo??
-- zwave's => zwave2mqtt
-- zigbees's => zigbee2mqtt
-Note: zwave2mqtt, zigbee2mqtt, and ha2mqtt (and its local integrations) depend on p-s-1 to be up.
-    Design (2026-10-29, agreed with Erik):
-    - Two relations, one meaning each. "via" = data flows through that device: at most one per
-      device (a tree), HA's via_device (hierarchy, "connected via"). "dependency on" = needs it up
-      without data flowing through it (the host an integration runs on, power); as in Logical.def
-      today, ANDed.
-    - via lives only at the physical level: Physical.def's via_device metadata, captured from
-      discovery where the gateway reports one, else written by hand ("via_device: <device>
-      forced;"); suggestions as in 26. Logical.def keeps only "dependency on".
-    - A via link implies a dependency, transitively: availability(X) = own AND each dependency's
-      node AND availability(via parent). So one link per device suffices:
-        somfy_kitchen via node.connexoon via integration.overkiz via integration.ha2mqtt
-        (dependency on node.protocols_server_1).
-      Branching is in the dependencies (ha2mqtt and Overkiz both on p-s-1; Overkiz gets it via
-      ha2mqtt anyway).
-    - The integrations on ha2mqtt (Overkiz, Netatmo, Volvo, ...) become integration devices, each
-      with one single node for now: up while any of its bridged entities is available.
-      To check: that the bridge relays a bridged entity's "unavailable".
-    - Operationalisation skips a link the gateway's discovery already carries (Zigbee2MQTT's
-      bridge/state), as in 26. HA accepts via_device only on MQTT-built devices; for native
-      devices on main the availability part still holds, the hierarchy doesn't show. A cycle in
-      via/dependency links is an error.
-    - Migration: the Somfys' "dependency on node.connexoon" (Logical.def) becomes their
-      "via_device: node.connexoon" in Physical.def; zwave/zigbee devices via
-      integration.zwave2mqtt / integration.zigbee2mqtt.
-    Steps:
-    1. Done 2026-10-29 (not yet deployed): via_device joins the availability graph; integration
-       nodes ("online"/"true") are dependency targets (Architecture.md §6.16). Junglinster: the
-       Envoy's children and both Netatmo stations' modules now follow their parent's ping.
-    2. Done 2026-10-29 (not yet deployed): Junglinster's integration.overkiz/.netatmo/.volvo on
-       ha2mqtt, each depending on integration.ha2mqtt, node "integration <domain> is available" (positioned
-       in the rack, next to integration.ha2mqtt). Vienna's ha2mqtt integrations (roomba, candy,
-       fritz, zha) not yet.
-    3. Done 2026-10-29 (not yet deployed): the 8 Somfys "via_device: node.connexoon forced;",
-       their Logical.def dependency dropped; availability unchanged, HA now shows the hierarchy.
-       Then (Erik): somfy via connexoon via overkiz; connexoon's host and bridge roles are one
-       device; overkiz/netatmo/volvo depend on (not via) integration.ha2mqtt. So node.connexoon
-       "via_device: integration.overkiz forced;", and bridged nodes are dependency targets: the
-       Somfys follow connexoon, overkiz, ha2mqtt and p-s-1; Netatmo modules and Envoy children
-       also follow their parent's bridged node.
-    4. Bridge relays "unavailable": by construction yes (2026-10-29) -- the reporting automation
-       publishes states(<source>) verbatim, and each bridged YAML entity's first availability
-       entry maps "unavailable" to not available. Not yet seen live. Both houses deployed 2026-10-29;
-       Junglinster's overkiz/netatmo/volvo nodes came up on.
-
 25b. Test if the meta call to restart HA's works.
 
 25c. (2026-09-24) Zigbee2MQTT liveness check: detect when a house's own Z2M bridge itself is down
@@ -463,7 +407,6 @@ Should be byte level equivallent.
      hardware), how the rate limit is tracked/reset, and how many/which integrations this should
      cover beyond Netatmo.
 
-29b. Complementary functionality for e.g. zwave2mqtt and zigbee2mqtt to add (with discovery) via a wrapper additional functionality that can only be done via a web UI. For instance, firmware updates, etc.
 
 30. Jointly check the consistency and cleanliness of the DSL.
 
@@ -706,6 +649,8 @@ Test with shellys?
     128/1078/739/5287 respectively). Full test suite green throughout
     (TestGenerateInstanceAutomationTreesWritesMainAndRemoteTrees updated to assert the new plain-key
     shape instead of the old packages one).
+
+42. Complementary functionality for e.g. zwave2mqtt and zigbee2mqtt to add (with discovery) via a wrapper additional functionality that can only be done via a web UI. For instance, firmware updates, etc. Hmm. Maybe work with these projects to add more functionality via MQTT.
 
 43. Future refinement (2026-08-23, not yet designed): replace the `.def` files with an integrated
     database representing the coordinator+transformer's actual current understanding of the

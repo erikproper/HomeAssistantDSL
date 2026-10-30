@@ -16,8 +16,8 @@ Claude memory directory (synced via Nextcloud). This file is only the pointer to
 
 Pick up with:
 
-1. Item 25 (via versus dependency): designed 2026-10-29; steps 1-4 done, both houses deployed
-   2026-10-29; open: Vienna's ha2mqtt integrations as devices, then remove item 25; then steps 2-4 (PROJECT.md 25, "Steps").
+1. The next open item in PROJECT.md (25b onward), as Erik chooses. Item 25 (via versus
+   dependency) done and deployed in both houses 2026-10-30 (Architecture.md §6.16).
 
 Notes from 2026-10-28:
 - Deploy step 06 is now `06_check.ha_reload` in both houses: it waits for HA to finish its reload
