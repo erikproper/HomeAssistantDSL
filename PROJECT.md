@@ -18,351 +18,74 @@ JLI
 
 25b. Test if the meta call to restart HA's works.
 
-25c. (2026-09-24) Zigbee2MQTT liveness check: detect when a house's own Z2M bridge itself is down
-     (not just an individual device), and if so, bulk-mark every Z2M-sourced entity in that house
-     as unavailable, rather than leaving each one showing its own last-known (stale) state.
-     Mostly covered (2026-10-28): every Zigbee2MQTT entity's availability includes
-     zigbee2mqtt/bridge/state, which Zigbee2MQTT's Last Will sets offline when it stops; with the
-     retained shadows (item 20) the values stay but show unavailable. Left: a Zigbee2MQTT that hangs
-     without dropping its connection (no Last Will), and an actual test (a planned short stop).
+25c. Gateway liveness beyond the Last Will (Zigbee2MQTT first). Covered: every Zigbee2MQTT
+     entity's availability includes zigbee2mqtt/bridge/state (all 162 in Vienna, 322 in
+     Junglinster, checked 2026-10-30), which the Last Will sets offline when it stops; the retained
+     shadows (item 20) keep the values meanwhile.
+     - Test (Erik, Sunday 2026-11-01): briefly stop one Zigbee2MQTT; all its entities should go
+       unavailable and come back with their values.
+     - Hangs (connected, but no Last Will): design (Erik, 2026-10-30), generic, no bridge-specific
+       code in the coordinator:
+       1. For a declared bundle of topics, the coordinator creates a "suspicion_of_hang"
+          binary_sensor (or trigger): true when none of those topics had traffic for a given time.
+       2. Rules at the logical level, run on main: on a suspicion, do a ping-pong-like health check
+          (for Zigbee2MQTT: zigbee2mqtt/bridge/request/health_check, answer on
+          bridge/response/health_check; for Z-Wave JS UI: its MQTT API, e.g. getInfo on
+          zwave/_CLIENTS/ZWAVE_GATEWAY-zwave-js-ui/api/getInfo/set, answered on .../api/getInfo --
+          to verify live).
+       3. When the check concludes the bridge is down, the rules publish "offline" on the right
+          topic (Zigbee2MQTT: bridge/state, so every entity goes unavailable). To work out: the
+          bridge itself overwrites that topic when it recovers, which is wanted.
+       Then ha2mqtt's coordinator ping-pong (instance_liveness.go) could become one instance of the
+       same mechanism.
 
 25d. Nuanced reporting of suggested entries, based on conceptual versus physical positioning.
 So, what is available to be positioned as potential capabilities, and what is available to be positioned at the conceptual layer.
 
-26. Logical layer + available nuances in relation to "via device"  (netatmo radio module via main module) and aggregation.
-    Availability via "via_device" (Erik, 2026-10-27): Home Assistant derives nothing from
-    via_device -- it only shows "connected via" and the device hierarchy -- so when X hangs off Y
-    and Y is down, X's entities stay available unless their own availability says otherwise. The
-    generator should infer that dependency from the declared "via_device: Y;" (a device reference
-    in the defs, Architecture.md §6.16), one declaration for both the hierarchy and the availability, like
-    "dependency on" in Logical.def today. Avoid redundancy where a gateway's own discovery
-    already operationalises it (Zigbee2MQTT puts its bridge/state into every device's
-    availability; that doesn't mean EMS-ESP or Z-Wave JS UI do), but the defs must not depend on
-    that: the dependency is declared, the operationalisation only skips what is already there.
-    Also integrations as devices: e.g. "integration.ha2mqtt" as a device of its own, and a device
-    it integrates gets "via_device: integration.ha2mqtt;" ("roof/envoy" is integrated via
-    ha2mqtt); the same for Zigbee2MQTT, Z-Wave JS UI, EMS-ESP, hosts. To think through carefully.
-    Plan (Erik, 2026-10-28, with 22b):
-    - Integration devices (integration.zigbee2mqtt, integration.zwave_js_ui, integration.ems_esp,
-      integration.ha2mqtt, ...), each with a node from its gateway-level availability topic --
-      every gateway already puts one into each of its devices' discovery configs:
-      zigbee2mqtt/bridge/state; zwave/driver/status + zwave/_CLIENTS/<client>/status; ems-esp/status
-      (ha2mqtt: its bridge reporting) -- ANDed with a "dependency on" its compute host, and
-      positioned next to that host (the rack).
-    - Which device belongs to which integration: via_device where the gateway reports one (only
-      Zigbee2MQTT does); otherwise from the shared availability topics -- a device whose configs
-      carry the integration's topic belongs to it. That inference is a suggestion only (gateways
-      provide what they "happen" to provide): written as a comment ("# suggested via_device:
-      integration.zwave_js_ui (shares zwave/driver/status)"), never as a value. The value is the
-      captured via_device or a manual one, overridable as any metadata line: "via_device: <device>
-      forced;". A device with no shared topic at all is reported (needs human input).
-    - Then a device's availability follows its integration's node (incl. the host dependency);
-      22b's "ignore own availability;" (keep only the shared, gateway-level entries) is the first
-      step of that.
-    - Built 2026-10-28 (Architecture.md §6.16, "Integration devices"): integration.zigbee2mqtt
-      (renamed from node.zigbee2mqtt_bridge), integration.zwave2mqtt and integration.ems2mqtt (in
-      "integration mqtt"), integration.ha2mqtt (ping-pong) -- positioned next to their hosts, with
-      their hosts as dependency. Still open: the devices' own availability following their
-      integration's node, and the via_device suggestions from shared topics (both above); the
-      Hue Taps' nodes already follow integration.zigbee2mqtt (Logical.def).
-    - Note for later (Erik, 2026-10-28), when the via_device relations are designed: "via"
-      probably means "data flows via", which is not "depends on" -- and it can branch. Example:
-      somfy_1 via ha2mqtt via Overkiz via connexoon, while ha2mqtt and Overkiz depend on 
-      protocols-server-1. 
-      So the data path
-      (via_device chain) and the dependency graph (what must be up) are two different relations;
-      availability should follow the dependencies, not simply the via chain, while the via chain should not mix in the "what must be up" hierarchy. 
-  
-  Capability level mapping of values at logical level?
-  Tap 1,2,3,4 => 1,2 = event.event_1 { toggle }
-               3,4 = event.event_2 { toggle }
-That "toggle" value is just a placeholder for the rename/combination of the original strings.
-But we do not need to see these at the conceptual.def level
-Plus "conceptualisation" of the triggering rules.
-Should be byte level equivallent. 
-  
-- Note (2026-09-22, from the coordinator-scope discussion that led to the operational-role
-  split (then item 19) -- see memory: project_event_bus_operational_vs_coordinative_roles.md and
-  project_junglinster_coordinator_crash_loop_2026_09_22.md): Logical.def work breaks down into (at
-  least) four distinct situations, worth keeping distinct rather than treating "the logical layer"
-  as one undifferentiated bucket when this item is actually designed:
-    1. Simply clustering existing capabilities (no new computation, just regrouping/naming).
-    2. Defining derived entities that require TIMING (delay_on/delay_off, and similar).
-    3. Defining derived entities that rely on OTHER entities from OTHER devices (or from the main
-       HA instance) -- cross-device composition.
-    4. Defining ABSTRACTED entities that accommodate for shortcomings in the actual device (e.g. a
-       device that never reports its own state back, or one that works via multi-broadcast radio
-       messages rather than a clean request/reply) -- the FHEM-motivated case.
-  Of these, (2) and (4) are the two that could plausibly be implemented either IN the coordinator
-  or in a separate component (per that discussion: (4) in particular is operational, not
-  coordinative, and may belong in that same higher-reliability separate role rather than the
-  coordinator) -- an open design question, not yet decided, to resolve when this item is picked up.
-- Deal with the "physical" sphere. Should be empty, where contributing sensors need a conceptual name as well based on the location the material (= real physical) world.
-  - Prerequisite step identified 2026-10-15: a rule's "when" clause breaches abstraction by
-    containing raw, device-level protocol codes (e.g. "event.physical:door/moes/1 is 2_single or
-    ...") -- those belong in the device declaration, not the rule. Step 1 DONE: a new device-block
-    construct, "trigger <sphere:path> when <capability> is '<value>'[or in ['<v1>', ...]];"
-    (Conceptual_NamedTriggerEntities.go), replaces the explicit "entity ... from <capability>;"
-    line for this case. The underlying hidden entity's own local path comes from the device's own
-    "at <leaf> with:" header (new, narrow, opt-in-per-line-via-"::" mechanism -- deliberately NOT
-    the blanket "device <id> as <leaf> with:" grammar removed outright 2026-10-11, item 10) when
-    given, so migrating an EXISTING device's raw entity to this construct reproduces its live
-    entity_id exactly rather than inventing a new one; falls back to deriving from the device id
-    itself for a device with no live entity_id to preserve. A rule references a named trigger via
-    "when trigger.<sphere:path> is triggered" -- deliberately reusing the "trigger." prefix
-    "trigger.<attr>" template conditions already use (same underlying idea: a derived value built
-    from the firing context), not a separate keyword; parses for free via the ordinary
-    entity-ref grammar (domain "trigger"), swapped to Kind "named_trigger" after the fact
-    (resolveNamedTriggerReference, rule_parser.go) -- no special lookahead needed. The name itself
-    is resolved space-relative (normalizeEntityFullName), same as any other entity reference, so
-    the same relative name written in two different spaces does NOT collide. Multiple devices may
-    declare the SAME name, OR'd together by the generator into one automation's trigger list
-    (administration.go's NamedTriggers registry). First real migration DONE+VERIFIED live on
-    Vienna 2026-10-15 (hallway_door_moes/hallway_bedroom_door_moes, 3 rules) -- byte/semantically
-    identical generated automations confirmed against the pre-migration baseline.
+26. Logical layer: what is left (restructured 2026-10-30). Done and removed: availability along
+    via_device/dependencies and the integration devices (item 25, Architecture.md §6.16); named
+    triggers, now requests (item 49), and with them the raw protocol codes out of the rules and the
+    Moes fix; the positioning-grammar redesign; the node/battery_alert rules; the "physical:" sphere
+    out of Conceptual.def; space-level aggregation (collect, "no_collect"); "absorb from"; the
+    shared-node workarounds (node.vienna_*, fritz_box); capability value mapping (the former item
+    49's requests); command choreography for a switched light ("switched by").
 
-    Step 2 DONE 2026-10-15: the trigger declaration's own optional "and if trigger.<attr> is
-    '<value>';" suffix (the Signify dimmer's press/hold + button-direction case, e.g. "trigger
-    social:main/light/dim_up_request when event.pressed is in ['press','hold'] and if
-    trigger.button is 'up';") folds into the generated automation's own gating condition at
-    generation time (namedTriggerImpliedCondition, generator.go) -- scoped narrowly on purpose:
-    only applies when EVERY trigger on the rule is a named trigger and all their sources agree on
-    exactly one (attr, value) pair; a mix of trigger kinds or genuine disagreement falls back to
-    no implied condition (TNamedTriggerSource's own doc comment, administration.go). Verified
-    live on Vienna's whole Signify dimmer (4 rules: turn_on/turn_off/dim_up/dim_down) -- generated
-    automations confirmed identical (dim_up/dim_down's own trigger list merges what used to be 2
-    separate same-entity trigger entries into 1 with a 2-item event_type list -- same HA schema,
-    confirmed semantically equivalent, not a regression).
+    A. Availability
+    1. via_device suggestions from shared availability topics, for gateways that report no
+       via_device (Z-Wave JS UI, EMS-ESP): a comment ("# suggested via_device:
+       integration.zwave2mqtt (shares zwave/driver/status)"), never a value; the value is captured
+       or "via_device: <device> forced;". A device with no shared topic is reported (needs human
+       input). With a via_device, the device follows its integration's node (item 25's mechanism);
+       skipped where the gateway's discovery already carries it (Zigbee2MQTT's bridge/state).
+    2. A node for every device: decided 2026-09-01 as a hard error, not built. First count the
+       devices still without one (the Envoy's now have one), and decide whether only logical and
+       exported devices need it.
+    3. Constraint to keep: an exported device publishes exactly one node boolean; an importer sees
+       only that and its own link to the cloud broker, never the exporter's chain.
+    4. On demand (no case yet): "dependency on entity <id>;" and "dependency on availability of
+       entity <id>;" for a raw entity on main (integration_logical_parser.go's header).
 
-    Action-verb cleanup DONE 2026-10-15 alongside it: "dim <entity-ref> with <N>%;" /
-    "brighten <entity-ref> with <N>%;" (rule_parser.go's DimAction/BrightenAction) are sugar for
-    "turn <entity-ref> on with brightness_step_pct -<N>/<N>;" -- no raw negative number/HA field
-    name in rule text. "with [default] brightness <N>%;" (DataFields) is sugar for "with
-    brightness_pct <N>;" -- "default"/"%" both optional and purely cosmetic, discarded at parse
-    time (not a second kind of data field).
-
-    A LOGICAL-layer generalisation floated 2026-10-15, not designed/scoped yet: a "derived
-    capability event.YYY with: trigger DDD.XXX turns ZZZ; [device_class ...;] [delay_on ...;]
-    [delay_off ...;] end;" construct, letting a derived capability be defined by another
-    device's own capability transition (plus HA-style debounce), rather than only the existing
-    condition-expression form.
-
-    Migration + live deploy status (updated 2026-10-18): Vienna's hallway door family, the whole
-    Signify dimmer, living_room door/kitchen_bj family, terrace/light/toggle (cross-room), and
-    bedroom's own door family are all migrated -- 25+ rules, generated output confirmed
-    byte-identical to pre-migration, and DEPLOYED LIVE to Vienna 2026-10-18 (real `./generate` +
-    `./deploy`, not just a test fixture check).
-
-    CORRECTION 2026-10-19: shower_room's door_moes_1/door_moes_2 family turned out to already be
-    migrated (found while fixing the regression below) -- the "not yet migrated" note below was
-    wrong.
-
-    Real regression found + fixed live 2026-10-19 (full writeup in README.md's Operational notes):
-    every Moes multi-gang button in Vienna broke after this migration -- the coordinator's own
-    pre-existing discovery-layer value_template normalizes a multi-gang button's raw action
-    ("1_single") into event_type "single" + a separate "button" attribute, which the migrated
-    rules never accounted for. Fixed by extending the trigger declaration's embedded attr-condition
-    to accept a list of values too, and a new per-source "id"-scoped OR condition
-    (namedTriggerSourceCondition, generator.go) for when several different devices feed the same
-    named trigger with DIFFERING button-number requirements (falls back to the original simple
-    shared-condition shape when they agree, so the Signify dimmer's proven output stays
-    byte-identical). 43 Conceptual.def lines fixed, deployed live, first manual test confirmed
-    working -- full verification still pending as of 2026-10-19 night.
-
-    Still open, next concrete steps:
-    - Confirm the Moes button fix above actually works across ALL affected rules, not just the
-      first one tested.
-    - A fresh sweep of the rest of Vienna's Conceptual.def for any other remaining raw
-      event-code/protocol leakage into `when` clauses the earlier batches might have missed --
-      don't assume the file is fully clean without re-checking.
-    - Junglinster's Conceptual.def: zero rules migrated to this construct so far -- entirely
-      separate, not started. Given Vienna's own Moes devices ALL had the same latent bug, check
-      whether Junglinster has any Moes-style multi-gang buttons before migrating there, and build
-      the trigger declarations with the normalized event_type + button-attribute form from the
-      start rather than naively copying raw action values again.
-    - Not all rules need to be "better conceptualised" at once (confirmed with Erik) -- migrate
-      rule by rule as time allows, verifying byte/semantic identity against the pre-migration
-      baseline each time, same as this batch.
-    See /Users/erikproper/.claude/plans/binary-weaving-iverson.md for Step 1's own full design.
-- Node/battery_alert rules: DONE -- Rule 1 (node required, live since 2026-09-10) and Rule 2
-  (battery_level iff battery_alert, live since 2026-09-11 once both houses' real macro-driven
-  usages were migrated to `derived`); see
-  /Users/erikproper/.claude/plans/derived-capability-mechanism.md for full history.
-- Logical.def + first mechanism ("dependency on <device-id>;"): DONE 2026-09-16, not yet deployed
-  -- a logical device (same id as a physical one = extension, not a second device) can declare
-  `dependency on <other-id>;` (repeatable, transitive, cycle-detected) so its own availability
-  ANDs in another device's own liveness; `hosts`-kind dependency targets only so far. Vienna's
-  `node.vienna_livingroom depends on host.netatmo` is the first real usage, replacing the old
-  `netatmo_module` placeholder device. QUEUED remaining work for whenever this item is picked back
-  up: two more dependency-target forms, `dependency on entity <entity-id>;` (raw state) and
-  `dependency on availability of entity <entity-id>;` (raw availability) -- both name an
-  already-existing "main" HA entity directly rather than a Physical.def device id, needing (a) a
-  new generator-authored automation on main publishing that entity's state/availability to MQTT
-  (only when the dependent device is actually positioned/exported -- mirror the existing
-  `hasLink`-style gating), and (b) adding the referenced entity to kind-5's existence-check list.
-  Full design/implementation detail: memory/project_logical_layer_dependency_on.md.
-- Device-positioning grammar redesign (2026-09-24, in progress): `device <spec> from <device-id>
-  [with:]` / `device from <device-id> with:` collapse into one `device <device-id> [as
-  [sphere:]leaf] with: ...;` construct (device-id first, no "from"; "as" replaces `<spec>`,
-  defaulting to `infrastructural`), plus a `with <entity-statement>;` one-liner for the common
-  single-capability case. Same device-id legal in as many blocks as needed, no first/subsequent
-  distinction (register-once-merge-repeatedly; the old "already positioned, ignoring duplicate"
-  guard is retired for this construct -- real double-declarations are already caught at the entity
-  level). "node" stops being auto-registered anywhere, including `hosts` (today's one unconditional
-  case) -- every kind now needs an explicit `entity binary_sensor.<sphere>:node;`-shaped line, same
-  as any other capability; the Logical.def "node override" mechanism moves from being
-  positioning-triggered to a check at the top of the generic per-capability dispatcher instead.
-  Deliberate tradeoff, confirmed with Erik: `hosts` becoming explicit is more verbose for the
-  simple ping/cpu case, accepted anyway to avoid making the mechanism depend on which specific
-  integration a device happens to be. Note for later (2026-09-24, refined): rather than reviving the
-  old macro mechanism specifically for this, look at a "device type" TEMPLATE construct instead -- a
-  named template that expands into a full `device ... end;` clause for the common "basic node"
-  shape, rather than a single-line substitution. Not inherently a logical-layer thing, but this is
-  the natural moment to look into it since it falls directly out of this same redesign -- worth
-  scoping properly (what else besides "basic node" would want a device-type template, parameters,
-  where it's declared) when picked up, not bolted on ad hoc.
-- complement device DDD with:
-    from DDDx:
-      CCCx [as CCCy];
-    end;
-  end;
-  with the usual abbreviations when there is only one.
-  Semantics: with this definition at the logical layer, physical device DDD is now complemented with the listed capabilities from the other physical devices. 
-  The "as CCCy" indicates an optional rename, if a name clash
-  would occur.
-  The conceptual layer "sees" the extended version, but this does not influence the device map! So if CCCx/CCCy is "used" to materialise an entity E, then E still "belongs" to physical device DDDx.
-- virtual device DDD with:
-
-
-   - Note (2026-09-06): future step -- massage today's raw "physical:" sphere usage in Spaces.def
-     out during the logical layer step itself, not as a separate migration first. The concrete
-     case driving this: aggregating several same-kind physical sensors in one room (e.g. multiple
-     temperature sensors) has no representation above raw "physical:"-sphere entities today; with
-     the logical layer, a device's own capability entity can instead be declared to *collect* into
-     a space-level aggregate conceptual entity:
-         device infrastructural:netatmo from hass.office_corridor with:
-           entity sensor.co2      collect sensor.co2;
-           entity sensor.humidity collect sensor.humidity;
+    B. Logical-layer constructs, not built
+    1. complement:
+         complement device DDD with:
+           from DDDx:
+             CCCx [as CCCy];
+           end;
          end;
-     Here the right-hand `sensor.co2`/`sensor.humidity` are SPACE-level conceptual entities
-     (defined once at the enclosing space, not per-device) -- each device capability declared with
-     `collect` becomes one of potentially several contributing sources feeding that single
-     space-level aggregate, instead of each device getting its own separate physical-sphere entity
-     as today. "physical" may well stay part of the eventual naming for these device-level source
-     entities (`sensor.physical:...`) even after this lands -- the point of this step is removing
-     the raw, ungrouped multiplicity at the conceptual layer, not necessarily the sphere name
-     itself.
-     Aggregation itself (combining collected values into the one space-level entity) should be
-     implemented as a generator-authored YAML template sensor on the MAIN HA instance, not as
-     coordinator-side logic -- letting the coordinator do this work would mean re-implementing
-     HA's own templating/aggregation engine for no benefit, when the main instance already has it
-     for free.
+       (the usual abbreviations for one). The conceptual layer sees DDD extended with DDDx's
+       capabilities (CCCy renames on a clash); the device map doesn't change -- an entity from CCCx
+       still belongs to DDDx.
+    2. aggregate: a new device combining several (absorb, into an existing device, exists).
+    3. virtual device: only the header "virtual device DDD with:" was noted; to define.
+    4. Device-type templates: a named template expanding into a whole device block (the "basic
+       node" shape first); to scope: parameters, where declared, what else would use it.
 
-   - Note (2026-09-01): enforce that every device entry, for any integration, provides a node
-     definition -- currently only "home_assistant" bridge devices (native + imports) can lack one
-     (a "node" capability is optional there; "hosts" devices always get one unconditionally, and
-     "discovery" gateway devices have no per-device node concept at all). Decided so far: this
-     should be a HARD error (aborts generation), not just a warning -- but not yet implemented,
-     since Junglinster's real Physical.def currently has 11 devices without one (hass.envoy + its
-     10 inverter sub-devices), which would break generation immediately. Needs more thought before
-     building: where to enforce it (Physical.def collection time, so it catches every declared
-     device regardless of whether it's ever positioned in Spaces.def, vs. today's
-     positioning-time-only check), and what to do about the 11 real devices first.
-     Note (2026-09-06): see the device-combining note below for a real case
-     (hass.fritz_box/host.fritz_box) suggesting this hard-required-node decision may need
-     revisiting once logical devices can "lend" a node capability from a sibling physical device --
-     possibly only logical devices (and exported devices) need the hard requirement, not every
-     physical one.
-- Device combining: "aggregate" a new device vs "absorb" into an existing master device (e.g.
-  smarty's Zigbee switch into host.smarty) -- another facet of this item alongside "complement".
-  Gated on items 4/7/8 (Zigbee2MQTT) and 6 (Z-Wave) both landing.
-- Command choreography + the inverse direction (2026-09-09): not designed anywhere yet -- "to be
-  discussed." If a logical/aggregated entity accepts commands, should an inverse of whatever
-  composed its state exist to split an incoming command back down to its underlying physical
-  entities? Concrete forcing case: a `switched_device` combination (a Zigbee dimmable light whose
-  actual mains power is switched by a separate Z-Wave wall relay, plus a third device -- a Zigbee
-  remote control -- that can also drive the combination) -- today hand-encoded at the conceptual
-  layer via generator-authored YAML template light entities + automations, wanted at the logical
-  layer instead (see splendid-zooming-lighthouse.md's "Deferred to item 12" section for the full
-  worked example [FLAGGED 2026-09-14: that plan file has no section by this or any similar name --
-  checked its full current contents, which only mention PROJECT.md items 4/11/14 in passing, all
-  using its own 2026-09-09-era numbering, itself now stale after three later renumbering rounds.
-  This cross-reference has been mechanically renumbered through all three rounds (14->13->12)
-  without anyone verifying the target ever existed; the worked example itself may simply never have
-  been written down anywhere. Needs a human decision: either write the worked example (here or in a
-  fresh plan file) or drop this pointer]). This is NOT a value-substitution problem like `derived
-  from` -- turning the
-  combination "on" has to sequence actions across two physical devices (switch the relay on if not
-  already, wait, then set the dimmer's brightness to a remembered last-used value), so it needs a
-  real command-routing/choreography story, not an inverse function. Linked to item 9's own open
-  "Check if exports of commands would still work" question.
-- Availability composition, noted 2026-08-31 once the physical-layer coordinator work landed a
-  device's node-topic-gated + self-check availability (`buildAvailabilityFields`, discovery.go):
-  that two-factor AND is the right amount of refinement for a single physical-layer device, but
-  "aggregate"/"absorb" combine devices whose availability chains can be deeper and don't compose
-  by simple ANDing alone. Two concrete cases to design against once this item starts:
-  (a) a compute host running an integration (e.g. protocols-server-2) has its OWN liveness,
-  independent of any device it reports on -- an entity can be "available" per its own device/node
-  signals while the host reporting it is itself down; this is the still-open "stacked/dependent
-  availability" reminder already flagged in splendid-zooming-lighthouse.md's out-of-scope section.
-  (b) Netatmo's IP-connected base modules add a layer of their own: an outdoor/rain/wind module's
-  true availability depends on ITS radio link to the base module AND the base module's own IP/WiFi
-  link to Netatmo's cloud AND (a) above -- a chain, not a flat set, and today's per-entity "node"
-  capability only captures the nearest link in it. Not designed; revisit once this item is
-  actually being built, alongside aggregate/absorb themselves.
-  Note (2026-09-05), from the cross-house import "node" liveness fix: whatever availability chain
-  the EXPORTING installation ends up composing internally for a device (its own liveness, a base
-  module's link, a radio link, etc.) must stay entirely its own concern -- the cloud catalogue it
-  publishes should keep exposing exactly one boolean per device (today's "node" capability), never
-  the individual links that fed it. From an IMPORTER's own perspective there are only ever two
-  independent availability dependencies to reason about: (1) the remote device's own reported
-  available/not-available state (whatever composed that, on the exporter's side), and (2) this
-  house's own connection to the cloud broker. Neither should ever surface any of the exporting
-  installation's own internal dependency structure into the importer's device map -- revisit this
-  constraint explicitly once the composed-availability design above is actually built.
-  Note (2026-09-06), a second concrete case found live: `hass.fritz_box` (a `home_assistant`
-  bridge device, reports `sensor.gb_received`, no native node capability of its own) and
-  `host.fritz_box` (a `hosts`/ping device, ping-based node) are two separate Physical.def
-  declarations describing the exact same real-world router -- the DSL has no way to say so today,
-  so `hass.fritz_box` correctly gets flagged as having no node capability, even though the
-  physical unit it represents unquestionably has one via its sibling declaration. Interim
-  workaround (in use now): fake a node capability on `hass.fritz_box` via the same "is available"
-  sugar already used elsewhere (`binary_sensor.node: <already-reported entity> is available;`).
-  The real fix is a logical device's ability to "lend" a node capability from whichever
-  constituent physical device actually has one, rather than requiring every physical device to
-  carry its own. Also matters for `export`: an exported device (physical or logical) needs exactly
-  one node capability for the cloud catalogue's "one boolean per device" contract to hold, but a
-  physical device on its own may have none and would need to borrow one from a sibling the same
-  way.
-  Note (2026-09-14), a third concrete case found live, same underlying shape as the fritz_box one
-  above but on the OTHER side of the physical/logical boundary: Junglinster's Physical.def has
-  `node.vienna_bedroom` and `node.vienna_livingroom` (two separate `home_assistant`/hassbridge
-  devices) both declaring `binary_sensor.vienna_bedroom_connectivity` as their own "node"
-  capability's source entity -- a deliberate workaround (the living room's own dedicated
-  connectivity sensor has proven too flaky; the bedroom module's own connectivity signal is reused
-  instead, on the assumption both radio modules share the same real link reliability). Found live
-  while building `via_device` (finished, formerly item 3, see /Users/erikproper/.claude/plans/via-device-inference.md):
-  the entity-existence tracker has no way to represent "this
-  one source entity is legitimately claimed by two devices" (`TEntityExistenceEntry.DeviceID` is
-  single-valued), so its own reconciliation pass kept flipping which device the shared entity's
-  tracked entry belonged to. Worked around at the physical layer for now (`ResolveViaDevice` keys
-  off each device's own declared source entities directly rather than the tracker's ambiguous
-  attribution, so `via_device` resolution itself is unaffected) -- but the right fix is the SAME
-  one already named above, generalised: this kind of node-capability "reuse"/"override" should be
-  **disallowed at the physical layer** for `home_assistant`/hassbridge devices (a physical device
-  should only ever declare a node capability sourced from ITS OWN reporting), and instead
-  **expressed at the logical layer** -- a logical device explicitly stating "borrow this sibling's
-  node capability instead of my own/instead of none." More generally than either concrete case:
-  the logical layer should support overriding a device's own node capability from ANY other
-  device's own reported liveness, physical-layer kind-agnostic -- a `home_assistant`-bridged
-  device borrowing a sibling `home_assistant`-bridged device's own node (this Netatmo case) is the
-  same shape of problem as a `home_assistant` device borrowing a `hosts`-kind device's own
-  ping/cpu-based node (the fritz_box case), and should be one general mechanism, not two separate
-  ad hoc physical-layer workarounds. This also implies a rewiring of availability logic through the
-  logical layer once it lands: today's physical-layer `buildAvailabilityFields` (node-topic-gated +
-  self-check) has no notion of "my node capability is actually borrowed from elsewhere" -- see the
-  "Availability composition" note above, which already flags the closely related "stacked/
-  dependent availability" problem this same design work should solve together, not separately.
+    C. Open design question: four kinds of logical-layer work -- (1) clustering capabilities, (2)
+       derived entities with timing (delay_on/delay_off), (3) derived entities from other devices,
+       (4) abstracted entities covering a device's shortcomings (no state reports, multi-broadcast
+       radio: FHEM, item 38). (1)-(3) exist. Whether (2) and (4) belong in the coordinator or in a
+       separate operational component is undecided (memory:
+       project_event_bus_operational_vs_coordinative_roles.md).
 
 28. Check space level aggregation of sensors. If one is down, what do we do with data?
 
