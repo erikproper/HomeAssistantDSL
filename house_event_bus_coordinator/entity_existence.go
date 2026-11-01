@@ -347,6 +347,15 @@ func (t *TEntityExistenceTracker) Seed(bridgeFile THassBridgeFile) {
 					continue
 				}
 				entity := bareEntityFromSource(source)
+				// A source that isn't an entity at all -- PROJECT.md 25's "integration netatmo is
+				// available" -- can't be inquired about: states[...] errors out on it (found live
+				// 2026-11-01, the inquiry automation failing every minute on ha2mqtt). Not tracked,
+				// so the malformed-id prune below also drops an entry persisted before this check.
+				// Only sources with a space: a declared entity id with a typo stays tracked, so its
+				// declaration keeps being reported.
+				if strings.Contains(entity, " ") {
+					continue
+				}
 				declared[instance][entity] = true
 				owner := sharedEntityOwner(t.entries[instance], claimants[instance], entity)
 				shared := len(claimants[instance][entity]) > 1

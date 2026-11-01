@@ -22,13 +22,53 @@ func TestReloadGuard(t *testing.T) {
 	if !ok || len(problems) != 0 {
 		t.Fatalf("ok %v, problems %v", ok, problems)
 	}
-	for _, want := range []string{"entity_id: sensor.office_carbon_dioxide", `for: "00:05:00"`, "homeassistant.reload_config_entry", `delay: "00:15:00"`, "mode: single"} {
+	for _, want := range []string{"entity_id: sensor.office_carbon_dioxide", `for: "00:05:00"`, "homeassistant.reload_config_entry", "total_seconds() >= 900 }}", "mode: single",
+		// Reloaded by config entry, each entry once after a start (2026-11-01).
+		`entry_id: "{{ config_entry_id(trigger.entity_id) }}"`, `entry_id: "{{ repeat.item }}"`, "id not in ns.ids",
+		// The start companion: waits, then asks the guard by an event.
+		"id: automation.coordinator_reload_guard_ha2mqtt_start", "event: coordinator_reload_guard\n", "event_type: coordinator_reload_guard\n"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("automation lacks %q:\n%s", want, body)
 		}
 	}
+	if strings.Contains(body, "target:") || strings.Contains(body, `delay: "00:15:00"`) {
+		t.Errorf("automation still reloads by target (deprecated) or pauses by a delay:\n%s", body)
+	}
 	if mainGuards, _ := bridgeReloadGuards("main", map[string]THassBridgeDevice{"sensors.netatmo_office": devices[0]}); len(mainGuards) != 0 {
 		t.Errorf("a guard of ha2mqtt resolved for main")
+	}
+}
+
+// TestReloadGuardPauses: "at most every" sets a guard's pause; guards with another pause than the
+// shortest get their own pair of automations, so the plain names stay with the shortest.
+func TestReloadGuardPauses(t *testing.T) {
+	devices, warnings := parseHassBridgeIntegrationBody([]string{
+		"device sensors.netatmo_office with:",
+		"reload integration when sensor.co2 is unavailable for 00:05:00 at most every 24:00:00;",
+		"capability sensor.co2 sensor.office_carbon_dioxide;",
+		"end;",
+		"device sensors.ring with:",
+		"reload integration when camera.camera is unavailable for 00:05:00;",
+		"capability camera.camera camera.front_door;",
+		"end;",
+	}, "ha2mqtt")
+	if len(warnings) != 0 || len(devices) != 2 || devices[0].ReloadGuards[0].Pause != "24:00:00" {
+		t.Fatalf("devices %+v, warnings %v", devices, warnings)
+	}
+	byID := map[string]THassBridgeDevice{}
+	for _, d := range devices {
+		byID[d.DeviceID] = d
+	}
+	guards, _ := bridgeReloadGuards("ha2mqtt", byID)
+	body, _ := reloadGuardAutomationBody("ha2mqtt", guards)
+	for _, want := range []string{
+		"id: automation.coordinator_reload_guard_ha2mqtt\n", "total_seconds() >= 900 }}",
+		"id: automation.coordinator_reload_guard_ha2mqtt_every_86400s\n", "total_seconds() >= 86400 }}",
+		"id: automation.coordinator_reload_guard_ha2mqtt_every_86400s_start\n", "event_type: coordinator_reload_guard_every_86400s\n",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("automations lack %q:\n%s", want, body)
+		}
 	}
 }
 

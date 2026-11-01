@@ -1573,16 +1573,24 @@ device declares it in its own integration section (PROJECT.md 29 (3)): `reload i
 sensor.co2 is unavailable for 00:05:00;` -- a capability of the device, whose source entity on the
 instance the generator knows. One generated automation per instance
 (`homeassistant/remote_instance_reload_guard.go`) triggers on any indicator staying unavailable that
-long, notes it in the logbook, reloads that entity's integration (`homeassistant.reload_config_entry`)
-and then waits 15 minutes (`mode: single`) -- at most 4 reloads an hour, never a reload storm when
-the integration is really down. A local device's guard (`integration local`) runs on main, the
-same way. `while <device> is up` makes a guard reload only while that device's node is on -- a
-portable speaker switched off must not reload the whole Sonos integration every 15 minutes. After a
-start or an automation reload (a deploy), when an entity may already be unavailable without a
-change to trigger on, the guard waits the longest guard time once and reloads for every guarded
-entity still unavailable (with its while-condition). In Junglinster: the three Netatmo Smart Indoor
-Air Quality Monitors' CO2 (on ha2mqtt), the two Ring cameras and the Sonos headphones (on main,
-each while its ping node is up).
+long, notes it in the logbook, reloads that entity's integration (`homeassistant.reload_config_entry`
+by `entry_id`) and then pauses: 15 minutes, or what `at most every HH:MM:SS` after the guard time
+says -- never a reload storm when the integration is really down. The pause is a condition on the
+guard automation's own `last_triggered`, which Home Assistant keeps across a restart and a deploy;
+guards with different pauses get their own automations. A local device's guard (`integration
+local`) runs on main, the same way. `while <device> is up` makes a guard reload only while that
+device's node is on -- a portable speaker switched off must not reload the whole Sonos integration
+every 15 minutes. After a start or an automation reload (a deploy), when an entity may already be
+unavailable without a change to trigger on, a `.../start` companion waits the longest guard time
+once and then, by an event, has the guard reload each config entry still down (with its
+while-condition) once. In Junglinster: the Netatmo CO2 sensors (on ha2mqtt, `at most every
+24:00:00`), the two Ring cameras and the Sonos headphones (on main, each while its ping node is up).
+
+Every reload counts against the integration's own API limit. Found 2026-11-01: after a container
+restart the guard reloaded Netatmo six times in a second (once per CO2 sensor, the same config
+entry), Netatmo answered "429 Too Many Requests", and its entities stayed away for over an hour --
+Netatmo setups went from about one a day before the guard to up to 14. Hence one reload per config
+entry, and Netatmo's one-day pause.
 
 Node positioning, a fix (2026-10-28): a derived node whose condition refers to another device's
 node ("condition node from integration.zigbee2mqtt") materializes that node itself when it isn't
@@ -1985,6 +1993,13 @@ daemon-reload` and run the script. By hand, per container: `sudo podman pull
 <image>`, then `sudo systemctl restart <name>.service`. Read Zigbee2MQTT's release notes before a
 major version. During a restart the devices go unavailable for a moment; the retained shadows (§6.16)
 keep their values, and a new `sw_version` reaches Physical.def at the next generate.
+
+Netatmo's webhook (Junglinster) runs through `caddy`: it holds the certificate for
+`junglinster.homelinux.org` and forwards 443 to ha2mqtt on `127.0.0.1:8123` (ha2mqtt trusts it as a
+proxy: `use_x_forwarded_for`, `trusted_proxies` 127.0.0.1). Netatmo only registers the webhook when
+ha2mqtt's external URL is `https://junglinster.homelinux.org` (Settings > System > Network, a UI
+setting, not generated); without it, it logs "Webhook not registered" and only polls. Found
+2026-11-01: that URL had never been set.
 
 ### 11.3 Backup strategy
 

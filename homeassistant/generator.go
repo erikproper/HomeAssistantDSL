@@ -2954,6 +2954,9 @@ func generateAutomations(outputDir string, admin *TAdministrationState) error {
 	if err := generateFollowsAutomations(outputDir, admin); err != nil {
 		return err
 	}
+	if err := generateVolumeSyncAutomations(outputDir, admin); err != nil {
+		return err
+	}
 	if err := generateRuleAutomations(outputDir, admin); err != nil {
 		return err
 	}

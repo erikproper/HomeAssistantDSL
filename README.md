@@ -128,6 +128,21 @@ A space switch turns its items off per domain: `cover.close` for covers, `media_
 for media players (a Sonos has no `turn_off`, and HA aborts the whole sequence on an unsupported
 action), `<domain>.turn_off` otherwise. A media player counts as on while `on` or `playing`.
 
+`volume sync of:` keeps media players whose volumes can each be moved (remote control, apps) at
+the same level; a member is written as a DSL name or as its final entity id:
+
+```
+volume sync of:
+  media_player.social_house_living_room_sonos;
+  media_player.social_house_living_room_tv;
+end;
+```
+
+When one moves, the others follow; the echoes of that change are ignored for 15 seconds (a Bravia
+TV's volume is polled every 10), after which it reconciles once from the one that moved. A member
+without a volume (a TV that is off) is skipped, and its switching on is no movement. At a Home
+Assistant start (not a deploy) all members are set to their average, within 5 and 15.
+
 A space aggregate (door/motion/water/window and climate groups, space lights, space and media
 switches) isn't generated when an entity is positioned at its own name: a space's only sensor
 named like the aggregate (`entity sensor.social:humidity;`) stands for the space itself, under the

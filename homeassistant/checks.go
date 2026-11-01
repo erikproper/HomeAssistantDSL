@@ -136,6 +136,8 @@ func RunPostParseChecks(administration *TAdministrationState) {
 		checkRelationEntityRef("switched_device (main)", rel.SpaceName, rel.MainEntity, declared)
 	}
 
+	resolveVolumeSyncMembers(administration.VolumeSyncs, declared)
+
 	for _, rel := range administration.TimerLimitsRelations {
 		checkRelationEntityRef("timer limits (timer)", rel.SpaceName, rel.TimerEntity, declared)
 		checkRelationEntityRef("timer limits (bound)", rel.SpaceName, rel.BoundEntity, declared)

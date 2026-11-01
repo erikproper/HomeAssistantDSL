@@ -75,6 +75,30 @@ func TestEntityExistenceTrackerSeedStripsIsAvailableSugar(t *testing.T) {
 	}
 }
 
+// TestEntityExistenceTrackerSeedSkipsIntegrationSources: an integration device's "integration
+// netatmo is available" source (PROJECT.md 25) is no entity, so it is never inquired about, and an
+// entry persisted before this check is pruned (found live 2026-11-01 on ha2mqtt).
+func TestEntityExistenceTrackerSeedSkipsIntegrationSources(t *testing.T) {
+	tracker := newEntityExistenceTracker("")
+	tracker.entries["ha2mqtt"] = map[string]*TEntityExistenceEntry{"integration netatmo": {Status: StatusNotKnownToExist}}
+	tracker.order["ha2mqtt"] = []string{"integration netatmo"}
+	tracker.Seed(THassBridgeFile{Devices: map[string]THassBridgeDevice{
+		"integration.netatmo": {
+			Instances: []string{"ha2mqtt"},
+			Capabilities: map[string]THassBridgeCapability{
+				"node": {SourceEntities: map[string]string{"ha2mqtt": "integration netatmo is available"}},
+			},
+		},
+	}})
+
+	if _, found := tracker.entries["ha2mqtt"]["integration netatmo"]; found {
+		t.Errorf("integration source tracked, want it skipped: %+v", tracker.entries["ha2mqtt"])
+	}
+	if got := tracker.nextToInquire("ha2mqtt"); got != "" {
+		t.Errorf("nextToInquire = %q, want nothing", got)
+	}
+}
+
 // TestEntityExistenceTrackerSeedPrunesConfirmedDeadOrphans is the regression test for a real
 // operational annoyance found live 2026-09-05: a Physical.def typo
 // (sensor.living_room__battery, double underscore) gets confirmed known-not-to-exist, then fixed

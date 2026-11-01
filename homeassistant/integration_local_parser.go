@@ -110,7 +110,7 @@ var localCapabilityWithOneLinerPattern = regexp.MustCompile(`^capability\s+([A-Z
 func applyLocalCapabilityLine(dev *TLocalDevice, deviceID, line string) (warning string, matched bool) {
 	// PROJECT.md 23: a reload guard, run on main (remote_instance_reload_guard.go).
 	if m := reloadGuardPattern.FindStringSubmatch(line); m != nil {
-		dev.ReloadGuards = append(dev.ReloadGuards, TReloadGuard{Capability: m[2], For: m[3], Instance: "main", WhileUp: m[4]})
+		dev.ReloadGuards = append(dev.ReloadGuards, TReloadGuard{Capability: m[2], For: m[3], Pause: m[4], Instance: "main", WhileUp: m[5]})
 		return "", true
 	}
 	// Checked first, before localCapabilityPattern: "derived" is a distinct leading keyword,

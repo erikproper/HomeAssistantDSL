@@ -142,9 +142,36 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 	var currentRule *TRule
 	var currentRuleClauses ruleClauseTracker
 
+	// currentVolumeSync is nil outside a "volume sync of: ... end;" block (conceptual_volume_sync.go)
+	// -- a flat state flag like currentRule; each line inside is one member, "<entity-ref>;".
+	var currentVolumeSync *TVolumeSync
+
 	for i := 0; i < len(entityLines); i++ {
 		trimmed := strings.TrimSpace(entityLines[i])
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		if currentVolumeSync != nil {
+			code, _, _ := strings.Cut(trimmed, "#")
+			code = strings.TrimSpace(code)
+			if code == EndToken+StatementEndToken {
+				administration.VolumeSyncs = append(administration.VolumeSyncs, *currentVolumeSync)
+				currentVolumeSync = nil
+				continue
+			}
+			member, ok := strings.CutSuffix(code, StatementEndToken)
+			if !ok || strings.ContainsAny(strings.TrimSpace(member), " \t") {
+				fmt.Fprintf(os.Stderr, "[WARNING] %s line %d: inside \"%s\", expected \"<media player>;\", got %q; ignored\n", entitiesPath, sourceLine(i), volumeSyncHeader, trimmed)
+				continue
+			}
+			member = strings.TrimSpace(member)
+			currentVolumeSync.Written = append(currentVolumeSync.Written, member)
+			currentVolumeSync.Resolved = append(currentVolumeSync.Resolved, normalizeEntityFullName(member, administration.SpacePath))
+			continue
+		}
+		if trimmed == volumeSyncHeader {
+			currentVolumeSync = &TVolumeSync{SpaceName: administration.CurrentSpaceName()}
 			continue
 		}
 

@@ -111,6 +111,7 @@ type TAdministrationState struct {
 	FollowsRelations        []TFollowsRelation
 	SwitchedDeviceRelations []TSwitchedDeviceRelation
 	TimerLimitsRelations    []TTimerLimitsRelation
+	VolumeSyncs             []TVolumeSync // "volume sync of: ... end;" (conceptual_volume_sync.go)
 	Rules                   []TRule
 	RuleNamesSeen           map[string]bool                  // every resolved TRule.Name seen so far, to warn on a repeat
 	NamedTriggers           map[string][]TNamedTriggerSource // see NamedTriggers' own doc comment above

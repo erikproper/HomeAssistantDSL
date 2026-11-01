@@ -30,9 +30,11 @@ import (
 )
 
 // reloadGuardPattern matches "reload integration when <domain>.<label> is unavailable for HH:MM:SS
-// [while <device-id> is up];" -- the "while" clause: only while that device's node is on (e.g. a
-// portable speaker's ping node, so its being switched off triggers no reload).
-var reloadGuardPattern = regexp.MustCompile(`^reload\s+integration\s+when\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+is\s+unavailable\s+for\s+(\d{1,2}:\d{2}:\d{2})(?:\s+while\s+(\S+)\s+is\s+up)?\s*;\s*$`)
+// [at most every HH:MM:SS] [while <device-id> is up];" -- "at most every": the pause after a reload
+// (default reloadGuardPause; Netatmo: a day, 2026-11-01, as every reload counts against its API
+// limit); the "while" clause: only while that device's node is on (e.g. a portable speaker's ping
+// node, so its being switched off triggers no reload).
+var reloadGuardPattern = regexp.MustCompile(`^reload\s+integration\s+when\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+is\s+unavailable\s+for\s+(\d{1,2}:\d{2}:\d{2})(?:\s+at\s+most\s+every\s+(\d{1,3}:\d{2}:\d{2}))?(?:\s+while\s+(\S+)\s+is\s+up)?\s*;\s*$`)
 
 var hassBridgeIntegrationHeaderPattern = regexp.MustCompile(`^integration\s+home_assistant\s+(\S+)\s+with:\s*$`)
 
@@ -574,7 +576,7 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 			// PROJECT.md 23 (2026-10-28): a guard -- reload the source entity's integration on the
 			// instance when this capability stays unavailable (remote_instance_reload_guard.go).
 			if matches := reloadGuardPattern.FindStringSubmatch(line); matches != nil {
-				current.ReloadGuards = append(current.ReloadGuards, TReloadGuard{Capability: matches[2], For: matches[3], Instance: instance, WhileUp: matches[4]})
+				current.ReloadGuards = append(current.ReloadGuards, TReloadGuard{Capability: matches[2], For: matches[3], Pause: matches[4], Instance: instance, WhileUp: matches[5]})
 				continue
 			}
 			if matches := deviceInfoCapabilityPattern.FindStringSubmatch(line); matches != nil {

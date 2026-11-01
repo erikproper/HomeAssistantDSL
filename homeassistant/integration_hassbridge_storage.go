@@ -241,7 +241,9 @@ func representativeSource(sources map[string]string) string {
 type TReloadGuard struct {
 	Capability string
 	For        string
-	Instance   string
+	// Pause: "at most every <duration>" -- "" for reloadGuardPause.
+	Pause    string
+	Instance string
 	// WhileUp: "while <device-id> is up" -- only while that device's node is on.
 	WhileUp string
 }
