@@ -26,7 +26,10 @@ func TestReloadGuard(t *testing.T) {
 		// Reloaded by config entry, each entry once after a start (2026-11-01).
 		`entry_id: "{{ config_entry_id(trigger.entity_id) }}"`, `entry_id: "{{ repeat.item }}"`, "id not in ns.ids",
 		// The start companion: waits, then asks the guard by an event.
-		"id: automation.coordinator_reload_guard_ha2mqtt_start", "event: coordinator_reload_guard\n", "event_type: coordinator_reload_guard\n"} {
+		"id: automation.coordinator_reload_guard_ha2mqtt_start", "event: coordinator_reload_guard\n", "event_type: coordinator_reload_guard\n",
+		// The retry (2026-11-02): every few minutes, the entries down for at least their guard time.
+		"id: automation.coordinator_reload_guard_ha2mqtt_retry", "platform: time_pattern", "'for': 300", ".last_changed).total_seconds() >= w.for",
+		`reason: "still unavailable after the pause"`, "{{ trigger.event.data.reason }}"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("automation lacks %q:\n%s", want, body)
 		}
@@ -40,7 +43,7 @@ func TestReloadGuard(t *testing.T) {
 }
 
 // TestReloadGuardPauses: "at most every" sets a guard's pause; guards with another pause than the
-// shortest get their own pair of automations, so the plain names stay with the shortest.
+// shortest get their own automations, so the plain names stay with the shortest.
 func TestReloadGuardPauses(t *testing.T) {
 	devices, warnings := parseHassBridgeIntegrationBody([]string{
 		"device sensors.netatmo_office with:",
@@ -65,6 +68,7 @@ func TestReloadGuardPauses(t *testing.T) {
 		"id: automation.coordinator_reload_guard_ha2mqtt\n", "total_seconds() >= 900 }}",
 		"id: automation.coordinator_reload_guard_ha2mqtt_every_86400s\n", "total_seconds() >= 86400 }}",
 		"id: automation.coordinator_reload_guard_ha2mqtt_every_86400s_start\n", "event_type: coordinator_reload_guard_every_86400s\n",
+		"id: automation.coordinator_reload_guard_ha2mqtt_every_86400s_retry\n",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("automations lack %q:\n%s", want, body)

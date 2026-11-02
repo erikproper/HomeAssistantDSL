@@ -18,12 +18,14 @@
  * 2026-11-01) -- never a reload storm when the integration is really down. After a start or an
  * automation reload (a deploy), when an entity may already be unavailable without a change to
  * trigger on, it waits the longest guard time once and reloads each config entry still down once. A
+ * reload that didn't help (the service itself still down) is retried once the pause is over: every
+ * few minutes a retry asks the guard for the config entries still down (2026-11-02). A
  * "while <device> is up" guard only reloads while that device's node is on (a portable speaker
  * switched off triggers nothing).
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 28.10.2026
+ * Version of: 02.11.2026
  *
  */
 
@@ -140,7 +142,7 @@ func reloadGuardAutomationBody(instance string, guards []TResolvedReloadGuard) (
 	return sb.String(), true
 }
 
-// writeReloadGuardGroup writes one pause group's two automations. The guard reloads when a guarded
+// writeReloadGuardGroup writes one pause group's three automations. The guard reloads when a guarded
 // entity stays unavailable, at most once per pause: a condition on its own last_triggered, which
 // Home Assistant keeps across a restart and an automation reload (a deploy) -- unlike the delay it
 // replaces (2026-11-01), which every deploy cut short. So the guard only runs when it reloads: after a
@@ -161,15 +163,15 @@ func writeReloadGuardGroup(sb *strings.Builder, instance, suffix string, pauseSe
 		if g.For > longest {
 			longest = g.For
 		}
-		watched = append(watched, fmt.Sprintf("{'entity': '%s', 'up': '%s'}", g.Entity, g.WhileEntity))
+		watched = append(watched, fmt.Sprintf("{'entity': '%s', 'for': %d, 'up': '%s'}", g.Entity, durationSeconds(g.For), g.WhileEntity))
 		if g.WhileEntity != "" {
 			required[fmt.Sprintf("guard_%d", i)] = g.WhileEntity
 		}
 	}
 	list := "[" + strings.Join(watched, ", ") + "]"
-	// The guarded entities still unavailable (and, with a "while", whose device is up), reduced to
-	// their config entries, each once.
-	stillDown := "{% set ns = namespace(ids=[]) %}{% for w in " + list + " | selectattr('entity', 'is_state', 'unavailable') %}{% set id = config_entry_id(w.entity) %}{% if id and id not in ns.ids and (w.up == '' or is_state(w.up, 'on')) %}{% set ns.ids = ns.ids + [id] %}{% endif %}{% endfor %}{{ ns.ids }}"
+	// The guarded entities unavailable for at least their guard time (and, with a "while", whose
+	// device is up), reduced to their config entries, each once.
+	stillDown := "{% set ns = namespace(ids=[]) %}{% for w in " + list + " | selectattr('entity', 'is_state', 'unavailable') %}{% set id = config_entry_id(w.entity) %}{% if id and id not in ns.ids and (now() - states[w.entity].last_changed).total_seconds() >= w.for and (w.up == '' or is_state(w.up, 'on')) %}{% set ns.ids = ns.ids + [id] %}{% endif %}{% endfor %}{{ ns.ids }}"
 
 	sb.WriteString("- alias: \"" + alias + "\"\n")
 	sb.WriteString("  id: " + id + "\n")
@@ -212,7 +214,7 @@ func writeReloadGuardGroup(sb *strings.Builder, instance, suffix string, pauseSe
 	sb.WriteString("          - service: logbook.log\n")
 	sb.WriteString("            data:\n")
 	sb.WriteString("              name: \"reload guard\"\n")
-	sb.WriteString("              message: \"{{ config_entry_attr(repeat.item, 'title') }} ({{ config_entry_attr(repeat.item, 'domain') }}): guarded entities still unavailable after a start or reload -- reloading it\"\n")
+	sb.WriteString("              message: \"{{ config_entry_attr(repeat.item, 'title') }} ({{ config_entry_attr(repeat.item, 'domain') }}): guarded entities {{ trigger.event.data.reason }} -- reloading it\"\n")
 	sb.WriteString("          - service: homeassistant.reload_config_entry\n")
 	sb.WriteString("            data:\n")
 	sb.WriteString("              entry_id: \"{{ repeat.item }}\"\n")
@@ -241,7 +243,31 @@ func writeReloadGuardGroup(sb *strings.Builder, instance, suffix string, pauseSe
 	sb.WriteString("  - event: " + eventType + "\n")
 	sb.WriteString("    event_data:\n")
 	sb.WriteString("      entries: \"{{ entries }}\"\n")
+	sb.WriteString("      reason: \"still unavailable after a start or reload\"\n")
+
+	// The retry (2026-11-02): a guard that reloaded while the integration's service was still down
+	// (Netatmo's own outage) sees no further change to trigger on, and the entities stayed away
+	// until Erik reloaded by hand. Every few minutes this asks the guard again for the config
+	// entries still down; the guard's own pause keeps it to one reload per pause.
+	sb.WriteString("- alias: \"" + alias + "/retry\"\n")
+	sb.WriteString("  id: " + id + "_retry\n")
+	sb.WriteString("  mode: single\n")
+	sb.WriteString("  trigger:\n")
+	sb.WriteString("  - platform: time_pattern\n")
+	sb.WriteString("    minutes: \"" + reloadGuardRetryEvery + "\"\n")
+	sb.WriteString("  action:\n")
+	sb.WriteString("  - variables:\n")
+	sb.WriteString("      entries: \"" + stillDown + "\"\n")
+	sb.WriteString("  - condition: \"{{ entries | count > 0 }}\"\n")
+	sb.WriteString("  - event: " + eventType + "\n")
+	sb.WriteString("    event_data:\n")
+	sb.WriteString("      entries: \"{{ entries }}\"\n")
+	sb.WriteString("      reason: \"still unavailable after the pause\"\n")
 }
+
+// reloadGuardRetryEvery is how often (a time_pattern's minutes) the retry looks for guarded
+// entities still down.
+const reloadGuardRetryEvery = "/5"
 
 // durationSeconds returns an "HH:MM:SS" duration (the guard pattern's, so well-formed) in seconds.
 func durationSeconds(hms string) int {

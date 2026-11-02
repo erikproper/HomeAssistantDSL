@@ -1671,6 +1671,13 @@ entry), Netatmo answered "429 Too Many Requests", and its entities stayed away f
 Netatmo setups went from about one a day before the guard to up to 14. Hence one reload per config
 entry, and Netatmo's pause of an hour (a day at first; too long when sensors drop off, Erik).
 
+A reload during the service's own outage doesn't help, and afterwards nothing changes to trigger
+on. Found 2026-11-02: Netatmo's cloud was down, the guard reloaded once at 15:06 UTC, and the
+entities stayed away until Erik reloaded by hand. Hence a third automation per pause group,
+`.../retry`: every five minutes (a `time_pattern`) it collects the config entries whose guarded
+entities have been unavailable for at least their guard time, and asks the guard by the same
+event as the start companion. The guard's pause keeps it to one reload per pause.
+
 Node positioning, a fix (2026-10-28): a derived node whose condition refers to another device's
 node ("condition node from integration.zigbee2mqtt") materializes that node itself when it isn't
 positioned -- but now only when nothing positions it explicitly further down Conceptual.def
