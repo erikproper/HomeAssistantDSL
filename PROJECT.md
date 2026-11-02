@@ -1,5 +1,66 @@
 ** TODO 
 
+## Purchases
+
+31.10.2026 Inserted LiION batteries
+
+https://www.shelly.com/products/ecowitt-ws90-7-in-1-weather-station
+
+https://www.thirdreality.com/products/smart-air-quality-sensor
+
+Using an ESP32-CAM variant with an extended ribbon cable (flat cable) is a phenomenal idea. In fact, it completely solves your space restriction and is highly recommended for tight setups.
+By separating the actual camera lens from the main motherboard, you gain three major advantages for your 8 cm gap:
+
+1. You gain back precious distance
+
+Standard ESP32-CAM boards have the lens mounted directly on top of the thick PCB, SD card slot, and components. By using a ribbon cable extension, the camera lens itself is only a few millimeters thick. You can mount the tiny lens completely flat against the underside of your bookshelf, pushing your lens-to-glass distance back out closer to 9.5 cm, which gives the camera a wider, clearer field of view.
+
+2. It permanently solves the reflection problem
+
+If you buy an extension ribbon cable, the bright onboard LED flash stays on the main ESP32 board, while the camera lens moves away.
+• You can mount the main board (with the LED) further back under the shelf to illuminate the meter from a sharp side angle.
+• You can mount the camera lens directly above the meter.
+• Because the light source and the lens are physically separated, the light reflection will bounce off the glass at an angle and never blind the camera lens.
+
+3. Easiest mounting possible
+
+Instead of a bulky 3D-printed bracket hanging down from your shelf, you can literally mount the tiny camera lens using a piece of double-sided foam tape or a tiny, low-profile 3D-printed clip screwed to the wood. The main, bulky ESP32 board can be tucked neatly away out of sight at the back of the bookshelf.
+
+What to buy:
+
+Look for an "OV2640 extension cable" or an "ESP32-CAM with extended camera ribbon". They usually come in lengths of 5 cm, 7 cm, or 10 cm. The 5 cm or 7 cm version is perfect for your shelf setup.
+(Note: You will still need to do the quick counter-clockwise "lens twist" modification mentioned before to adjust the focus to 9 cm, but handling it will be even easier when the lens is disconnected from the main board!)
+Would you like me to find some visual examples or design ideas for how people mount these decoupled ribbon cameras to flat surfaces?
+
+Here is the exact shopping list to build your decoupled AI-on-the-Edge water meter reader using the modular ribbon cable setup.
+All of these components are standard items readily available on Amazon.de.
+
+🛠️ Core Hardware Components
+
+• ESP32-CAM Board with OV2640 Camera + Ribbon Extension Cable:
+	• Search terms: ESP32-CAM OV2640 Verlängerungskabel or ESP32 CAM flexibles flachkabel
+	• What to look for: A kit or bundle that explicitly includes the ESP32-CAM development board and an OV2640 camera sensor attached to a 5cm, 7cm, or 10cm flat ribbon cable.
+• MicroSD Card (16GB or 32GB):
+	• Search terms: MicroSD Karte 32GB SanDisk
+	• What to look for: A standard Class 10 MicroSD card. The AI-on-the-edge system requires an SD card inserted directly into the ESP32-CAM reader slot to store the local neural network config files and image captures.
+
+🔋 Power & Interfacing
+
+• ESP32-CAM MB USB Programmer Base (Highly Recommended):
+	• Search terms: ESP32-CAM-MB Micro USB
+	• What to look for: A tiny adapter board that snaps onto the back of the ESP32-CAM module, adding a micro-USB port. This makes it incredibly easy to plug the unit straight into your computer via USB to flash the firmware, and later provides an easy way to power it.
+• 5V USB Power Supply & Micro-USB Cable:
+	• Search terms: USB Netzteil 5V and Micro USB Kabel
+	• What to look for: A standard phone charger adapter block and a long enough cable to reach from your bookshelf down to the nearest electrical wall socket.
+
+📐 Mounting the Camera Under the Shelf
+
+• Adjustable Ball-Joint Mini Mount:
+	• Search terms: Mini Kugelkopf Halterung or Kamera Wandhalterung klein
+	• What to look for: A small metal or plastic swivel joint that you can screw directly into the wooden bottom of your bookshelf. Alternatively, if you or a friend have a 3D printer, you can print a zero-clearance flat surface lens holder from Printables/Thingiverse.
+Would you like me to find the direct browser flashing link so you can easily install the software onto the ESP32-CAM once the parts arrive from Amazon?
+	 
+
 ## Manually (Erik) extend coverage
 
 1. check suggested in both locations
@@ -12,43 +73,11 @@ JLI
 
 3. Check for more of the existing integrations, like fritzbox, ems-esp, etc.
 
-4. EMS heater device. More imports?
+4. EMS heater device. More imports? Its via_device by hand: EMS-ESP's discovery carries no
+   availability topics, so there was nothing to derive it from (the Zigbee and Z-Wave devices got
+   theirs on 2026-11-02): "via_device: integration.ems2mqtt forced;" in utility.heater's block.
  
 ## Migration & improvements
-
-25b. Test if the meta call to restart HA's works.
-
-25c. Gateway liveness beyond the Last Will (Zigbee2MQTT first). Covered: every Zigbee2MQTT
-     entity's availability includes zigbee2mqtt/bridge/state (all 162 in Vienna, 322 in
-     Junglinster, checked 2026-10-30), which the Last Will sets offline when it stops; the retained
-     shadows (item 20) keep the values meanwhile.
-     - Test (Erik, Sunday 2026-11-01): briefly stop one Zigbee2MQTT; all its entities should go
-       unavailable and come back with their values.
-     - Hangs (connected, but no Last Will): design (Erik, 2026-10-30), generic, no bridge-specific
-       code in the coordinator:
-       1. For a declared bundle of topics, the coordinator creates a "suspicion_of_hang"
-          binary_sensor (or trigger): true when none of those topics had traffic for a given time.
-       2. Rules at the logical level, run on main: on a suspicion, do a ping-pong-like health check
-          (for Zigbee2MQTT: zigbee2mqtt/bridge/request/health_check, answer on
-          bridge/response/health_check; for Z-Wave JS UI: its MQTT API, e.g. getInfo on
-          zwave/_CLIENTS/ZWAVE_GATEWAY-zwave-js-ui/api/getInfo/set, answered on .../api/getInfo --
-          to verify live).
-       3. When the check concludes the bridge is down, the rules publish "offline" on the right
-          topic (Zigbee2MQTT: bridge/state, so every entity goes unavailable). To work out: the
-          bridge itself overwrites that topic when it recovers, which is wanted.
-       Then ha2mqtt's coordinator ping-pong (instance_liveness.go) could become one instance of the
-       same mechanism.
-     - To reflect on first (Erik, 2026-10-30): one generic strategy for all liveness checks, rather
-       than one mechanism per gateway. Today there are three shapes: a Last Will (Zigbee2MQTT,
-       Z-Wave JS UI's client status, the coordinator itself), our own ping-pong (ha2mqtt,
-       instance_liveness.go) and a request/response health check (Zigbee2MQTT's health_check,
-       Z-Wave JS UI's MQTT API); plus the hosts' ping. A generic strategy would say per gateway, in
-       the defs: which topics show its traffic, how to ask it (request topic, payload), what counts
-       as an answer and within how long, and which topic carries the verdict -- with the
-       coordinator only watching for silence and the rules doing the asking.
-
-25d. Nuanced reporting of suggested entries, based on conceptual versus physical positioning.
-So, what is available to be positioned as potential capabilities, and what is available to be positioned at the conceptual layer.
 
 26. Logical layer: what is left (restructured 2026-10-30). Done and removed: availability along
     via_device/dependencies and the integration devices (item 25, Architecture.md §6.16); named
@@ -59,36 +88,10 @@ So, what is available to be positioned as potential capabilities, and what is av
     49's requests); command choreography for a switched light ("switched by").
 
     A. Availability
-    1. via_device suggestions from shared availability topics, for gateways that report no
-       via_device (Z-Wave JS UI, EMS-ESP): a comment ("# suggested via_device:
-       integration.zwave2mqtt (shares zwave/driver/status)"), never a value; the value is captured
-       or "via_device: <device> forced;". A device with no shared topic is reported (needs human
-       input). With a via_device, the device follows its integration's node (item 25's mechanism);
-       skipped where the gateway's discovery already carries it (Zigbee2MQTT's bridge/state).
-    2. A node for every device: decided 2026-09-01 as a hard error, not built. First count the
-       devices still without one (the Envoy's now have one), and decide whether only logical and
-       exported devices need it.
-    3. Constraint to keep: an exported device publishes exactly one node boolean; an importer sees
-       only that and its own link to the cloud broker, never the exporter's chain.
-    4. On demand (no case yet): "dependency on entity <id>;" and "dependency on availability of
+    1. On demand (no case yet): "dependency on entity <id>;" and "dependency on availability of
        entity <id>;" for a raw entity on main (integration_logical_parser.go's header).
 
-    B. Logical-layer constructs, not built
-    1. complement:
-         complement device DDD with:
-           from DDDx:
-             CCCx [as CCCy];
-           end;
-         end;
-       (the usual abbreviations for one). The conceptual layer sees DDD extended with DDDx's
-       capabilities (CCCy renames on a clash); the device map doesn't change -- an entity from CCCx
-       still belongs to DDDx.
-    2. aggregate: a new device combining several (absorb, into an existing device, exists).
-    3. virtual device: only the header "virtual device DDD with:" was noted; to define.
-    4. Device-type templates: a named template expanding into a whole device block (the "basic
-       node" shape first); to scope: parameters, where declared, what else would use it.
-
-    C. Open design question: four kinds of logical-layer work -- (1) clustering capabilities, (2)
+    B. Open design question: four kinds of logical-layer work -- (1) clustering capabilities, (2)
        derived entities with timing (delay_on/delay_off), (3) derived entities from other devices,
        (4) abstracted entities covering a device's shortcomings (no state reports, multi-broadcast
        radio: FHEM, item 38). (1)-(3) exist. Whether (2) and (4) belong in the coordinator or in a
@@ -137,6 +140,11 @@ So, what is available to be positioned as potential capabilities, and what is av
      identifies "this entity is unavailable because of an integration fault" (vs. genuinely offline
      hardware), how the rate limit is tracked/reset, and how many/which integrations this should
      cover beyond Netatmo.
+   - (4) Re-authentication needed (2026-11-02): Overkiz on ha2mqtt rejected its local key after
+     the Connexoon reset the connection at 04:21 UTC (probably a firmware update or reboot), and
+     Home Assistant only showed "Reconfigure" in its own UI -- Erik found out hours later. A
+     message the moment any integration on ha2mqtt or main needs re-authenticating, whatever the
+     integration or the reason. No fixed key lifetime is known, so a reminder cronjob wouldn't help.
 
 
 30. Jointly check the consistency and cleanliness of the DSL.
@@ -231,7 +239,6 @@ on both houses before and after each removal -- see git history for the exact co
 31b. Maybe later: Sarah's bedroom cover rules (open/close from its door tap) "smart": slow speed
     at night, normal speed otherwise.
 
-
 32. Architectural review, code review and documenting
    - Note (2026-09-05): GO_CONVENTIONS.md §7/§8 specifies a three-layer parser architecture
      (character stream -> tokeniser -> recursive-descent, CDL1 bool-returning style, no `error`
@@ -277,8 +284,29 @@ on both houses before and after each removal -- see git history for the exact co
      its entity's last path segment, or after its domain), but it stays for the cases where the
      capability's name and the entity's path legitimately differ.
 
+35. Media player actions integration.
 
-38. FHEM/FS20 integration
+action: media_player.play_media
+target:
+  entity_id: media_player.social_house_living_room_tv
+data:
+  media_content_id: "Netflix"
+  media_content_type: app
+
+action: media_player.select_source
+target:
+  entity_id: media_player.social_house_living_room_apple_tv
+data:
+  source: Plex
+
+action: media_player.select_source
+target:
+  entity_id: media_player.social_house_living_room_apple_tv
+data:
+  source: Zwift
+
+
+36. FHEM/FS20 integration
 
     Note (2026-09-22, architectural decision, not yet designed in detail): some integrations
     (FHEM is the motivating case) bridge devices that accept on/off commands but never report
@@ -479,3 +507,7 @@ Test with shellys?
     the way `registerExportedHassBridgeDevices`/`crossPostHassBridgeToCloud`
     (Conceptual_DeviceExportRegistration.go/discoveryhassbridge.go) already do for a hassbridge
     device -- not yet designed.
+
+48. Future refinement (moved from 26 on 2026-11-02; not needed at the moment, Erik): device-type
+    templates -- a named template expanding into a whole device block (the "basic node" shape
+    first); to scope: parameters, where declared, what else would use it.
