@@ -369,6 +369,17 @@ turning a missing meter into `0`). The rules, per kind:
   internal heating/cover logic (`should_be_off`, `leakage_identified`, ...), whose automations
   would behave differently with an unavailable input.
 
+**Space means, and a sensor that is down (PROJECT.md 28, cross-checked 2026-11-02).** A space's
+climate readings (temperature, humidity, CO2, noise, pressure, illuminance) are Home Assistant
+sensor groups, `type: mean` with `ignore_non_numeric: true`: a member that is down is left out
+and the mean is over the rest; the group is unavailable only when all members are. A space's
+mean is over its own sensors and its direct sub-spaces' means, so each room weighs the same in
+its floor's or house's mean, whatever its number of sensors (Erik; before, the mean was over every
+sensor in the subtree, and Vienna's shower room counted four times). Binary space aggregates
+(windows, motion, leakage) are "any" groups: a member that is down counts as off, so one open
+window behind a dead sensor goes unseen there -- left so on purpose, as the sensor's node already
+reports it (`binary_sensor.infrastructural_nodes`, an "all" group).
+
 **`dependency on <id>;` is actually two separate compilation paths, not one (2026-10-04, revised
 2026-10-11).** `integration_logical_storage.go`:
 

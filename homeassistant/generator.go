@@ -1703,9 +1703,10 @@ var sensorSubdomains = []string{"co2", "humidity", "illuminance", "noise", "pres
 
 // generateSensorSubdomainGroups writes entities/sensor/social/<id>.yaml for every social
 // space (and for the social sphere as a whole) that contains at least one sensor entity
-// whose path ends with /<subdomain>.  Sensor groups use type:mean and collect all matching
-// sensor entities from the entire subtree under the space (not recursive social aggregates),
-// which is how the old bash system computed space-level climate readings.
+// whose path ends with /<subdomain>.  Sensor groups use type:mean over the space's own sensors
+// and the aggregates of its direct sub-spaces (sensorSubdomainMembers), so every room weighs the
+// same in the mean of its floor or house, whatever its number of sensors (PROJECT.md 28, Erik
+// 2026-11-02; before, the mean was over every sensor in the subtree, as in the old bash system).
 func generateSensorSubdomainGroups(outputDir string, admin *TAdministrationState) error {
 	writeSensorGroup := func(groupID, displayName string, memberIDs []string) error {
 		if !recordSpaceAggregate(admin, groupID, memberIDs) {
@@ -1729,13 +1730,13 @@ func generateSensorSubdomainGroups(outputDir string, admin *TAdministrationState
 			continue
 		}
 		for _, sub := range sensorSubdomains {
-			members := sensorSubdomainEntities(spaceName, sub, admin)
+			members := sensorSubdomainMembers(spaceName, sub, admin)
 			if len(members) == 0 {
 				continue
 			}
 			groupID := toHomeAssistantEntityID("sensor." + spaceName + "/" + sub)
 			displayName := spaceName + "/" + sub
-			if err := writeSensorGroup(groupID, displayName, entityNamesToIDs(sortedCopy(members))); err != nil {
+			if err := writeSensorGroup(groupID, displayName, members); err != nil {
 				return err
 			}
 		}
@@ -1743,13 +1744,13 @@ func generateSensorSubdomainGroups(outputDir string, admin *TAdministrationState
 
 	// Sphere-level aggregates: collect across all social-sphere spaces.
 	for _, sub := range sensorSubdomains {
-		members := sensorSubdomainEntities("social", sub, admin)
+		members := sensorSubdomainMembers("social", sub, admin)
 		if len(members) == 0 {
 			continue
 		}
 		groupID := toHomeAssistantEntityID("sensor.social/" + sub)
 		displayName := "social/" + sub
-		if err := writeSensorGroup(groupID, displayName, entityNamesToIDs(sortedCopy(members))); err != nil {
+		if err := writeSensorGroup(groupID, displayName, members); err != nil {
 			return err
 		}
 	}
@@ -1767,6 +1768,56 @@ func generateSensorSubdomainGroups(outputDir string, admin *TAdministrationState
 // device/node health sensors (e.g. "sensor.infrastructural:/smarty/cpu/temperature",
 // Conceptual_DeviceEntities.go), not room climate, and can be filed under a "social/..." space
 // bucket via a sphere-absolute path while having nothing to do with that room.
+// sensorSubdomainMembers returns the entity_ids a space's <subdomain> mean is taken over, sorted:
+// the space's own matching sensors (sensorSubdomainEntities' rules), and per direct sub-space with
+// any in its subtree, that sub-space's aggregate ("sensor.<sub-space>/<subdomain>" -- or the
+// positioned entity carrying that id, which stands for the sub-space instead). A sub-space is
+// direct when no other space lies between it and spaceName; "social" is the whole sphere.
+func sensorSubdomainMembers(spaceName, subdomain string, admin *TAdministrationState) []string {
+	spaces := map[string]bool{}
+	for _, s := range admin.SpaceOrder {
+		spaces[s] = true
+	}
+	parentOf := func(s string) string {
+		for p := s; strings.Contains(p, "/"); {
+			p = p[:strings.LastIndex(p, "/")]
+			if spaces[p] || p == "social" {
+				return p
+			}
+		}
+		return ""
+	}
+	seen := map[string]bool{}
+	var members []string
+	add := func(id string) {
+		if id != "" && !seen[id] {
+			seen[id] = true
+			members = append(members, id)
+		}
+	}
+	for _, rec := range admin.EntityRecordsBySpace[spaceName] {
+		if isSubdomainSensor(rec, subdomain) {
+			add(toHomeAssistantEntityID(rec.Name))
+		}
+	}
+	for _, s := range admin.SpaceOrder {
+		if s != spaceName && parentOf(s) == spaceName && len(sensorSubdomainEntities(s, subdomain, admin)) > 0 {
+			add(toHomeAssistantEntityID("sensor." + s + "/" + subdomain))
+		}
+	}
+	sort.Strings(members)
+	return members
+}
+
+// isSubdomainSensor reports whether rec is a sensor a space's <subdomain> mean collects (see
+// sensorSubdomainEntities).
+func isSubdomainSensor(rec TEntityRecord, subdomain string) bool {
+	return rec.Identity.Domain == "sensor" &&
+		rec.Identity.Sphere != "infrastructural" &&
+		strings.HasSuffix(rec.Identity.Path, "/"+subdomain) &&
+		!rec.NoCollect
+}
+
 func sensorSubdomainEntities(spaceName, subdomain string, admin *TAdministrationState) []string {
 	prefix := spaceName + "/"
 	seen := map[string]bool{}
@@ -1776,11 +1827,7 @@ func sensorSubdomainEntities(spaceName, subdomain string, admin *TAdministration
 			continue
 		}
 		for _, rec := range admin.EntityRecordsBySpace[s] {
-			if rec.Identity.Domain == "sensor" &&
-				rec.Identity.Sphere != "infrastructural" &&
-				strings.HasSuffix(rec.Identity.Path, "/"+subdomain) &&
-				!rec.NoCollect &&
-				!seen[rec.Name] {
+			if isSubdomainSensor(rec, subdomain) && !seen[rec.Name] {
 				seen[rec.Name] = true
 				result = append(result, rec.Name)
 			}
