@@ -42,10 +42,11 @@ user broke Logical.def work down into (at least) four distinct situations —
 4. ABSTRACTED entities that accommodate for device shortcomings (no state report-back,
    multi-broadcast radio, ...) — this FHEM case is specifically situation 4.
 
-Of these, (2) and (4) are the two the user flagged as candidates for living either IN the
-coordinator or in a separate component — genuinely open, not decided. (1) and (3) are more clearly
-coordinative (composition/derivation over already-known state), while (4) leans operational per
-this memory's own reasoning above. Read PROJECT.md item 11's own 2026-09-22 note alongside item 19
+Decided 2026-11-02 (Erik, closing PROJECT.md item 26): (1)-(3) are coordinative; timing (2)
+stays as built, template entities on main. (4) is operational and goes into the separate
+component, FHEM (PROJECT.md 36) as its first case (Architecture.md, "Coordinative or
+operational"). Before designing it, check the Home Assistant community's stance on radios via
+ESPHome, which Erik expects to be settled by then. Read PROJECT.md item 11's own 2026-09-22 note alongside item 19
 before designing either.
 
 **"Guarding automations"** (PROJECT.md item 12(3), added 2026-09-22): a related but distinct idea —

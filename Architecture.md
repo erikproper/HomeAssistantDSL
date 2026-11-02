@@ -609,6 +609,18 @@ comes from Logical.def. Exempt: hosts and commandline devices (their node comes 
 requests (events only, no state), and a plain "device X with dependency on Y;". On switching
 over, no device in either house lacked one.
 
+**Coordinative or operational (PROJECT.md 26, decided by Erik 2026-11-02).** Four kinds of
+logical-layer work: clustering capabilities, derived entities with timing, derived entities from
+other devices, and abstracted entities covering a device's shortcomings (no state reports,
+multi-broadcast radio). The first three compose state that already exists; timing (`delay_on`,
+`delay_off`) is generated as template entities on main, so Home Assistant keeps the time and the
+coordinator stays coordinative ("what is available"). The fourth is operational: remembering a
+device's expected state and re-broadcasting it is part of keeping the device in that state. It
+goes into a separate component, in its own container and held to a higher reliability bar than
+the coordinator -- a coordinator crash leaves state and commands flowing (Junglinster,
+2026-09-22), a crash of that component would let devices drift. FHEM (PROJECT.md 36) will be its
+first case.
+
 **A non-bridgeable entity pulls its whole device onto the same side of the boundary (2026-09-24).**
 The workaround above is per-*domain*: `weather`/`media_player`/etc. themselves can't be MQTT-
 discovered. But a device can mix a non-bridgeable entity with otherwise perfectly MQTT-capable
