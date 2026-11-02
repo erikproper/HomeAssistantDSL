@@ -190,6 +190,15 @@ type TAdministrationState struct {
 	// Read by resolveDeviceFriendlyName (device_friendly_name.go, PROJECT.md item 8).
 	DeviceNodeEntityID map[string]string
 
+	// PositionedCapabilities (PROJECT.md 25d): device id -> the capabilities Conceptual.def
+	// positions, recorded at the same choke point as DeviceNodeEntityID. Read by
+	// writeUnpositionedCapabilitiesReport (conceptual_unpositioned_report.go).
+	PositionedCapabilities map[string]map[string]bool
+
+	// UnpositionedDevices (PROJECT.md 25d): every declared device's positionable capabilities, the
+	// candidates for suggestions/conceptual.txt (conceptual_unpositioned_report.go).
+	UnpositionedDevices []TUnpositionedDevice
+
 	// EntityNameOwnerBySpace maps a space name to (final entity_id -> sourceKey, "<device-id>!
 	// <capability>") for whichever device/capability FIRST registered that entity_id via
 	// RegisterDiscoveryImpliedEntity. Lets that function's own per-space "already registered this
@@ -798,6 +807,7 @@ func newAdministrationState() *TAdministrationState {
 		DeviceConceptualLinks:        map[string]TDeviceConceptualLink{},
 		DevicePositioningOccurrences: map[string][]TDevicePositioningOccurrence{},
 		DeviceNodeEntityID:           map[string]string{},
+		PositionedCapabilities:       map[string]map[string]bool{},
 		EntityNameOwnerBySpace:       map[string]map[string]string{},
 		DiscoveryEntityLinks:         map[string]TDiscoveryEntityLink{},
 		DependsOnAvailabilityTopics:  map[string][]string{},

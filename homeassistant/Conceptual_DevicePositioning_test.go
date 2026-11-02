@@ -363,3 +363,36 @@ func TestRegisterDevicePositioningUnknownDeviceWarns(t *testing.T) {
 		t.Fatalf("warnings = %v, want exactly one naming the unknown device", warnings)
 	}
 }
+
+// TestDeviceWithOneLinerRejectsSecondWith: "device X with entity ... with no_collect;" has two
+// "with"s and is ignored (Erik, 2026-11-02); the block form takes "with no_collect".
+func TestDeviceWithOneLinerRejectsSecondWith(t *testing.T) {
+	const dsl = `space social:front as area with:
+  device switches.zwave_054 with entity switch.social:main from switch.core_1 with no_collect;
+  device switches.zwave_054 with:
+    entity switch.social:rear from switch.core_2 with no_collect;
+  end;
+end;`
+	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
+		"switches.zwave_054": {
+			DeviceID:    "switches.zwave_054",
+			Identifiers: []string{"zwavejs2mqtt_054"},
+			Capabilities: map[string]TDiscoveryCapability{
+				"core_1": {Domain: "switch", Leaf: "054-37-1-currentValue"},
+				"core_2": {Domain: "switch", Leaf: "054-37-2-currentValue"},
+			},
+		},
+	}
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", nil, &report, nil, discoveryGatewaysByID, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	links := result.Administration.DiscoveryEntityLinks
+	if _, ok := links["switch.social_front_main"]; ok {
+		t.Errorf("the one-liner with a second \"with\" was accepted")
+	}
+	if _, ok := links["switch.social_front_rear"]; !ok || len(links) != 1 {
+		t.Errorf("block form: want only switch.social_front_rear, got %v", links)
+	}
+}

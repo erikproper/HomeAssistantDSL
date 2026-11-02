@@ -286,9 +286,8 @@ func findSharedDevicePositions(admin *TAdministrationState, discoveryGatewaysByI
 // The anchor itself must be positioned in EXACTLY one space (same "there must be only one
 // possible answer" rule applyImpliedNodePositioning already applies) -- an anchor positioned
 // nowhere, or in more than one space, makes "the same position, plus a suffix" ambiguous, and is
-// reported instead of guessed. A colocated target that already has its OWN real position (a
-// genuine authoring conflict, not the use case this exists for) is also reported, not silently
-// double-registered.
+// reported instead of guessed. A colocated target may also have blocks of its own, positioning
+// further capabilities; its identity still comes from here.
 func applyColocatedPositioning(admin *TAdministrationState, logicalDevicesByID map[string]TLogicalDevice, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, hostDevicesByID map[string]THostDevice, commandlineDevicesByID map[string]TCommandlineDevice, localDevicesByID map[string]TLocalDevice, entitiesPath string) []string {
 	var warnings []string
 
@@ -312,9 +311,15 @@ func applyColocatedPositioning(admin *TAdministrationState, logicalDevicesByID m
 		occ := anchorOccurrences[0]
 
 		for _, fact := range anchor.Colocated {
-			if existing := admin.DevicePositioningOccurrences[fact.DeviceID]; len(existing) > 0 {
-				warnings = append(warnings, fmt.Sprintf("device %q is declared \"colocated\" with %q, but already has its own positioning in Conceptual.def -- remove one or the other", fact.DeviceID, anchorID))
-				continue
+			// The target may also have blocks of its own in Conceptual.def (Erik, 2026-11-02): they
+			// position capabilities nothing else uses -- anywhere, like a multi-switch's switches in
+			// several rooms -- while "colocated" alone positions the device as such (its identity,
+			// node and implied name). So the identity those blocks established is replaced below,
+			// keeping the capabilities they registered.
+			ownBlockLink := admin.DeviceConceptualLinks[fact.DeviceID]
+			hasOwnBlocks := len(admin.DevicePositioningOccurrences[fact.DeviceID]) > 0
+			if hasOwnBlocks {
+				delete(admin.DeviceConceptualLinks, fact.DeviceID)
 			}
 
 			// occ.DeviceNamePath is the anchor's own raw "as <leaf>" header text -- empty once
@@ -349,6 +354,18 @@ func applyColocatedPositioning(admin *TAdministrationState, logicalDevicesByID m
 			savedSpacePath := admin.SpacePath
 			admin.SpacePath = occ.SpacePath
 			positioningWarnings := registerDevicePositioning(admin, TDevicePositioningDeclaration{DeviceID: fact.DeviceID, Spec: newLeaf}, discoveryGatewaysByID, hostDevicesByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, 0)
+			if hasOwnBlocks {
+				link := admin.DeviceConceptualLinks[fact.DeviceID]
+				if link.AttributeEntityIDs == nil {
+					link.AttributeEntityIDs = map[string]TDeviceAttributeLink{}
+				}
+				for name, attribute := range ownBlockLink.AttributeEntityIDs {
+					if _, set := link.AttributeEntityIDs[name]; !set {
+						link.AttributeEntityIDs[name] = attribute
+					}
+				}
+				admin.DeviceConceptualLinks[fact.DeviceID] = link
+			}
 			// Self-sufficiently give the colocated target its own "node" entity here too, rather
 			// than counting on applyImpliedNodePositioning's later single-occurrence sweep to do it
 			// -- that sweep is going away (PROJECT.md's own 2026-10-08 two-step plan: every used

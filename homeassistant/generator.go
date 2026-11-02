@@ -77,6 +77,9 @@ func runGenerationFromDefFile(cwd, defPath string) error {
 	if err := generatePhysicalIntegrationOutputs(definitionDir, cwd, outputDir, admin); err != nil {
 		return err
 	}
+	if err := writeUnpositionedCapabilitiesReport(cwd, admin, admin.UnpositionedDevices); err != nil {
+		return err
+	}
 	// Last: every YAML-writing step, the physical layer's included, has recorded its entities.
 	if err := generateRegistryManifest(outputDir, admin); err != nil {
 		return err
@@ -324,6 +327,8 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 			}
 		}
 	}
+
+	admin.UnpositionedDevices = collectUnpositionedCapabilities(admin, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalByID)
 
 	if writeBack {
 		for _, w := range autoAssignDiscoveryStableIDs(definitionDir, discoveryGatewaysByID, admin) {

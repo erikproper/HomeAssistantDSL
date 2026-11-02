@@ -55,6 +55,7 @@ type TDeviceSourceEntityDeclaration struct {
 	LocalSpec string // "binary_sensor.infrastructural:laserjet/status" -- an ordinary entity spec, resolved the same way any other entity's is
 	Source    string // "sensor.hewlett_packard_...!some_attribute" -- the remote instance's own raw entity reference, "!attribute" optional
 	DeviceID  string // "hass.laserjet" from "from hass.laserjet"
+	NoCollect bool   // "with no_collect": kept out of the space's aggregates
 }
 
 // deviceSourceEntityPattern requires an explicit " as " clause -- this is what distinguishes it
@@ -163,7 +164,7 @@ func registerDeviceSourceEntityLink(administration *TAdministrationState, decl T
 		// detect reuse.
 		sourceCapability = decl.Source
 	}
-	administration.RegisterDiscoveryImpliedEntity(spaceName, fullName, provenance, decl.DeviceID+"!"+sourceCapability, false)
+	administration.RegisterDiscoveryImpliedEntity(spaceName, fullName, provenance, decl.DeviceID+"!"+sourceCapability, decl.NoCollect)
 	if device.Capabilities == nil {
 		device.Capabilities = map[string]THassBridgeCapability{}
 		hassBridgeDevicesByID[decl.DeviceID] = device
@@ -325,7 +326,7 @@ func registerImportedDeviceSourceEntityLink(administration *TAdministrationState
 	}
 
 	spaceName := administration.CurrentSpaceName()
-	administration.RegisterDiscoveryImpliedEntity(spaceName, fullName, provenance, decl.DeviceID+"!"+capabilityKey, false)
+	administration.RegisterDiscoveryImpliedEntity(spaceName, fullName, provenance, decl.DeviceID+"!"+capabilityKey, decl.NoCollect)
 
 	link.AttributeEntityIDs[capabilityKey] = TDeviceAttributeLink{EntityID: entityID, Identity: identity}
 	administration.DeviceConceptualLinks[decl.DeviceID] = link

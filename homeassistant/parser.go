@@ -298,6 +298,11 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			for _, w := range warnings {
 				fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
 			}
+			if strings.HasSuffix(embeddedEntity, "with no_collect;") {
+				// Two "with"s on one statement (Erik, 2026-11-02): a property of the entity needs the block.
+				fmt.Fprintf(os.Stderr, "[WARNING] %s line %d: \"device %s with %s\" has two \"with\"s; write \"device %s with: %s end;\"; ignored\n", entitiesPath, sourceLine(i), oneLinerDecl.DeviceID, embeddedEntity, oneLinerDecl.DeviceID, embeddedEntity)
+				continue
+			}
 			oneLinerDeviceNamePath := "" // the grammar can no longer author a non-empty leaf here either -- see forDeviceNamePath's own doc comment above
 			oneLinerCapabilityIsInferred := false
 			expanded, expandOK := expandForDeviceShorthandLine(embeddedEntity, oneLinerDecl.DeviceID)

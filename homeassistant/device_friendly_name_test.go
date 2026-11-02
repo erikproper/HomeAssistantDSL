@@ -86,3 +86,39 @@ func TestApplyColocatedPositioningWarnsOnAmbiguousAnchor(t *testing.T) {
 		t.Errorf("switch.living_room_tv should not have been positioned when the anchor itself is ambiguous")
 	}
 }
+
+// TestApplyColocatedPositioningKeepsOwnBlocks: a colocated device may also have a block of its own
+// (Erik, 2026-11-02), here in another space, positioning a capability nothing else uses; the
+// device's identity still comes from "colocated", and that capability stays.
+func TestApplyColocatedPositioningKeepsOwnBlocks(t *testing.T) {
+	admin := newAdministrationState()
+	localDevicesByID := map[string]TLocalDevice{
+		"switch.living_room_tv":    {DeviceID: "switch.living_room_tv", Capabilities: map[string]TLocalCapability{"node": {Domain: "binary_sensor"}}},
+		"appliance.living_room_tv": {DeviceID: "appliance.living_room_tv", Capabilities: map[string]TLocalCapability{}},
+	}
+	logicalByID := map[string]TLogicalDevice{
+		"appliance.living_room_tv": {
+			DeviceID:  "appliance.living_room_tv",
+			Colocated: []TLogicalColocatedFact{{DeviceID: "switch.living_room_tv", LeafSuffix: "switch"}},
+		},
+	}
+	if w := registerDevicePositioning(admin, TDevicePositioningDeclaration{DeviceID: "appliance.living_room_tv", Spec: "tv"}, nil, nil, nil, nil, nil, localDevicesByID, logicalByID, "Conceptual.def", 1); len(w) != 0 {
+		t.Fatalf("positioning the anchor: %v", w)
+	}
+	admin.SpacePath = []string{"social:hallway"}
+	if w := registerDevicePositioning(admin, TDevicePositioningDeclaration{DeviceID: "switch.living_room_tv"}, nil, nil, nil, nil, nil, localDevicesByID, logicalByID, "Conceptual.def", 9); len(w) != 0 {
+		t.Fatalf("the target's own block: %v", w)
+	}
+	link := admin.DeviceConceptualLinks["switch.living_room_tv"]
+	link.AttributeEntityIDs["temperature"] = TDeviceAttributeLink{EntityID: "sensor.social_hallway_temperature"}
+	admin.DeviceConceptualLinks["switch.living_room_tv"] = link
+	admin.SpacePath = nil
+
+	if w := applyColocatedPositioning(admin, logicalByID, nil, nil, nil, nil, nil, localDevicesByID, "Conceptual.def"); len(w) != 0 {
+		t.Fatalf("applyColocatedPositioning: %v", w)
+	}
+	link = admin.DeviceConceptualLinks["switch.living_room_tv"]
+	if link.DisplayName != "tv/switch" || link.AttributeEntityIDs["temperature"].EntityID != "sensor.social_hallway_temperature" {
+		t.Errorf("want the colocated name and the own block's capability, got %+v", link)
+	}
+}

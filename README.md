@@ -296,6 +296,30 @@ over the cover's `derived value` for its own source. It is never positioned by a
 brings `cover.social:slow`). The generated cover control (the "when away" helpers and scripts)
 handles each cover once and moves its slow shadow.
 
+### Gateway liveness
+
+A gateway device (in `integration discovery` or `integration mqtt`) can say how the coordinator
+checks that it works, also when it hangs while still connected:
+
+```
+device integration.zigbee2mqtt with:
+  ...
+  liveness with:
+    traffic "zigbee2mqtt/#" quiet for 00:05:00;
+    ignore "zigbee2mqtt/#/set", "zigbee2mqtt/#/get", "zigbee2mqtt/#/retain", "zigbee2mqtt/bridge/request/#";
+    ask "zigbee2mqtt/bridge/request/health_check" with "";
+    answer on "zigbee2mqtt/bridge/response/health_check" has data.healthy within 00:00:30;
+    verdict on "zigbee2mqtt/bridge/state" online "{\"state\":\"online\"}" offline "{\"state\":\"offline\"}";
+  end;
+end;
+```
+
+After `quiet for` without traffic (minus `ignore`, where `#` may also stand mid-filter), the
+coordinator asks; `answer ... is "<payload>"` takes an exact answer instead of `has <field>` (a
+JSON field that must be true). `misses <n>;` (default 2) unanswered questions in a row write the
+offline payload on the verdict topic, which the entities' availability reads. The generator writes
+the blocks to `coordinator/liveness.yaml`. See Architecture.md §6.16.
+
 ### Devices (cross-house import)
 
 `Physical.def`'s `integration import with: ... end;` block pulls in a device another installation

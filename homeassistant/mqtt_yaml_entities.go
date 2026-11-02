@@ -325,6 +325,9 @@ func generateYAMLMQTTEntities(definitionDir string, gateways map[string]TDiscove
 			reports = append(reports, fmt.Sprintf("metadata topics: %v", err))
 		}
 	}
+	if err := writeLivenessFile(ctx.OutputRoot, gateways); err != nil {
+		reports = append(reports, fmt.Sprintf("liveness: %v", err))
+	}
 	data, err := yaml.Marshal(TRetainShadowsFile{Topics: shadowedList})
 	if err == nil {
 		err = writeYAMLFile(filepath.Join(ctx.OutputRoot, "coordinator", "retain_shadows.yaml"), generatorHeader+string(data))

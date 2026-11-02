@@ -159,10 +159,10 @@ func expandDeviceAtLeafDoubleColon(line, atLeaf string) string {
 
 // deviceWithOneLinerPattern is "device <device-id> with <entity-statement>;" -- sugar for a
 // single-capability block, skipping the "end;" wrapper. <entity-statement> is captured whole
-// (group 2) and handed to the same bare "entity <spec> [with no_collect];"
-// (forDeviceBareEntityPattern) / "entity <spec> from <capability> [with no_collect];"
-// (forDeviceShorthandPattern) expansion a block's own body line already goes through --
-// Conceptual_DeviceCapabilityEntities.go, unchanged.
+// (group 2) and handed to the same bare "entity <spec>;" (forDeviceBareEntityPattern) / "entity
+// <spec> from <capability>;" (forDeviceShorthandPattern) expansion a block's own body line already
+// goes through -- Conceptual_DeviceCapabilityEntities.go, unchanged. No second "with" (Erik,
+// 2026-11-02): "with no_collect" here is rejected (parser.go); that takes the block form.
 var deviceWithOneLinerPattern = regexp.MustCompile(`^device\s+(\S+)\s+with\s+(entity\s+.+;)$`)
 
 // extractDeviceWithOneLiner recognises the one-liner form, returning the positioning declaration

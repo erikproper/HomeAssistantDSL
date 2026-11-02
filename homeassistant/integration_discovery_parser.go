@@ -178,6 +178,15 @@ func parseDiscoveryDeviceBody(cur *TLineCursor, deviceID, parentDeviceID string)
 			cur.Advance()
 			continue
 		}
+		if line == livenessBlockHeader {
+			cur.Advance()
+			decl, w := parseLivenessBlock(cur, deviceID)
+			warnings = append(warnings, w...)
+			if decl != nil {
+				current.Liveness = decl
+			}
+			continue
+		}
 		if line == "is retained;" || line == "is not retained;" {
 			declaration := retainDeclared
 			if line == "is not retained;" {

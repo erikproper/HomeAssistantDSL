@@ -422,6 +422,10 @@ func registerDeviceCapabilityEntityLinkAllowingHidden(administration *TAdministr
 			administration.DeviceNodeEntityID[decl.DeviceID] = entityID
 		}
 	}
+	if administration.PositionedCapabilities[decl.DeviceID] == nil {
+		administration.PositionedCapabilities[decl.DeviceID] = map[string]bool{}
+	}
+	administration.PositionedCapabilities[decl.DeviceID][bareName] = true
 
 	extraWarnings, extraDeferred := maybeRegisterSwitchedByRelation(administration, decl, bareName, deviceNamePath, logicalDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, hostDevicesByID, localDevicesByID, finalAttempt, entitiesPath, lineNum)
 	return append(warnings, extraWarnings...), extraDeferred
@@ -601,8 +605,9 @@ func registerDeviceCapabilityEntityLinkAllowingHiddenCore(administration *TAdmin
 			// capabilityKey (bareName) is non-empty below, so registerDeviceSourceEntityLink
 			// preserves capability's own already-per-instance Sources map unchanged -- this Source
 			// value is display-only (the provenance string on a rare error path).
-			Source:   representativeSource(capability.Sources),
-			DeviceID: decl.DeviceID,
+			Source:    representativeSource(capability.Sources),
+			DeviceID:  decl.DeviceID,
+			NoCollect: decl.NoCollect,
 		}, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, lineNum, finalAttempt, bareName, deviceNamePath)
 		// A capability with a slow-speed shadow ("slow speed ...;", 2026-10-23) brings it along:
 		// "<domain>.<sphere>:<path>" implies "<domain>.<sphere>:slow/<path>", no line of its own.
@@ -612,6 +617,7 @@ func registerDeviceCapabilityEntityLinkAllowingHiddenCore(administration *TAdmin
 				LocalSpec: slowSpeedLocalSpec(decl.LocalSpec),
 				Source:    representativeSource(slow.Sources),
 				DeviceID:  decl.DeviceID,
+				NoCollect: decl.NoCollect,
 			}, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, lineNum, finalAttempt, slowLabel, deviceNamePath)
 			if !deferred && len(warnings) == 0 {
 				attributes := administration.DeviceConceptualLinks[decl.DeviceID].AttributeEntityIDs
@@ -638,6 +644,7 @@ func registerDeviceCapabilityEntityLinkAllowingHiddenCore(administration *TAdmin
 		return registerDeviceSourceEntityLink(administration, TDeviceSourceEntityDeclaration{
 			LocalSpec: decl.LocalSpec,
 			DeviceID:  decl.DeviceID,
+			NoCollect: decl.NoCollect,
 		}, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, lineNum, finalAttempt, bareName, deviceNamePath)
 	}
 

@@ -153,6 +153,9 @@ type TDiscoveryGatewayDevice struct {
 	// "retained topics" filters (retain_shadows.go). Unset, the filters decide. Not inherited by
 	// nested devices.
 	Retain TRetainDeclaration
+	// Liveness (PROJECT.md 25c): the device's "liveness with: ... end;" block, nil without one
+	// (physical_liveness.go).
+	Liveness *TLivenessDecl
 	// IgnoreOwnAvailability (PROJECT.md 22b, 2026-10-28), from an "ignore own availability;" body
 	// line: this device's entities keep only the availability entries its gateway shares with its
 	// other devices (e.g. zigbee2mqtt/bridge/state), not the ones that are its own (e.g.

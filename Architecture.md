@@ -1293,6 +1293,14 @@ ambiguous) and calls `registerDevicePositioning` for the colocated device with t
 the declared leaf; the colocated device's own `node` is then auto-implied for free by the
 mechanism above, since register-once also records its own occurrence.
 
+`colocated` positions the device as such: its identity, node and implied name (Erik, 2026-11-02).
+Its capabilities that nothing else uses can still be positioned anywhere in blocks of its own,
+like a multi-switch's switches in several rooms -- Vienna's washing machine plug
+(`switch.washing_machine`, colocated with and partly absorbed by `appliance.washing_machine`)
+positions its own temperature with `device switch.washing_machine with: entity
+sensor.social:washing_machine/temperature from sensor.temperature; end;`. Such a block no longer
+conflicts; the identity it would establish is replaced by the colocated one.
+
 **Commandline's own `dependency on <id>;`** is declared directly inside Physical.def's
 `integration commandline with: device <id> <host> with: ...; end;` block, *not* via a separate
 Logical.def entry like hassbridge/import — confirmed with the user 2026-10-07: commandline is a
@@ -1486,6 +1494,17 @@ the UI shows the registry name, not the friendly_name).
   (commented out in both houses' Settings.def; its default is the same).
 - *Suggestions* (`suggestions/discovery.txt`) are copy-paste-ready capability lines
   (`capability <domain>.<label> <leaf>;`).
+- *Suggestions at two levels (PROJECT.md 25d, 2026-11-02).* `discovery.txt` and
+  `home_assistant_<instance>.txt` list what the integrations offer and Physical.def doesn't declare
+  yet: candidates for capabilities. `suggestions/conceptual.txt` lists the next level: what
+  Physical.def and Logical.def declare and Conceptual.def doesn't position, per device -- first
+  the positioned devices (an absorbed capability counts), then those never positioned
+  (`conceptual_unpositioned_report.go`). Positioned means a conceptual entity exists, however it
+  came: a Conceptual.def line, an `export`, a firmware update, a request's physical event
+  (`ConceptualUseBySource`). Left out: hidden capabilities and absorbed ones. A capability something
+  else uses -- a derived capability's source, a request's or node's condition, `is switched by`,
+  `dependency on` (the node) -- is listed with `# used by ...`: it works without a position and
+  may not need one.
 
 **A device's own availability versus its gateway's (PROJECT.md 22b, 2026-10-28).** A discovered
 device's entities take their availability from its gateway's discovery configs, which mix two
@@ -1537,7 +1556,43 @@ Where the node's topic comes from depends on who controls it:
   after 5 minutes of quiet does the coordinator send `ping` on `homeassistant_instances/<instance>/
   ping`, which a generated automation on the instance answers with `pong` on the same topic; no
   pong within 30 s is `offline`. The status is retained and the node's availability includes the
-  coordinator's own (without it, nobody keeps the status).
+  coordinator's own (without it, nobody keeps the status). Since 2026-11-01 this is one case of the
+  generic gateway liveness below; the coordinator's own inquiry on `.../inquire` (about every 70 s)
+  and main's commands no longer count as signs of life -- before, the inquiry kept the instance
+  from ever going quiet, so ha2mqtt was never actually pinged after the start.
+
+**Gateway liveness beyond the Last Will (PROJECT.md 25c, 2026-11-01, Erik's design; plan:
+`claude-notes/plans/gateway-liveness.md`).** A gateway's Last Will covers a stop or a frozen
+process (its keep-alives stop too: a `podman pause` of Vienna's Zigbee2MQTT, 2026-11-01, had the
+broker publish the Last Will after 90 s), not a hang while still connected (e.g. a dead adapter). A
+gateway device in Physical.def (in `integration discovery` or `integration mqtt`) declares how to
+check it:
+
+```
+liveness with:
+  traffic "zigbee2mqtt/#" quiet for 00:05:00;
+  ignore "zigbee2mqtt/#/set", "zigbee2mqtt/#/get", "zigbee2mqtt/#/retain", "zigbee2mqtt/bridge/request/#";
+  ask "zigbee2mqtt/bridge/request/health_check" with "";
+  answer on "zigbee2mqtt/bridge/response/health_check" has data.healthy within 00:00:30;
+  verdict on "zigbee2mqtt/bridge/state" online "{\"state\":\"online\"}" offline "{\"state\":\"offline\"}";
+end;
+```
+
+The generator writes these to `coordinator/liveness.yaml` (`homeassistant/physical_liveness.go`);
+the coordinator (`house_event_bus_coordinator/liveness.go`) knows no gateway. Erik decided the
+coordinator asks, not rules on main. Live, non-retained traffic is a sign of life, minus `ignore`
+(commands from main and the coordinator's own shadows, which the broker forwards without the retain
+flag; `#` may stand mid-filter there, as device names contain slashes). After the quiet period it
+asks; a healthy answer (`is "<payload>"`, or `has <field>`: a JSON field that is true) within the
+time is life; `misses` (default 2) unanswered questions in a row write `offline`, retained, on the
+verdict topic; the next sign of life writes `online` (the gateway overwrites it itself anyway). In
+both houses: Zigbee2MQTT; in Junglinster also Z-Wave JS UI (`getInfo` on its MQTT API, `has
+success`, verdict on its client status, whose `value` field the entities read).
+
+Not yet seen live: the connected-hang path (two misses, then `offline`). A pause triggers the Last
+Will first, so it is only covered by `TestGatewayLiveness`; Erik left the real test to a real hang.
+When one happens, check the coordinator log for `[liveness] <device>: <offline payload>` and the
+entities going unavailable.
 
 **Via versus dependency (PROJECT.md 25, 2026-10-29).** `via_device` (Physical.def metadata,
 captured or `forced`) means data flows through that device; `dependency on` (Logical.def) means it
@@ -1584,13 +1639,13 @@ every 15 minutes. After a start or an automation reload (a deploy), when an enti
 unavailable without a change to trigger on, a `.../start` companion waits the longest guard time
 once and then, by an event, has the guard reload each config entry still down (with its
 while-condition) once. In Junglinster: the Netatmo CO2 sensors (on ha2mqtt, `at most every
-24:00:00`), the two Ring cameras and the Sonos headphones (on main, each while its ping node is up).
+01:00:00`), the two Ring cameras and the Sonos headphones (on main, each while its ping node is up).
 
 Every reload counts against the integration's own API limit. Found 2026-11-01: after a container
 restart the guard reloaded Netatmo six times in a second (once per CO2 sensor, the same config
 entry), Netatmo answered "429 Too Many Requests", and its entities stayed away for over an hour --
 Netatmo setups went from about one a day before the guard to up to 14. Hence one reload per config
-entry, and Netatmo's one-day pause.
+entry, and Netatmo's pause of an hour (a day at first; too long when sensors drop off, Erik).
 
 Node positioning, a fix (2026-10-28): a derived node whose condition refers to another device's
 node ("condition node from integration.zigbee2mqtt") materializes that node itself when it isn't

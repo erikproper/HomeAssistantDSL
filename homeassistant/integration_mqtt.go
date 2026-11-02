@@ -90,6 +90,14 @@ func parseMQTTIntegrationBody(bodyLines []string) ([]TDiscoveryGatewayDevice, []
 			current.Retain = retainDeclared
 		case line == "is not retained;":
 			current.Retain = retainNotDeclared
+		case line == livenessBlockHeader:
+			cur.Advance()
+			decl, w := parseLivenessBlock(cur, current.DeviceID)
+			warnings = append(warnings, w...)
+			if decl != nil {
+				current.Liveness = decl
+			}
+			cur.pos-- // past the block's "end;"; the loop advances
 		case mqttMetadataTopicPattern.MatchString(line):
 			m := mqttMetadataTopicPattern.FindStringSubmatch(line)
 			if !knownConstantDeviceAttributes[m[1]] {

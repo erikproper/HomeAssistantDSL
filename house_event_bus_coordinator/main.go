@@ -251,6 +251,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+	livenessFile, err := loadLivenessFile(filepath.Join(coordinatorDir, "liveness.yaml"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
 	retainShadowsFile, err := loadRetainShadowsFile(filepath.Join(coordinatorDir, "retain_shadows.yaml"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -599,6 +604,11 @@ func main() {
 
 	// PROJECT.md 26: each bridged instance's liveness, by ping-pong.
 	if err := startInstanceLiveness(client, homeAssistantInstancesFile.Instances); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	// PROJECT.md 25c: each declared gateway's liveness (Physical.def's "liveness with:").
+	if err := startGatewayLiveness(client, livenessFile); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
