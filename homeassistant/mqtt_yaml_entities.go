@@ -352,6 +352,11 @@ func yamlEntityBody(relayed map[string]interface{}, domain string, gateway TDisc
 	}
 	for field, attribute := range gateway.Metadata {
 		copied[field] = attribute.Value
+		// A via_device names a declared device; Home Assistant knows a discovered one by its own
+		// identifier (the Zigbee2MQTT bridge's), any other by its id (PROJECT.md 26 A1).
+		if identifier := discoveryDeviceIdentifiers[attribute.Value]; field == "via_device" && identifier != "" {
+			copied[field] = identifier
+		}
 	}
 	if area != "" {
 		copied["suggested_area"] = area

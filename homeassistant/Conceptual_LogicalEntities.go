@@ -459,6 +459,18 @@ func resolveLogicalSiblingSourceEntityID(administration *TAdministrationState, d
 					candidates = append(candidates, id)
 				}
 			}
+			// A capability derived in Physical.def (a node "with condition ... is available", a
+			// "derived ... from ... via ...") has no leaf of its own: its positioned entity is the
+			// generated one carrying its source key (PROJECT.md 26 B, 2026-11-02: an aggregate's
+			// node over the nodes of the devices it absorbs from).
+			if siblingCapability.Leaf == "" {
+				sourceKey := "physical:" + deviceID + "!" + lookupLabel
+				for id, key := range administration.SourceKeyByEntityID {
+					if key == sourceKey {
+						candidates = append(candidates, id)
+					}
+				}
+			}
 			if len(candidates) > 0 {
 				sort.Strings(candidates)
 				return candidates[0], true, false

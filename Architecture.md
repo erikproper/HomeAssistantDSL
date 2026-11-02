@@ -577,6 +577,30 @@ houses' entire Physical.def/Logical.def in one pass, via a single kind-agnostic 
 covering every integration's own capability-line shape, verified by hand against a dry run before
 touching the real files) -- both houses regenerate byte-identical, so no deploy was needed.
 
+**An aggregate is a new logical device absorbing from several (PROJECT.md 26, 2026-11-02).** A
+device that exists only in Logical.def can absorb from any number of devices; no separate
+`aggregate`, `complement` or `virtual device` construct is needed (Erik). Like every logical
+device it needs its own node, naturally the conjunction of its sources' nodes:
+
+```
+device appliance.kitchen_and_shower with:
+  derived capability binary_sensor.node with:
+    condition node from appliance.dishwasher and node from appliance.radiator;
+  end;
+  absorb from appliance.dishwasher:
+    capability sensor.voltage;
+  end;
+  absorb from appliance.radiator:
+    capability sensor.radiator_voltage from sensor.voltage;
+  end;
+end;
+```
+
+A source's node derived in Physical.def (`with condition switch.switch is available`) has no
+raw leaf; `node from <device>` resolves it to its generated entity by source key
+(`resolveLogicalSiblingSourceEntityID`). Before that fix, the condition reported the node as
+unpositioned.
+
 **A non-bridgeable entity pulls its whole device onto the same side of the boundary (2026-09-24).**
 The workaround above is per-*domain*: `weather`/`media_player`/etc. themselves can't be MQTT-
 discovered. But a device can mix a non-bridgeable entity with otherwise perfectly MQTT-capable

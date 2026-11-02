@@ -887,3 +887,22 @@ func TestRegisterLogicalDerivedConditionCapabilityResolvesDiscoverySibling(t *te
 		}
 	}
 }
+
+// TestResolveLogicalSiblingSourceEntityIDDerivedDiscoveryNode: another device's node derived in
+// Physical.def ("with condition switch.switch is available") has no leaf; it resolves to the
+// generated entity carrying its source key (PROJECT.md 26 B, 2026-11-02: an aggregate's node over
+// the nodes of the devices it absorbs from).
+func TestResolveLogicalSiblingSourceEntityIDDerivedDiscoveryNode(t *testing.T) {
+	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
+		"appliance.dishwasher": {
+			DeviceID:     "appliance.dishwasher",
+			Capabilities: map[string]TDiscoveryCapability{"node": {Domain: "binary_sensor", AvailabilityOf: "switch"}},
+		},
+	}
+	admin := newAdministrationState()
+	admin.SourceKeyByEntityID["binary_sensor.infrastructural_kitchen_dishwasher_node"] = "physical:appliance.dishwasher!node"
+	id, ok, isLiteral := resolveLogicalSiblingSourceEntityID(admin, "appliance.dishwasher", "node", true, false, true, discoveryGatewaysByID, nil, nil, nil, "test")
+	if !ok || isLiteral || id != "binary_sensor.infrastructural_kitchen_dishwasher_node" {
+		t.Errorf("got (%q, ok=%v, literal=%v), want the derived node's generated entity", id, ok, isLiteral)
+	}
+}
