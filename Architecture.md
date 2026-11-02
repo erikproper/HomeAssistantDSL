@@ -601,6 +601,14 @@ raw leaf; `node from <device>` resolves it to its generated entity by source key
 (`resolveLogicalSiblingSourceEntityID`). Before that fix, the condition reported the node as
 unpositioned.
 
+**Every device has a node: a hard error (PROJECT.md 26, Erik 2026-11-02).** Rule 1, once a
+warning for home_assistant and import devices and for a device only Logical.def declares, now
+covers every kind and stops generate (`validateEveryDeviceHasNode`, rule_node_capability.go): the
+node may be declared in Physical.def or added in Logical.def -- a Hue Tap's or the EMS heater's
+comes from Logical.def. Exempt: hosts and commandline devices (their node comes with their kind),
+requests (events only, no state), and a plain "device X with dependency on Y;". On switching
+over, no device in either house lacked one.
+
 **A non-bridgeable entity pulls its whole device onto the same side of the boundary (2026-09-24).**
 The workaround above is per-*domain*: `weather`/`media_player`/etc. themselves can't be MQTT-
 discovered. But a device can mix a non-bridgeable entity with otherwise perfectly MQTT-capable
@@ -1116,6 +1124,12 @@ config, and the importing coordinator -- which remembers which topic fed which c
 an empty message carries no `export_id` -- drops the catalogue entry and marks the capability
 known-not-to-exist ("missing declared entities" turns on). A rename on the exporting side clears
 the old topic too; the entry stays when the new topic already feeds the same capability.
+
+**An export carries one node (a constraint to keep, moved from PROJECT.md 26 on 2026-11-02).** An
+exported device publishes exactly one node boolean, its own, already combining whatever it
+depends on in the exporting house. The importer sees only that node and its own link to the cloud
+broker, never the exporter's chain of gateways and dependencies: those are the other house's
+devices, and its availability graph stays its own.
 
 ### 6.13 Command routing for hassbridge entities (PROJECT.md item 11)
 

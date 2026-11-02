@@ -150,16 +150,13 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 		fmt.Printf("[physical] %s\n", w)
 	}
 
-	for _, w := range validateNodeCapabilityRequired(hassBridgeDevicesByID, importedDevicesByID) {
-		fmt.Printf("[physical] %s\n", w)
-	}
-
 	for _, w := range applyEnabledBy(logicalByID, localDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID) {
 		fmt.Printf("[logical] %s\n", w)
 	}
 
-	for _, w := range validateLogicalNodeCapabilityRequired(logicalByID, hostDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, localDevicesByID) {
-		fmt.Printf("[logical] %s\n", w)
+	// Every device has a node (PROJECT.md 26, a hard error since 2026-11-02).
+	if problems := validateEveryDeviceHasNode(logicalByID, hostDevicesByID, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, commandlineDevicesByID, localDevicesByID); len(problems) > 0 {
+		return nil, fmt.Errorf("%s", strings.Join(problems, "\n"))
 	}
 
 	for _, w := range validateHassBridgeAvailabilitySources(hassBridgeDevicesByID) {

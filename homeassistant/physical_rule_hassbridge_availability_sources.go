@@ -88,9 +88,8 @@ func resolveHassBridgeAvailabilityLabelReferences(hassBridgeDevicesByID map[stri
 // validateHassBridgeAvailabilitySources checks every hassbridge device's "... is available;"
 // capability sources against that SAME device's own other, plain (non-"is available") capability
 // sources -- the referenced entity_id must match at least one of them (any declaring instance),
-// or it's flagged as a likely typo. Warning-only, matching this codebase's own precedent for
-// every other Physical.def hard-enforcement rule (validateNodeCapabilityRequired,
-// validateDerivedCapabilities, ...).
+// or it's flagged as a likely typo. Warning-only, like validateDerivedCapabilities (the node rule,
+// validateEveryDeviceHasNode, is an error since 2026-11-02).
 func validateHassBridgeAvailabilitySources(hassBridgeDevicesByID map[string]THassBridgeDevice) []string {
 	var warnings []string
 
