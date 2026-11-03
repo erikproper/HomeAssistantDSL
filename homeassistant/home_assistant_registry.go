@@ -167,8 +167,10 @@ type registryEntry struct {
 	ConfigEntryID string `json:"config_entry_id"`
 }
 
-func (e registryEntry) domain() string   { return entityDomain(e.EntityID) }
-func (e registryEntry) isYAML() bool     { return registryYAMLPlatforms[e.Platform] && e.ConfigEntryID == "" }
+func (e registryEntry) domain() string { return entityDomain(e.EntityID) }
+func (e registryEntry) isYAML() bool {
+	return registryYAMLPlatforms[e.Platform] && e.ConfigEntryID == ""
+}
 func (e registryEntry) key() registryKey { return registryKey{e.domain(), e.UniqueID} }
 
 // registryKey is how HA keys its registry -- (domain, unique_id): one unique_id may well appear in

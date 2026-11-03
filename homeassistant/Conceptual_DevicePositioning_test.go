@@ -400,11 +400,11 @@ end;`
 // every relative entity spec, and only into those (PROJECT.md 30).
 func TestFoldDeviceLeaf(t *testing.T) {
 	for line, want := range map[string]string{
-		"entity sensor.infrastructural:battery_level;":         "entity sensor.infrastructural:door/moes/battery_level;",
-		"entity event.physical: from event.pressed;":           "entity event.physical:door/moes from event.pressed;",
-		"entity event.physical:;":                              "entity event.physical:door/moes;",
-		"entity sensor.infrastructural:/rack/node;":            "entity sensor.infrastructural:/rack/node;",
-		"entity binary_sensor.social/apartment/bedroom/door;":  "entity binary_sensor.social/apartment/bedroom/door;",
+		"entity sensor.infrastructural:battery_level;":        "entity sensor.infrastructural:door/moes/battery_level;",
+		"entity event.physical: from event.pressed;":          "entity event.physical:door/moes from event.pressed;",
+		"entity event.physical:;":                             "entity event.physical:door/moes;",
+		"entity sensor.infrastructural:/rack/node;":           "entity sensor.infrastructural:/rack/node;",
+		"entity binary_sensor.social/apartment/bedroom/door;": "entity binary_sensor.social/apartment/bedroom/door;",
 		"entity light.social:main from light not aggregated;": "entity light.social:door/moes/main from light not aggregated;",
 	} {
 		if got := foldDeviceLeaf(line, "door/moes"); got != want {
