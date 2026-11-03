@@ -145,13 +145,13 @@ func foldSingleMemberBlocks(statements []tDefStatement) []tDefStatement {
 // foldedBlockHeader returns header without its ":" when "<header> <member>" is the one-line form of
 // that block in the grammar:
 //
-//   - "device <id> with entity ...;" (Conceptual.def; without a second "with", which needs the block),
+//   - "device <id> with entity ...;" (Conceptual.def),
 //   - "derived capability ... with condition ...;" and "... with value ...;" (Physical.def, Logical.def),
 //   - "then <action>;" (a rule).
 func foldedBlockHeader(header, member string) (string, bool) {
 	switch {
 	case defDeviceBlockHeaderPattern.MatchString(header):
-		return strings.TrimSuffix(header, ":"), strings.HasPrefix(member, "entity ") && !strings.Contains(withoutQuotedText(member), " with ")
+		return strings.TrimSuffix(header, ":"), strings.HasPrefix(member, "entity ")
 	case defDerivedBlockHeaderPattern.MatchString(header):
 		return strings.TrimSuffix(header, ":"), strings.HasPrefix(member, "condition ") || strings.HasPrefix(member, "value ")
 	case header == "then:":
@@ -162,7 +162,7 @@ func foldedBlockHeader(header, member string) (string, bool) {
 
 var (
 	defDeviceBlockHeaderPattern  = regexp.MustCompile(`^device\s+\S+\s+with:$`)
-	defDerivedBlockHeaderPattern = regexp.MustCompile(`^(?:hidden\s+)?derived\s+capability\s+\S+(?:\s+as\s+\S+)?\s+with:$`)
+	defDerivedBlockHeaderPattern = regexp.MustCompile(`^(?:internal\s+)?derived\s+capability\s+\S+(?:\s+as\s+\S+)?\s+with:$`)
 )
 
 // defSettingLinePattern matches a setting line, "${<name>} = <value>;" (with its indentation).

@@ -50,7 +50,7 @@ type TDiscoveryEntityDeclaration struct {
 }
 
 // discoveryEntityPattern requires the line to end directly in ";" (optionally preceded by a
-// trailing "with no_collect" -- same single-property shorthand a bare "entity <spec> with <X>;"
+// trailing "not aggregated" -- same single-property shorthand a bare "entity <spec> with <X>;"
 // declaration already uses, analyzeEntityDefinitionContext) with no "with: ... end;" block -- this
 // is what distinguishes it from "entity device.<spec> from <device-id> with: ...;"
 // (Conceptual_DeviceEntities.go), which must be checked first in the parse loop since its own
@@ -60,10 +60,10 @@ type TDiscoveryEntityDeclaration struct {
 // convention, not special syntax), so splitting on a dot was ambiguous/fragile; an explicit keyword
 // removes the guesswork entirely. Real syntax change, 2026-09-14 -- no back-compat kept for the old
 // "from <gateway-id>.<leaf>;" dotted form.
-var discoveryEntityPattern = regexp.MustCompile(`^entity\s+(\S+)\s+from\s+(\S+)\s+with\s+(\S+?)(?:\s+with\s+no_collect)?;$`)
+var discoveryEntityPattern = regexp.MustCompile(`^entity\s+(\S+)\s+from\s+(\S+)\s+with\s+(\S+?)(?:\s+not\s+aggregated)?;$`)
 
 // extractDiscoveryEntityDeclaration recognises the "entity <spec> from <gateway-id> with <leaf>
-// [with no_collect];" shape.
+// [not aggregated];" shape.
 func extractDiscoveryEntityDeclaration(line string) (*TDiscoveryEntityDeclaration, bool) {
 	matches := discoveryEntityPattern.FindStringSubmatch(line)
 	if matches == nil {
@@ -73,7 +73,7 @@ func extractDiscoveryEntityDeclaration(line string) (*TDiscoveryEntityDeclaratio
 		EntitySpec:      matches[1],
 		GatewayDeviceID: matches[2],
 		Leaf:            matches[3],
-		NoCollect:       strings.HasSuffix(line, "with no_collect;"),
+		NoCollect:       strings.HasSuffix(line, "not aggregated;"),
 	}, true
 }
 
@@ -123,7 +123,7 @@ func registerDiscoveryEntityLink(administration *TAdministrationState, decl TDis
 		return []string{fmt.Sprintf("%s: %q is a \"derived\" capability, not a raw leaf -- use it from inside a \"device ... from %s with:\" block so its sibling reference can resolve", provenance, decl.Leaf, decl.GatewayDeviceID)}
 	}
 	if capability.Hidden && !allowHidden {
-		return []string{fmt.Sprintf("%s: %q is a \"hidden\" capability -- it may only feed another capability's own \"derived ... from ...;\" declaration in Physical.def, not be positioned directly", provenance, decl.Leaf)}
+		return []string{fmt.Sprintf("%s: %q is an \"internal\" capability -- it may only feed another capability's own \"derived ... from ...;\" declaration in Physical.def, not be positioned directly", provenance, decl.Leaf)}
 	}
 
 	fullName := resolveDeviceEntityFullName(decl.EntitySpec, administration.SpacePath, deviceNamePath)

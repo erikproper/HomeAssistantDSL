@@ -71,14 +71,14 @@ func TestFormatDefAlignsSettings(t *testing.T) {
 // the grammar has one (PROJECT.md 30); otherwise, or with a comment, it stays a block.
 func TestFormatDefFoldsSingleMemberBlocks(t *testing.T) {
 	in := "device buttons.a with:\n  entity sensor.infrastructural:battery_level;\nend;\n" +
-		"device buttons.b with:\n  entity light.social:main from light with no_collect;\nend;\n" +
+		"device buttons.b with:\n  entity light.social:main from light not aggregated;\nend;\n" +
 		"derived capability binary_sensor.node as x_node with:\n  condition node.tv;\nend;\n" +
 		"then:\n  dim light.social:main with 5%;\nend;\n" +
 		"device buttons.c as leaf door with:\n  entity sensor.infrastructural:battery_level;\nend;\n" +
 		"device buttons.d with:\n  entity sensor.infrastructural:battery_level; # kept\nend;\n" +
 		"for binary_sensor.*/door:\n  icon: \"mdi:door-open\";\nend;"
 	want := "device buttons.a with entity sensor.infrastructural:battery_level;\n" +
-		"device buttons.b with:\n  entity light.social:main from light with no_collect;\nend;\n" +
+		"device buttons.b with entity light.social:main from light not aggregated;\n" +
 		"derived capability binary_sensor.node as x_node with condition node.tv;\n" +
 		"then dim light.social:main with 5%;\n" +
 		"device buttons.c as leaf door with:\n  entity sensor.infrastructural:battery_level;\nend;\n" +

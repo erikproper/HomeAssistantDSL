@@ -55,7 +55,7 @@ type TDeviceSourceEntityDeclaration struct {
 	LocalSpec string // "binary_sensor.infrastructural:laserjet/status" -- an ordinary entity spec, resolved the same way any other entity's is
 	Source    string // "sensor.hewlett_packard_...!some_attribute" -- the remote instance's own raw entity reference, "!attribute" optional
 	DeviceID  string // "hass.laserjet" from "from hass.laserjet"
-	NoCollect bool   // "with no_collect": kept out of the space's aggregates
+	NoCollect bool   // "not aggregated": kept out of the space's aggregates
 }
 
 // deviceSourceEntityPattern requires an explicit " as " clause -- this is what distinguishes it

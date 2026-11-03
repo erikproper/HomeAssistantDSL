@@ -51,19 +51,17 @@ type TDeviceCapabilityEntityDeclaration struct {
 	DeviceID   string
 	Capability string // e.g. "sensor.co2" -- domain prefix optional, stripped before lookup (bareCapabilityName)
 	// NoCollect excludes this entity from its space's domain-specific aggregate collections
-	// (mirrors the plain-entity "no_collect" suffix, TEntityRecord.NoCollect) -- e.g. a smart
+	// (mirrors the plain-entity "not aggregated" suffix, TEntityRecord.NoCollect) -- e.g. a smart
 	// plug's own PCB temperature reading, which shares a "/temperature" subdomain with real room
 	// climate sensors but must stay out of the room's aggregated group sensor. Written as a
-	// trailing "with no_collect;" -- the same single-property "with <X>;" shorthand a bare "entity
-	// <spec> with <X>;" declaration already uses (analyzeEntityDefinitionContext) -- rather than a
-	// bare trailing word, so "no_collect" is never mistaken for a second capability token.
+	// trailing "not aggregated;" (PROJECT.md 30, 2026-11-03; was "with no_collect;").
 	NoCollect bool
 }
 
-var deviceCapabilityEntityPattern = regexp.MustCompile(`^entity\s+(\S+)\s+from\s+(\S+)\s+(\S+?)(?:\s+with\s+no_collect)?;$`)
+var deviceCapabilityEntityPattern = regexp.MustCompile(`^entity\s+(\S+)\s+from\s+(\S+)\s+(\S+?)(?:\s+not\s+aggregated)?;$`)
 
 // extractDeviceCapabilityEntityDeclaration recognises the "entity <spec> from <device-id>
-// <capability> [with no_collect];" shape -- distinguished from extractDiscoveryEntityDeclaration's
+// <capability> [not aggregated];" shape -- distinguished from extractDiscoveryEntityDeclaration's
 // dot-joined "entity <spec> from <gateway-id>.<leaf>;" (exactly one token after "from") by the
 // extra capability token.
 func extractDeviceCapabilityEntityDeclaration(line string) (*TDeviceCapabilityEntityDeclaration, bool) {
@@ -75,7 +73,7 @@ func extractDeviceCapabilityEntityDeclaration(line string) (*TDeviceCapabilityEn
 		LocalSpec:  matches[1],
 		DeviceID:   matches[2],
 		Capability: domainNamedCapability(matches[1], matches[3]),
-		NoCollect:  strings.HasSuffix(line, "with no_collect;"),
+		NoCollect:  strings.HasSuffix(line, "not aggregated;"),
 	}, true
 }
 
@@ -111,11 +109,11 @@ func domainNamedCapability(localSpec, capability string) string {
 // never a "discovery" gateway one, and parser.go's main loop only ever attempts this expansion
 // while inside such a block (tracked via forDeviceID) -- the discovery pattern is never even
 // consulted for a line reached this way.
-var forDeviceShorthandPattern = regexp.MustCompile(`^entity\s+(\S+)\s+from\s+(\S+?)(?:\s+with\s+no_collect)?;$`)
+var forDeviceShorthandPattern = regexp.MustCompile(`^entity\s+(\S+)\s+from\s+(\S+?)(?:\s+not\s+aggregated)?;$`)
 
-// expandForDeviceShorthandLine rewrites one "entity <spec> from <capability> [with no_collect];"
+// expandForDeviceShorthandLine rewrites one "entity <spec> from <capability> [not aggregated];"
 // line (found inside a "device <spec> from <deviceID> with: ... end;" block) back to the full
-// "entity <spec> from <deviceID> <capability> [with no_collect];" shape
+// "entity <spec> from <deviceID> <capability> [not aggregated];" shape
 // deviceCapabilityEntityPattern expects.
 func expandForDeviceShorthandLine(line, deviceID string) (string, bool) {
 	matches := forDeviceShorthandPattern.FindStringSubmatch(line)
@@ -123,27 +121,27 @@ func expandForDeviceShorthandLine(line, deviceID string) (string, bool) {
 		return "", false
 	}
 	suffix := ""
-	if strings.HasSuffix(line, "with no_collect;") {
-		suffix = " with no_collect"
+	if strings.HasSuffix(line, "not aggregated;") {
+		suffix = " not aggregated"
 	}
 	return fmt.Sprintf("entity %s from %s %s%s;", matches[1], deviceID, matches[2], suffix), true
 }
 
 // forDeviceBareEntityPattern is a SECOND, even shorter body-line shape inside the same "device
-// <spec> from <device-id> with: ... end;" block (2026-09-19) -- "entity <spec> [with no_collect];"
+// <spec> from <device-id> with: ... end;" block (2026-09-19) -- "entity <spec> [not aggregated];"
 // with no "from <capability>" clause at all. Only a shorthand for the ALREADY-shorthand
 // forDeviceShorthandPattern above, not a separate mechanism: expandForDeviceBareEntityLine
 // auto-infers the capability as <spec>'s own explicit path (the text after the sphere's ":",
 // deviceSpecLeafPath) and re-expands through the exact same full "entity <spec> from <device-id>
-// <capability> [with no_collect];" shape -- so this can only ever fire when the desired local path
+// <capability> [not aggregated];" shape -- so this can only ever fire when the desired local path
 // and the device's own capability name are IDENTICAL text. A rename (local path differs from the
 // capability, e.g. "main" positioned from capability "core") still requires the explicit
 // "entity <spec> from <capability>;" form -- this pattern doesn't even try to match a line that
 // already has a "from" clause, so there's no ambiguity between the two shapes.
-var forDeviceBareEntityPattern = regexp.MustCompile(`^entity\s+(\S+?)(?:\s+with\s+no_collect)?;$`)
+var forDeviceBareEntityPattern = regexp.MustCompile(`^entity\s+(\S+?)(?:\s+not\s+aggregated)?;$`)
 
-// expandForDeviceBareEntityLine rewrites one "entity <spec> [with no_collect];" line (no "from"
-// clause) into the full "entity <spec> from <deviceID> <capability> [with no_collect];" shape,
+// expandForDeviceBareEntityLine rewrites one "entity <spec> [not aggregated];" line (no "from"
+// clause) into the full "entity <spec> from <deviceID> <capability> [not aggregated];" shape,
 // inferring <capability> as deviceSpecLeafPath(spec) -- see forDeviceBareEntityPattern's own doc
 // comment. Returns false (no match) when spec has no explicit path at all (e.g. "switch.social:",
 // deviceSpecLeafPath returns "") -- there is nothing to infer a capability from in that case, so
@@ -173,8 +171,8 @@ func expandForDeviceBareEntityLine(line, deviceID string) (string, bool) {
 		return "", false
 	}
 	suffix := ""
-	if strings.HasSuffix(line, "with no_collect;") {
-		suffix = " with no_collect"
+	if strings.HasSuffix(line, "not aggregated;") {
+		suffix = " not aggregated"
 	}
 	return fmt.Sprintf("entity %s from %s %s%s;", spec, deviceID, capability, suffix), true
 }

@@ -1111,7 +1111,7 @@ func TestParseDiscoveryIntegrationBodyHiddenCapability(t *testing.T) {
 	body := []string{
 		"device discovery.door_aqara_multi with:",
 		`  identifiers "zigbee2mqtt_0x00158d0003f0d585";`,
-		"  hidden capability sensor.pressure_raw 0x00158d0003f0d585_pressure_zigbee2mqtt;",
+		"  internal capability sensor.pressure_raw 0x00158d0003f0d585_pressure_zigbee2mqtt;",
 		`  derived capability sensor.pressure from sensor.pressure_raw via "($ | float(0)) + 20";`,
 		"end;",
 	}
@@ -1131,7 +1131,7 @@ func TestParseDiscoveryIntegrationBodyHiddenCapability(t *testing.T) {
 
 	derivedCap, ok := devices[0].Capabilities["pressure"]
 	if !ok || derivedCap.DerivedFromCapability != "pressure_raw" || derivedCap.Hidden {
-		t.Errorf("Capabilities[pressure] = %+v, ok=%v, want a non-hidden capability derived from pressure_raw", derivedCap, ok)
+		t.Errorf("Capabilities[pressure] = %+v, ok=%v, want a non-internal capability derived from pressure_raw", derivedCap, ok)
 	}
 }
 
@@ -1168,13 +1168,13 @@ func TestParseDiscoveryIntegrationBodyHiddenAndInvertedStack(t *testing.T) {
 		{
 			"device discovery.thing with:",
 			`  identifiers "zigbee2mqtt_0xabc";`,
-			"  hidden inverted capability switch.core_raw 0xabc_switch_zigbee2mqtt;",
+			"  internal inverted capability switch.core_raw 0xabc_switch_zigbee2mqtt;",
 			"end;",
 		},
 		{
 			"device discovery.thing with:",
 			`  identifiers "zigbee2mqtt_0xabc";`,
-			"  inverted hidden capability switch.core_raw 0xabc_switch_zigbee2mqtt;",
+			"  inverted internal capability switch.core_raw 0xabc_switch_zigbee2mqtt;",
 			"end;",
 		},
 	}
@@ -1252,7 +1252,7 @@ end;`
 	admin := result.Administration
 
 	// A "derived" capability whose sibling is a hidden plain raw leaf relays the SIBLING's own
-	// gateway+leaf directly (never materializing the hidden capability as its own entity/local
+	// gateway+leaf directly (never materializing the internal capability as its own entity/local
 	// template) -- ValueTemplateWrap carries the "via" template, raw ("$" not "$1": the
 	// coordinator, not the generator, does this substitution -- exactly one source, no need for
 	// numbered placeholders).
@@ -1290,16 +1290,16 @@ end;`
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	// A hidden capability is never auto-implied as its own entity (its only sanctioned use is as
+	// A internal capability is never auto-implied as its own entity (its only sanctioned use is as
 	// a "derived ... from ...;" sibling's own source, resolved directly off Physical.def's
 	// gateway.Capabilities map) -- so the explicit line must simply be refused, leaving no trace
 	// at all: no DiscoveryEntityLinks entry, no EntityRecord.
 	if _, ok := result.Administration.DiscoveryEntityLinks["sensor.physical_hallway_door_aqara_multi_pressure_raw"]; ok {
-		t.Errorf("expected no link registered for a hidden capability positioned directly")
+		t.Errorf("expected no link registered for a internal capability positioned directly")
 	}
 	for _, rec := range result.Administration.EntityRecordsBySpace["social/hallway"] {
 		if strings.Contains(rec.Name, "pressure_raw") {
-			t.Errorf("hidden capability must not be positioned even when explicitly referenced, got %+v", rec)
+			t.Errorf("internal capability must not be positioned even when explicitly referenced, got %+v", rec)
 		}
 	}
 }

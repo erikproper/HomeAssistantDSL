@@ -199,7 +199,7 @@ func parseDiscoveryDeviceBody(cur *TLineCursor, deviceID, parentDeviceID string)
 			cur.Advance()
 			continue
 		}
-		// "hidden "/"inverted " are optional leading qualifiers on a capability line (either shape
+		// "internal "/"inverted " are optional leading qualifiers on a capability line (either shape
 		// below), stackable in either order -- stripped here, once, so the two patterns below never
 		// need to know about them. A hidden capability still fully exists for internal use (a
 		// "derived ... from ...;" elsewhere on the SAME device may still reference it, via the raw
@@ -210,11 +210,11 @@ func parseDiscoveryDeviceBody(cur *TLineCursor, deviceID, parentDeviceID string)
 		// read), not something the conceptual (or logical) layer should see. "inverted" marks a
 		// switch/binary_sensor whose raw on/off payload means the opposite of what it should
 		// report/command (TDiscoveryCapability.Inverted's own doc comment has the full rationale).
-		capabilityLine, hidden := strings.CutPrefix(line, "hidden ")
+		capabilityLine, hidden := strings.CutPrefix(line, "internal ")
 		capabilityLine, inverted := strings.CutPrefix(capabilityLine, "inverted ")
 		if !hidden {
-			// Also accept the opposite order, "inverted hidden ...;".
-			if strippedHidden, ok := strings.CutPrefix(capabilityLine, "hidden "); ok {
+			// Also accept the opposite order, "inverted internal ...;".
+			if strippedHidden, ok := strings.CutPrefix(capabilityLine, "internal "); ok {
 				capabilityLine, hidden = strippedHidden, true
 			}
 		}

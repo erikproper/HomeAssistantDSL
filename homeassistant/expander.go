@@ -180,12 +180,8 @@ func extractEntityDeclaration(line string) (*TEntityDeclaration, bool) {
 		NoCollect:     false,
 	}
 
-	for _, field := range fields[1:] {
-		if strings.TrimSuffix(field, ";") == "no_collect" {
-			decl.NoCollect = true
-			break
-		}
-	}
+	// "not aggregated" (PROJECT.md 30, 2026-11-03; was "with no_collect").
+	decl.NoCollect = strings.HasSuffix(strings.TrimSuffix(rest, ";"), " not aggregated")
 
 	return decl, true
 }

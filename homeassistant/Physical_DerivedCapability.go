@@ -222,7 +222,7 @@ func resolveDerivedConditionOneLiners(content string) string {
 // ID, the unique_id its generated template entity is registered under in Home Assistant, and sits
 // right after the capability's name (2026-10-22), before its "with"/"from" part. Group 1 is the
 // statement head, group 2 the capability's label, group 3 the ID, group 4 the rest.
-var derivedAssignedIDPattern = regexp.MustCompile(`^(\s*(?:hidden\s+)?derived\s+capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*))\s+as\s+([A-Za-z_][A-Za-z0-9_.]*)(\s.*;)\s*$`)
+var derivedAssignedIDPattern = regexp.MustCompile(`^(\s*(?:internal\s+)?derived\s+capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*))\s+as\s+([A-Za-z_][A-Za-z0-9_.]*)(\s.*;)\s*$`)
 
 // physicalDeviceHeaderPattern matches the start of a Physical.def device declaration, capturing its
 // device id -- the device a following "derived capability ..." line belongs to.
@@ -233,7 +233,7 @@ var physicalDeviceHeaderPattern = regexp.MustCompile(`^\s*device\s+([A-Za-z_][A-
 // capabilities' coordinator-published unique_id it fixes (PROJECT.md item 48). As in the block
 // form, the ID sits before the "with" part. Group 1 is the line up to the ID, group 2 the label,
 // group 3 the ID, group 4 the rest.
-var bridgedCapabilityAssignedIDPattern = regexp.MustCompile(`^(\s*(?:hidden\s+)?capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s+[^\s;]+)\s+as\s+([A-Za-z_][A-Za-z0-9_.]*)((?:\s+with\s.*)?;)\s*$`)
+var bridgedCapabilityAssignedIDPattern = regexp.MustCompile(`^(\s*(?:internal\s+)?capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s+[^\s;]+)\s+as\s+([A-Za-z_][A-Za-z0-9_.]*)((?:\s+with\s.*)?;)\s*$`)
 
 // bridgedCapabilityBlockAssignedIDPattern is bridgedCapabilityAssignedIDPattern's block-header
 // counterpart -- "capability <domain>.<label> <source> as <id> with:" -- the ID sits before the

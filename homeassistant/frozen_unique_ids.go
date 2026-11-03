@@ -177,7 +177,7 @@ var frozenIDDeviceHeaderPattern =regexp.MustCompile(`^\s*device\s+([A-Za-z_][A-Z
 // assignedIDHeadPattern matches the part of a capability statement its frozen "as <id>" follows
 // (2026-10-22: always before the statement's "with"/"from" part): a derived capability's name, or a
 // bridged capability's name plus its source entity.
-var assignedIDHeadPattern = regexp.MustCompile(`^\s*(?:hidden\s+)?(?:derived\s+capability\s+[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_/]*|capability\s+[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_/]*\s+[^\s;]+)`)
+var assignedIDHeadPattern = regexp.MustCompile(`^\s*(?:internal\s+)?(?:derived\s+capability\s+[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_/]*|capability\s+[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_/]*\s+[^\s;]+)`)
 
 // commandlineAssignedIDHeadPattern is a commandline capability line up to its name, which its
 // frozen "as <id>" follows (before the quoted scripts).
@@ -208,7 +208,7 @@ func writeFrozenUniqueIDs(path string, assignments map[string]string) []string {
 		plainKey, isCommandline := strings.CutPrefix(plainKey, commandlineAssignmentPrefix)
 		deviceID, label, _ := strings.Cut(plainKey, "!")
 		start, count := -1, 0
-		statement := regexp.MustCompile(`^\s*(?:hidden\s+)?derived\s+capability\s+[A-Za-z_][A-Za-z0-9_]*\.` + regexp.QuoteMeta(label) + `\s`)
+		statement := regexp.MustCompile(`^\s*(?:internal\s+)?derived\s+capability\s+[A-Za-z_][A-Za-z0-9_]*\.` + regexp.QuoteMeta(label) + `\s`)
 		if filepath.Base(path) == "Logical.def" {
 			// A Logical.def capability is either derived or absorbed ("capability <domain>.<label>[
 			// <source>];" inside an "absorb from" block).
@@ -218,7 +218,7 @@ func writeFrozenUniqueIDs(path string, assignments map[string]string) []string {
 			statement = regexp.MustCompile(`^\s*capability\s+[A-Za-z_][A-Za-z0-9_]*\.` + regexp.QuoteMeta(label) + `\s*;`)
 		}
 		if isBridged {
-			statement = regexp.MustCompile(`^\s*(?:hidden\s+)?(?:derived\s+)?capability\s+[A-Za-z_][A-Za-z0-9_]*\.` + regexp.QuoteMeta(label) + `\s`)
+			statement = regexp.MustCompile(`^\s*(?:internal\s+)?(?:derived\s+)?capability\s+[A-Za-z_][A-Za-z0-9_]*\.` + regexp.QuoteMeta(label) + `\s`)
 		}
 		if isCommandline {
 			statement = regexp.MustCompile(`^\s*capability\s+(?:switch|sensor|button)\.` + regexp.QuoteMeta(label) + `\s`)

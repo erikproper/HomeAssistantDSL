@@ -1569,7 +1569,7 @@ the UI shows the registry name, not the friendly_name).
   the positioned devices (an absorbed capability counts), then those never positioned
   (`conceptual_unpositioned_report.go`). Positioned means a conceptual entity exists, however it
   came: a Conceptual.def line, an `export`, a firmware update, a request's physical event
-  (`ConceptualUseBySource`). Left out: hidden capabilities and absorbed ones. A capability something
+  (`ConceptualUseBySource`). Left out: internal capabilities (written `hidden` until PROJECT.md 30) and absorbed ones. A capability something
   else uses -- a derived capability's source, a request's or node's condition, `is switched by`,
   `dependency on` (the node) -- is listed with `# used by ...`: it works without a position and
   may not need one.

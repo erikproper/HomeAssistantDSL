@@ -84,7 +84,8 @@ type TDiscoveryCapability struct {
 	DerivedFromCapability string
 	DerivedViaTemplate    string
 
-	// Hidden (2026-09-15), from an optional leading "hidden " qualifier on the capability line,
+	// Hidden (2026-09-15), from an optional leading "internal " qualifier on the capability line
+	// ("hidden " until PROJECT.md 30, 2026-11-03),
 	// marks an internal-only intermediate value -- fully usable as another capability's own
 	// "derived ... from ...;" source (a raw Capabilities map lookup, unaffected by this flag), but
 	// refused if a Spaces.def "entity ... from <label>;" line tries to position it directly (the
@@ -93,7 +94,7 @@ type TDiscoveryCapability struct {
 	Hidden bool
 
 	// Inverted (2026-09-28), from an optional leading "inverted " qualifier on the capability line
-	// (stackable with "hidden ", either order), marks a switch/binary_sensor-domain capability whose
+	// (stackable with "internal ", either order), marks a switch/binary_sensor-domain capability whose
 	// raw MQTT on/off payload means the OPPOSITE of what this capability should report/command --
 	// e.g. a normally-closed relay where the raw switch being "off" means the controlled circuit is
 	// actually powered. Propagated to TDiscoveryEntityLink/discovery.yaml so the coordinator's own

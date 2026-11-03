@@ -127,7 +127,7 @@ func TestLocalCapabilityNoCollectExcludesFromSpaceMediaByName(t *testing.T) {
 	miniDSL := `conceptual layer with:
   space social:office as area with:
     device appliance.tv_office with:
-      entity media_player.social:tv from media_player.core with no_collect;
+      entity media_player.social:tv from media_player.core not aggregated;
     end;
   end;
 end;`
@@ -144,7 +144,7 @@ end;`
 		t.Fatalf("no entity record for the local media_player capability; report:\n%s", report.String())
 	}
 	if !rec.NoCollect {
-		t.Errorf("media_player entity record NoCollect = false, want true (the \"with no_collect\" suffix must be honoured)")
+		t.Errorf("media_player entity record NoCollect = false, want true (the \"not aggregated\" suffix must be honoured)")
 	}
 	for _, name := range admin.SpaceMediaByName["social/office"] {
 		if name == "media_player.social/office/tv" {

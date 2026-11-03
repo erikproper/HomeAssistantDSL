@@ -40,7 +40,7 @@ func TestBareCapabilityName(t *testing.T) {
 }
 
 func TestExtractDeviceCapabilityEntityDeclarationNoCollectSuffix(t *testing.T) {
-	decl, ok := extractDeviceCapabilityEntityDeclaration("entity sensor.physical:dishwasher/robb/temperature from discovery.dishwasher_robb sensor.temperature with no_collect;")
+	decl, ok := extractDeviceCapabilityEntityDeclaration("entity sensor.physical:dishwasher/robb/temperature from discovery.dishwasher_robb sensor.temperature not aggregated;")
 	if !ok {
 		t.Fatalf("expected the \"with no_collect\"-suffixed line to match")
 	}
@@ -59,11 +59,11 @@ func TestExtractDeviceCapabilityEntityDeclarationNoCollectSuffix(t *testing.T) {
 }
 
 func TestExpandForDeviceShorthandLineNoCollectSuffix(t *testing.T) {
-	got, ok := expandForDeviceShorthandLine("entity sensor.physical:dishwasher/robb/temperature from temperature with no_collect;", "discovery.dishwasher_robb")
+	got, ok := expandForDeviceShorthandLine("entity sensor.physical:dishwasher/robb/temperature from temperature not aggregated;", "discovery.dishwasher_robb")
 	if !ok {
 		t.Fatalf("expected the \"with no_collect\"-suffixed shorthand line to match")
 	}
-	want := "entity sensor.physical:dishwasher/robb/temperature from discovery.dishwasher_robb temperature with no_collect;"
+	want := "entity sensor.physical:dishwasher/robb/temperature from discovery.dishwasher_robb temperature not aggregated;"
 	if got != want {
 		t.Errorf("expandForDeviceShorthandLine = %q, want %q", got, want)
 	}
@@ -105,11 +105,11 @@ func TestExpandForDeviceBareEntityLine(t *testing.T) {
 // TestExpandForDeviceBareEntityLineNoCollectSuffix covers the "with no_collect" trailing suffix
 // carrying through the bare-entity shorthand exactly like it does for the "from"-having one.
 func TestExpandForDeviceBareEntityLineNoCollectSuffix(t *testing.T) {
-	got, ok := expandForDeviceBareEntityLine("entity sensor.physical:robb/temperature with no_collect;", "discovery.some_plug")
+	got, ok := expandForDeviceBareEntityLine("entity sensor.physical:robb/temperature not aggregated;", "discovery.some_plug")
 	if !ok {
 		t.Fatalf("expected the bare-entity line to match")
 	}
-	want := "entity sensor.physical:robb/temperature from discovery.some_plug robb/temperature with no_collect;"
+	want := "entity sensor.physical:robb/temperature from discovery.some_plug robb/temperature not aggregated;"
 	if got != want {
 		t.Errorf("expandForDeviceBareEntityLine = %q, want %q", got, want)
 	}

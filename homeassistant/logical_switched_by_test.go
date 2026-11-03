@@ -198,7 +198,7 @@ end;`
 // corridor's switch (YY, switches.house_server_room_fuse_box_zwave_048's own "light_1" capability)
 // keeps a genuine, deliberately-authored explicit "physical" sphere positioning (Conceptual.def,
 // "device switches.house_server_room_fuse_box_zwave_048 with: entity light.physical:main from
-// light.light_1 with no_collect; end;") for an unrelated pre-existing "follows" automation reference.
+// light.light_1 not aggregated; end;") for an unrelated pre-existing "follows" automation reference.
 // Before this fix, the switched-by mechanism unconditionally ALSO auto-materialized its own,
 // separately-named synthetic entity for the SAME (deviceID, label) -- and since the coordinator's
 // own MQTT discovery topic identity is keyed by (gatewayID, leaf) alone (discovery.go's
@@ -224,7 +224,7 @@ func TestSwitchedByReusesExplicitPhysicalPositioning(t *testing.T) {
   end;
 
   device switches.house_server_room_fuse_box_zwave_048 with:
-    entity light.physical:main from light.light_1 with no_collect;
+    entity light.physical:main from light.light_1 not aggregated;
   end;
 end;`
 

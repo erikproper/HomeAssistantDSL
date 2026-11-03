@@ -364,13 +364,13 @@ func TestRegisterDevicePositioningUnknownDeviceWarns(t *testing.T) {
 	}
 }
 
-// TestDeviceWithOneLinerRejectsSecondWith: "device X with entity ... with no_collect;" has two
-// "with"s and is ignored (Erik, 2026-11-02); the block form takes "with no_collect".
-func TestDeviceWithOneLinerRejectsSecondWith(t *testing.T) {
+// TestDeviceWithOneLinerNotAggregated: "device X with entity ... not aggregated;" -- no second
+// "with" since PROJECT.md 30 -- is accepted like the block form.
+func TestDeviceWithOneLinerNotAggregated(t *testing.T) {
 	const dsl = `space social:front as area with:
-  device switches.zwave_054 with entity switch.social:main from switch.core_1 with no_collect;
+  device switches.zwave_054 with entity switch.social:main from switch.core_1 not aggregated;
   device switches.zwave_054 with:
-    entity switch.social:rear from switch.core_2 with no_collect;
+    entity switch.social:rear from switch.core_2 not aggregated;
   end;
 end;`
 	discoveryGatewaysByID := map[string]TDiscoveryGatewayDevice{
@@ -388,12 +388,11 @@ end;`
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	links := result.Administration.DiscoveryEntityLinks
-	if _, ok := links["switch.social_front_main"]; ok {
-		t.Errorf("the one-liner with a second \"with\" was accepted")
-	}
-	if _, ok := links["switch.social_front_rear"]; !ok || len(links) != 1 {
-		t.Errorf("block form: want only switch.social_front_rear, got %v", links)
+	admin := result.Administration
+	for _, name := range []string{"switch.social/front/main", "switch.social/front/rear"} {
+		if rec, ok := findEntityRecordByName(admin, name); !ok || !rec.NoCollect {
+			t.Errorf("%s: want a record that is not aggregated, got %+v (%v)", name, rec, ok)
+		}
 	}
 }
 
@@ -406,7 +405,7 @@ func TestFoldDeviceLeaf(t *testing.T) {
 		"entity event.physical:;":                              "entity event.physical:door/moes;",
 		"entity sensor.infrastructural:/rack/node;":            "entity sensor.infrastructural:/rack/node;",
 		"entity binary_sensor.social/apartment/bedroom/door;":  "entity binary_sensor.social/apartment/bedroom/door;",
-		"entity light.social:main from light with no_collect;": "entity light.social:door/moes/main from light with no_collect;",
+		"entity light.social:main from light not aggregated;": "entity light.social:door/moes/main from light not aggregated;",
 	} {
 		if got := foldDeviceLeaf(line, "door/moes"); got != want {
 			t.Errorf("foldDeviceLeaf(%q) = %q, want %q", line, got, want)

@@ -182,8 +182,9 @@ func withoutQuotedText(s string) string {
 // single-capability block, skipping the "end;" wrapper. <entity-statement> is captured whole
 // (group 2) and handed to the same bare "entity <spec>;" (forDeviceBareEntityPattern) / "entity
 // <spec> from <capability>;" (forDeviceShorthandPattern) expansion a block's own body line already
-// goes through -- Conceptual_DeviceCapabilityEntities.go, unchanged. No second "with" (Erik,
-// 2026-11-02): "with no_collect" here is rejected (parser.go); that takes the block form.
+// goes through -- Conceptual_DeviceCapabilityEntities.go, unchanged. The entity may be "not
+// aggregated" (PROJECT.md 30; as "with no_collect" it was a second "with", Erik 2026-11-02: that
+// took the block form).
 var deviceWithOneLinerPattern = regexp.MustCompile(`^device\s+(\S+)\s+with\s+(entity\s+.+;)$`)
 
 // extractDeviceWithOneLiner recognises the one-liner form, returning the positioning declaration
