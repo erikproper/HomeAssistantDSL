@@ -447,7 +447,7 @@ button event that raises it:
 
 ```
 device request.shower_room_light_toggle with:
-  derived capability event.toggle as event.social_apartment_shower_room_light_main_toggle with
+  derived capability event.toggle as unique_id event.social_apartment_shower_room_light_main_toggle with
     condition
       event.pressed from buttons.shower_room_door_moes_1 is 'single' and if
       trigger.button from buttons.shower_room_door_moes_1 is '1'
