@@ -114,3 +114,20 @@ func TestFormatDefBreaksLongBlockHeader(t *testing.T) {
 		t.Errorf("not idempotent:\n%s", again)
 	}
 }
+
+// TestFormatDefBreaksLongCondition: a too-long condition is broken after "condition", one
+// top-level operand per line ending in its operator; parentheses stay whole.
+func TestFormatDefBreaksLongCondition(t *testing.T) {
+	in := "device appliance.sonos with:\n  derived capability binary_sensor.node as unique_id x\n" +
+		"      with condition physical appliance.sonos_playbar and node.sonos_playbar and (node.left or node.right) and node.subwoofer;\n" +
+		"  condition (physical appliance.washing_machine and node.candy_washing_machine_ping) or not switch.switch;\nend;"
+	want := "device appliance.sonos with:\n  derived capability binary_sensor.node as unique_id x\n    with condition\n" +
+		"      physical appliance.sonos_playbar and\n      node.sonos_playbar and\n      (node.left or node.right) and\n      node.subwoofer;\n" +
+		"  condition\n    (physical appliance.washing_machine and node.candy_washing_machine_ping) or\n    not switch.switch;\nend;"
+	if got := formatDefContent(in); got != want {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+	if again := formatDefContent(want); again != want {
+		t.Errorf("not idempotent:\n%s", again)
+	}
+}

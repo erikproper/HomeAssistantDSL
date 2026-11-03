@@ -247,6 +247,10 @@ func layoutStatement(indent, code, comment string) []string {
 	}
 	segments := clauseSegments(code)
 	if len(segments) < 2 {
+		if lines := breakCondition(indent+code, indent); lines != nil {
+			lines[len(lines)-1] += comment
+			return lines
+		}
 		return []string{single}
 	}
 	continuation := indent + strings.Repeat(" ", defContinuation)
@@ -259,15 +263,67 @@ func layoutStatement(indent, code, comment string) []string {
 			current += " " + segment
 			continue
 		}
-		lines = append(lines, breakLongClause(current, continuation)...)
+		lines = append(lines, breakLongLine(current, indent, continuation)...)
 		current = continuation + segment
 	}
-	if current == indent+segments[0] {
-		return append(lines, current+comment)
-	}
-	last := breakLongClause(current, continuation)
+	last := breakLongLine(current, indent, continuation)
 	last[len(last)-1] += comment
 	return append(lines, last...)
+}
+
+// breakLongLine breaks a laid-out line that is still too long: a condition over its operands
+// (breakCondition), else a continuation's value onto a line of its own (breakLongClause).
+func breakLongLine(line, indent, continuation string) []string {
+	lineIndent := indent
+	if strings.HasPrefix(line, continuation) && line != indent+strings.TrimSpace(line) {
+		lineIndent = continuation
+	}
+	if lines := breakCondition(line, lineIndent); lines != nil {
+		return lines
+	}
+	if lineIndent != continuation {
+		return []string{line}
+	}
+	return breakLongClause(line, continuation)
+}
+
+// breakCondition returns a too-long line holding a condition ("... condition <expr>;", e.g. "with
+// condition a and b;") broken after "condition", each operand of the expression's top-level "and"/
+// "or" on a line of its own, defIndent deeper than the line, ending in its operator (Erik, PROJECT.md
+// 30). Parentheses and quoted text are never broken into. nil when line holds no condition, or it
+// has a single operand.
+func breakCondition(line, lineIndent string) []string {
+	if len(line) <= defLineWidth {
+		return nil
+	}
+	words := splitOutsideQuotes(strings.TrimSpace(line))
+	at := -1
+	for i, word := range words {
+		if word == "condition" && i+1 < len(words) {
+			at = i
+			break
+		}
+	}
+	if at < 0 {
+		return nil
+	}
+	operandIndent := lineIndent + strings.Repeat(" ", defIndent)
+	var lines []string
+	depth := 0
+	var current []string
+	for _, word := range words[at+1:] {
+		current = append(current, word)
+		depth += strings.Count(word, "(") - strings.Count(word, ")")
+		if depth == 0 && (word == "and" || word == "or") {
+			lines = append(lines, operandIndent+strings.Join(current, " "))
+			current = nil
+		}
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	lines = append(lines, operandIndent+strings.Join(current, " "))
+	return append([]string{lineIndent + strings.Join(words[:at+1], " ")}, lines...)
 }
 
 // breakLongClause returns a continuation line (at continuation) that is still too long with its
