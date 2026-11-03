@@ -1815,7 +1815,8 @@ Logical.def) as it writes them. The layout, uniform for all files:
 - a finished statement (`...;`) longer than 80 characters is broken before its clause keywords
   (`as`, `from`, `via`, `topic`, `with` -- never `with:`), each continuation 2 deeper (Erik: 2
   is the standard indentation), packed greedily; never after a `:` or `;` (that line would read as
-  a statement of its own). A `... with:` block header is broken the same way; a continuation that
+  a statement of its own). A `... with:` block header is broken the same way, its `with:` then on a
+  line of its own at the header's depth (Erik: `with:` and `end;` frame the block); a continuation that
   still doesn't fit has its value on a line of its own, 2 deeper again (`as unique_id` / `<id>;`),
   and a too-long condition is broken after `condition`, one top-level operand per line, 2 deeper,
   each ending in its `and`/`or` (never inside parentheses or quoted text);
