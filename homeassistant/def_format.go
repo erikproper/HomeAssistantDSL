@@ -11,7 +11,8 @@
  *   - a finished statement ("...;") or a "... with:" block header longer than defLineWidth is
  *     broken before its clause keywords ("as", "from", "via", "topic", "with" -- never "with:"),
  *     each continuation defContinuation deeper -- which the DSL already reads back as one
- *     statement (joinWrappedStatementContinuations);
+ *     statement (joinWrappedStatementContinuations); a continuation that still doesn't fit has its
+ *     value on a line of its own, one level deeper (breakLongClause);
  *   - comment lines, blank lines and trailing comments stay as written; a "when"/"if" rule clause,
  *     a "${...}" setting and a statement with a comment inside are never broken.
  *
@@ -43,7 +44,7 @@ import (
 const (
 	defLineWidth    = 80
 	defIndent       = 2
-	defContinuation = 4
+	defContinuation = 2 // Erik (PROJECT.md 30, 2026-11-03): 2 is the standard indentation, also here
 )
 
 // defBreakKeywords are the clause keywords a long statement may be broken before.
@@ -258,11 +259,31 @@ func layoutStatement(indent, code, comment string) []string {
 			current += " " + segment
 			continue
 		}
-		lines = append(lines, current)
+		lines = append(lines, breakLongClause(current, continuation)...)
 		current = continuation + segment
 	}
-	lines = append(lines, current+comment)
-	return lines
+	if current == indent+segments[0] {
+		return append(lines, current+comment)
+	}
+	last := breakLongClause(current, continuation)
+	last[len(last)-1] += comment
+	return append(lines, last...)
+}
+
+// breakLongClause returns a continuation line (at continuation) that is still too long with its
+// last word -- the clause's value, e.g. a long frozen ID -- on a line of its own, one level deeper
+// (Erik, PROJECT.md 30: "as unique_id" / "<id>;"). Not when that would leave a line ending in ":"
+// or ";" (it would read as a statement of its own), nor for a block header's "with:".
+func breakLongClause(line, continuation string) []string {
+	if !strings.HasPrefix(line, continuation) || len(line) <= defLineWidth {
+		return []string{line}
+	}
+	words := splitOutsideQuotes(strings.TrimPrefix(line, continuation))
+	n := len(words)
+	if n < 2 || words[n-1] == "with:" || strings.HasSuffix(words[n-2], ":") || strings.HasSuffix(words[n-2], ";") {
+		return []string{line}
+	}
+	return []string{continuation + strings.Join(words[:n-1], " "), continuation + strings.Repeat(" ", defIndent) + words[n-1]}
 }
 
 // breakableStatement reports whether a statement may be broken over lines: a finished one or a

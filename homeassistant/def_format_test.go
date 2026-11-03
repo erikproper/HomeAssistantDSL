@@ -32,7 +32,8 @@ end;`
       # a comment stays as written
     device sensors.a with:
       capability binary_sensor.node bridge_0x00124b0029e8c409_connection_state_zigbee2mqtt
-          as unique_id node_zigbee2mqtt_bridge_bridge_0x00124b0029e8c409_connection_state_zigbee2mqtt;   # trailing
+        as unique_id
+          node_zigbee2mqtt_bridge_bridge_0x00124b0029e8c409_connection_state_zigbee2mqtt;   # trailing
     end;
     device switches.b with entity light.social: from light_with_a_rather_long_source_name_that_goes_on_and_on;
   end;
@@ -105,7 +106,7 @@ func TestFormatDefFoldsSingleMemberBlocks(t *testing.T) {
 // before its clause keywords like a finished statement, "with:" staying on its last line.
 func TestFormatDefBreaksLongBlockHeader(t *testing.T) {
 	in := "capability device_tracker.position device_tracker.volvo_xc40_location as unique_id hassbridge_device_tracker_position with:\n  attribute latitude: device_tracker.volvo_xc40_location!latitude;\nend;"
-	want := "capability device_tracker.position device_tracker.volvo_xc40_location\n    as unique_id hassbridge_device_tracker_position with:\n  attribute latitude: device_tracker.volvo_xc40_location!latitude;\nend;"
+	want := "capability device_tracker.position device_tracker.volvo_xc40_location\n  as unique_id hassbridge_device_tracker_position with:\n  attribute latitude: device_tracker.volvo_xc40_location!latitude;\nend;"
 	if got := formatDefContent(in); got != want {
 		t.Errorf("got\n%s\nwant\n%s", got, want)
 	}

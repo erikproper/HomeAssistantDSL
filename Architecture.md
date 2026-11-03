@@ -1804,8 +1804,10 @@ Logical.def) as it writes them. The layout, uniform for all files:
 - single spaces between a statement's words (outside quoted strings) -- except a metadata line
   (`model:        "Bridge";`), whose colons the generator aligns within its block;
 - a finished statement (`...;`) longer than 80 characters is broken before its clause keywords
-  (`as`, `from`, `via`, `topic`, `with` -- never `with:`), each continuation 4 deeper, packed
-  greedily; never after a `:` or `;` (that line would read as a statement of its own);
+  (`as`, `from`, `via`, `topic`, `with` -- never `with:`), each continuation 2 deeper (Erik: 2
+  is the standard indentation), packed greedily; never after a `:` or `;` (that line would read as
+  a statement of its own). A `... with:` block header is broken the same way; a continuation that
+  still doesn't fit has its value on a line of its own, 2 deeper again (`as unique_id` / `<id>;`);
 - comment lines, blank lines and trailing comments stay as written; a `when`/`if` rule clause, a
   `${...}` setting and a statement with a comment inside are never broken;
 - a block holding a single statement is written in its one-line form (PROJECT.md 30, Erik: a
