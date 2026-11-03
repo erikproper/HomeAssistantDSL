@@ -8,9 +8,10 @@
  *
  *   - indentation by nesting, 2 spaces a level: a statement ending in ":" (a "with:" block, a
  *     layer) opens one, "end;" closes it;
- *   - a finished statement ("...;") longer than defLineWidth is broken before its clause keywords
- *     ("as", "from", "via", "topic", "with" -- never "with:"), each continuation defContinuation
- *     deeper -- which the DSL already reads back as one statement (joinWrappedStatementContinuations);
+ *   - a finished statement ("...;") or a "... with:" block header longer than defLineWidth is
+ *     broken before its clause keywords ("as", "from", "via", "topic", "with" -- never "with:"),
+ *     each continuation defContinuation deeper -- which the DSL already reads back as one
+ *     statement (joinWrappedStatementContinuations);
  *   - comment lines, blank lines and trailing comments stay as written; a "when"/"if" rule clause,
  *     a "${...}" setting and a statement with a comment inside are never broken.
  *
@@ -264,10 +265,11 @@ func layoutStatement(indent, code, comment string) []string {
 	return lines
 }
 
-// breakableStatement reports whether a statement may be broken over lines: a finished one, not a
-// rule clause, not a setting.
+// breakableStatement reports whether a statement may be broken over lines: a finished one or a
+// "... with:" block header (PROJECT.md 30, Erik: a long header is split too; the "with:" stays on
+// its last line), not a rule clause, not a setting.
 func breakableStatement(code string) bool {
-	return strings.HasSuffix(code, ";") && !strings.HasPrefix(code, "when ") && !strings.HasPrefix(code, "if ") && !strings.HasPrefix(code, "${")
+	return (strings.HasSuffix(code, ";") || strings.HasSuffix(code, " with:")) && !strings.HasPrefix(code, "when ") && !strings.HasPrefix(code, "if ") && !strings.HasPrefix(code, "then ") && !strings.HasPrefix(code, "${")
 }
 
 // clauseSegments splits code before each clause keyword outside a quoted string; a keyword whose
