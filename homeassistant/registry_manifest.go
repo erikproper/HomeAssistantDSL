@@ -6,7 +6,7 @@
  *
  * PROJECT.md item 48's deploy half (2026-10-21): every generate writes registry_manifest.json next
  * to the instance's own YAML -- per generated entity, the unique_id Home Assistant registers it
- * under and the entity_id it should have. The deploy's registry sync (tools/ha_registry_sync.py)
+ * under and the entity_id it should have. The deploy's registry repair (home_assistant_registry.go)
  * compares it with HA's own entity registry: an entry whose entity_id differs is renamed (keeping
  * its registry entry and history), and an entry this generator created before but no longer
  * generates is removed, so renames and removals never leave orphans behind.

@@ -542,7 +542,7 @@ platform is a new entity), and deleting the entry loses its history.
 
 So the deploy repairs the registry, driven only by the generator's own table: every instance's
 `registry_manifest.json` lists, per generator-owned entity, its unique_id and the entity_id it
-should have. `tools/ha_registry_sync.py` (the deploy's HA OS instance step, home_assistant_deploy.go, before Home Assistant
+should have. The registry repair (`home_assistant_registry.go`, the deploy's HA OS instance step, before Home Assistant
 reloads the new YAML) compares that with the registry and renames each entry whose entity_id isn't
 current -- the same registry entry, so its history and settings stay. It only touches entries it
 can prove are the generator's own (a YAML-platform entry whose unique_id is in the current or the
@@ -557,6 +557,13 @@ integration's, unknown to the generator, so each is keyed by its source in the d
 deploy, the entry still holding the previous one is renamed (PROJECT.md 17j). A native entity is
 never removed -- it belongs to its integration. Nothing else edits the registry: no ad-hoc
 or hand-made changes; any other registry change is an explicit, one-off migration.
+
+The repair runs on the deploying Mac (`home_assistant_registry.go`, since PROJECT.md 30,
+2026-11-03; until then `tools/ha_registry_sync.py`, piped into the HA add-on): through an SSH
+tunnel over the instance's own endpoint to its core (`homeassistant:8123`), logged in with the
+instance's long-lived access token `${<instance>_ha_token}` (the house's Settings.def). The
+previous manifest stays on the instance, `/config/.generator_registry_manifest.json`. With
+`-deploy -n` it reads the registry and reports what it would do, changing nothing.
 
 **This is a real dependency on Home Assistant's internals.** The repair uses Home Assistant's
 websocket API (`config/entity_registry/list`, `…/update` with `new_entity_id`, `…/remove`) -- the
@@ -1788,8 +1795,8 @@ Before, a Hue Tap's node positioned explicitly before the bridge made the bridge
 - One field Home Assistant doesn't know makes the WHOLE MQTT reload fail, while the deploy still
   reports success (found live: a relay `state_topic` on a bridge button; 64 entities missing for
   ~5 minutes). So generate validates every YAML file against the field table (an unknown field
-  stops it), and deploy step 06 reports Home Assistant's reload errors
-  (`tools/ha_reload_errors.py`). `ha core check` does not validate MQTT YAML entities; only a
+  stops it), and the deploy's reload check reports Home Assistant's reload errors
+  (`system_log/list`, `home_assistant_registry.go`). `ha core check` does not validate MQTT YAML entities; only a
   reload does.
 - The MQTT reload takes ~45 s and recreates every YAML entity: check only after it. Values of
   topics that aren't retained would be lost (Zigbee2MQTT's state topics); the retained shadows
@@ -1895,7 +1902,8 @@ errors. A failed command fails its step, whose instance is then neither reloaded
 parts named, comma-separated, like sourcing one deploy.d/ step used to: `coordinator`, an
 instance (`main`, `ha2mqtt`, ...; `home_assistant` for all), `hosts`, `containers`,
 `commandline` -- the reload check runs when `main` is among them. The registry repair and the
-reload check still pipe the Python tools into the HA add-on; the websocket API is the next step.
+reload check talk to HA's websocket and REST API through an SSH tunnel (`home_assistant_registry.go`),
+the access token from the defs; the deploy has no Python left.
 
 ## 7. Home Assistant's two roles
 

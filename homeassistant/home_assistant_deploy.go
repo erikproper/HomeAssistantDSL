@@ -8,7 +8,8 @@
  * each instance's configuration -- an HA OS one ("home_assistant main: vienna via ssh ...;")
  * through its SSH add-on, with the registry repair; a container one into ${container_ha_config} on
  * its hosts device -- then its reload or restart (MetaAction, PublishMetaAction), and at the end
- * the wait for HA main's reload, reporting its errors (PROJECT.md 19h.3).
+ * the wait for HA main's reload, reporting its errors (PROJECT.md 19h.3). The registry repair and
+ * the reload check talk to HA's API directly (home_assistant_registry.go).
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
@@ -25,7 +26,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -124,8 +124,9 @@ func (d *tDeployer) deployInstance(instance TDeployInstance) (string, int64) {
 		for _, entry := range []string{"automation", "script"} {
 			d.remote(instance.Machine, "sudo ln -sf ../"+entry+"s.yaml "+instance.Config+"/"+entry+"/")
 		}
-		// Keep HA's entity registry in step with the generator (PROJECT.md item 48), before the reload.
-		d.run(d.generator+"/tools/ha_registry_sync.py", "", "ssh", append(d.ssh(instance.Machine), "sudo python3 - /home/"+user+"/"+instance.Machine+"/registry_manifest.json "+instance.Config+"/.generator_registry_manifest.json --apply")...)
+		// Keep HA's entity registry in step with the generator (PROJECT.md item 48), before the reload
+		// (home_assistant_registry.go).
+		d.repairRegistry(instance)
 		at := time.Now().Unix()
 		d.publishMeta(meta, instance.Name)
 		if d.stepFailed {
@@ -235,51 +236,31 @@ func (d *tDeployer) checkReload(meta string, at int64) {
 		return
 	}
 	probe := strings.TrimSuffix(filepath.Base(probes[0]), ".yaml")
-	// Until the reload automation is idle again (a reload takes ~45 s) and an entity of the YAML
-	// mqtt config is there (after a restart, HA answers before MQTT is set up); the first 15 s let
-	// the reload start.
-	wait := `T=$(sudo cat /run/s6/container_environment/SUPERVISOR_TOKEN); for i in $(seq 1 33); do
-      a=$(curl -s -H "Authorization: Bearer $T" http://supervisor/core/api/states/automation.coordinator_meta_reload)
-      p=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $T" http://supervisor/core/api/states/` + probe + `)
-      case "$a" in *"\"current\":0"*) [ "$p" = 200 ] && exit 0;; esac
-      sleep 5
-    done; exit 1`
-	fmt.Println("+ sleep 15")
-	if !d.dryRun {
-		time.Sleep(15 * time.Second)
-	}
-	failed := d.stepFailed
-	if !d.remote(main.Machine, wait) {
-		d.stepFailed = failed
-		fmt.Println("  WARNING: HA main did not finish loading within ~3 minutes -- reload errors not checked")
-		return
-	}
-	// ha_reload_errors.py builds on ha_registry_sync.py's helpers, without its main.
-	syncTool, err1 := os.ReadFile(d.generator + "/tools/ha_registry_sync.py")
-	errorsTool, err2 := os.ReadFile(d.generator + "/tools/ha_reload_errors.py")
-	if err1 != nil || err2 != nil {
-		fmt.Println("  WARNING: tools/ha_registry_sync.py or tools/ha_reload_errors.py not found -- reload errors not checked")
-		return
-	}
-	script := string(syncTool)
-	if cut := strings.Index(script, "if __name__ == \"__main__\":"); cut >= 0 {
-		script = script[:cut]
-	}
-	script += string(errorsTool)
-	command := append(d.ssh(main.Machine), "sudo python3 - "+strconv.FormatInt(at-10, 10))
-	fmt.Println("+ " + shellJoin(append([]string{"ssh"}, command...)) + " < ha_registry_sync.py (helpers) + ha_reload_errors.py")
+	// The first 15 s let the reload start; then until the reload automation is idle again (a reload
+	// takes ~45 s) and an entity of the YAML mqtt config is there (home_assistant_registry.go).
+	fmt.Printf("+ sleep 15, then wait for %s's reload (automation.coordinator_meta_reload idle, %s there) and read its errors since then (websocket, through an SSH tunnel)\n", main.Name, probe)
 	if d.dryRun {
 		return
 	}
-	cmd := exec.Command("ssh", command...)
-	cmd.Stdin, cmd.Stderr = strings.NewReader(script), os.Stderr
-	output, err := cmd.Output()
-	switch {
-	case err != nil:
+	time.Sleep(15 * time.Second)
+	token := d.instanceToken(*main)
+	if token == "" {
+		fmt.Printf("  WARNING: no ${%s_ha_token} in the defs -- reload errors not checked\n", main.Name)
+		return
+	}
+	ha, err := connectHomeAssistant(d.ssh(main.Machine), token)
+	if err != nil {
 		fmt.Printf("  WARNING: the reload check failed: %v\n", err)
-	case strings.TrimSpace(string(output)) != "":
+		return
+	}
+	defer ha.Close()
+	errors, finished := ha.waitForReload(probe, at-10)
+	switch {
+	case !finished:
+		fmt.Println("  WARNING: HA main did not finish loading within ~3 minutes -- reload errors not checked")
+	case len(errors) > 0:
 		fmt.Println("  ERROR: Home Assistant's reload reported errors -- entities may be missing:")
-		for _, line := range strings.Split(strings.TrimRight(string(output), "\n"), "\n") {
+		for _, line := range errors {
 			fmt.Println("    " + line)
 		}
 	default:

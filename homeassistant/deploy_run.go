@@ -22,13 +22,13 @@
  * coordinator, an instance (main, ha2mqtt, ...; home_assistant for all), hosts, containers,
  * commandline -- the reload check runs when main is among them.
  *
- * "-n" prints every command instead of running it (and decides no reload/restart). A failed
+ * "-n" prints every command instead of running it (and decides no reload/restart); the registry
+ * repair then reads the registry and reports what it would do, changing nothing. A failed
  * command fails its step: the step's instance is then neither reloaded nor restarted, and the
  * deploy goes on with the next step, as before. The broker password is never printed.
  *
- * The registry repair and the reload check still pipe tools/ha_registry_sync.py and
- * tools/ha_reload_errors.py into the HA add-on over SSH; talking to HA's websocket API instead is
- * the next step.
+ * The registry repair and the reload check talk to HA's websocket and REST API through an SSH
+ * tunnel (home_assistant_registry.go).
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
