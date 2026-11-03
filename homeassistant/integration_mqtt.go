@@ -35,7 +35,7 @@ import (
 	"strings"
 )
 
-var mqttTopicCapabilityPattern = regexp.MustCompile(`^capability\s+(binary_sensor)\.([A-Za-z_][A-Za-z0-9_/]*)\s+topic\s+"([^"]+)"\s+on\s+"([^"]*)"(?:\s+as\s+([A-Za-z_][A-Za-z0-9_.]*))?\s*;\s*$`)
+var mqttTopicCapabilityPattern = regexp.MustCompile(`^capability\s+(binary_sensor)\.([A-Za-z_][A-Za-z0-9_/]*)\s+topic\s+"([^"]+)"\s+on\s+"([^"]*)"(?:\s+as\s+unique_id\s+([A-Za-z_][A-Za-z0-9_.]*))?\s*;\s*$`)
 
 // mqttMetadataTopicPattern matches 'metadata <field> from topic "<topic>"[ value "<key>"];' (PROJECT.md
 // 22d, Erik, 2026-10-28): where the coordinator reads a raw device's metadata field -- <key> the
@@ -179,7 +179,7 @@ const impliedRawTopic = "\x00implied"
 
 var (
 	instanceDeviceHeaderPattern   = regexp.MustCompile(`^device\s+(integration\.\S+)\s+with:\s*$`)
-	instanceNodeCapabilityPattern = regexp.MustCompile(`^capability\s+binary_sensor\.node(?:\s+as\s+([A-Za-z_][A-Za-z0-9_.]*))?\s*;\s*$`)
+	instanceNodeCapabilityPattern = regexp.MustCompile(`^capability\s+binary_sensor\.node(?:\s+as\s+unique_id\s+([A-Za-z_][A-Za-z0-9_.]*))?\s*;\s*$`)
 )
 
 // splitInstanceIntegrationDevices takes the "device integration.<instance> with: ... end;" block

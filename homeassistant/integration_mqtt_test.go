@@ -8,7 +8,7 @@ func TestParseMQTTIntegrationBody(t *testing.T) {
 	devices, warnings := parseMQTTIntegrationBody([]string{
 		`retained topics "zwave/#";`,
 		`device integration.zwave2mqtt with:`,
-		`capability binary_sensor.node topic "zwave/driver/status" on "true" as binary_sensor.x_node;`,
+		`capability binary_sensor.node topic "zwave/driver/status" on "true" as unique_id binary_sensor.x_node;`,
 		`is not retained;`,
 		`end;`,
 		`device integration.bad with:`,

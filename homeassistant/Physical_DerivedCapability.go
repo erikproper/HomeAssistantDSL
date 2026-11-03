@@ -222,7 +222,7 @@ func resolveDerivedConditionOneLiners(content string) string {
 // ID, the unique_id its generated template entity is registered under in Home Assistant, and sits
 // right after the capability's name (2026-10-22), before its "with"/"from" part. Group 1 is the
 // statement head, group 2 the capability's label, group 3 the ID, group 4 the rest.
-var derivedAssignedIDPattern = regexp.MustCompile(`^(\s*(?:internal\s+)?derived\s+capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*))\s+as\s+([A-Za-z_][A-Za-z0-9_.]*)(\s.*;)\s*$`)
+var derivedAssignedIDPattern = regexp.MustCompile(`^(\s*(?:internal\s+)?derived\s+capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*))\s+as\s+unique_id\s+([A-Za-z_][A-Za-z0-9_.]*)(\s.*;)\s*$`)
 
 // physicalDeviceHeaderPattern matches the start of a Physical.def device declaration, capturing its
 // device id -- the device a following "derived capability ..." line belongs to.
@@ -233,17 +233,17 @@ var physicalDeviceHeaderPattern = regexp.MustCompile(`^\s*device\s+([A-Za-z_][A-
 // capabilities' coordinator-published unique_id it fixes (PROJECT.md item 48). As in the block
 // form, the ID sits before the "with" part. Group 1 is the line up to the ID, group 2 the label,
 // group 3 the ID, group 4 the rest.
-var bridgedCapabilityAssignedIDPattern = regexp.MustCompile(`^(\s*(?:internal\s+)?capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s+[^\s;]+)\s+as\s+([A-Za-z_][A-Za-z0-9_.]*)((?:\s+with\s.*)?;)\s*$`)
+var bridgedCapabilityAssignedIDPattern = regexp.MustCompile(`^(\s*(?:internal\s+)?capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s+[^\s;]+)\s+as\s+unique_id\s+([A-Za-z_][A-Za-z0-9_.]*)((?:\s+with\s.*)?;)\s*$`)
 
 // bridgedCapabilityBlockAssignedIDPattern is bridgedCapabilityAssignedIDPattern's block-header
 // counterpart -- "capability <domain>.<label> <source> as <id> with:" -- the ID sits before the
 // header's "with:", as in Logical.def's block form. Group 1 is the header up to (excluding) the ID.
-var bridgedCapabilityBlockAssignedIDPattern = regexp.MustCompile(`^(\s*capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s+\S.*?)\s+as\s+([A-Za-z_][A-Za-z0-9_.]*)\s+with:\s*$`)
+var bridgedCapabilityBlockAssignedIDPattern = regexp.MustCompile(`^(\s*capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s+\S.*?)\s+as\s+unique_id\s+([A-Za-z_][A-Za-z0-9_.]*)\s+with:\s*$`)
 
 // slowSpeedAssignedIDPattern matches a "slow speed <source> as <id>;" line inside a bridged
 // capability's "with:" block -- the frozen ID of its slow-speed shadow capability "slow/<label>"
 // (integration_hassbridge_parser.go). Group 1 is the line without the ID, group 2 the ID.
-var slowSpeedAssignedIDPattern = regexp.MustCompile(`^(\s*slow\s+speed\s+\S+)\s+as\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;\s*$`)
+var slowSpeedAssignedIDPattern = regexp.MustCompile(`^(\s*slow\s+speed\s+\S+)\s+as\s+unique_id\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;\s*$`)
 
 // bridgedCapabilityBlockHeaderPattern captures the label of any bridged capability block header
 // ("capability <domain>.<label> <source> [as <id>] with:") -- the capability a following

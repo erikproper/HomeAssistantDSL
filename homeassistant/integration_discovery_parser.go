@@ -83,7 +83,7 @@ var discoveryAvailabilitySiblingPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z
 // stores and re-emits it. Greedy on the leading group so a multi-word match prefers the LAST
 // " as <token>" in the line (irrelevant in practice -- no real raw leaf id contains " as " -- but
 // correct regardless).
-var discoveryAssignedIDPattern = regexp.MustCompile(`^(.+)\s+as\s+(\S+)$`)
+var discoveryAssignedIDPattern = regexp.MustCompile(`^(.+)\s+as\s+unique_id\s+(\S+)$`)
 
 // cutDiscoveryAssignedID splits a capability line's raw source text into its own prefix and a
 // trailing " as <id>" suffix, if present. Called BEFORE the "is available"/"<raw-domain>:<leaf>"

@@ -29,6 +29,45 @@ import (
 	"strings"
 )
 
+// qualifiedAsWords are the words an "as" is followed by (PROJECT.md 30, 2026-11-03, Erik: "qualify
+// all 'as' occurrences"): "as unique_id <id>" (a frozen ID), "as leaf <leaf>", "as area", "as
+// source <entity>" and "as cards".
+var qualifiedAsWords = map[string]bool{"unique_id": true, "leaf": true, "area": true, "source": true, "cards": true}
+
+// unqualifiedAsPattern finds an "as" and the word after it.
+var unqualifiedAsPattern = regexp.MustCompile(`(?:^|\s)as\s+(\S+)`)
+
+// checkQualifiedAs returns an error naming every statement in definitionDir's .def files whose
+// "as" isn't qualified. Generation stops on it: an old "as <id>" isn't read as a frozen ID, and
+// the generator would then freeze a new one in its place.
+func checkQualifiedAs(definitionDir string) error {
+	paths, _ := filepath.Glob(filepath.Join(definitionDir, "*.def"))
+	sort.Strings(paths)
+	var found []string
+	for _, path := range paths {
+		lines, err := readDefStatementLines(path)
+		if err != nil {
+			return err
+		}
+		for _, line := range lines {
+			code := withoutQuotedText(stripLineComment(line))
+			for _, m := range unqualifiedAsPattern.FindAllStringSubmatch(code, -1) {
+				if !qualifiedAsWords[strings.TrimSuffix(m[1], ";")] {
+					found = append(found, fmt.Sprintf("  %s: %s", filepath.Base(path), strings.TrimSpace(line)))
+					break
+				}
+			}
+		}
+	}
+	if len(found) == 0 {
+		return nil
+	}
+	if len(found) > 20 {
+		found = append(found[:20], fmt.Sprintf("  ... and %d more", len(found)-20))
+	}
+	return fmt.Errorf("an \"as\" without its qualifier (\"as unique_id <id>\", \"as leaf <leaf>\", \"as area\", \"as source <entity>\", \"as cards\"):\n%s", strings.Join(found, "\n"))
+}
+
 // loadFrozenUniqueIDs fills admin.FrozenUniqueIDs from every derived capability's frozen "as <id>":
 // Physical.def's (keyed "physical:<device-id>!<label>") and Logical.def's (keyed
 // "logical:<device-id>!<label>") -- the same keys TEntityRecord.SourceKey uses.
@@ -239,7 +278,7 @@ func writeFrozenUniqueIDs(path string, assignments map[string]string) []string {
 			// "enabled by" line itself, before its "with delay_off", if any.
 			if line, found := enabledByLineOf(lines, deviceID); found {
 				if head, tail, hasWith := strings.Cut(lines[line], " with "); hasWith {
-					lines[line] = head + " as " + id + " with " + tail
+					lines[line] = head + " as unique_id " + id + " with " + tail
 				} else {
 					lines[line] = appendAssignedIDToLine(lines[line], id)
 				}
@@ -257,12 +296,12 @@ func writeFrozenUniqueIDs(path string, assignments map[string]string) []string {
 		}
 		if isCommandline {
 			head := commandlineAssignedIDHeadPattern.FindString(lines[start])
-			lines[start] = head + " as " + id + lines[start][len(head):]
+			lines[start] = head + " as unique_id " + id + lines[start][len(head):]
 		} else if head := assignedIDHeadPattern.FindString(lines[start]); head != "" && (isBridged || strings.Contains(head, "derived")) {
-			lines[start] = head + " as " + id + lines[start][len(head):]
+			lines[start] = head + " as unique_id " + id + lines[start][len(head):]
 		} else if strings.HasSuffix(strings.TrimSpace(lines[start]), " with:") {
 			trimmed := strings.TrimRight(lines[start], " \t")
-			lines[start] = strings.TrimSuffix(trimmed, " with:") + " as " + id + " with:"
+			lines[start] = strings.TrimSuffix(trimmed, " with:") + " as unique_id " + id + " with:"
 		} else {
 			end := start
 			for end < len(lines) && !strings.HasSuffix(strings.TrimRight(lines[end], " \t"), ";") {

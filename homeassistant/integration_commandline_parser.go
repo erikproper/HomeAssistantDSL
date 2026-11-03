@@ -38,7 +38,7 @@ var commandlineWithDevicePattern = regexp.MustCompile(`^device\s+(\S+)\s+host\s+
 // discoveryCapabilityPattern's own doc comment for the general rationale.
 // An optional frozen "as <id>" (PROJECT.md item 48/16) follows the name: the capability's
 // unique_id, kept when the capability is renamed.
-var commandlineCapabilityPattern = regexp.MustCompile(`^capability\s+(switch|sensor|button)\.([A-Za-z_][A-Za-z0-9_]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_.]*))?\s+(.+?)\s*;\s*$`)
+var commandlineCapabilityPattern = regexp.MustCompile(`^capability\s+(switch|sensor|button)\.([A-Za-z_][A-Za-z0-9_]*)(?:\s+as\s+unique_id\s+([A-Za-z_][A-Za-z0-9_.]*))?\s+(.+?)\s*;\s*$`)
 var commandlineScriptPattern = regexp.MustCompile(`"([^"]*)"`)
 
 // commandlineDependencyOnPattern is "dependency on <device-id>;" inside a commandline device

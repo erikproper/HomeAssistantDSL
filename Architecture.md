@@ -407,7 +407,7 @@ else `controller` (the device's own link to its controller, e.g. Vienna's ha2mqt
 machine). Generate warns about any node outside the infrastructural sphere (`checkNodeSpheres`).
 
 **"enabled by"** (PROJECT.md 17k, 2026-10-26, Erik): a Logical.def device statement
-`enabled by <domain>.<label> from <device> [as <id>] [with delay_off: <time>];` says the device is
+`enabled by <domain>.<label> from <device> [as unique_id <id>] [with delay_off: <time>];` says the device is
 powered by that device's switch (`logical_enabled_by.go`). It absorbs the switch as the device's
 `enabler` and implies its node: (its own Physical.def node, if any) and (the node of every device
 it is built from -- absorbed, colocated or `dependency on`) or (the enabler is off); the `as` and
@@ -449,7 +449,7 @@ the exact same thing out explicitly —
 
 ```
 device appliance.living_room_tv with:
-  colocated switch.living_room_tv as switch;
+  colocated switch.living_room_tv as leaf switch;
 
   absorb from switch.living_room_tv:
     capability switch.enabler core;
@@ -477,7 +477,7 @@ PROJECT.md item 11b, 2026-10-11 -- see this file's own note on that item, just b
 "dependency on" writeup, for why.)
 
 (A derived capability holding nothing but its `condition`/`value` may also be written as a
-one-liner, `derived capability binary_sensor.node as <id> with condition <expr>;` — 2026-10-21, the
+one-liner, `derived capability binary_sensor.node as unique_id <id> with condition <expr>;` — 2026-10-21, the
 same shape Physical.def's own derived one-liner has. The `condition`/`value` may also start on the
 next line.)
 
@@ -510,10 +510,10 @@ works in binary_sensor conditions too (`is_state(...)`).
 
 **Frozen universal IDs (PROJECT.md item 48, 2026-10-21).** Every derived capability, in Physical.def
 or Logical.def, carries its universal ID right after its name, before its `with`/`from` part
-(2026-10-22): `derived capability <domain>.<label> as <id> with …;` / `… as <id> from …;` (one-liner)
-or `derived capability … as <id> with:` (block). A bridged capability carries it after its source:
-`capability <domain>.<label> <source> as <id> [with …];`. A commandline capability carries it
-after its name, before its scripts (`capability switch.picture_frame as <id> "<status>" …;`,
+(2026-10-22): `derived capability <domain>.<label> as unique_id <id> with …;` / `… as unique_id <id> from …;` (one-liner)
+or `derived capability … as unique_id <id> with:` (block). A bridged capability carries it after its source:
+`capability <domain>.<label> <source> as unique_id <id> [with …];`. A commandline capability carries it
+after its name, before its scripts (`capability switch.picture_frame as unique_id <id> "<status>" …;`,
 2026-10-22); it is the capability's unique_id in its YAML entity (commandline_yaml_entities.go),
 so the capability can be renamed. Its MQTT topics still follow the label. It is the `unique_id` of the template entity generated from
 it. The generator writes it itself the first time it sees the capability: its entity_id at that
@@ -528,7 +528,7 @@ itself:
 
 | Identity | What it is | Set by | Changes later? |
 |---|---|---|---|
-| unique_id | the entity's permanent identity, the registry's key (per platform and domain) | the integration: our frozen `as <id>` | never |
+| unique_id | the entity's permanent identity, the registry's key (per platform and domain) | the integration: our frozen `as unique_id <id>` | never |
 | entity_id | the handle automations, templates and our generated YAML refer to | Home Assistant, once, when the unique_id first appears (from the suggested `default_entity_id`/name) | only by a registry rename |
 | name | the entity name the UI shows (registry name / original_name) | the integration (discovery/YAML `name`, PROJECT.md 17h), or the user | when the integration sends another one |
 | friendly_name | a state attribute | Home Assistant, or our customization | with the customization |
@@ -578,7 +578,7 @@ or right after `derived`/`defined` for those two block-opening forms (`derived c
 binary_sensor.node with: ...;`, `defined capability input_number.x with: ...;`). The
 hassbridge/local `<domain>.<label> <value> with:` refinement block first stayed unprefixed, then
 took the keyword optionally (2026-10-23); since PROJECT.md 30 (2026-11-03) it is required there
-too: `capability vacuum.vacuum vacuum.roomba as <id> with:`. Logical.def's absorb-block
+too: `capability vacuum.vacuum vacuum.roomba as unique_id <id> with:`. Logical.def's absorb-block
 opener was renamed from `capabilities from <id>:` to `absorb from <id>:` in the same change --
 "absorb" already being this mechanism's own internal name everywhere else in the codebase
 (`TLogicalCapability.AbsorbedFromDeviceID`/`AbsorbedFromCapability`) -- with its own body lines
@@ -1141,7 +1141,7 @@ rename changes:
 - a host: `host_<hostname>_<attribute>` (`host_pro1_cpu_load`) -- the machine's own name, already
   in all its topics and independent of its device id; hosts declare no capability `as` IDs.
 
-The importer names it per capability -- `capability sensor.co2 from <export-id> as <id>;` -- and
+The importer names it per capability -- `capability sensor.co2 from <export-id> as unique_id <id>;` -- and
 its coordinator matches on the payload's `export_id` (a capability without `from` still matches
 the old way). Nobody types it: generate writes the `from` from the import catalogue (which
 carries each entry's `export_id` and the exporter's current device id), and when the exporting
@@ -1225,7 +1225,12 @@ meaning once its domain is commandable. Deliberately deferred — same-broker wa
 (a same-house secondary HA instance), and nothing today needs a command to cross a house boundary
 yet.
 
-### 6.14 Stable coordinator↔HA entity identity: Physical.def `as <id>` (PROJECT.md item 7)
+### 6.14 Stable coordinator↔HA entity identity: Physical.def `as unique_id <id>` (PROJECT.md item 7)
+
+Every `as` in the defs is qualified (PROJECT.md 30, 2026-11-03, Erik): `as unique_id <id>` for a
+frozen ID (until then a bare `as <id>`), `as leaf <leaf>` (a `device` block, `colocated`),
+`as area`, `as source <entity>`, `as cards`. Generation stops on an unqualified `as`
+(`checkQualifiedAs`): it would not be read as a frozen ID, and the generator would freeze a new one.
 
 **The problem this closes**: a discovery-kind (`discovery` integration — Zigbee2MQTT/Z-Wave-JS/
 EMS-ESP-style) capability's own HA `unique_id` was, until this landed, always computed fresh by
@@ -1241,7 +1246,7 @@ the *HA registry's* own idea of identity.
 
 **Mechanism**: a plain raw-leaf capability line in Physical.def (never an `is available`/
 `derived` capability — those are local condition/template entities, never relayed, so they never
-reach `relayedDiscoveryUniqueID` at all) can carry a trailing `as <id>;` —
+reach `relayedDiscoveryUniqueID` at all) can carry a trailing `as unique_id <id>;` —
 `light.light_1 zwavejs2mqtt_0xd0204fb2_71-37-1-currentValue as sensors_X_...;`
 (`TDiscoveryCapability.AssignedID`, `integration_discovery_parser.go`). Once present, it is
 authoritative forever: the generator carries it through to `discovery.yaml`'s `entity_links:`
@@ -1278,7 +1283,7 @@ and capability defaults are those of the role, and `switch_2` still shortens to 
 part of ordinary generation (`autoAssignDiscoveryStableIDs`,
 `physical_auto_assign_stable_ids.go`) — the one deliberate exception to this codebase's otherwise
 universal "`.def` files are only ever read, never written" rule, and purely additive (it only ever
-appends `as <id>` before an existing line's own trailing `;`). The id itself is the capability's
+appends `as unique_id <id>` before an existing line's own trailing `;`). The id itself is the capability's
 own resolved entity_id at the moment it's first positioned ("position at birth", frozen from then
 on regardless of later repositioning), `_n`-disambiguated against any id already assigned anywhere
 if it collides. All-or-nothing per run: if even one assignment's own capability line can't be
@@ -1293,7 +1298,7 @@ generator and are explicitly documented as never editing a file. Gated by a `wri
 parameter on that function, true only from `generateFromPaths`.
 
 **One-time bootstrap** (`homeassistant -bootstrap_stable_ids <mapping.json> Definitions/Main.def`,
-`bootstrap_stable_ids.go`) seeds `as <id>` for every *already-live* capability from its currently
+`bootstrap_stable_ids.go`) seeds `as unique_id <id>` for every *already-live* capability from its currently
 real HA registry `unique_id` — never a freshly-minted value, preserving exactly what's already
 live. `mapping.json` is a flat `{entity_id: unique_id}` dump of the live registry's own
 mqtt-platform entities (no pre-filtering needed; only entries matching a live discovery capability
@@ -1350,7 +1355,7 @@ currently lack a positioned node (not merely when they share a position) — eac
 explicit, distinguishing leaf (e.g. `entity binary_sensor.infrastructural:main_spots/node;` instead
 of the bare form).
 
-**`colocated <device-id> as <leaf>;`** (Logical.def, repeatable, on the *anchor* device's own
+**`colocated <device-id> as leaf <leaf>;`** (Logical.def, repeatable, on the *anchor* device's own
 block): positions a device that has no conceptual location of its own but obviously lives wherever
 another, already-positioned device lives — e.g. Vienna's `switch.living_room_tv` (a bare Z-Wave
 relay switching the TV's own power) has no position of its own, but is `colocated
@@ -1609,7 +1614,7 @@ node's availability -- the discovery YAML writer now applies dependencies like e
 Where the node's topic comes from depends on who controls it:
 - *Topics we don't control, without discovery* -- Z-Wave JS UI's `zwave/driver/status`, EMS-ESP's
   `ems-esp/status` -- are declared in `integration mqtt`, the start of the raw MQTT integration:
-  `capability binary_sensor.node topic "zwave/driver/status" on "true" [as <id>];` ("on" for that
+  `capability binary_sensor.node topic "zwave/driver/status" on "true" [as unique_id <id>];` ("on" for that
   value, "off" for any other). Such a device rides on the discovery machinery: the generator writes
   its "raw config" itself (`homeassistant/integration_mqtt.go`), so positioning, frozen IDs, YAML
   entity and retain decision are a discovered device's; the coordinator gets nothing. Retain: the
@@ -1816,7 +1821,7 @@ second pass changes nothing. The generator's own writers into the defs (frozen I
 metadata, import identities) read a file with each statement joined onto one line
 (`readDefStatementLines`) and write it back through the formatter (`writeDefFormatted`), so they
 work whatever the layout. What stays long is what can't be broken: comments (by choice), and an
-`as <id>` or `entity ...` line whose ID alone is long. Per-integration layouts (the old item 46's
+`as unique_id <id>` or `entity ...` line whose ID alone is long. Per-integration layouts (the old item 46's
 idea) only if one turns out to be wanted.
 
 ## 7. Home Assistant's two roles

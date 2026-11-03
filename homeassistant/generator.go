@@ -100,6 +100,9 @@ func runGenerationFromDefFile(cwd, defPath string) error {
 // derived_migration_helper.go), both explicitly documented as never editing any file.
 func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label string, writeBack bool) (*TAdministrationState, error) {
 	fmt.Printf("%s: reading configuration...\n", label)
+	if err := checkQualifiedAs(definitionDir); err != nil {
+		return nil, err
+	}
 
 	sharedSettingsBytes, _ := os.ReadFile(filepath.Join(sharedDefinitionDir, "Settings.def"))
 	localSettingsBytes, _ := os.ReadFile(filepath.Join(definitionDir, "Settings.def"))

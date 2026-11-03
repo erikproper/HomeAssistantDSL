@@ -85,7 +85,7 @@ var importHeaderShorthandPattern = regexp.MustCompile(`^device\s+(\S+)\s+from\s+
 // "export_id", written by the generator from the import catalogue); "as <id>" its frozen universal
 // ID (PROJECT.md item 48). A remote id may hold "-": a host's export_id holds its host name
 // ("host_eriks-macbook-pro-2_node").
-var importCapabilityPattern = regexp.MustCompile(`^capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)(?:\s+from\s+([A-Za-z_][A-Za-z0-9_.-]*))?(?:\s+as\s+([A-Za-z_][A-Za-z0-9_.]*))?\s*;\s*$`)
+var importCapabilityPattern = regexp.MustCompile(`^capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)(?:\s+from\s+([A-Za-z_][A-Za-z0-9_.-]*))?(?:\s+as\s+unique_id\s+([A-Za-z_][A-Za-z0-9_.]*))?\s*;\s*$`)
 
 // importConstantAttributeShapePattern recognizes the same "<name>: "<value>" [forced];" shape
 // integration_hosts_parser.go/integration_hassbridge_parser.go's own constantAttributePattern

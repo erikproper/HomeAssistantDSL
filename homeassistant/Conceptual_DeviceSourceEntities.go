@@ -61,7 +61,7 @@ type TDeviceSourceEntityDeclaration struct {
 // deviceSourceEntityPattern requires an explicit " as " clause -- this is what distinguishes it
 // from "entity <spec> from <gateway-id>.<leaf>;" (Conceptual_DiscoveryEntities.go), which has no
 // "as" clause at all, so there's no ambiguity between the two shapes.
-var deviceSourceEntityPattern = regexp.MustCompile(`^entity\s+(\S+)\s+as\s+(\S+)\s+from\s+(\S+);$`)
+var deviceSourceEntityPattern = regexp.MustCompile(`^entity\s+(\S+)\s+as\s+source\s+(\S+)\s+from\s+(\S+);$`)
 
 func extractDeviceSourceEntityDeclaration(line string) (*TDeviceSourceEntityDeclaration, bool) {
 	matches := deviceSourceEntityPattern.FindStringSubmatch(line)

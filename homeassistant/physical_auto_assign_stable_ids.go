@@ -298,7 +298,7 @@ func appendAssignedIDToLine(line, id string) string {
 	if !strings.HasSuffix(trimmed, ";") {
 		return line
 	}
-	return strings.TrimSuffix(trimmed, ";") + " as " + id + ";"
+	return strings.TrimSuffix(trimmed, ";") + " as unique_id " + id + ";"
 }
 
 // rawTopicForLineSearch is what discoveryCapabilityLinePattern looks for in a raw capability's line.

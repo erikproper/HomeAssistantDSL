@@ -162,7 +162,7 @@ func foldedBlockHeader(header, member string) (string, bool) {
 
 var (
 	defDeviceBlockHeaderPattern  = regexp.MustCompile(`^device\s+\S+\s+with:$`)
-	defDerivedBlockHeaderPattern = regexp.MustCompile(`^(?:internal\s+)?derived\s+capability\s+\S+(?:\s+as\s+\S+)?\s+with:$`)
+	defDerivedBlockHeaderPattern = regexp.MustCompile(`^(?:internal\s+)?derived\s+capability\s+\S+(?:\s+as\s+unique_id\s+\S+)?\s+with:$`)
 )
 
 // defSettingLinePattern matches a setting line, "${<name>} = <value>;" (with its indentation).

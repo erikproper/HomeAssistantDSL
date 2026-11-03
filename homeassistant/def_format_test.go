@@ -22,7 +22,7 @@ func TestFormatDefContent(t *testing.T) {
 integration discovery with:
       # a comment stays as written
   device sensors.a with:
-capability binary_sensor.node bridge_0x00124b0029e8c409_connection_state_zigbee2mqtt as node_zigbee2mqtt_bridge_bridge_0x00124b0029e8c409_connection_state_zigbee2mqtt;   # trailing
+capability binary_sensor.node bridge_0x00124b0029e8c409_connection_state_zigbee2mqtt as unique_id node_zigbee2mqtt_bridge_bridge_0x00124b0029e8c409_connection_state_zigbee2mqtt;   # trailing
   end;
   device switches.b with entity light.social: from light_with_a_rather_long_source_name_that_goes_on_and_on;
 end;
@@ -32,7 +32,7 @@ end;`
       # a comment stays as written
     device sensors.a with:
       capability binary_sensor.node bridge_0x00124b0029e8c409_connection_state_zigbee2mqtt
-          as node_zigbee2mqtt_bridge_bridge_0x00124b0029e8c409_connection_state_zigbee2mqtt;   # trailing
+          as unique_id node_zigbee2mqtt_bridge_bridge_0x00124b0029e8c409_connection_state_zigbee2mqtt;   # trailing
     end;
     device switches.b with entity light.social: from light_with_a_rather_long_source_name_that_goes_on_and_on;
   end;
@@ -72,14 +72,14 @@ func TestFormatDefAlignsSettings(t *testing.T) {
 func TestFormatDefFoldsSingleMemberBlocks(t *testing.T) {
 	in := "device buttons.a with:\n  entity sensor.infrastructural:battery_level;\nend;\n" +
 		"device buttons.b with:\n  entity light.social:main from light not aggregated;\nend;\n" +
-		"derived capability binary_sensor.node as x_node with:\n  condition node.tv;\nend;\n" +
+		"derived capability binary_sensor.n as unique_id x with:\n  condition node.tv;\nend;\n" +
 		"then:\n  dim light.social:main with 5%;\nend;\n" +
 		"device buttons.c as leaf door with:\n  entity sensor.infrastructural:battery_level;\nend;\n" +
 		"device buttons.d with:\n  entity sensor.infrastructural:battery_level; # kept\nend;\n" +
 		"for binary_sensor.*/door:\n  icon: \"mdi:door-open\";\nend;"
 	want := "device buttons.a with entity sensor.infrastructural:battery_level;\n" +
 		"device buttons.b with entity light.social:main from light not aggregated;\n" +
-		"derived capability binary_sensor.node as x_node with condition node.tv;\n" +
+		"derived capability binary_sensor.n as unique_id x with condition node.tv;\n" +
 		"then dim light.social:main with 5%;\n" +
 		"device buttons.c as leaf door with:\n  entity sensor.infrastructural:battery_level;\nend;\n" +
 		"device buttons.d with:\n  entity sensor.infrastructural:battery_level; # kept\nend;\n" +

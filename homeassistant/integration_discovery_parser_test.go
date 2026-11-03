@@ -12,7 +12,7 @@ func TestParseDiscoveryIntegrationBodyAssignedID(t *testing.T) {
 	devices, warnings := parseDiscoveryIntegrationBody([]string{
 		"device switches.garage_fuse_cabinet_zwave_058 with:",
 		"  identifiers \"zwavejs2mqtt_0xd0204fb2_node58\";",
-		"  capability fan.fan zwavejs2mqtt_0xd0204fb2_58-37-1-currentValue as switches_garage_fuse_cabinet_zwave_058_zwavejs2mqtt_0xd0204fb2_58-37-1-currentValue;",
+		"  capability fan.fan zwavejs2mqtt_0xd0204fb2_58-37-1-currentValue as unique_id switches_garage_fuse_cabinet_zwave_058_zwavejs2mqtt_0xd0204fb2_58-37-1-currentValue;",
 		"end;",
 	})
 	if len(warnings) != 0 {
@@ -39,7 +39,7 @@ func TestParseDiscoveryIntegrationBodyAssignedID(t *testing.T) {
 func TestParseDiscoveryIntegrationBodyAssignedIDWithSourceDomain(t *testing.T) {
 	devices, warnings := parseDiscoveryIntegrationBody([]string{
 		"device buttons.example with:",
-		"  capability event.pressed event:0x1234_action_zigbee2mqtt as buttons_example_event_0x1234_action_zigbee2mqtt;",
+		"  capability event.pressed event:0x1234_action_zigbee2mqtt as unique_id buttons_example_event_0x1234_action_zigbee2mqtt;",
 		"end;",
 	})
 	if len(warnings) != 0 {
@@ -60,7 +60,7 @@ func TestParseDiscoveryIntegrationBodyAssignedIDWithSourceDomain(t *testing.T) {
 func TestParseDiscoveryIntegrationBodyAssignedIDRejectedOnAvailability(t *testing.T) {
 	devices, warnings := parseDiscoveryIntegrationBody([]string{
 		"device sensors.example with:",
-		"  capability binary_sensor.node light.core is available as should_be_ignored;",
+		"  capability binary_sensor.node light.core is available as unique_id should_be_ignored;",
 		"end;",
 	})
 	if len(warnings) != 1 {

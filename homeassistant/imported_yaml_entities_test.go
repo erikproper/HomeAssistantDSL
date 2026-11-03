@@ -39,14 +39,14 @@ func TestWriteImportRemoteIdentities(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "Physical.def")
 	before := `  integration import with:
     device sensors.netatmo_bedroom from junglinster sensors.netatmo_vienna_bedroom with:
-      capability sensor.co2 as imported_sensor_physical_apartment_bedroom_netatmo_co2;
+      capability sensor.co2 as unique_id imported_sensor_physical_apartment_bedroom_netatmo_co2;
       capability sensor.humidity;
     end;
     device sensors.netatmo_terrace from junglinster sensors.netatmo_vienna_terrace with:
-      capability sensor.co2 as imported_x;
+      capability sensor.co2 as unique_id imported_x;
     end;
     device node.pro_1 from junglinster with:
-      capability sensor.cpu/load as imported_load;
+      capability sensor.cpu/load as unique_id imported_load;
     end;
   end;
 `
@@ -59,14 +59,14 @@ func TestWriteImportRemoteIdentities(t *testing.T) {
 	got, _ := os.ReadFile(path)
 	want := `  integration import with:
     device sensors.netatmo_bedroom from junglinster sensors.netatmo_vienna_sleeping_room with:
-      capability sensor.co2 from hassbridge_sensor_infrastructural_netatmo_bedroom_co2 as imported_sensor_physical_apartment_bedroom_netatmo_co2;
+      capability sensor.co2 from hassbridge_sensor_infrastructural_netatmo_bedroom_co2 as unique_id imported_sensor_physical_apartment_bedroom_netatmo_co2;
       capability sensor.humidity from hassbridge_h;
     end;
     device sensors.netatmo_terrace from junglinster sensors.netatmo_vienna_terrace with:
-      capability sensor.co2 as imported_x;
+      capability sensor.co2 as unique_id imported_x;
     end;
     device node.pro_1 from junglinster with:
-      capability sensor.cpu/load from host_eriks-macbook-pro-2_load as imported_load;
+      capability sensor.cpu/load from host_eriks-macbook-pro-2_load as unique_id imported_load;
     end;
   end;
 `

@@ -11,8 +11,8 @@ import (
 // capability parsers, and collected per device.
 func TestStripAndCollectDerivedFrozenIDs(t *testing.T) {
 	content := "device sensors.a with:\n" +
-		"  derived capability binary_sensor.node as binary_sensor.infra_a_node with condition sensor.x is available;\n" +
-		"  derived capability binary_sensor.battery_alert as binary_sensor.infra_a_battery_alert from sensor.battery_level via \"$ < 5\";\n" +
+		"  derived capability binary_sensor.node as unique_id binary_sensor.infra_a_node with condition sensor.x is available;\n" +
+		"  derived capability binary_sensor.battery_alert as unique_id binary_sensor.infra_a_battery_alert from sensor.battery_level via \"$ < 5\";\n" +
 		"end;\n" +
 		"device sensors.b with:\n" +
 		"  derived capability binary_sensor.node with condition sensor.y is available;\n" +
@@ -39,9 +39,9 @@ func TestStripAndCollectDerivedFrozenIDs(t *testing.T) {
 func TestParseLogicalLayerBodyFrozenIDs(t *testing.T) {
 	devices, warnings := parseLogicalLayerBody([]string{
 		"device appliance.tv with:",
-		"  derived capability binary_sensor.node as binary_sensor.infra_tv_node with",
+		"  derived capability binary_sensor.node as unique_id binary_sensor.infra_tv_node with",
 		"    condition physical appliance.tv and node.tv;",
-		"  derived capability binary_sensor.windy as binary_sensor.social_windy with:",
+		"  derived capability binary_sensor.windy as unique_id binary_sensor.social_windy with:",
 		"    condition node.tv;",
 		"    delay_off: 00:01:00;",
 		"  end;",
@@ -94,9 +94,9 @@ func TestWriteFrozenUniqueIDs(t *testing.T) {
 		"    derived capability binary_sensor.node with condition node.other;\n" +
 		"  end;\n" +
 		"  device appliance.tv with:\n" +
-		"    derived capability binary_sensor.node as binary_sensor.infra_tv_node with condition physical appliance.tv and\n" +
+		"    derived capability binary_sensor.node as unique_id binary_sensor.infra_tv_node with condition physical appliance.tv and\n" +
 		"      node.tv;\n" +
-		"    derived capability binary_sensor.windy as binary_sensor.social_windy with condition node.tv;\n" +
+		"    derived capability binary_sensor.windy as unique_id binary_sensor.social_windy with condition node.tv;\n" +
 		"  end;\n" +
 		"end;"
 	if defStatements(string(got)) != defStatements(want) {
@@ -140,10 +140,10 @@ func TestUniqueIDForSharedSourceKey(t *testing.T) {
 func TestBridgedFrozenIDsInBlockHeader(t *testing.T) {
 	content := "integration home_assistant ha2mqtt with:\n" +
 		"  device appliance.vacuum with:\n" +
-		"    capability vacuum.core vacuum.roomba as hassbridge_vacuum_x with:\n" +
+		"    capability vacuum.core vacuum.roomba as unique_id hassbridge_vacuum_x with:\n" +
 		"      icon: \"mdi:robot-vacuum\";\n" +
 		"    end;\n" +
-		"    capability sensor.battery_level sensor.roomba_battery as hassbridge_sensor_y with icon: \"mdi:battery\";\n" +
+		"    capability sensor.battery_level sensor.roomba_battery as unique_id hassbridge_sensor_y with icon: \"mdi:battery\";\n" +
 		"  end;\n" +
 		"end;"
 	stripped := stripDerivedAssignedIDs(content)

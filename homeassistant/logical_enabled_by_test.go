@@ -14,8 +14,8 @@ import (
 func TestApplyEnabledByImpliesNode(t *testing.T) {
 	devices, warnings := parseLogicalLayerBody([]string{
 		"device server.xanadu with:",
-		"  enabled by switch.switch from switch.xanadu as binary_sensor.frozen_xanadu_node;",
-		"  colocated switch.xanadu as switch;",
+		"  enabled by switch.switch from switch.xanadu as unique_id binary_sensor.frozen_xanadu_node;",
+		"  colocated switch.xanadu as leaf switch;",
 		"  absorb from node.xanadu:",
 		"    capability sensor.cpu/load;",
 		"  end;",
@@ -100,8 +100,8 @@ func TestWriteFrozenUniqueIDsOnEnabledByLine(t *testing.T) {
 	})
 	got, _ := os.ReadFile(path)
 	for _, want := range []string{
-		"    enabled by switch.switch from switch.imac as binary_sensor.imac_node;\n",
-		"    enabled by switch.switch from switch.tv as binary_sensor.tv_node with delay_off: 00:01:00;\n",
+		"    enabled by switch.switch from switch.imac as unique_id binary_sensor.imac_node;\n",
+		"    enabled by switch.switch from switch.tv as unique_id binary_sensor.tv_node with delay_off: 00:01:00;\n",
 	} {
 		if !strings.Contains(defStatements(string(got)), strings.TrimSpace(want)) {
 			t.Errorf("Logical.def lacks %q:\n%s", want, got)

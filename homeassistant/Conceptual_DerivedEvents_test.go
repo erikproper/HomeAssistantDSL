@@ -227,7 +227,7 @@ func TestLogicalEventCapabilityRaisesNamedEvent(t *testing.T) {
 	}
 	logicalDevices, warnings := parseLogicalLayerBody([]string{
 		"device request.wc_light_toggle with:",
-		"  derived capability event.toggle as frozen_toggle_id with",
+		"  derived capability event.toggle as unique_id frozen_toggle_id with",
 		"    condition",
 		"      event.pressed from buttons.door is 'single' and if",
 		"      trigger.button from buttons.door is '1'",

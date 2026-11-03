@@ -411,7 +411,7 @@ func isDiscoveryMetadataField(field string) bool {
 
 // metadataBridgeHeaderPattern matches a bridge device's block header, exported or not:
 // "device <id> [export [as <name>]] with:".
-var metadataBridgeHeaderPattern = regexp.MustCompile(`^(\s*)device\s+([A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*)(?:\s+export(?:\s+as\s+\S+)?)?\s+with:\s*$`)
+var metadataBridgeHeaderPattern = regexp.MustCompile(`^(\s*)device\s+([A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*)(?:\s+export)?\s+with:\s*$`)
 
 // writeBridgeMetadata returns content with each "home_assistant" bridge device's metadata
 // rewritten from info (what the coordinator learns about it, via_device included, PROJECT.md

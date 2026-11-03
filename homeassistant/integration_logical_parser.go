@@ -65,12 +65,12 @@ var logicalDependencyOnPattern = regexp.MustCompile(`^dependency\s+on\s+(\S+)\s*
 // prefix -- confirmed against the user's own real Vienna edit, "colocated switch.living_room_tv
 // as switch;", before this was built). See TLogicalDevice.Colocated's own doc comment for the full
 // semantics.
-var logicalColocatedPattern = regexp.MustCompile(`^colocated\s+(\S+)\s+as\s+(\S+)\s*;\s*$`)
+var logicalColocatedPattern = regexp.MustCompile(`^colocated\s+(\S+)\s+as\s+leaf\s+(\S+)\s*;\s*$`)
 
 // logicalEnabledByPattern is "enabled by <domain>.<label> from <device-id> [as <id>] [with
 // delay_off: <time>];" (PROJECT.md 17k, 2026-10-26; the colon since PROJECT.md 30, as in a derived
 // block) -- see TLogicalDevice.EnabledBy.
-var logicalEnabledByPattern = regexp.MustCompile(`^enabled\s+by\s+([a-z_]+)\.([a-z0-9_/]+)\s+from\s+(\S+?)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_.]*))?(?:\s+with\s+delay_off:\s*(\S+?))?\s*;\s*$`)
+var logicalEnabledByPattern = regexp.MustCompile(`^enabled\s+by\s+([a-z_]+)\.([a-z0-9_/]+)\s+from\s+(\S+?)(?:\s+as\s+unique_id\s+([A-Za-z_][A-Za-z0-9_.]*))?(?:\s+with\s+delay_off:\s*(\S+?))?\s*;\s*$`)
 
 // enabledByFact returns line's "enabled by" fact, if it is one.
 func enabledByFact(line string) (*TLogicalEnabledByFact, bool) {
@@ -224,7 +224,7 @@ var logicalDefinedOneLinerPattern = regexp.MustCompile(`^defined\s+capability\s+
 // item 11b, 2026-10-11) goes right after "derived", mirroring logicalDefinedBlockPattern's own
 // placement and Physical.def's identical "derived capability ... from ... via ...;"/"derived
 // capability ... with condition ...;" one-liner forms (Physical_DerivedCapability.go).
-var logicalDerivedBlockPattern = regexp.MustCompile(`^derived\s+capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_.]*))?\s+with:\s*$`)
+var logicalDerivedBlockPattern = regexp.MustCompile(`^derived\s+capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)(?:\s+as\s+unique_id\s+([A-Za-z_][A-Za-z0-9_.]*))?\s+with:\s*$`)
 
 // logicalDerivedOneLinerPattern is logicalDerivedBlockPattern's own single-statement shorthand
 // (2026-10-21): "derived capability <domain>.<label> [as <id>] with condition <bool-expr>;" (or
@@ -233,11 +233,11 @@ var logicalDerivedBlockPattern = regexp.MustCompile(`^derived\s+capability\s+([A
 // (PROJECT.md item 48) comes before "with", as in the block form. The "condition"/"value" may also
 // start on the next line, and the expression may continue on following lines, exactly as inside
 // the block form. Groups: domain, label, ID, body (empty when "with" ends the line).
-var logicalDerivedOneLinerPattern = regexp.MustCompile(`^derived\s+capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_.]*))?\s+with(?:\s+(.*))?$`)
+var logicalDerivedOneLinerPattern = regexp.MustCompile(`^derived\s+capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)(?:\s+as\s+unique_id\s+([A-Za-z_][A-Za-z0-9_.]*))?\s+with(?:\s+(.*))?$`)
 
 // logicalAssignedIDSuffixPattern is an absorbed capability's own trailing frozen "as <id>;"
 // (PROJECT.md item 48).
-var logicalAssignedIDSuffixPattern = regexp.MustCompile(`\s+as\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;\s*$`)
+var logicalAssignedIDSuffixPattern = regexp.MustCompile(`\s+as\s+unique_id\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;\s*$`)
 
 // logicalDerivedFieldPattern matches one of a "derived" block's OWN non-"condition"/"value" body
 // lines -- device_class/delay_on/delay_off, any subset, any order -- written "<field>: <value>;",

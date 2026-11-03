@@ -208,7 +208,7 @@ func writeImportRemoteIdentities(path string, remoteIDs, renamedRemotes map[stri
 
 // importCapabilityLinePattern splits an import capability line without "from" into its head
 // ("capability <domain>.<label>"), its label, and the rest (" as <id>;" or ";").
-var importCapabilityLinePattern = regexp.MustCompile(`^(\s*capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*))((?:\s+as\s+\S+)?\s*;.*)$`)
+var importCapabilityLinePattern = regexp.MustCompile(`^(\s*capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*))((?:\s+as\s+unique_id\s+\S+)?\s*;.*)$`)
 
 // importedYAMLEntityBodies returns device's YAML entities, built from exactly what
 // generateImportedDeviceFile writes for the coordinator, and the entities missing a catalogue

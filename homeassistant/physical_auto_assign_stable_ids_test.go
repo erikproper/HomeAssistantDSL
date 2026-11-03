@@ -68,7 +68,7 @@ func TestAutoAssignDiscoveryStableIDsAssignsFreshIDForLiveCapability(t *testing.
 	}
 
 	got := readPhysicalDefFixture(t, dir)
-	if !strings.Contains(got, "fan.fan zwavejs2mqtt_0xd0204fb2_58-37-1-currentValue as fan.social_house_wc;") {
+	if !strings.Contains(got, "fan.fan zwavejs2mqtt_0xd0204fb2_58-37-1-currentValue as unique_id fan.social_house_wc;") {
 		t.Errorf("fan capability's line wasn't rewritten as expected, got:\n%s", got)
 	}
 	if !strings.Contains(got, "light.light zwavejs2mqtt_0xd0204fb2_58-37-2-currentValue;\n") {
@@ -92,7 +92,7 @@ func TestAutoAssignDiscoveryStableIDsDisambiguatesCollision(t *testing.T) {
 		"    capability sensor.temperature 0xAAA_temperature_zigbee2mqtt;",
 		"  end;",
 		"  device sensors.b with:",
-		"    capability sensor.temperature 0xBBB_temperature_zigbee2mqtt as sensor.physical_duplicate_name;",
+		"    capability sensor.temperature 0xBBB_temperature_zigbee2mqtt as unique_id sensor.physical_duplicate_name;",
 		"  end;",
 		"end;",
 	}, "\n"))
@@ -120,10 +120,10 @@ func TestAutoAssignDiscoveryStableIDsDisambiguatesCollision(t *testing.T) {
 	autoAssignDiscoveryStableIDs(dir, gateways, admin)
 
 	got := readPhysicalDefFixture(t, dir)
-	if !strings.Contains(got, "0xAAA_temperature_zigbee2mqtt as sensor.physical_duplicate_name_2;") {
+	if !strings.Contains(got, "0xAAA_temperature_zigbee2mqtt as unique_id sensor.physical_duplicate_name_2;") {
 		t.Errorf("expected sensors.a's own assignment to use a \"_2\" suffix (not \"__2\") to avoid colliding with sensors.b's, got:\n%s", got)
 	}
-	if !strings.Contains(got, "0xBBB_temperature_zigbee2mqtt as sensor.physical_duplicate_name;") {
+	if !strings.Contains(got, "0xBBB_temperature_zigbee2mqtt as unique_id sensor.physical_duplicate_name;") {
 		t.Errorf("sensors.b's own pre-existing assignment should be untouched, got:\n%s", got)
 	}
 }
@@ -136,7 +136,7 @@ func TestAutoAssignDiscoveryStableIDsWarnsOnOrphanedID(t *testing.T) {
 	content := strings.Join([]string{
 		"integration discovery with:",
 		"  device sensors.retired with:",
-		"    capability sensor.temperature 0xCCC_temperature_zigbee2mqtt as sensor.physical_old_room_temperature;",
+		"    capability sensor.temperature 0xCCC_temperature_zigbee2mqtt as unique_id sensor.physical_old_room_temperature;",
 		"  end;",
 		"end;",
 	}, "\n")
@@ -205,7 +205,7 @@ func TestBootstrapDiscoveryStableIDsPreservesRegistryValue(t *testing.T) {
 	}
 
 	got := readPhysicalDefFixture(t, dir)
-	if !strings.Contains(got, "0x00124b0019e7af0c_light_zigbee2mqtt as sensors_house_kitchen_workplace_dimmer_0x00124b0019e7af0c_light_zigbee2mqtt;") {
+	if !strings.Contains(got, "0x00124b0019e7af0c_light_zigbee2mqtt as unique_id sensors_house_kitchen_workplace_dimmer_0x00124b0019e7af0c_light_zigbee2mqtt;") {
 		t.Errorf("expected the real registry unique_id to be frozen, got:\n%s", got)
 	}
 }

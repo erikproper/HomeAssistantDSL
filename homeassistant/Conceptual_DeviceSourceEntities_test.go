@@ -6,7 +6,7 @@ import (
 )
 
 func TestExtractDeviceSourceEntityDeclaration(t *testing.T) {
-	decl, ok := extractDeviceSourceEntityDeclaration("entity binary_sensor.infrastructural:laserjet/status as switch.yyy from hass.laserjet;")
+	decl, ok := extractDeviceSourceEntityDeclaration("entity binary_sensor.infrastructural:laserjet/status as source switch.yyy from hass.laserjet;")
 	if !ok {
 		t.Fatalf("expected the line to match")
 	}
@@ -26,7 +26,7 @@ func TestExtractDeviceSourceEntityDeclarationDoesNotMatchDiscoveryShape(t *testi
 func TestDeviceSourceEntityRegistersAndFeedsHassBridgeFile(t *testing.T) {
 	const miniDSL = `device hass.laserjet with:
 end;
-entity binary_sensor.infrastructural:laserjet/jammed as switch.laserjet_jam_sensor from hass.laserjet;`
+entity binary_sensor.infrastructural:laserjet/jammed as source switch.laserjet_jam_sensor from hass.laserjet;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.laserjet": {DeviceID: "hass.laserjet", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{
@@ -187,7 +187,7 @@ entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
 }
 
 func TestDeviceSourceEntityWarnsWithoutPriorDevicePositioning(t *testing.T) {
-	const miniDSL = `entity binary_sensor.infrastructural:laserjet/jammed as switch.laserjet_jam_sensor from hass.laserjet;`
+	const miniDSL = `entity binary_sensor.infrastructural:laserjet/jammed as source switch.laserjet_jam_sensor from hass.laserjet;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.laserjet": {DeviceID: "hass.laserjet", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{}},
