@@ -7,7 +7,7 @@
  * Turns the "commandline" integration's parsed devices (integration_commandline_storage.go) into
  * two outputs: (a) <outputRoot>/commandline/<host>.yaml, the target host's own script config for
  * the mqtt_commandline daemon (Integrations/mqtt_commandline/) -- deployed the same way
- * cpu/secrets.* already is, via a deploy.d step naming the host explicitly, not generator-decided
+ * cpu/secrets.* already is, via the deploy (integration_commandline_deploy.go), not generator-decided
  * routing; (b) the registry manifest's entries for its entities (recordCommandlineRegistryEntries),
  * whose YAML "mqtt:" config commandline_yaml_entities.go writes (PROJECT.md 19e).
  * generateCommandlineIntegrationOutputs is the entry point registered in Physical_Storage.go's

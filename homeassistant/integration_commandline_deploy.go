@@ -37,7 +37,7 @@ func (p *tDeployPlanner) planCommandlineDeploy(commandline map[string]TCommandli
 	}
 }
 
-// deployCommandline is deploy.d/05: each commandline machine gets the source it builds from and
+// deployCommandline is the old deploy.d/05: each commandline machine gets the source it builds from and
 // the house's commandline/ (its service file filled in), built and restarted there.
 func (d *tDeployer) deployCommandline() {
 	done := map[string]bool{}

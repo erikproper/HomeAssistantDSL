@@ -108,7 +108,7 @@ func (d *tDeployer) deployInstances() {
 	}
 }
 
-// deployInstance is deploy.d/01 (an HA OS instance) and 02 (a container): its configuration, then
+// deployInstance is the old deploy.d/01 (an HA OS instance) and 02 (a container): its configuration, then
 // its reload or restart. Returns the meta action and when it was asked for.
 func (d *tDeployer) deployInstance(instance TDeployInstance) (string, int64) {
 	d.step("Deploying homeassistant " + instance.Name + "'s YAML files")
@@ -212,7 +212,7 @@ func (d *tDeployer) publishMeta(action, instance string) {
 	}
 }
 
-// checkReload is deploy.d/06 (PROJECT.md 19h.3): wait until HA main has finished its reload or
+// checkReload is the old deploy.d/06 (PROJECT.md 19h.3): wait until HA main has finished its reload or
 // restart, then report the reload's errors since it was asked for.
 func (d *tDeployer) checkReload(meta string, at int64) {
 	d.step("Checking Home Assistant's reload")

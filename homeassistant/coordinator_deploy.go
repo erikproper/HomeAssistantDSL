@@ -48,7 +48,7 @@ func (p *tDeployPlanner) planCoordinatorDeploy(physicalContent string) {
 // deleted by the push (Architecture.md §6.11).
 var coordinatorStateFiles = []string{"entity_existence.json", "discovery_existence.json", "discovery_topics.json", "import_existence.json", "live_device_info.json", "discovery_passthrough_devices.json"}
 
-// deployCoordinator is deploy.d/00: the coordinator's source and the house's coordinator/ to its
+// deployCoordinator is the old deploy.d/00: the coordinator's source and the house's coordinator/ to its
 // machine, built and restarted there.
 func (d *tDeployer) deployCoordinator() {
 	if d.plan.Coordinator == "" {

@@ -42,5 +42,5 @@ Xanadu is powered down until needed (Plex videos, backups); power cycle procedur
 cd homeassistant && go vet . && go test . && go install .     # generator (install before generating)
 cd house_event_bus_coordinator && go vet . && go test .
 cd ~/SmartLiving/<House> && bash generate                      # Nextcloud scripts: always via bash
-cd ~/SmartLiving/<House> && bash deploy                        # deploy.d/01..05, incl. registry sync
+cd ~/SmartLiving/<House> && bash deploy                        # homeassistant -deploy (deploy.yaml); -n, -only <parts>
 ```

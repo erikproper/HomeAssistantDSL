@@ -99,7 +99,7 @@ func (p *tDeployPlanner) planHostsDeploy(hosts map[string]THostDevice) {
 	}
 }
 
-// deployHosts is deploy.d/03: the cpu report script -- this house's own secrets only (PROJECT.md
+// deployHosts is the old deploy.d/03: the cpu report script -- this house's own secrets only (PROJECT.md
 // 30) -- to the hub and on to its LAN hosts, directly to a "via cloud" machine; ping to the hub.
 func (d *tDeployer) deployHosts() {
 	if d.plan.CPU.Hub == "" && len(d.plan.CPU.Direct) == 0 {

@@ -26,7 +26,7 @@ func (p *tDeployPlanner) planContainersDeploy() {
 	}
 }
 
-// deployContainers is deploy.d/04: update.containers to every container host.
+// deployContainers is the old deploy.d/04: update.containers to every container host.
 func (d *tDeployer) deployContainers() {
 	if len(d.plan.Containers) == 0 {
 		return

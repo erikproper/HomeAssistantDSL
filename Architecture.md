@@ -542,7 +542,7 @@ platform is a new entity), and deleting the entry loses its history.
 
 So the deploy repairs the registry, driven only by the generator's own table: every instance's
 `registry_manifest.json` lists, per generator-owned entity, its unique_id and the entity_id it
-should have. `tools/ha_registry_sync.py` (`deploy.d/01_deploy.hass.*`, before Home Assistant
+should have. `tools/ha_registry_sync.py` (the deploy's HA OS instance step, home_assistant_deploy.go, before Home Assistant
 reloads the new YAML) compares that with the registry and renames each entry whose entity_id isn't
 current -- the same registry entry, so its history and settings stay. It only touches entries it
 can prove are the generator's own (a YAML-platform entry whose unique_id is in the current or the
@@ -1880,7 +1880,9 @@ devices' `deploy` lines), `containers_deploy.go`, `integration_commandline_deplo
 command, the dry run) and the order of the parts.
 
 `homeassistant -deploy Definitions/Main.def` (`deploy_run.go`, run in the house folder after a
-generate) carries the plan out, in deploy.d/'s old order and with its commands: the coordinator
+generate; each house's `deploy` script calls it, its options passed on) carries the plan out, in
+the old deploy.d/'s order and with its commands -- deploy.d/, the per-house coordinator and cpu
+deploy scripts are gone (2026-11-03): the coordinator
 (its source and coordinator/ to its machine, built there by the shared
 `Integrations/coordinator/deploy`), each instance (main first; the registry repair for an HA OS
 one; its reload or restart, `restart` when the reload automation itself changes), the cpu script
@@ -2312,9 +2314,8 @@ the coordinator's own `RetireMissing` mechanism handled cleanly: the old entitie
 from HA's registry (not left as disabled stubs) once Physical.def stopped declaring the old
 DeviceID, and the new `frame`-named entities came up live in their place. Vienna's SSH port-forward
 and OS hostname were also realigned to `frame`/1968 that same day, matching Junglinster's own
-port-per-host convention. Deploy scripts (`deploy.d/02_deploy.hass.protocols-server-2`,
-`05_deploy.commandline`) keep their old filenames (a rename churns less than it's worth) but their
-internal targets/variables now point at `frame`.
+port-per-host convention. (The deploy.d/ scripts that pointed at it are gone since PROJECT.md 30:
+the frame's endpoint is its hosts device's `deploy via ssh` line, §6.18.)
 
 ---
 

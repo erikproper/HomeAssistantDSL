@@ -6,7 +6,7 @@
  *
  * PROJECT.md 19c (2026-10-27): the coordinator tells systemd it is ready once every subscription is
  * in place (sd_notify's "READY=1" on $NOTIFY_SOCKET; coordinator.service is Type=notify), so
- * "systemctl restart coordinator" -- deploy.d/00_deploy.coordinator -- returns only then. Found live
+ * "systemctl restart coordinator" -- the deploy's coordinator step -- returns only then. Found live
  * in the 19c pilot (deploys A and B): the restart returned at once, the next deploy step's reload
  * request arrived before the coordinator subscribed to it, and was lost.
  *
