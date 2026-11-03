@@ -1873,6 +1873,12 @@ machines, the coordinator's (and ping's) machine, each instance's kind (`ha_os`:
 and the cpu report script's targets -- every `cpu` host with a `deploy` line, through the hub for a
 LAN host, directly for a `via cloud` one; a Mac has none, its `~/cpu` being the Nextcloud folder.
 A machine nothing says how to reach, and a LAN cpu host without a `deploy` line, are reported.
+Each integration plans and carries out its own part, in its own file -- `coordinator_deploy.go`,
+`home_assistant_deploy.go`, `integration_hosts_deploy.go` (also the machines from the hosts
+devices' `deploy` lines), `containers_deploy.go`, `integration_commandline_deploy.go`;
+`deploy_plan.go` and `deploy_run.go` hold what they share (the machines, the settings, running a
+command, the dry run) and the order of the parts.
+
 `homeassistant -deploy Definitions/Main.def` (`deploy_run.go`, run in the house folder after a
 generate) carries the plan out, in deploy.d/'s old order and with its commands: the coordinator
 (its source and coordinator/ to its machine, built there by the shared
@@ -1883,7 +1889,10 @@ get every house's -- on to its LAN hosts from there, and to a `via cloud` machin
 gets the cloud client's only and keeps whatever else it has), ping, update.containers, each
 commandline machine (with the source it builds from), and the wait for HA main's reload with its
 errors. A failed command fails its step, whose instance is then neither reloaded nor restarted.
-`-n` prints every command instead (the broker password never). The registry repair and the
+`-n` prints every command instead (the broker password never). `-only <parts>` deploys just the
+parts named, comma-separated, like sourcing one deploy.d/ step used to: `coordinator`, an
+instance (`main`, `ha2mqtt`, ...; `home_assistant` for all), `hosts`, `containers`,
+`commandline` -- the reload check runs when `main` is among them. The registry repair and the
 reload check still pipe the Python tools into the HA add-on; the websocket API is the next step.
 
 ## 7. Home Assistant's two roles

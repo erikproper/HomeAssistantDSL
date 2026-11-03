@@ -13,13 +13,44 @@ go build -o homeassistant .
 Run from inside a per-house directory:
 
 ```
-cd New/Vienna
-homeassistant Definitions/Main.def
+cd $HOME/SmartLiving/Vienna
+homeassistant Definitions/Main.def                    # generate (bash ./generate does this)
+homeassistant -deploy Definitions/Main.def            # deploy what was generated
+homeassistant -deploy -n Definitions/Main.def         # print the deploy's commands, run nothing
+homeassistant -deploy -only main,hosts Definitions/Main.def
+homeassistant -format Definitions/Main.def            # lay out every .def file in that folder
 ```
 
-Output lands in `hass/` and `list.*` files alongside it. The generated `hass/` tree is rsynced to the relevant Home Assistant instance by the `Update` script.
+Output lands in `hass/` (one tree per Home Assistant instance), `coordinator/`, `ping/`, `cpu/`,
+`commandline/` and `list.*` files alongside it, plus `deploy.yaml`: the deploy plan the generator
+derives from the defs (see *Deploying* below). `-deploy` carries it out; `-only` takes one or more
+parts, comma-separated: `coordinator`, an instance (`main`, `ha2mqtt`, ... or `home_assistant` for
+all), `hosts` (the cpu report script and ping), `containers`, `commandline`.
 
 Debug reports can be collected by passing `--debug` before the `.def` path.
+
+### Deploying
+
+How each machine is reached, and where the coordinator runs, is declared in `Physical.def`:
+
+```
+home_assistant main: vienna via ssh hassio@vienna.homelinux.org:1967;  # HA OS with the SSH add-on
+home_assistant ha2mqtt: protocols-server-1;     # a container, on the hosts device of that name
+coordinator on protocols-server-1;              # the hub: coordinator, ping, cpu script distribution
+
+integration hosts with:
+  device node.protocols_server_1 host protocols-server-1 cpu with:
+    deploy via ssh erikp@vienna.homelinux.org:1970;   # how the Mac reaches it
+  end;
+  device node.backups host backups cpu with deploy as user erikp;   # LAN only, through the hub
+end;
+```
+
+`${integrations_dir}` and `${coordinator_source}` (`Shared/Definitions/Settings.def`) say where the
+files come from. The cpu report script goes to every `cpu` host with a `deploy` line (a Mac has
+none: its `~/cpu` is the Nextcloud folder). Each integration's part of the deploy lives with it
+(`coordinator_deploy.go`, `home_assistant_deploy.go`, `integration_hosts_deploy.go`,
+`containers_deploy.go`, `integration_commandline_deploy.go`); `Architecture.md` §6.18 has the details.
 
 ## Repository layout
 

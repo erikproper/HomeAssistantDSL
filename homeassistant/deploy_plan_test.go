@@ -58,7 +58,7 @@ func TestRunDeployDryRun(t *testing.T) {
 	mustWrite(filepath.Join(dir, "deploy.yaml"), plan)
 	mustWrite(filepath.Join(dir, "coordinator", "secrets.yaml"), "brokers:\n  cloud_coordinator:\n    server: mqtt.example\n    port: 8883\n    login: c\n    password: s3cret\n")
 	output := captureStdout(t, func() {
-		if err := runDeploy(dir, true); err != nil {
+		if err := runDeploy(dir, true, nil); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -69,5 +69,25 @@ func TestRunDeployDryRun(t *testing.T) {
 	}
 	if strings.Contains(output, "s3cret") {
 		t.Errorf("dry run prints the broker password")
+	}
+}
+
+// TestRunDeployOnly: "-only" deploys just the parts named, and rejects a name no part has.
+func TestRunDeployOnly(t *testing.T) {
+	dir := t.TempDir()
+	plan := "installation: x\nsources:\n  generator: /src\n  integrations: /int\nmachines:\n  hub:\n    user: erikp\n    host: h.example\ncoordinator: hub\ncpu:\n  hub: hub\nping: hub\ncontainers:\n  - hub\n"
+	if err := os.WriteFile(filepath.Join(dir, "deploy.yaml"), []byte(plan), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output := captureStdout(t, func() {
+		if err := runDeploy(dir, true, []string{"containers"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(output, "update.containers") || strings.Contains(output, "coordinator/deploy") || strings.Contains(output, "/cpu") {
+		t.Errorf("-only containers deployed something else:\n%s", output)
+	}
+	if err := runDeploy(dir, true, []string{"nonsense"}); err == nil {
+		t.Errorf("-only nonsense was accepted")
 	}
 }
