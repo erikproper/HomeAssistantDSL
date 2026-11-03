@@ -67,8 +67,8 @@ func TestValidateNoConflictingDeviceNamesNoFalsePositive(t *testing.T) {
 func TestCollectHostsDevicesByIDWarnsOnDuplicate(t *testing.T) {
 	definitionDir := writePhysicalDef(t, `physical layer with:
   integration hosts with:
-    device host.oops oops cpu;
-    device host.oops oops cpu;
+    device host.oops host oops cpu;
+    device host.oops host oops cpu;
   end;
 end;
 `)

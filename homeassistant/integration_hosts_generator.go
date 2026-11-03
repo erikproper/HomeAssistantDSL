@@ -431,23 +431,16 @@ func generateHostsIntegrationOutputs(bodyLines []string, ctx TPhysicalGeneration
 	for _, w := range warnDuplicateDeviceIDs(devices) {
 		fmt.Printf("[integration hosts] %s\n", w)
 	}
-	// Resolve each device's own selfImport flag (parseRoutingKeywords' "import" keyword) into
+	// Resolve each device's own selfImport flag ("via cloud", parseRoutingKeywords) into
 	// ImportedFrom set to this installation's own name -- mirrors collectHostsDevicesByID's own
 	// resolution exactly (see THostDevice.selfImport's doc comment for why this can't happen
-	// inside the lower-level parser itself). ctx.Installation is already resolved here. "import"
-	// without "cloud" is meaningless (same as the old "native" keyword's own precondition) -- left
-	// unresolved (ImportedFrom stays "") and warned about, rather than silently producing a
-	// self-import that was never actually cloud-routed in the first place.
+	// inside the lower-level parser itself). ctx.Installation is already resolved here.
 	for i := range devices {
 		if !devices[i].selfImport {
 			continue
 		}
-		if !devices[i].Cloud {
-			fmt.Printf("[integration hosts] device %q: \"import\" without \"cloud\" has no effect; ignored\n", devices[i].DeviceID)
-			continue
-		}
 		if ctx.Installation == "" {
-			fmt.Printf("[integration hosts] device %q: \"import\" declared but ${installation} is not set; cannot self-qualify -- ignored\n", devices[i].DeviceID)
+			fmt.Printf("[integration hosts] device %q: \"via cloud\" declared but ${installation} is not set; cannot self-qualify -- ignored\n", devices[i].DeviceID)
 			continue
 		}
 		devices[i].ImportedFrom = ctx.Installation

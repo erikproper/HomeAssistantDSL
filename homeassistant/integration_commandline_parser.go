@@ -22,7 +22,9 @@ import (
 	"regexp"
 )
 
-var commandlineWithDevicePattern = regexp.MustCompile(`^device\s+(\S+)\s+(\S+)\s+with:\s*$`)
+// commandlineWithDevicePattern is "device <id> host <hostname> with:" (the "host" keyword since
+// PROJECT.md 30, 2026-11-03, as on a hosts device).
+var commandlineWithDevicePattern = regexp.MustCompile(`^device\s+(\S+)\s+host\s+(\S+)\s+with:\s*$`)
 
 // commandlineCapabilityPattern matches "<kind>.<name> <quoted-scripts>;" -- Kind/name mirror the
 // "home_assistant"/"discovery" integrations' own mandatory-explicit-domain capability lines

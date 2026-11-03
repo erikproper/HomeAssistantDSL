@@ -79,74 +79,6 @@ JLI
  
 ## Migration & improvements
 
-26. Logical layer: what is left (restructured 2026-10-30). Done and removed: availability along
-    via_device/dependencies and the integration devices (item 25, Architecture.md §6.16); named
-    triggers, now requests (item 49), and with them the raw protocol codes out of the rules and the
-    Moes fix; the positioning-grammar redesign; the node/battery_alert rules; the "physical:" sphere
-    out of Conceptual.def; space-level aggregation (collect, "no_collect"); "absorb from"; the
-    shared-node workarounds (node.vienna_*, fritz_box); capability value mapping (the former item
-    49's requests); command choreography for a switched light ("switched by").
-
-    A. Availability
-    1. On demand (no case yet): "dependency on entity <id>;" and "dependency on availability of
-       entity <id>;" for a raw entity on main (integration_logical_parser.go's header).
-
-    B. Open design question: four kinds of logical-layer work -- (1) clustering capabilities, (2)
-       derived entities with timing (delay_on/delay_off), (3) derived entities from other devices,
-       (4) abstracted entities covering a device's shortcomings (no state reports, multi-broadcast
-       radio: FHEM, item 38). (1)-(3) exist. Whether (2) and (4) belong in the coordinator or in a
-       separate operational component is undecided (memory:
-       project_event_bus_operational_vs_coordinative_roles.md).
-
-28. Check space level aggregation of sensors. If one is down, what do we do with data?
-
-29. Installation-level status binary_sensors (meta sphere): one (discovery-created) binary_sensor per HA
-      instance signalling (1) a configuration problem on that instance, and (2) updates available
-      for it -- purely passive/informational (dashboard-visible), deliberately decoupled from item
-      2's reload/restart meta-command mechanism rather than gating it synchronously (see item 2's
-      own 2026-09-05 scope decision). Not designed yet:
-      [FLAGGED 2026-09-12: "item 2" is Stick migration today and has no reload/restart
-      meta-command content -- this reference predates several renumberings and its real target
-      can no longer be traced; likely pointed at an item that was later completed and removed
-      per this file's own "drop finished items" convention. Needs a human check, not a guess.]
-   - (1) config-problem signal needs a per-instance automation to actually call `check_config` (or
-     equivalent) and publish its own retained status, which the coordinator turns into a discovery
-     binary_sensor per installation -- the same "per-instance status becomes a per-installation
-     MQTT discovery entity" shape kind-2/kind-3 existence status already uses, just for a different
-     underlying fact.
-   - (2) updates-available has no single source across install types: HAOS's own `update.*`
-     entities (`update.home_assistant_core_update`/`_supervisor_update`/`_os_update`) are the
-     natural source where Supervisor is present, but a plain Container install (e.g.
-     protocols-server-2, if still bare Container) has no update entity to poll at all -- needs its
-     own per-install-type sourcing story before this can be built uniformly.
-   - (3) "Guarding automations" (2026-09-22, not yet designed): some HA-based integrations have
-     their own quirks -- concrete case found live the same day, a Netatmo integration on
-     Junglinster's `ha2mqtt` instance that went unavailable and needed a manual reload to recover
-     (see memory: project_via_device_sibling_correction_bug_2026_09_22.md and
-     project_junglinster_coordinator_crash_loop_2026_09_22.md for the same-day incidents this
-     surfaced during). The general pattern: if an integration-backed entity is unavailable, attempt
-     a reload of that integration, rate-limited (e.g. max 4 attempts per hour) to avoid a reload
-     storm on a genuinely-down integration. The user's own stated preference: implement as a
-     GENERATOR-CREATED automation living ON the affected instance itself (e.g. `ha2mqtt`) -- not a
-     separate "guarding coordinator" component -- consistent with this item's own existing "meta
-     sphere" shape (per-instance automations feeding coordinator-published status).
-     Refined same day: guard rules are declared in Physical.def's own INTEGRATION sections (per
-     integration type, alongside that integration's other declarations -- e.g. inside a
-     `home_assistant` block), not as a separate generic "meta" DSL construct bolted on elsewhere.
-     Their parsing is INTEGRATION-SPECIFIC, matching this project's existing per-integration parser
-     architecture (e.g. integration_hassbridge_parser.go, integration_hosts_parser.go, ... -- each
-     integration type owns its own grammar) -- a Netatmo-flavoured guard rule need not look
-     syntactically like, say, a Zigbee2MQTT one. Needs its own design pass: how the automation
-     identifies "this entity is unavailable because of an integration fault" (vs. genuinely offline
-     hardware), how the rate limit is tracked/reset, and how many/which integrations this should
-     cover beyond Netatmo.
-   - (4) Re-authentication needed (2026-11-02): Overkiz on ha2mqtt rejected its local key after
-     the Connexoon reset the connection at 04:21 UTC (probably a firmware update or reboot), and
-     Home Assistant only showed "Reconfigure" in its own UI -- Erik found out hours later. A
-     message the moment any integration on ha2mqtt or main needs re-authenticating, whatever the
-     integration or the reason. No fixed key lifetime is known, so a reminder cronjob wouldn't help.
-
-
 30. Jointly check the consistency and cleanliness of the DSL.
 
 30a. Review the per-house `generate`/`deploy` scripts (`deploy`, `deploy.d/*`) and decide what to
@@ -231,10 +163,11 @@ on both houses before and after each removal -- see git history for the exact co
 - Still open, unrelated to the above: the `homeassistant_instances/...` topic rename and the
   `isCoordinatorOwnedTopic` legacy branch, both listed above.
 
-31a. Batteries: a date-based assumed charge percentage (plus a reset, e.g. when recharged or
+31a. Batteries: enable a date-based assumed charge percentage (plus a reset, e.g. when recharged or
     replaced), with its own low-battery warning -- works much better for rechargeable batteries
     than what the devices themselves report. Example: Junglinster's dining Philips dimmer has reported
     ~1 % for six months while working fine (2026-10-23).
+Also enable the optional "OR-ification" with a built in alert.
 
 31b. Maybe later: Sarah's bedroom cover rules (open/close from its door tap) "smart": slow speed
     at night, normal speed otherwise.
@@ -333,10 +266,12 @@ data:
     and per-integration relays, how "expected state" is declared (DSL-level?), re-enforcement
     cadence, and how this interacts with FHEM/FS20's own protocol specifics.
 
-    See item 11's own 2026-09-22 note for how this fits into the broader Logical.def design: this
-    FHEM case is specifically situation (4), "abstracted entities that accommodate for device
-    shortcomings" -- one of two Logical.def situations (alongside (2), timing-based derivations)
-    where the coordinator-vs-separate-component question is still genuinely open.
+    Decided 2026-11-02 (from item 26, Erik): of the four kinds of logical-layer work -- clustering
+    capabilities, timing, derivation from other devices, abstracted entities covering a device's
+    shortcomings -- only the last is operational, and it goes into this separate component; FHEM
+    is its first case. Timing stays as built: template entities on main (Architecture.md).
+    Before designing: by then the Home Assistant community will likely have settled its stance
+    on running radios via ESPHome (Erik), which may change how FHEM/FS20 is reached at all.
 
 39. RAW mqtt as integration; also see notes below on MQTT/JSON structures. So, a situation in which we have MQTT topics, but no discovery data. Then this integration needs to combine this into a discovery compliant topic structure. Sometimes easy to do based on topic and payload. But take the vacuum. If the composed state is represented as a different topics these need to be joint by the coordinator.
     Started 2026-10-28 as "integration mqtt" (Architecture.md §6.16): so far only binary_sensor
@@ -511,3 +446,7 @@ Test with shellys?
 48. Future refinement (moved from 26 on 2026-11-02; not needed at the moment, Erik): device-type
     templates -- a named template expanding into a whole device block (the "basic node" shape
     first); to scope: parameters, where declared, what else would use it.
+
+49. Future refinement (moved from 26 on 2026-11-02; only when a real case comes up):
+    "dependency on entity <id>;" and "dependency on availability of entity <id>;" for a raw
+    entity on main (integration_logical_parser.go's header).

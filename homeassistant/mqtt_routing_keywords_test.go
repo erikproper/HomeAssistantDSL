@@ -4,62 +4,44 @@ import "testing"
 
 func TestParseRoutingKeywords(t *testing.T) {
 	cases := []struct {
-		name           string
-		line           string
-		wantRest       string
-		wantCloud      bool
-		wantSelfImport bool
+		name         string
+		line         string
+		wantRest     string
+		wantViaCloud bool
 	}{
 		{
-			name:     "no keywords, bare device line",
-			line:     "device host.x host cpu;",
-			wantRest: "device host.x host cpu ;",
+			name:     "no keyword, bare device line",
+			line:     "device node.x host x cpu;",
+			wantRest: "device node.x host x cpu;",
 		},
 		{
-			name:      "cloud only",
-			line:      "device host.x host cpu cloud;",
-			wantRest:  "device host.x host cpu ;",
-			wantCloud: true,
+			name:         "via cloud",
+			line:         "device node.x host x cpu via cloud;",
+			wantRest:     "device node.x host x cpu ;",
+			wantViaCloud: true,
 		},
 		{
-			name:           "cloud and import",
-			line:           "device host.x host cpu cloud import;",
-			wantRest:       "device host.x host cpu ;",
-			wantCloud:      true,
-			wantSelfImport: true,
+			name:         "with: suffix",
+			line:         "device node.x host x cpu via cloud with:",
+			wantRest:     "device node.x host x cpu with:",
+			wantViaCloud: true,
 		},
 		{
-			name:           "import and cloud, reverse order",
-			line:           "device host.x host cpu import cloud;",
-			wantRest:       "device host.x host cpu ;",
-			wantCloud:      true,
-			wantSelfImport: true,
-		},
-		{
-			name:           "with: suffix",
-			line:           "device host.x host home_assistant cloud import with:",
-			wantRest:       "device host.x host home_assistant with:",
-			wantCloud:      true,
-			wantSelfImport: true,
-		},
-		{
-			name:           "import alone, no cloud -- still parsed here, meaninglessness is the caller's concern",
-			line:           "device host.x host cpu import;",
-			wantRest:       "device host.x host cpu ;",
-			wantSelfImport: true,
+			name:     "the retired \"cloud import\" is not recognised",
+			line:     "device node.x host x cpu cloud import;",
+			wantRest: "device node.x host x cpu cloud import;",
 		},
 		{
 			name:     "unrecognised suffix left untouched",
-			line:     "device host.x host cpu",
-			wantRest: "device host.x host cpu",
+			line:     "device node.x host x cpu",
+			wantRest: "device node.x host x cpu",
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			rest, cloud, selfImport := parseRoutingKeywords(c.line)
-			if rest != c.wantRest || cloud != c.wantCloud || selfImport != c.wantSelfImport {
-				t.Errorf("parseRoutingKeywords(%q) = (%q, %v, %v), want (%q, %v, %v)",
-					c.line, rest, cloud, selfImport, c.wantRest, c.wantCloud, c.wantSelfImport)
+			rest, viaCloud := parseRoutingKeywords(c.line)
+			if rest != c.wantRest || viaCloud != c.wantViaCloud {
+				t.Errorf("parseRoutingKeywords(%q) = (%q, %v), want (%q, %v)", c.line, rest, viaCloud, c.wantRest, c.wantViaCloud)
 			}
 		})
 	}

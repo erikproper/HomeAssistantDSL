@@ -787,7 +787,7 @@ end;`
 
 func TestParseHostsIntegrationBodyConstantDeviceAttributes(t *testing.T) {
 	body := []string{
-		"device host.junglinster junglinster home_assistant with:",
+		"device host.junglinster host junglinster home_assistant with:",
 		"  capability load:        sensor.processor_use;",
 		"  capability temperature: sensor.processor_temperature;",
 		`  model: "Cool raspi"; # Default value`,
@@ -841,7 +841,7 @@ func TestParseHostsIntegrationBodyConstantDeviceAttributes(t *testing.T) {
 // THostDevice.IgnoreOtherCapabilities' own doc comment).
 func TestParseHostsIntegrationBodyIgnoreOtherCapabilities(t *testing.T) {
 	body := []string{
-		"device node.fritz_box fritz.box ping with:",
+		"device node.fritz_box host fritz.box ping with:",
 		"  ignore other capabilities;",
 		"end;",
 	}
@@ -857,7 +857,7 @@ func TestParseHostsIntegrationBodyIgnoreOtherCapabilities(t *testing.T) {
 
 func TestParseHostsIntegrationBodyCapabilityWithLiteralPrefixAndAttribute(t *testing.T) {
 	body := []string{
-		"device host.junglinster junglinster home_assistant with:",
+		"device host.junglinster host junglinster home_assistant with:",
 		`  capability sw_version: "Home Assistant Operating System " update.home_assistant_operating_system_update!installed_version;`,
 		"  capability load: sensor.processor_use;",
 		"end;",
@@ -889,7 +889,7 @@ func TestParseHostsIntegrationBodyCapabilityWithLiteralPrefixAndAttribute(t *tes
 
 func TestParseHostsIntegrationBodyGroupedCapabilityName(t *testing.T) {
 	body := []string{
-		"device host.junglinster junglinster home_assistant with:",
+		"device host.junglinster host junglinster home_assistant with:",
 		"  capability cpu/load:        sensor.processor_use;",
 		"  capability cpu/temperature: sensor.processor_temperature;",
 		`  capability sw_version: "Home Assistant Operating System " update.home_assistant_operating_system_update!installed_version;`,
@@ -1673,7 +1673,7 @@ func TestHomeAssistantCapabilityEntityIDsStripsAttributeSuffix(t *testing.T) {
 	definitionDir := t.TempDir()
 	physicalContent := `physical layer with:
   integration hosts with:
-    device host.junglinster junglinster home_assistant with:
+    device host.junglinster host junglinster home_assistant with:
       capability load: sensor.processor_use;
       capability sw_version: "Home Assistant Operating System " update.home_assistant_operating_system_update!installed_version;
     end;

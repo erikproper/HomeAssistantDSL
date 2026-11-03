@@ -4,22 +4,17 @@
  * Package:   Main
  * Component: MQTTRoutingKeywords
  *
- * parseRoutingKeywords strips the trailing "cloud"/"import" routing keywords a device or entity
- * declaration can carry anywhere in the physical layer (today: "integration hosts" device
- * lines -- integration_hosts_parser.go; other integrations' capability lines are meant to grow
- * the same trailing keywords over time, reusing this one helper rather than each inventing its
- * own). Semantics (the user's own framing): "cloud" means this declaration's communication
- * (reporting, discovery) happens over the house's cloud broker profiles
- * ("cloud_client"/"cloud_coordinator" in Physical.def) instead of "main", and by default is
- * *not* mirrored onto the local/main broker or its Home Assistant instance at all -- it only
- * becomes visible on the cloud broker's own (installation-qualified) namespace, for another
- * installation's coordinator to pick up via "integration import". Adding "import" alongside
- * "cloud" additionally mirrors it onto the local/main broker too, today's "fully local" default
- * behaviour just layered on top rather than replaced -- it means "and also self-import this
- * device, as if THIS installation had written an ordinary 'integration import' block pointing at
- * itself" (see selfImportInstallation, integration_hosts_storage.go/integration_hosts_generator.go,
- * which resolve the returned selfImport bool into THostDevice.ImportedFrom). "import" alone
- * (without "cloud") is meaningless and left unrecognised -- there's nothing to additionally mirror.
+ * parseRoutingKeywords strips the trailing "via cloud" routing keyword of an "integration hosts"
+ * device line (integration_hosts_parser.go). Semantics (Erik's own framing): the device's
+ * communication (reporting, discovery) happens over the house's cloud broker profiles
+ * ("cloud_client"/"cloud_coordinator" in Physical.def) instead of "main", and this installation
+ * also self-imports it, as if it had written an ordinary "integration import" block pointing at
+ * itself (see selfImportInstallation, integration_hosts_storage.go/integration_hosts_generator.go,
+ * which resolve it into THostDevice.ImportedFrom).
+ *
+ * Written "cloud import" until PROJECT.md 30 (2026-11-03, Erik): "cloud" and "import" always came
+ * together, so one "via cloud" says both. "cloud" alone -- visible only on the cloud broker, for
+ * another installation to import -- was never used, and can no longer be written.
  *
  * Retired 2026-09-02: this file used to recognise "native" instead of "import" -- a bare boolean
  * with no declared identity, which silently assumed the declaring installation was always the
@@ -32,7 +27,7 @@
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 02.09.2026
+ * Version of: 03.11.2026
  *
  */
 
@@ -40,35 +35,19 @@ package main
 
 import "strings"
 
-// parseRoutingKeywords strips trailing " cloud" and/or " import" tokens (in either order) from
-// line, immediately before its final suffix (";" or "with:"), returning the line with those
-// tokens removed (suffix intact) alongside the flags found. line is returned unchanged (cloud
-// and selfImport both false) if it doesn't end in one of the two recognised suffixes, or carries
-// neither keyword.
-func parseRoutingKeywords(line string) (rest string, cloud, selfImport bool) {
-	suffix := ""
-	switch {
-	case strings.HasSuffix(line, ";"):
-		suffix = ";"
-	case strings.HasSuffix(line, "with:"):
-		suffix = "with:"
-	default:
-		return line, false, false
-	}
-
-	body := strings.TrimSpace(strings.TrimSuffix(line, suffix))
-	tokens := strings.Fields(body)
-	for len(tokens) > 0 {
-		switch tokens[len(tokens)-1] {
-		case "cloud":
-			cloud = true
-			tokens = tokens[:len(tokens)-1]
-		case "import":
-			selfImport = true
-			tokens = tokens[:len(tokens)-1]
-		default:
-			return strings.Join(tokens, " ") + " " + suffix, cloud, selfImport
+// parseRoutingKeywords strips a trailing " via cloud" from line, immediately before its final
+// suffix (";" or "with:"), returning the line with it removed (suffix intact) and whether it was
+// there. A line with neither suffix, or without the keyword, is returned unchanged.
+func parseRoutingKeywords(line string) (rest string, viaCloud bool) {
+	for _, suffix := range []string{";", "with:"} {
+		body, ok := strings.CutSuffix(line, suffix)
+		if !ok {
+			continue
 		}
+		if body, ok = strings.CutSuffix(strings.TrimSpace(body), " via cloud"); ok {
+			return strings.TrimSpace(body) + " " + suffix, true
+		}
+		return line, false
 	}
-	return strings.Join(tokens, " ") + " " + suffix, cloud, selfImport
+	return line, false
 }

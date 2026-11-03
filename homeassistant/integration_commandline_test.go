@@ -23,7 +23,7 @@ import (
 func TestCollectCommandlineDevicesByIDParsesAllThreeKinds(t *testing.T) {
 	definitionDir := writePhysicalDef(t, `physical layer with:
   integration commandline with:
-    device host.frame frame with:
+    device host.frame host frame with:
       capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
       capability sensor.uptime    "uptime_seconds";
       capability button.reboot    "reboot_frame";
@@ -67,7 +67,7 @@ end;
 func TestCollectCommandlineDevicesByIDRejectsOldColonForm(t *testing.T) {
 	definitionDir := writePhysicalDef(t, `physical layer with:
   integration commandline with:
-    device host.frame frame with:
+    device host.frame host frame with:
       sensor.uptime: "uptime_seconds";
     end;
   end;
@@ -90,7 +90,7 @@ end;
 func TestCollectCommandlineDevicesByIDWarnsOnWrongScriptCount(t *testing.T) {
 	definitionDir := writePhysicalDef(t, `physical layer with:
   integration commandline with:
-    device host.frame frame with:
+    device host.frame host frame with:
       capability switch.slideshow "check_slideshow";
     end;
   end;
@@ -108,7 +108,7 @@ end;
 
 func TestGenerateCommandlineIntegrationOutputsWritesHostAndCoordinatorFiles(t *testing.T) {
 	outputRoot := t.TempDir()
-	devices, warnings := parseCommandlineIntegrationBody(strings.Split(`device host.frame frame with:
+	devices, warnings := parseCommandlineIntegrationBody(strings.Split(`device host.frame host frame with:
   capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
   capability button.reboot    "reboot_frame";
 end;`, "\n"))
@@ -117,7 +117,7 @@ end;`, "\n"))
 	}
 
 	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot, HAOutputDir: filepath.Join(outputRoot, "hass")}
-	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame frame with:
+	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame host frame with:
   capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
   capability button.reboot    "reboot_frame";
 end;`, "\n"), ctx); err != nil {
@@ -171,7 +171,7 @@ func TestGenerateCommandlineIntegrationOutputsUsesPositionedEntityID(t *testing.
 	}
 
 	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot, HAOutputDir: filepath.Join(outputRoot, "hass"), Admin: admin}
-	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame frame with:
+	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame host frame with:
   capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
 end;`, "\n"), ctx); err != nil {
 		t.Fatalf("generateCommandlineIntegrationOutputs: %v", err)
@@ -207,7 +207,7 @@ func TestGenerateCommandlineIntegrationOutputsWritesDeviceDisplayName(t *testing
 	}
 
 	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot, HAOutputDir: filepath.Join(outputRoot, "hass"), Admin: admin}
-	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame frame with:
+	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame host frame with:
   capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
 end;`, "\n"), ctx); err != nil {
 		t.Fatalf("generateCommandlineIntegrationOutputs: %v", err)
@@ -229,7 +229,7 @@ end;`, "\n"), ctx); err != nil {
 func TestGenerateCommandlineIntegrationOutputsOmitsDisplayNameWhenUnpositioned(t *testing.T) {
 	outputRoot := t.TempDir()
 	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot, HAOutputDir: filepath.Join(outputRoot, "hass")}
-	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame frame with:
+	if err := generateCommandlineIntegrationOutputs(strings.Split(`device host.frame host frame with:
   capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
 end;`, "\n"), ctx); err != nil {
 		t.Fatalf("generateCommandlineIntegrationOutputs: %v", err)
@@ -250,7 +250,7 @@ end;`, "\n"), ctx); err != nil {
 // belongs declared at the physical layer directly, unlike hassbridge/import's Logical.def-only
 // mechanism). Repeatable, same as Logical.def's own identical construct.
 func TestParseCommandlineIntegrationBodyParsesDependencyOn(t *testing.T) {
-	devices, warnings := parseCommandlineIntegrationBody(strings.Split(`device appliance.picture_frame frame with:
+	devices, warnings := parseCommandlineIntegrationBody(strings.Split(`device appliance.picture_frame host frame with:
   dependency on node.frame;
   capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
 end;`, "\n"))
@@ -279,7 +279,7 @@ func TestGenerateCommandlineIntegrationOutputsResolvesDependencyOn(t *testing.T)
 			"node.frame": {DeviceID: "node.frame", HostName: "frame", IntegrationType: "ping"},
 		},
 	}
-	if err := generateCommandlineIntegrationOutputs(strings.Split(`device appliance.picture_frame frame with:
+	if err := generateCommandlineIntegrationOutputs(strings.Split(`device appliance.picture_frame host frame with:
   dependency on node.frame;
   capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
 end;`, "\n"), ctx); err != nil {
@@ -303,7 +303,7 @@ end;`, "\n"), ctx); err != nil {
 func TestGenerateCommandlineIntegrationOutputsWarnsOnUnresolvableDependency(t *testing.T) {
 	outputRoot := t.TempDir()
 	ctx := TPhysicalGenerationContext{OutputRoot: outputRoot, HAOutputDir: filepath.Join(outputRoot, "hass")}
-	if err := generateCommandlineIntegrationOutputs(strings.Split(`device appliance.picture_frame frame with:
+	if err := generateCommandlineIntegrationOutputs(strings.Split(`device appliance.picture_frame host frame with:
   dependency on node.unknown;
   capability switch.slideshow "check_slideshow" "start_slideshow" "stop_slideshow";
 end;`, "\n"), ctx); err != nil {

@@ -33,7 +33,7 @@ not a passthrough statement at all
 func TestCollectDiscoveryPassthroughRulesIgnoresLinesInsideIntegrationBlocks(t *testing.T) {
 	content := `
 integration hosts with:
-  device host.smarty smarty cpu;
+  device host.smarty host smarty cpu;
 end;
 discovery_passthrough "zigbee2mqtt/" from "homeassistant.physical";
 `

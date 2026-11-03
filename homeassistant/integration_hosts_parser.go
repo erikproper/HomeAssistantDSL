@@ -4,14 +4,14 @@
  * Package:   Main
  * Component: IntegrationHostsParser
  *
- * Parses the local "device <id> <host> <type> [with: <capability>: <entity>; <constant
+ * Parses the local "device <id> host <hostname> <type> [via cloud] [with: <capability>: <entity>; <constant
  * device attribute>: "<value>" [forced]; ... end;]" syntax inside Physical.def's
  * "integration hosts with: ... end;" block (already extracted by Physical_Parser.go's
  * generic wrapper parser) into THostDevice records (integration_hosts_storage.go).
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 26.08.2026
+ * Version of: 03.11.2026
  *
  */
 
@@ -29,8 +29,10 @@ func parseHostsIntegrationBody(bodyLines []string) ([]THostDevice, []string) {
 	var devices []THostDevice
 	var warnings []string
 
-	bareDevicePattern := regexp.MustCompile(`^device\s+(\S+)\s+(\S+)\s+(\S+)\s*;\s*$`)
-	withDevicePattern := regexp.MustCompile(`^device\s+(\S+)\s+(\S+)\s+(\S+)\s+with:\s*$`)
+	// "device <id> host <hostname> <type> [via cloud];" (the "host" keyword since PROJECT.md 30,
+	// 2026-11-03, Erik: names what the second word is; "via cloud": parseRoutingKeywords).
+	bareDevicePattern := regexp.MustCompile(`^device\s+(\S+)\s+host\s+(\S+)\s+(\S+)\s*;\s*$`)
+	withDevicePattern := regexp.MustCompile(`^device\s+(\S+)\s+host\s+(\S+)\s+(\S+)\s+with:\s*$`)
 	// Group 1 is the capability name, optionally "<group>/<leaf>" (e.g. "cpu/load") -- see
 	// splitCapabilityName (integration_hosts_storage.go). Group 2 (optional) is a literal
 	// string prefix -- see THostDevice.CapabilityLiteralPrefixes -- e.g. `capability sw_version:
@@ -80,7 +82,7 @@ func parseHostsIntegrationBody(bodyLines []string) ([]THostDevice, []string) {
 			continue
 		}
 
-		strippedLine, cloud, selfImport := parseRoutingKeywords(line)
+		strippedLine, viaCloud := parseRoutingKeywords(line)
 
 		if matches := withDevicePattern.FindStringSubmatch(strippedLine); matches != nil {
 			current = THostDevice{
@@ -88,14 +90,14 @@ func parseHostsIntegrationBody(bodyLines []string) ([]THostDevice, []string) {
 				Capabilities:              map[string]string{},
 				CapabilityLiteralPrefixes: map[string]string{},
 				ConstantAttributes:        map[string]THostConstantAttribute{},
-				Cloud:                     cloud, selfImport: selfImport,
+				Cloud:                     viaCloud, selfImport: viaCloud,
 			}
 			inDeviceCapabilities = true
 			continue
 		}
 
 		if matches := bareDevicePattern.FindStringSubmatch(strippedLine); matches != nil {
-			devices = append(devices, THostDevice{DeviceID: matches[1], HostName: matches[2], IntegrationType: matches[3], Cloud: cloud, selfImport: selfImport})
+			devices = append(devices, THostDevice{DeviceID: matches[1], HostName: matches[2], IntegrationType: matches[3], Cloud: viaCloud, selfImport: viaCloud})
 			continue
 		}
 

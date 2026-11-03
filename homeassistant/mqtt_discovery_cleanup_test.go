@@ -34,7 +34,7 @@ func TestCollectMQTTDiscoveryCleanTopicsIgnoresLinesInsideIntegrationBlocks(t *t
 	// be tripped up by them either).
 	content := `
 integration hosts with:
-  device host.smarty smarty cpu;
+  device host.smarty host smarty cpu;
 end;
 mqtt_discovery_clean ems-esp;
 `

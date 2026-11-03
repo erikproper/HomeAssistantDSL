@@ -52,7 +52,7 @@ var knownConstantDeviceAttributes = map[string]bool{
 	"via_device": true,
 }
 
-// THostDevice is one "device <id> <host> <type> [with: <capability>: [\"<literal>\"]
+// THostDevice is one "device <id> host <hostname> <type> [via cloud] [with: <capability>: [\"<literal>\"]
 // <entity>[!<attribute>]; <constant device attribute>: "<value>" [forced]; ... end;]"
 // declaration from the "integration hosts" block.
 type THostDevice struct {
@@ -67,13 +67,13 @@ type THostDevice struct {
 	// (generateReportingAutomations). Absent for a capability with no literal prefix.
 	CapabilityLiteralPrefixes map[string]string
 	ConstantAttributes        map[string]THostConstantAttribute // per-device overrides for HA device-map fields, e.g. "model" -> {"Cool raspi", false}
-	// Cloud is the "cloud" routing keyword (parseRoutingKeywords) trailing a device declaration --
+	// Cloud is the "via cloud" routing keyword (parseRoutingKeywords) trailing a device declaration --
 	// see its own doc comment for the full semantics. Means this device communicates
 	// (reports/is discovered) via the house's cloud broker profiles ("cloud_client"/
 	// "cloud_coordinator" in Physical.def) instead of "main". Not set (the default) means this
 	// device is purely local, today's existing behaviour.
 	Cloud bool
-	// selfImport is parseRoutingKeywords' "import" keyword, parsed alongside Cloud but NOT
+	// selfImport is set together with Cloud by "via cloud" (parseRoutingKeywords), but NOT
 	// resolved to ImportedFrom here -- integration_hosts_parser.go has no installation name
 	// available to resolve it against. Unexported: pure parse-to-resolve plumbing, never
 	// serialized into devices.yaml or read by anything outside this package. Both places that
@@ -87,7 +87,7 @@ type THostDevice struct {
 	// ImportedFrom is the remote installation name (e.g. "junglinster") this device was declared
 	// via "integration import with: device <local-id> <remote-installation> <remote-host>
 	// <type>; ...;" (integration_import_parser.go) instead of "integration hosts", OR the
-	// resolved self-import case above (this installation's own name, from a "cloud import"
+	// resolved self-import case above (this installation's own name, from a "via cloud"
 	// declaration in "integration hosts") -- "" for a device that's neither. HostName holds the
 	// *remote* host name for a real cross-house import, reused as-is for local topic construction
 	// too (see mqtt_relay.go, coordinator side) -- no separate "local alias" concept, to keep this
@@ -145,11 +145,9 @@ func collectHostsDevicesByID(definitionDir string) (map[string]THostDevice, []st
 		devices, bodyWarnings := parseHostsIntegrationBody(block.BodyLines)
 		warnings = append(warnings, bodyWarnings...)
 		for _, d := range devices {
-			// "import" without "cloud" is meaningless (generateHostsIntegrationOutputs warns
-			// about it once; not repeated here to avoid double warnings for the same file).
 			if d.selfImport && d.Cloud {
 				if installation == "" {
-					warnings = append(warnings, fmt.Sprintf("device %q: \"import\" declared but ${installation} is not set; cannot self-qualify -- ignored", d.DeviceID))
+					warnings = append(warnings, fmt.Sprintf("device %q: \"via cloud\" declared but ${installation} is not set; cannot self-qualify -- ignored", d.DeviceID))
 				} else {
 					d.ImportedFrom = installation
 				}

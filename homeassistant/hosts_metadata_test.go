@@ -9,13 +9,13 @@ import (
 // rewritten right after its header with forced values kept, and other lines stay.
 func TestWriteHostMetadata(t *testing.T) {
 	content := `integration hosts with:
-    device node.pi pi cpu;
-    device node.mini mini cpu cloud import with:
+    device node.pi host pi cpu;
+    device node.mini host mini cpu via cloud with:
       suggested_area: "office";
       model: "Mac" forced;
       sw_version: "macOS 25";
     end;
-    device node.tv sony_tv ping;
+    device node.tv host sony_tv ping;
 end;`
 	hosts := map[string]THostDevice{
 		"node.pi":   {DeviceID: "node.pi", HostName: "pi", IntegrationType: "cpu"},
@@ -27,16 +27,16 @@ end;`
 		"node.mini": {"model": "Mac16,10", "sw_version": "macOS 26.1"},
 	}
 	want := `integration hosts with:
-    device node.pi pi cpu with:
+    device node.pi host pi cpu with:
       model:         "Raspberry Pi 4";
       serial_number: "123";
     end;
-    device node.mini mini cpu cloud import with:
+    device node.mini host mini cpu via cloud with:
       model:      "Mac" forced;   # discovery: "Mac16,10"
       sw_version: "macOS 26.1";
       suggested_area: "office";
     end;
-    device node.tv sony_tv ping;
+    device node.tv host sony_tv ping;
 end;`
 	got, changed := writeHostMetadata(content, hosts, info)
 	if got != want {

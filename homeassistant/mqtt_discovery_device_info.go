@@ -338,8 +338,8 @@ func metadataBlock(current map[string]THostConstantAttribute, discovered map[str
 }
 
 // metadataHostDevicePattern matches a hosts device's declaration, a one-liner or a block's header:
-// "device <id> <host> <type> [cloud] [import];" / "... with:".
-var metadataHostDevicePattern = regexp.MustCompile(`^(\s*)device\s+(\S+)\s+(\S+)\s+(\S+)((?:\s+(?:cloud|import))*)\s*(;|with:)\s*$`)
+// "device <id> host <hostname> <type> [via cloud];" / "... with:".
+var metadataHostDevicePattern = regexp.MustCompile(`^(\s*)device\s+(\S+)\s+host\s+(\S+)\s+(\S+)((?:\s+via\s+cloud)?)\s*(;|with:)\s*$`)
 
 // writeHostMetadata returns content with each hosts device's metadata rewritten from info (what
 // the device reports on its own ".../device/state", PROJECT.md 19e), and the number of devices
@@ -368,7 +368,7 @@ func writeHostMetadata(content string, hostDevices map[string]THostDevice, info 
 				out = append(out, lines[i])
 				continue
 			}
-			out = append(out, header[1]+"device "+header[2]+" "+header[3]+" "+header[4]+header[5]+" with:")
+			out = append(out, header[1]+"device "+header[2]+" host "+header[3]+" "+header[4]+header[5]+" with:")
 			out = append(out, block...)
 			out = append(out, header[1]+"end;")
 			changed++

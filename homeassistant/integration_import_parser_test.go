@@ -146,7 +146,7 @@ func TestParseImportIntegrationBodyAllowsSlashInCapabilityName(t *testing.T) {
 
 func TestCollectImportedDevicesAcrossMultipleBlocks(t *testing.T) {
 	blocks := []TIntegrationBlock{
-		{Name: "hosts", BodyLines: []string{"device host.x x cpu;"}},
+		{Name: "hosts", BodyLines: []string{"device host.x host x cpu;"}},
 		{Name: "import", BodyLines: []string{
 			"device import.a from junglinster host.a with:",
 			"  capability sensor.load;",
