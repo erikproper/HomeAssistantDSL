@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 // TestBuildDeployPlan: the plan follows from the defs' deploy declarations (PROJECT.md 30) --
 // machines from "via ssh", instances by kind, the cpu script via the hub or directly, and a
@@ -34,5 +39,35 @@ func TestBuildDeployPlan(t *testing.T) {
 	}
 	if len(plan.Containers) != 1 || len(plan.Commandline) != 1 || len(planWarnings) != 1 {
 		t.Errorf("containers %v, commandline %v, warnings %v (want one: nas)", plan.Containers, plan.Commandline, planWarnings)
+	}
+}
+
+// TestRunDeployDryRun: "-deploy -n" prints the plan's commands without running any, and never
+// the broker password.
+func TestRunDeployDryRun(t *testing.T) {
+	dir := t.TempDir()
+	plan := "installation: x\nsources:\n  generator: /src\n  integrations: /int\nmachines:\n  hub:\n    user: erikp\n    host: h.example\n    port: 1970\n  main:\n    user: hassio\n    host: h.example\n    port: 1967\ncoordinator: hub\ninstances:\n  - name: main\n    machine: main\n    kind: ha_os\n    files: hass/main\n    config: /config\ncpu:\n  hub: hub\nping: hub\n"
+	mustWrite := func(path, content string) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustWrite(filepath.Join(dir, "deploy.yaml"), plan)
+	mustWrite(filepath.Join(dir, "coordinator", "secrets.yaml"), "brokers:\n  cloud_coordinator:\n    server: mqtt.example\n    port: 8883\n    login: c\n    password: s3cret\n")
+	output := captureStdout(t, func() {
+		if err := runDeploy(dir, true); err != nil {
+			t.Fatal(err)
+		}
+	})
+	for _, want := range []string{"bash ./coordinator/deploy", "x/meta/reload/main/request", "-P '****'", "erikp@h.example:cpu/"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("dry run lacks %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "s3cret") {
+		t.Errorf("dry run prints the broker password")
 	}
 }

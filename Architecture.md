@@ -1873,7 +1873,18 @@ machines, the coordinator's (and ping's) machine, each instance's kind (`ha_os`:
 and the cpu report script's targets -- every `cpu` host with a `deploy` line, through the hub for a
 LAN host, directly for a `via cloud` one; a Mac has none, its `~/cpu` being the Nextcloud folder.
 A machine nothing says how to reach, and a LAN cpu host without a `deploy` line, are reported.
-`homeassistant -deploy` carries the plan out (step 2).
+`homeassistant -deploy Definitions/Main.def` (`deploy_run.go`, run in the house folder after a
+generate) carries the plan out, in deploy.d/'s old order and with its commands: the coordinator
+(its source and coordinator/ to its machine, built there by the shared
+`Integrations/coordinator/deploy`), each instance (main first; the registry repair for an HA OS
+one; its reload or restart, `restart` when the reload automation itself changes), the cpu script
+(only this house's `secrets.<installation>` and `secrets.cloud_client` to the hub -- each hub used to
+get every house's -- on to its LAN hosts from there, and to a `via cloud` machine directly, which
+gets the cloud client's only and keeps whatever else it has), ping, update.containers, each
+commandline machine (with the source it builds from), and the wait for HA main's reload with its
+errors. A failed command fails its step, whose instance is then neither reloaded nor restarted.
+`-n` prints every command instead (the broker password never). The registry repair and the
+reload check still pipe the Python tools into the HA add-on; the websocket API is the next step.
 
 ## 7. Home Assistant's two roles
 
