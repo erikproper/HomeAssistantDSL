@@ -192,14 +192,14 @@ and how it materializes into Home Assistant entities. Three integration types:
 
 ```
 integration hosts with:
-  device host.smarty smarty cpu;                       # bare: hardwired load/temperature capabilities
+  device host.smarty host smarty cpu;                  # bare: hardwired load/temperature capabilities
 
-  device host.someswitch someswitch ping;               # liveness-only, no capabilities
+  device host.someswitch host someswitch ping;          # liveness-only, no capabilities
 
-  device host.eriks-mac-studio eriks-mac-studio cpu cloud import;  # reports via the shared cloud
-                                                                    # broker, relayed back locally
+  device host.eriks-mac-studio host eriks-mac-studio cpu via cloud;  # reports via the shared cloud
+                                                                      # broker, relayed back locally
 
-  device host.junglinster junglinster home_assistant with:
+  device host.junglinster host junglinster home_assistant with:
     cpu/load:        sensor.processor_use;               # grouped -> its own sensor entity, path suffix "cpu"
     cpu/temperature: sensor.processor_temperature;
     sw_version: "Home Assistant Operating System " update.home_assistant_operating_system_update!installed_version;
@@ -215,10 +215,11 @@ gets its own sensor entity at `.../<group>/<leaf>`, posted as numeric JSON on th
 state topic). A capability's entity reference may use the same `entity!attribute` syntax as
 regular entity bodies, and an optional leading `"<literal>"` string prefix concatenated onto it.
 
-The trailing `cloud`/`import` keywords route a `cpu`/`ping`-type device's traffic through the
-shared cloud broker instead of (or in addition to) this house's own local one, relayed back by the
-coordinator — see `Architecture.md` §12 for the full mechanism. **Every macOS `cpu`-reporting host
-must use `cloud import`, never a plain local declaration**: `mosquitto_pub` under `launchd`
+`host <hostname>` is the name the host is pinged by and reports under (`hosts/<hostname>/...`).
+The trailing `via cloud` routes a `cpu`/`ping`-type device's traffic through the shared cloud
+broker instead of this house's own local one, relayed back by the coordinator — see
+`Architecture.md` §12 for the full mechanism (written `cloud import` until PROJECT.md 30).
+**Every macOS `cpu`-reporting host must use `via cloud`, never a plain local declaration**: `mosquitto_pub` under `launchd`
 reliably fails to deliver (`Error: Bad file descriptor`, silent) when the destination is a LAN
 address, but works cleanly against the cloud broker every time — a launchd/libmosquitto quirk found
 live 2026-09-05 (`Architecture.md` §12 has the full incident writeup), not a bug in this DSL or the
@@ -248,7 +249,7 @@ own (e.g. a picture frame's slideshow control):
 
 ```
 integration commandline with:
-  device host.frame frame with:
+  device host.frame host frame with:
     switch.slideshow: "/home/pi/bin/check_slideshow" "/home/pi/bin/start_slideshow" "/home/pi/bin/stop_slideshow";
     button.reboot:    "/home/pi/bin/reboot_frame";
   end;
