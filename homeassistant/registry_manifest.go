@@ -110,9 +110,8 @@ var coordinatorPublishedEntities []TRegistryManifestEntry
 // input (house_event_bus_coordinator/meta_reload_restart.go, discover_entity_input.go) -- so the
 // registry repair moves them to their infrastructural entity_id (PROJECT.md item 18, 2026-10-26;
 // they were a "meta" sphere of their own before). Their unique_ids keep their "meta_" root.
-func recordInfrastructuralControls(instances []string, installation string) {
-	for _, instance := range instances {
-		entity := integrationHealthEntityBody(instance)
+func recordInfrastructuralControls(instances, containerHosts []string, installation string) {
+	for _, entity := range instanceReportEntities(instances, containerHosts) {
 		coordinatorPublishedEntities = append(coordinatorPublishedEntities, TRegistryManifestEntry{UniqueID: entity.Body["unique_id"].(string), EntityID: entity.EntityID})
 	}
 	if installation == "" {

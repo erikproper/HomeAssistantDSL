@@ -170,7 +170,8 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 		instanceNames = append(instanceNames, name)
 	}
 	sort.Strings(instanceNames)
-	recordInfrastructuralControls(instanceNames, ctx.Installation)
+	containerHosts := containerHostsOf(instances)
+	recordInfrastructuralControls(instanceNames, containerHosts, ctx.Installation)
 
 	hassBridgeDevicesByID, hassBridgeWarnings := collectHassBridgeDevicesByID(definitionDir)
 	for _, w := range hassBridgeWarnings {
@@ -254,7 +255,7 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 		fmt.Printf("[physical] %s\n", report)
 	}
 	printYAMLReports("[physical]", generateYAMLMQTTEntities(definitionDir, discoveryGatewaysByID, ctx))
-	printYAMLReports("[physical]", generateYAMLCoordinatorEntities(instanceNames, ctx))
+	printYAMLReports("[physical]", generateYAMLCoordinatorEntities(instanceNames, containerHosts, ctx))
 	printYAMLReports("[physical]", generateYAMLHassBridgeEntities(definitionDir, hassBridgeDevicesByID, ctx))
 	if err := generateDiscoverySuggestions(definitionDir, outputRoot, discoveryGatewaysByID, admin.DiscoveryEntityLinks, discoveryPassthroughRules, ctx); err != nil {
 		return err

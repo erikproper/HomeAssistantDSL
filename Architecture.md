@@ -1734,7 +1734,20 @@ missed reports (`expire_after`). Physical.def names where main sends the message
     notify problems via notify.mobile_app_eriks_iphone_15_pro;
 
 -- when an instance's list has stood 15 minutes with problems in it, and when it is empty again,
-under one tag per instance so the second replaces the first on the phone.
+under one tag per instance so the second replaces the first on the phone. The automation reads the
+list with `attributes.get('items', [])`: after a deploy the entity has no attribute yet, and
+`attributes['items']` then falls back to the dict's own `items` method (found the same morning: a
+"loaded again" message for every instance reading `<built-in method items ...>`).
+
+Updates, the same day, dashboard only (updating stays Erik's): the same automation reports the
+instance's own software updates -- an `update.*` that is on, but not a device's firmware (an MQTT
+one; Zigbee2MQTT updates those) -- on `homeassistant_instances/<instance>/updates`, shown as
+`binary_sensor.infrastructural_updates_<instance>`. An instance in a container has no update entity
+for itself; its host's `update.containers --check <installation>` (cron, every 6 hours) asks each
+image's registry for the tag's current digest (a HEAD request on the manifest), compares it with
+the running image's, and publishes the containers with a newer image, retained, on
+`hosts/<host>/containers/updates`: `binary_sensor.infrastructural_container_updates_<host>`, for
+every host that runs an instance other than main. It never pulls or updates anything.
 
 Node positioning, a fix (2026-10-28): a derived node whose condition refers to another device's
 node ("condition node from integration.zigbee2mqtt") materializes that node itself when it isn't

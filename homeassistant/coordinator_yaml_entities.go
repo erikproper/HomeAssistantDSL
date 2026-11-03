@@ -12,8 +12,9 @@
  *     "all" (house_event_bus_coordinator/meta_reload_restart.go handles their command topics),
  *   - the "Discover entity" text input (discover_entity_input.go),
  *   - the "missing declared entities" indicator (missing_declared_entities.go),
- *   - per instance, its integrations that aren't loaded (PROJECT.md 29, 2026-11-03; the instance
- *     reports them itself, remote_instance_integration_health.go).
+ *   - per instance, its integrations that aren't loaded and its software updates, and per container
+ *     host its containers' updates (PROJECT.md 29, 2026-11-03; the instance and the host report
+ *     them themselves, remote_instance_integration_health.go).
  *
  * Each is exactly what the coordinator published: the same unique_id, entity_id, name, topics and
  * payloads (its object_id becomes the default_entity_id), so the registry entry stays. The
@@ -36,15 +37,15 @@ import (
 )
 
 // generateYAMLCoordinatorEntities writes the coordinator's own YAML "mqtt:" entities (see this
-// file's header comment) for instances and installation, and reports what it wrote.
-func generateYAMLCoordinatorEntities(instances []string, ctx TPhysicalGenerationContext) []string {
+// file's header comment) for instances, containerHosts and installation, and reports what it wrote.
+func generateYAMLCoordinatorEntities(instances, containerHosts []string, ctx TPhysicalGenerationContext) []string {
 	if ctx.HAOutputDir == "" {
 		return nil // no Home Assistant output directory (a test): nothing to write, never relative to the working directory
 	}
 	var reports []string
 	written := 0
 	var entities []THostYAMLEntity
-	for _, entity := range coordinatorYAMLEntityBodies(instances, ctx.Installation) {
+	for _, entity := range coordinatorYAMLEntityBodies(instances, containerHosts, ctx.Installation) {
 		entities = append(entities, discoveredYAMLEntity(entity.Domain, entity.EntityID, entity.Body))
 	}
 	for _, entity := range entities {
@@ -64,7 +65,7 @@ func generateYAMLCoordinatorEntities(instances []string, ctx TPhysicalGeneration
 }
 
 // coordinatorYAMLEntityBodies returns the coordinator's own entities, as it published them.
-func coordinatorYAMLEntityBodies(instances []string, installation string) []THostYAMLEntity {
+func coordinatorYAMLEntityBodies(instances, containerHosts []string, installation string) []THostYAMLEntity {
 	segment := func(s string) string { return strings.ReplaceAll(s, ".", "_") } // the coordinator's sanitizeTopicSegment
 	entityPart := func(s string) string { return strings.NewReplacer(".", "_", "-", "_").Replace(s) }
 	var entities []THostYAMLEntity
@@ -109,8 +110,5 @@ func coordinatorYAMLEntityBodies(instances []string, installation string) []THos
 		"json_attributes_topic": "coordinator/missing_declared_entities/attributes",
 		"entity_category":       "diagnostic",
 	}})
-	for _, instance := range instances {
-		entities = append(entities, integrationHealthEntityBody(instance))
-	}
-	return entities
+	return append(entities, instanceReportEntities(instances, containerHosts)...)
 }
