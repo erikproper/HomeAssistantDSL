@@ -454,6 +454,14 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 				current.IgnoreOtherCapabilities = true
 				continue
 			}
+			// A derived capability's, or a capability's whose source isn't a single entity (a
+			// derived condition, rewritten into "capability <label> <condition>;"), "with icon:"
+			// (capability_icon.go) -- a single-entity capability's goes through
+			// capabilityWithBodyStatements below.
+			icon := ""
+			if !capabilityWithOneLinerPattern.MatchString(line) {
+				line, icon = cutCapabilityIcon(line)
+			}
 			// Checked first, before any domain-prefixed capability pattern: "derived" is a
 			// distinct leading keyword, unambiguous against "<domain>.<path>: ...;" -- see
 			// Physical_DerivedCapability.go's own header comment.
@@ -462,6 +470,7 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 					Domain:                decl.Domain,
 					DerivedFromCapability: decl.FromLabel,
 					DerivedViaTemplate:    decl.Template,
+					Icon:                  icon,
 				}
 				continue
 			}
@@ -481,7 +490,7 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 				continue
 			}
 			if matches := capabilityPattern.FindStringSubmatch(line); matches != nil {
-				current.Capabilities[matches[2]] = THassBridgeCapability{Domain: matches[1], Sources: map[string]string{instance: matches[3]}}
+				current.Capabilities[matches[2]] = THassBridgeCapability{Domain: matches[1], Sources: map[string]string{instance: matches[3]}, Icon: icon}
 				continue
 			}
 			if matches := constantAttributePattern.FindStringSubmatch(quoteDeviceReference(line)); matches != nil {

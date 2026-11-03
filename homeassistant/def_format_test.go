@@ -114,6 +114,12 @@ func TestFormatDefBreaksLongBlockHeader(t *testing.T) {
 	if again := formatDefContent(want); again != want {
 		t.Errorf("not idempotent:\n%s", again)
 	}
+	// Its ID too long for the continuation: on a line of its own, as in a finished statement.
+	in = "    derived capability binary_sensor.node as unique_id binary_sensor.infrastructural_house_laundry_kitchen_rear_relais_box_node with:\n      condition binary_sensor.input_1 is available;\n      icon: \"mdi:x\";\n    end;"
+	want = "derived capability binary_sensor.node\n  as unique_id\n    binary_sensor.infrastructural_house_laundry_kitchen_rear_relais_box_node\nwith:\n  condition binary_sensor.input_1 is available;\n  icon: \"mdi:x\";\nend;"
+	if got := formatDefContent(in); got != want {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
 }
 
 // TestFormatDefBreaksLongCondition: a too-long condition is broken after "condition", one

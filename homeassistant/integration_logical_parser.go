@@ -244,6 +244,10 @@ var logicalAssignedIDSuffixPattern = regexp.MustCompile(`\s+as\s+unique_id\s+([A
 // device_class quoted (PROJECT.md 30, as logicalDefinedFieldStatements).
 var logicalDerivedFieldPattern = regexp.MustCompile(`^(device_class:\s*"([^"]*)"|(delay_on|delay_off):\s*(\S+?))\s*;\s*$`)
 
+// logicalDerivedIconPattern is a "derived" block's "icon: "<icon>";" line (PROJECT.md 30), the
+// icon of the entity positioned from it.
+var logicalDerivedIconPattern = regexp.MustCompile(`^icon:\s*"([^"]*)"\s*;\s*$`)
+
 // findTopLevelSemicolon returns the byte index of the first ";" in s that is outside a quoted
 // string and at bracket/paren depth 0, or -1 if s doesn't (yet) contain one -- used to accumulate
 // a "derived" block's own "condition"/"value" expression across possibly-several physical lines
@@ -297,7 +301,7 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 	var currentDefinedCap TLogicalCapability
 	var currentDerivedLabel, currentDerivedDomain string
 	var currentDerivedCondition, currentDerivedValue *TConditionExpr
-	var currentDerivedDeviceClass, currentDerivedDelayOn, currentDerivedDelayOff, currentDerivedAssignedID string
+	var currentDerivedDeviceClass, currentDerivedDelayOn, currentDerivedDelayOff, currentDerivedAssignedID, currentDerivedIcon string
 	var derivedExprKind, derivedExprBuffer string
 	// derivedOneLiner marks a derived capability opened by its one-liner form: it has no "end;" of
 	// its own, so it is finished the moment its expression closes.
@@ -313,6 +317,7 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 			IsDerivedValue:     currentDerivedValue != nil,
 			DerivedValue:       currentDerivedValue,
 			DerivedDeviceClass: currentDerivedDeviceClass,
+			DerivedIcon:        currentDerivedIcon,
 			DelayOn:            currentDerivedDelayOn,
 			DelayOff:           currentDerivedDelayOff,
 			AssignedID:         currentDerivedAssignedID,
@@ -401,6 +406,10 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 				derivedExprKind = "value"
 				derivedExprBuffer = strings.TrimPrefix(line, "value")
 				tryCloseDerivedExpr(lineIdx)
+				continue
+			}
+			if matches := logicalDerivedIconPattern.FindStringSubmatch(line); matches != nil {
+				currentDerivedIcon = matches[1]
 				continue
 			}
 			if matches := logicalDerivedFieldPattern.FindStringSubmatch(line); matches != nil {
@@ -519,7 +528,7 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 				currentDerivedLabel = matches[2]
 				currentDerivedAssignedID = matches[3]
 				currentDerivedCondition, currentDerivedValue = nil, nil
-				currentDerivedDeviceClass, currentDerivedDelayOn, currentDerivedDelayOff = "", "", ""
+				currentDerivedDeviceClass, currentDerivedDelayOn, currentDerivedDelayOff, currentDerivedIcon = "", "", "", ""
 				inDerived = true
 				inDerivedExpr = false
 				derivedExprBuffer, derivedExprKind = "", ""
@@ -535,7 +544,7 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 				currentDerivedDomain = matches[1]
 				currentDerivedLabel = matches[2]
 				currentDerivedCondition, currentDerivedValue = nil, nil
-				currentDerivedDeviceClass, currentDerivedDelayOn, currentDerivedDelayOff = "", "", ""
+				currentDerivedDeviceClass, currentDerivedDelayOn, currentDerivedDelayOff, currentDerivedIcon = "", "", "", ""
 				currentDerivedAssignedID = matches[3]
 				inDerived, inDerivedExpr, derivedOneLiner = true, true, true
 				derivedExprKind, derivedExprBuffer = kind, expr

@@ -604,6 +604,13 @@ without it (`cutCapabilityIcons`, `capability_icon.go`). It replaces a house's o
 block in Physical.def, which is gone: its one use (Junglinster's reservoir) gave one entity an
 icon. `Shared/Definitions/Defaults.def` stays the place for rules that apply to many entities.
 
+A derived capability takes it too: `derived capability ... from ... via ... with icon: "...";`
+(Physical.def, every integration; a `via jinja ${...}(...)` call keeps it after expansion), and an
+`icon: "...";` line in a derived block -- Logical.def's, and Physical.def's `derived capability ...
+with: condition ...; icon: "..."; end;`, the block form of the `with condition` one-liner (an icon
+there would be a second `with`). Physical.def's block is written into that one-liner internally
+(`foldDerivedConditionBlocks`), its frozen ID read from its header like a one-liner's.
+
 **An aggregate is a new logical device absorbing from several (PROJECT.md 26, 2026-11-02).** A
 device that exists only in Logical.def can absorb from any number of devices; no separate
 `aggregate`, `complement` or `virtual device` construct is needed (Erik). Like every logical

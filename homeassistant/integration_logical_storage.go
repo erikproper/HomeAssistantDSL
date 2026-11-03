@@ -121,6 +121,7 @@ type TLogicalCapability struct {
 	IsDerivedValue     bool
 	DerivedValue       *TConditionExpr
 	DerivedDeviceClass string
+	DerivedIcon        string // a "derived" block's "icon:" (PROJECT.md 30), "" when it has none
 	DelayOn            string
 	DelayOff           string
 	// AssignedID is a derived capability's frozen "as <id>" (PROJECT.md item 48) -- its universal

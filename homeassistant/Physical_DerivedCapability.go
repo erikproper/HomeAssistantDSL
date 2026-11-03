@@ -152,7 +152,8 @@ func resolveJinjaTemplateCallsInDerivedLines(content string, jinjaTemplates map[
 	var warnings []string
 	lines := strings.Split(content, "\n")
 	for i, rawLine := range lines {
-		line := strings.TrimSpace(rawLine)
+		// A trailing "with icon: ..." (capability_icon.go) stays after the expanded template.
+		line, icon := cutCapabilityIcon(strings.TrimSpace(rawLine))
 		m := derivedViaJinjaCallPattern.FindStringSubmatch(line)
 		if m == nil {
 			continue
@@ -177,7 +178,11 @@ func resolveJinjaTemplateCallsInDerivedLines(content string, jinjaTemplates map[
 		for paramIdx, param := range def.Params {
 			resolved = strings.ReplaceAll(resolved, "${"+param+"}", args[paramIdx])
 		}
-		lines[i] = prefix + "\"" + resolved + "\";"
+		lines[i] = prefix + "\"" + resolved + "\""
+		if icon != "" {
+			lines[i] += ` with icon: "` + icon + `"`
+		}
+		lines[i] += ";"
 	}
 	return strings.Join(lines, "\n"), warnings
 }
@@ -205,7 +210,7 @@ var derivedConditionOneLinerPattern = regexp.MustCompile(`^derived\s+capability\
 // doc comment for why it's safe to always unwrap unconditionally (no ambiguity, no failure mode
 // that needs a warning the way an undeclared jinja template name does).
 func resolveDerivedConditionOneLiners(content string) string {
-	lines := strings.Split(stripDerivedAssignedIDs(content), "\n")
+	lines := foldDerivedConditionBlocks(strings.Split(stripDerivedAssignedIDs(content), "\n"))
 	for i, rawLine := range lines {
 		line := strings.TrimSpace(rawLine)
 		m := derivedConditionOneLinerPattern.FindStringSubmatch(line)
@@ -217,12 +222,62 @@ func resolveDerivedConditionOneLiners(content string) string {
 	return strings.Join(lines, "\n")
 }
 
+// derivedConditionBlockHeaderPattern is a Physical.def derived capability's block header,
+// "derived capability <domain>.<label> with:" (its frozen ID already stripped).
+var derivedConditionBlockHeaderPattern = regexp.MustCompile(`^((?:internal\s+)?derived\s+capability\s+[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_/]*)\s+with:$`)
+
+// derivedConditionBlockIconPattern is that block's "icon: "<icon>";" line.
+var derivedConditionBlockIconPattern = regexp.MustCompile(`^icon:\s*"([^"]*)"\s*;$`)
+
+// foldDerivedConditionBlocks writes every "derived capability <label> with: condition <expr>;
+// [icon: "<icon>";] end;" block (PROJECT.md 30: a condition with an icon, which the one-liner
+// can't take without a second "with") as the one-liner "derived capability <label> with condition
+// <expr> [with icon: "<icon>"];" that resolveDerivedConditionOneLiners rewrites further, on the
+// header's line -- the block's other lines become empty, so the line count stays.
+func foldDerivedConditionBlocks(lines []string) []string {
+	for i := 0; i < len(lines); i++ {
+		m := derivedConditionBlockHeaderPattern.FindStringSubmatch(strings.TrimSpace(lines[i]))
+		if m == nil {
+			continue
+		}
+		condition, icon, end := "", "", -1
+		for j := i + 1; j < len(lines) && end < 0; j++ {
+			line := stripLineComment(lines[j])
+			switch {
+			case line == "":
+			case line == "end;":
+				end = j
+			case strings.HasPrefix(line, "condition ") && condition == "":
+				condition = strings.TrimSuffix(strings.TrimPrefix(line, "condition "), ";")
+			case derivedConditionBlockIconPattern.MatchString(line) && icon == "":
+				icon = derivedConditionBlockIconPattern.FindStringSubmatch(line)[1]
+			default:
+				j = len(lines) // anything else: not this block's shape, left to the parsers
+			}
+		}
+		if end < 0 || condition == "" {
+			continue
+		}
+		folded := m[1] + " with condition " + strings.TrimSpace(condition)
+		if icon != "" {
+			folded += ` with icon: "` + icon + `"`
+		}
+		lines[i] = folded + ";"
+		for j := i + 1; j <= end; j++ {
+			lines[j] = ""
+		}
+		i = end
+	}
+	return lines
+}
+
 // derivedAssignedIDPattern matches a "derived capability <domain>.<label> as <id> with|from ...;"
 // statement -- its frozen "as <id>" (PROJECT.md item 48, 2026-10-21) is the capability's universal
 // ID, the unique_id its generated template entity is registered under in Home Assistant, and sits
 // right after the capability's name (2026-10-22), before its "with"/"from" part. Group 1 is the
 // statement head, group 2 the capability's label, group 3 the ID, group 4 the rest.
-var derivedAssignedIDPattern = regexp.MustCompile(`^(\s*(?:internal\s+)?derived\s+capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*))\s+as\s+unique_id\s+([A-Za-z_][A-Za-z0-9_.]*)(\s.*;)\s*$`)
+// A block header ("... as <id> with:") carries it the same way (PROJECT.md 30).
+var derivedAssignedIDPattern = regexp.MustCompile(`^(\s*(?:internal\s+)?derived\s+capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*))\s+as\s+unique_id\s+([A-Za-z_][A-Za-z0-9_.]*)(\s.*(?:;|with:))\s*$`)
 
 // physicalDeviceHeaderPattern matches the start of a Physical.def device declaration, capturing its
 // device id -- the device a following "derived capability ..." line belongs to.

@@ -930,6 +930,7 @@ func registerLogicalDerivedConditionCapability(administration *TAdministrationSt
 		ConditionDevClass:     deviceClass,
 		ConditionDelayOn:      capability.DelayOn,
 		ConditionDelayOff:     capability.DelayOff,
+		EntityIcon:            capability.DerivedIcon,
 		HasDefinitionOrImport: true,
 	})
 	administration.LogicalEntityLinks[entityID] = TLogicalEntityLink{DeviceID: decl.DeviceID, Label: label}
