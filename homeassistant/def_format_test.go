@@ -68,7 +68,8 @@ func TestFormatDefAlignsSettings(t *testing.T) {
 }
 
 // TestFormatDefFoldsSingleMemberBlocks: a block holding one statement gets its one-line form where
-// the grammar has one (PROJECT.md 30); otherwise, or with a comment, it stays a block.
+// the grammar has one (PROJECT.md 30); otherwise, or with a comment, it stays a block. An "else:"
+// is written at its "then if"'s level and folds without taking the shared "end;".
 func TestFormatDefFoldsSingleMemberBlocks(t *testing.T) {
 	in := "device buttons.a with:\n  entity sensor.infrastructural:battery_level;\nend;\n" +
 		"device buttons.b with:\n  entity light.social:main from light not aggregated;\nend;\n" +
@@ -76,14 +77,22 @@ func TestFormatDefFoldsSingleMemberBlocks(t *testing.T) {
 		"then:\n  dim light.social:main with 5%;\nend;\n" +
 		"device buttons.c as leaf door with:\n  entity sensor.infrastructural:battery_level;\nend;\n" +
 		"device buttons.d with:\n  entity sensor.infrastructural:battery_level; # kept\nend;\n" +
-		"for binary_sensor.*/door:\n  icon: \"mdi:door-open\";\nend;"
+		"for binary_sensor.*/door:\n  icon: \"mdi:door-open\";\nend;\n" +
+		"device node.tv host sony-tv ping with:\n  manufacturer: \"Sony\";\nend;\n" +
+		"absorb from node.chime:\n  capability binary_sensor.node;\nend;\n" +
+		"space social:x with:\n  device buttons.e with:\n    entity light.social:;\n  end;\nend;\n" +
+		"rule social:cover with:\n  then if cover.social: is opening:\n    stop cover.social:;\n    else:\n      open cover.social:;\n    end;\nend;"
 	want := "device buttons.a with entity sensor.infrastructural:battery_level;\n" +
 		"device buttons.b with entity light.social:main from light not aggregated;\n" +
 		"derived capability binary_sensor.n as unique_id x with condition node.tv;\n" +
 		"then dim light.social:main with 5%;\n" +
-		"device buttons.c as leaf door with:\n  entity sensor.infrastructural:battery_level;\nend;\n" +
+		"device buttons.c as leaf door with entity sensor.infrastructural:battery_level;\n" +
 		"device buttons.d with:\n  entity sensor.infrastructural:battery_level; # kept\nend;\n" +
-		"for binary_sensor.*/door:\n  icon: \"mdi:door-open\";\nend;"
+		"for binary_sensor.*/door with icon: \"mdi:door-open\";\n" +
+		"device node.tv host sony-tv ping with manufacturer: \"Sony\";\n" +
+		"absorb from node.chime capability binary_sensor.node;\n" +
+		"space social:x with:\n  device buttons.e with entity light.social:;\nend;\n" +
+		"rule social:cover with:\n  then if cover.social: is opening:\n    stop cover.social:;\n  else open cover.social:;\n  end;\nend;"
 	if got := formatDefContent(in); got != want {
 		t.Errorf("got\n%s\nwant\n%s", got, want)
 	}

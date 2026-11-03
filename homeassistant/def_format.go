@@ -63,6 +63,11 @@ func formatDefContent(content string) string {
 			depth--
 		}
 		indent := strings.Repeat(" ", depth*defIndent)
+		if isElseClause(code) && depth > 0 {
+			// "else:"/"else <action>;" belongs to its "then if ...:" and shares one "end;" with it:
+			// written at the "then if"'s own level, its branch below it as deep as the "then" one.
+			indent = strings.Repeat(" ", (depth-1)*defIndent)
+		}
 		if len(group) > 1 && (hasInternalComment(group) || !breakableStatement(code)) {
 			// A comment inside a statement, or one written over lines that may not be broken (a
 			// rule clause): keep its lines, only re-indented.
@@ -76,11 +81,16 @@ func formatDefContent(content string) string {
 		} else {
 			out = append(out, layoutStatement(indent, code, comment)...)
 		}
-		if strings.HasSuffix(code, ":") {
+		if strings.HasSuffix(code, ":") && !isElseClause(code) {
 			depth++
 		}
 	}
 	return strings.Join(alignSettings(out), "\n")
+}
+
+// isElseClause reports whether code is a "then if" block's else clause, "else:" or "else <action>;".
+func isElseClause(code string) bool {
+	return code == "else:" || strings.HasPrefix(code, "else ")
 }
 
 // tDefStatement is one statement of a def file as written: its lines, and its code and trailing
@@ -125,6 +135,16 @@ func splitDefStatements(content string) []tDefStatement {
 func foldSingleMemberBlocks(statements []tDefStatement) []tDefStatement {
 	var folded []tDefStatement
 	for i := 0; i < len(statements); i++ {
+		// "else:" with one action before its "then if"'s "end;": "else <action>;", the "end;" kept.
+		if i+2 < len(statements) && statements[i].code == "else:" && statements[i].comment == "" {
+			member, end := statements[i+1], statements[i+2]
+			if member.comment == "" && end.code == "end;" && member.code != "" && !strings.HasSuffix(member.code, ":") && !hasInternalComment(member.group) {
+				code := "else " + member.code
+				folded = append(folded, tDefStatement{group: []string{code}, code: code})
+				i++
+				continue
+			}
+		}
 		if i+2 < len(statements) {
 			header, member, end := statements[i], statements[i+1], statements[i+2]
 			if header.comment == "" && member.comment == "" && end.comment == "" && end.code == "end;" &&
@@ -145,13 +165,25 @@ func foldSingleMemberBlocks(statements []tDefStatement) []tDefStatement {
 // foldedBlockHeader returns header without its ":" when "<header> <member>" is the one-line form of
 // that block in the grammar:
 //
-//   - "device <id> with entity ...;" (Conceptual.def),
+//   - "device <id> [as leaf <leaf>] with entity ...;" (Conceptual.def),
 //   - "derived capability ... with condition ...;" and "... with value ...;" (Physical.def, Logical.def),
-//   - "then <action>;" (a rule).
+//   - "then <action>;" (a rule; "else <action>;" is foldSingleMemberBlocks' own case),
+//   - "for <targets> with <field>: <value>;" (a "defaults:" rule),
+//   - "device <id> host <hostname> <type> [via cloud] with <statement>;" (integration hosts),
+//   - "absorb from <device-id> capability ...;" (Logical.def).
+//
+// A space or a device holding one block of its own stays a block: its one-liner would need a
+// second "with" (Erik, 2026-11-02).
 func foldedBlockHeader(header, member string) (string, bool) {
 	switch {
 	case defDeviceBlockHeaderPattern.MatchString(header):
 		return strings.TrimSuffix(header, ":"), strings.HasPrefix(member, "entity ")
+	case defDefaultsBlockHeaderPattern.MatchString(header):
+		return strings.TrimSuffix(header, ":") + " with", defMetadataLinePattern.MatchString(member)
+	case defHostsDeviceBlockHeaderPattern.MatchString(header):
+		return strings.TrimSuffix(header, ":"), true
+	case defAbsorbBlockHeaderPattern.MatchString(header):
+		return strings.TrimSuffix(header, ":"), strings.HasPrefix(member, "capability ")
 	case defDerivedBlockHeaderPattern.MatchString(header):
 		return strings.TrimSuffix(header, ":"), strings.HasPrefix(member, "condition ") || strings.HasPrefix(member, "value ")
 	case header == "then:":
@@ -161,8 +193,11 @@ func foldedBlockHeader(header, member string) (string, bool) {
 }
 
 var (
-	defDeviceBlockHeaderPattern  = regexp.MustCompile(`^device\s+\S+\s+with:$`)
-	defDerivedBlockHeaderPattern = regexp.MustCompile(`^(?:internal\s+)?derived\s+capability\s+\S+(?:\s+as\s+unique_id\s+\S+)?\s+with:$`)
+	defDeviceBlockHeaderPattern      = regexp.MustCompile(`^device\s+\S+(?:\s+as\s+leaf\s+\S+)?\s+with:$`)
+	defDefaultsBlockHeaderPattern    = regexp.MustCompile(`^for\s+\S.*:$`)
+	defHostsDeviceBlockHeaderPattern = regexp.MustCompile(`^device\s+\S+\s+host\s+\S+\s+\S+(?:\s+via\s+cloud)?\s+with:$`)
+	defAbsorbBlockHeaderPattern      = regexp.MustCompile(`^absorb\s+from\s+\S+:$`)
+	defDerivedBlockHeaderPattern     = regexp.MustCompile(`^(?:internal\s+)?derived\s+capability\s+\S+(?:\s+as\s+unique_id\s+\S+)?\s+with:$`)
 )
 
 // defSettingLinePattern matches a setting line, "${<name>} = <value>;" (with its indentation).
@@ -304,13 +339,47 @@ func hasInternalComment(group []string) bool {
 }
 
 // readDefStatementLines reads a def file with each statement on one line (comments and blank
-// lines as they are) -- for the generator's own line-based writers.
+// lines as they are) -- for the generator's own line-based writers. A hosts device's or an absorb
+// block's one-liner comes back as its block (expandOneLinerBlocks), the form those writers edit;
+// writeDefFormatted folds it again.
 func readDefStatementLines(path string) ([]string, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	return strings.Split(joinWrappedStatementContinuations(strings.ReplaceAll(string(raw), "\r\n", "\n")), "\n"), nil
+	lines := strings.Split(joinWrappedStatementContinuations(strings.ReplaceAll(string(raw), "\r\n", "\n")), "\n")
+	lines = expandOneLinerBlocks(lines, hostsDeviceOneLinerPattern, " with:")
+	return expandOneLinerBlocks(lines, absorbOneLinerPattern, ":"), nil
+}
+
+// The one-liners of blocks whose parsers read the block form (PROJECT.md 30, 2026-11-03: every
+// block with one member has a one-line form): group 1 is the header without its opener, group 2
+// the single statement.
+var (
+	// "for <targets> with <field>: <value>;" (Defaults.def, a "defaults:" block)
+	defaultsOneLinerPattern = regexp.MustCompile(`^(for\s+.+?)\s+with\s+([a-z_]+:\s.*;)$`)
+	// "device <id> host <hostname> <type> [via cloud] with <statement>;" (integration hosts)
+	hostsDeviceOneLinerPattern = regexp.MustCompile(`^(\s*device\s+\S+\s+host\s+\S+\s+\S+(?:\s+via\s+cloud)?)\s+with\s+(\S.*;)$`)
+	// "absorb from <device-id> capability ...;" (Logical.def)
+	absorbOneLinerPattern = regexp.MustCompile(`^(\s*absorb\s+from\s+\S+)\s+(capability\s.*;)$`)
+)
+
+// expandOneLinerBlocks returns lines with every match of pattern (see its groups above) written as
+// its block: the header plus opener, the statement one level deeper, and "end;". A trailing
+// comment stays on the header.
+func expandOneLinerBlocks(lines []string, pattern *regexp.Regexp, opener string) []string {
+	var out []string
+	for _, line := range lines {
+		code, comment := splitTrailingComment(line)
+		m := pattern.FindStringSubmatch(code)
+		if m == nil {
+			out = append(out, line)
+			continue
+		}
+		indent := line[:len(line)-len(strings.TrimLeft(line, " "))]
+		out = append(out, indent+strings.TrimSpace(m[1])+opener+comment, indent+"  "+m[2], indent+"end;")
+	}
+	return out
 }
 
 // writeDefFormatted writes lines to path in the uniform layout.

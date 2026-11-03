@@ -1095,7 +1095,7 @@ func resolveActionEntitySpec(administration *TAdministrationState, action *TRule
 }
 
 // parseIfActionBlock parses a "then if <entity-ref> is <state>: <action>...; [else:
-// <action>...;] end;" multi-line action block (PROJECT.md item 13 Phase 2's "if" action verb),
+// <action>...; | else <action>;] end;" multi-line action block (PROJECT.md item 13 Phase 2's "if" action verb),
 // starting at entityLines[headerIdx] == header (already confirmed by the caller to start with
 // "then if " and end with ":"). Returns the parsed action (nil if the header itself failed to
 // parse) and the index of the block's own "end;" line, so the caller's own loop index naturally
@@ -1124,6 +1124,11 @@ func parseIfActionBlock(administration *TAdministrationState, rule *TRule, entit
 		if line == "else:" {
 			inElse = true
 			continue
+		}
+		// "else <action>;": the else branch's one-line form (PROJECT.md 30).
+		if rest, ok := strings.CutPrefix(line, "else "); ok {
+			inElse = true
+			line = strings.TrimSpace(rest)
 		}
 		branchParser := newRuleParser(line, rule.Name)
 		var branchAction TRuleAction

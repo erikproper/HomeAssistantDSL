@@ -1809,11 +1809,14 @@ Logical.def) as it writes them. The layout, uniform for all files:
 - comment lines, blank lines and trailing comments stay as written; a `when`/`if` rule clause, a
   `${...}` setting and a statement with a comment inside are never broken;
 - a block holding a single statement is written in its one-line form (PROJECT.md 30, Erik: a
-  `: ...; end;` clause with one member should have been the one-liner), where the grammar has
-  one: `device <id> with entity ...;` (not when the entity has a `with` of its own),
-  `derived capability ... with condition ...;` / `with value ...;`, and `then <action>;`. Not
-  (yet) for a `for` default, a hosts device's metadata, `absorb from`, a space, a `device ... as
-  leaf` block or `else:`; a comment on any of the three lines keeps the block.
+  `: ...; end;` clause with one member should have been the one-liner): `device <id> [as leaf
+  <leaf>] with entity ...;`, `derived capability ... with condition ...;` / `with value ...;`,
+  `then <action>;`, `else <action>;`, `for <targets> with <field>: <value>;`, `device <id> host
+  <hostname> <type> with <statement>;` and `absorb from <device-id> capability ...;`. A space or a
+  device holding one block of its own stays a block (its one-liner would need a second `with`), and
+  a comment on any of the three lines keeps the block. The writers that edit a hosts device or an
+  absorb block read its one-liner back as the block (`readDefStatementLines`);
+- `else:`/`else <action>;` is written at its `then if ...:`'s level: the two share one `end;`.
 
 The DSL already reads a broken statement as one (`joinWrappedStatementContinuations`), so
 formatting changes no meaning: both houses generate byte-identical output before and after, and a

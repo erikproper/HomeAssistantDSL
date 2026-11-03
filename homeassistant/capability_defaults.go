@@ -109,6 +109,7 @@ func parseCapabilityDefaultsBody(bodyLines []string, vars map[string]string) ([]
 	var warnings []string
 
 	type target struct{ Domain, PatternPath string }
+	bodyLines = expandOneLinerBlocks(bodyLines, defaultsOneLinerPattern, ":")
 
 	inFor := false
 	var currentTargets []target

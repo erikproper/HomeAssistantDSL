@@ -48,6 +48,7 @@ func parseHostsIntegrationBody(bodyLines []string) ([]THostDevice, []string) {
 	// entity-id-shaped token. E.g. `model: "Cool raspi";` or `hw_version: "1928930" forced;`.
 	constantAttributePattern := regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*):\s*"([^"]*)"(?:\s+(forced))?\s*;\s*$`)
 
+	bodyLines = expandOneLinerBlocks(bodyLines, hostsDeviceOneLinerPattern, " with:")
 	inDeviceCapabilities := false
 	var current THostDevice
 

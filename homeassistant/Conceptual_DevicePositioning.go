@@ -184,8 +184,9 @@ func withoutQuotedText(s string) string {
 // <spec> from <capability>;" (forDeviceShorthandPattern) expansion a block's own body line already
 // goes through -- Conceptual_DeviceCapabilityEntities.go, unchanged. The entity may be "not
 // aggregated" (PROJECT.md 30; as "with no_collect" it was a second "with", Erik 2026-11-02: that
-// took the block form).
-var deviceWithOneLinerPattern = regexp.MustCompile(`^device\s+(\S+)\s+with\s+(entity\s+.+;)$`)
+// took the block form). A "device <device-id> as leaf <leaf> with <entity-statement>;" has its
+// leaf folded into the statement, as in its block (foldDeviceLeaf; PROJECT.md 30).
+var deviceWithOneLinerPattern = regexp.MustCompile(`^device\s+(\S+)(?:\s+as\s+leaf\s+(\S+))?\s+with\s+(entity\s+.+;)$`)
 
 // extractDeviceWithOneLiner recognises the one-liner form, returning the positioning declaration
 // plus the single embedded entity statement text (still ending in ";").
@@ -194,7 +195,11 @@ func extractDeviceWithOneLiner(line string) (*TDevicePositioningDeclaration, str
 	if matches == nil {
 		return nil, "", false
 	}
-	return &TDevicePositioningDeclaration{DeviceID: matches[1]}, matches[2], true
+	entity := matches[3]
+	if matches[2] != "" {
+		entity = foldDeviceLeaf(entity, matches[2])
+	}
+	return &TDevicePositioningDeclaration{DeviceID: matches[1]}, entity, true
 }
 
 // registerDevicePositioning resolves decl into administration.DeviceConceptualLinks[decl.DeviceID]:

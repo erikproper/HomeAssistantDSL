@@ -284,6 +284,7 @@ func findTopLevelSemicolon(s string) int {
 func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaTemplateDefinition) ([]TLogicalDevice, []string) {
 	var devices []TLogicalDevice
 	var warnings []string
+	bodyLines = expandOneLinerBlocks(bodyLines, absorbOneLinerPattern, ":")
 
 	inDevice := false
 	inAbsorb := false
