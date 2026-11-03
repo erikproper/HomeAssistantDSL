@@ -267,6 +267,11 @@ func layoutStatement(indent, code, comment string) []string {
 		current = continuation + segment
 	}
 	last := breakLongLine(current, indent, continuation)
+	if header, ok := strings.CutSuffix(last[len(last)-1], " with:"); ok && len(lines)+len(last) > 1 {
+		// A broken block header: its "with:" on a line of its own at the header's depth, so that
+		// "with:" and "end;" frame the block (Erik, PROJECT.md 30).
+		last = append(last[:len(last)-1], header, indent+"with:")
+	}
 	last[len(last)-1] += comment
 	return append(lines, last...)
 }

@@ -103,10 +103,11 @@ func TestFormatDefFoldsSingleMemberBlocks(t *testing.T) {
 }
 
 // TestFormatDefBreaksLongBlockHeader: a "... with:" header longer than the line width is broken
-// before its clause keywords like a finished statement, "with:" staying on its last line.
+// before its clause keywords like a finished statement, its "with:" on a line of its own at the
+// header's depth.
 func TestFormatDefBreaksLongBlockHeader(t *testing.T) {
 	in := "capability device_tracker.position device_tracker.volvo_xc40_location as unique_id hassbridge_device_tracker_position with:\n  attribute latitude: device_tracker.volvo_xc40_location!latitude;\nend;"
-	want := "capability device_tracker.position device_tracker.volvo_xc40_location\n  as unique_id hassbridge_device_tracker_position with:\n  attribute latitude: device_tracker.volvo_xc40_location!latitude;\nend;"
+	want := "capability device_tracker.position device_tracker.volvo_xc40_location\n  as unique_id hassbridge_device_tracker_position\nwith:\n  attribute latitude: device_tracker.volvo_xc40_location!latitude;\nend;"
 	if got := formatDefContent(in); got != want {
 		t.Errorf("got\n%s\nwant\n%s", got, want)
 	}
