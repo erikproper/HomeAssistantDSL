@@ -413,10 +413,12 @@ func parseHomeAssistantMainDirective(physicalContent string) (nameExpr string) {
 		if len(fields) == 0 {
 			continue
 		}
-		if len(fields) > 1 {
-			fmt.Fprintf(os.Stderr, "[physical] \"home_assistant main: %s;\" has more than one token -- only the name is used, the rest is ignored\n", matches[1])
+		name, _, ok := cutInstanceSSH(fields)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "[physical] \"home_assistant main: %s;\": expected \"<name> [via ssh <user>@<host>[:<port>]]\" -- only the name is used\n", matches[1])
+			name = fields[0]
 		}
-		return fields[0]
+		return name
 	}
 	return ""
 }
@@ -425,6 +427,7 @@ func parseHomeAssistantMainDirective(physicalContent string) (nameExpr string) {
 // -- Name still as its raw ${...} expression, unresolved.
 type THomeAssistantInstance struct {
 	Name string
+	SSH  *TSSHEndpoint // "via ssh <endpoint>" (deploy_plan.go): an HA OS instance; nil for a container
 }
 
 // collectHomeAssistantInstances generalises parseHomeAssistantMainDirective to every qualifier,
@@ -446,10 +449,12 @@ func collectHomeAssistantInstances(physicalContent string) map[string]THomeAssis
 		if len(fields) == 0 {
 			continue
 		}
-		if len(fields) > 1 {
-			fmt.Fprintf(os.Stderr, "[physical] \"home_assistant %s: %s;\" has more than one token -- only the name is used, the rest is ignored\n", matches[1], matches[2])
+		name, ssh, ok := cutInstanceSSH(fields)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "[physical] \"home_assistant %s: %s;\": expected \"<name> [via ssh <user>@<host>[:<port>]]\" -- only the name is used\n", matches[1], matches[2])
+			name = fields[0]
 		}
-		instances[matches[1]] = THomeAssistantInstance{Name: fields[0]}
+		instances[matches[1]] = THomeAssistantInstance{Name: name, SSH: ssh}
 	}
 	return instances
 }

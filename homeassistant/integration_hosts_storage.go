@@ -66,6 +66,8 @@ type THostDevice struct {
 	// renders as 'Home Assistant Operating System ' ~ state_attr(...) in the generated Jinja
 	// (generateReportingAutomations). Absent for a capability with no literal prefix.
 	CapabilityLiteralPrefixes map[string]string
+	// Deploy is the device's "deploy via ssh ...;" or "deploy as ...;" (deploy_plan.go).
+	Deploy THostDeploy
 	// CapabilityIcons holds a capability's own "with icon: ..." (capability_icon.go), by leaf.
 	CapabilityIcons    map[string]string
 	ConstantAttributes map[string]THostConstantAttribute // per-device overrides for HA device-map fields, e.g. "model" -> {"Cool raspi", false}

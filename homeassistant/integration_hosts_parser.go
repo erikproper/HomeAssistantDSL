@@ -87,6 +87,14 @@ func parseHostsIntegrationBodyLines(bodyLines []string) ([]THostDevice, []string
 				current.IgnoreOtherCapabilities = true
 				continue
 			}
+			if deploy, warning, ok := parseHostDeployLine(line); ok {
+				if warning != "" {
+					warnings = append(warnings, fmt.Sprintf("Physical.def: device %q: %s", current.DeviceID, warning))
+				} else {
+					current.Deploy = deploy
+				}
+				continue
+			}
 			if matches := constantAttributePattern.FindStringSubmatch(quoteDeviceReference(line)); matches != nil {
 				current.ConstantAttributes[matches[1]] = THostConstantAttribute{Value: matches[2], Forced: matches[3] == "forced"}
 				continue

@@ -235,6 +235,9 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 		fmt.Printf("[physical] %s\n", w)
 	}
 	ctx.HostDevicesByID = hostDevicesByID
+	for _, w := range generateDeployPlan(outputRoot, definitionDir, physicalContent, ctx.Installation, instances, hostDevicesByID) {
+		fmt.Printf("[physical] %s\n", w)
+	}
 	if err := generateEntityCatalogueSuggestions(definitionDir, outputRoot, instances, hassBridgeDevicesByID, hostDevicesByID, mainEntityIDs, collectDiscoveryImpliedEntityIDs(admin), admin.ExternalEntityReferencedAttributes, ctx); err != nil {
 		return err
 	}

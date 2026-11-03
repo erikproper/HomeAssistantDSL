@@ -1848,6 +1848,33 @@ work whatever the layout. What stays long is what can't be broken: comments (by 
 `as unique_id <id>` or `entity ...` line whose ID alone is long. Per-integration layouts (the old item 46's
 idea) only if one turns out to be wanted.
 
+### 6.18 The deploy plan from the defs (PROJECT.md 30, 2026-11-03)
+
+The deploy follows from the defs instead of per-house `deploy.d/` steps with host names, ports and
+paths written in (`homeassistant/deploy_plan.go`). Physical.def says how each machine is reached
+and where the coordinator runs:
+
+```
+home_assistant main: vienna via ssh hassio@vienna.homelinux.org:1967;   # HA OS with the SSH add-on
+home_assistant ha2mqtt: protocols-server-1;                             # a container on that host
+coordinator on protocols-server-1;                                      # the hub
+
+device node.protocols_server_1 host protocols-server-1 cpu with:
+  deploy via ssh erikp@vienna.homelinux.org:1970;                       # how a Mac reaches it
+  ...
+device node.protocols_server_2 host protocols-server-2 cpu with deploy as user erikp;   # LAN only
+```
+
+and `${integrations_dir}` / `${coordinator_source}` (Shared/Definitions/Settings.def) where the
+files come from (`$HOME` as written). The generator writes `deploy.yaml` in the house folder: the
+machines, the coordinator's (and ping's) machine, each instance's kind (`ha_os`: files to
+`~/<name>`, then into `/config`; `container`: into `${container_ha_config}`), the container hosts
+(`update.containers`), the commandline devices' machines (which also get the source they build),
+and the cpu report script's targets -- every `cpu` host with a `deploy` line, through the hub for a
+LAN host, directly for a `via cloud` one; a Mac has none, its `~/cpu` being the Nextcloud folder.
+A machine nothing says how to reach, and a LAN cpu host without a `deploy` line, are reported.
+`homeassistant -deploy` carries the plan out (step 2).
+
 ## 7. Home Assistant's two roles
 
 A Home Assistant instance is not inherently the centre of the architecture — it's one possible implementation of a platform adapter, optionally combined with user-facing capabilities. It can fulfil either or both of two independent roles:
