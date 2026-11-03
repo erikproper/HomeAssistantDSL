@@ -92,12 +92,18 @@ space social:living_room with:
 end;
 ```
 
-Spaces can be nested. Virtual spaces aggregate multiple physical spaces:
+Spaces can be nested. A virtual space groups other spaces, its siblings: inside it a relative
+member space or `light on` path is resolved against its parent, while its own entities
+(`light.social:`, `switch.social:space`) stay its own:
 
 ```
-virtual-space social:whole_apartment with:
-  member switch.social:/apartment/living_room/space;
-  member switch.social:/apartment/kitchen/space;
+space social:house with:
+  ...
+  virtual space social:extension with:
+    member space social:corridor;      # social/house/corridor
+    member space social:office;
+    light on social:corridor;
+  end;
 end;
 ```
 

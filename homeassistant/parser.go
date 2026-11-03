@@ -669,7 +669,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 				if !strings.Contains(lightRef, ".") {
 					lightRef = "light." + lightRef
 				}
-				normalized := normalizeEntityFullName(lightRef, strings.Split(spaceName, "/"))
+				normalized := normalizeEntityFullName(lightRef, strings.Split(formatNestedSpaceName(administration.memberContextPath()), "/"))
 				if strings.ContainsAny(normalized, "$:{}[]*") || normalized == "" {
 					fmt.Fprintf(os.Stderr, "[SERIOUS WARNING] Space %q: intensional or unresolved entity reference %q (normalized as %q) in light on; only extensional references are allowed and will be stored.\n", spaceName, light, normalized)
 					continue
@@ -859,6 +859,10 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			switch {
 			case strings.HasPrefix(rest, "space "):
 				memberRef := strings.TrimSpace(strings.TrimPrefix(rest, "space "))
+				if strings.Contains(memberRef, ":") {
+					// Relative ("social:corridor"): a sibling of the virtual space (memberContextPath).
+					memberRef = formatNestedSpaceName(append(append([]string{}, administration.memberContextPath()...), memberRef))
+				}
 				if memberRef != "" {
 					spaceName := administration.CurrentSpaceName()
 					administration.SpaceMembersByName[spaceName] = append(

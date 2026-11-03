@@ -999,6 +999,22 @@ func (state *TAdministrationState) CurrentArea() string {
 	return state.AreaStack[len(state.AreaStack)-1]
 }
 
+// memberContextPath is the space path relative member spaces and "light on" paths resolve against:
+// in a virtual space its parent, since the spaces a virtual space groups are its siblings, not its
+// children (PROJECT.md 30, Erik, 2026-11-03: "member space social:corridor;"); elsewhere the
+// current space. Its own entities ("light.social:", "switch.social:space") stay its own.
+func (state *TAdministrationState) memberContextPath() []string {
+	for i := len(state.OpenBlocks) - 1; i >= 0; i-- {
+		switch state.OpenBlocks[i] {
+		case SpaceKindVirtual:
+			return state.SpacePath[:len(state.SpacePath)-1]
+		case SpaceKindRegular:
+			return state.SpacePath
+		}
+	}
+	return state.SpacePath
+}
+
 func (state *TAdministrationState) OpenOtherBlock() {
 	state.OpenBlocks = append(state.OpenBlocks, "other")
 }

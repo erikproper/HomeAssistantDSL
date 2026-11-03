@@ -1718,3 +1718,34 @@ func TestMergedConstantAttributesWarnsOnUnknownName(t *testing.T) {
 		t.Errorf("unrecognised attribute %q should not be merged in", "typo_field")
 	}
 }
+
+// TestVirtualSpaceRelativeMembers: inside a virtual space, a relative member space and a relative
+// "light on" path name a sibling -- a space of the virtual space's parent (PROJECT.md 30).
+func TestVirtualSpaceRelativeMembers(t *testing.T) {
+	const miniDSL = `space social:house with:
+  space social:corridor with:
+    light on social:main;
+  end;
+  virtual space social:extension with:
+    member space social:corridor;
+    member space social/house/office;
+    light on social:corridor;
+  end;
+end;`
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	admin := result.Administration
+	if got := admin.SpaceMembersByName["social/house/extension"]; strings.Join(got, ",") != "social/house/corridor,social/house/office" {
+		t.Errorf("members = %v, want [social/house/corridor social/house/office]", got)
+	}
+	if got := admin.SpaceOnByName["social/house/extension"]; len(got) != 1 || got[0] != "light.social/house/corridor" {
+		t.Errorf("light on = %v, want [light.social/house/corridor]", got)
+	}
+	if got := admin.SpaceOnByName["social/house/corridor"]; len(got) != 1 || got[0] != "light.social/house/corridor/main" {
+		t.Errorf("a regular space's light on = %v, want [light.social/house/corridor/main]", got)
+	}
+}
