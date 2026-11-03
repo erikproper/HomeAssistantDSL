@@ -98,6 +98,21 @@ var importConstantAttributeShapePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0
 // block. Lines that don't parse cleanly are reported as warnings rather than aborting the parse,
 // matching parseHostsIntegrationBody's own policy.
 func parseImportIntegrationBody(bodyLines []string) ([]TImportedDevice, []string) {
+	bodyLines, icons := cutCapabilityIcons(bodyLines)
+	devices, warnings := parseImportIntegrationBodyLines(bodyLines)
+	for _, d := range devices {
+		for label, capability := range d.Capabilities {
+			if icon := icons[d.DeviceID+"!"+label]; icon != "" {
+				capability.Icon = icon
+				d.Capabilities[label] = capability
+			}
+		}
+	}
+	return devices, warnings
+}
+
+// parseImportIntegrationBodyLines is parseImportIntegrationBody on lines without their capabilities' "with icon: ..." (capability_icon.go).
+func parseImportIntegrationBodyLines(bodyLines []string) ([]TImportedDevice, []string) {
 	var devices []TImportedDevice
 	var warnings []string
 

@@ -45,6 +45,8 @@ import (
 type TDiscoveryCapability struct {
 	Domain string
 	Leaf   string // raw gateway leaf id -- empty when AvailabilityOf is set instead
+	// Icon is the capability's own "with icon: ..." (capability_icon.go), "" when it has none.
+	Icon string
 
 	// SourceDomain (2026-09-15), when non-empty, is an optional "<raw-domain>:" qualifier on Leaf
 	// (e.g. "event" in "event.core: event:0x..._action_zigbee2mqtt;") -- disambiguates a leaf id

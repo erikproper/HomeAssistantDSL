@@ -7,22 +7,20 @@ import (
 )
 
 func TestCollectCapabilityDefaultsParsesForRules(t *testing.T) {
-	definitionDir := writePhysicalDef(t, `physical layer with:
-  defaults:
-    for binary_sensor.node:
-      device_class: "connectivity";
-    end;
+	definitionDir, sharedDefinitionDir := t.TempDir(), writeSharedDefaults(t, `defaults:
+  for binary_sensor.node:
+    device_class: "connectivity";
+  end;
 
-    for sensor.temperature:
-      unit: "°C";
-      device_class: "temperature";
-      state_class: "measurement";
-    end;
+  for sensor.temperature:
+    unit: "°C";
+    device_class: "temperature";
+    state_class: "measurement";
   end;
 end;
 `)
 
-	rules, warnings := collectCapabilityDefaults(definitionDir, t.TempDir())
+	rules, warnings := collectCapabilityDefaults(definitionDir, sharedDefinitionDir)
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
@@ -47,15 +45,13 @@ end;
 // "${water_icon}" instead of resolving to its real value. Also confirms an ordinary literal value
 // (no "${...}" at all -- every pre-existing Defaults.def rule) still passes through unchanged.
 func TestCollectCapabilityDefaultsResolvesSettingsDefReference(t *testing.T) {
-	definitionDir := writePhysicalDef(t, `physical layer with:
-  defaults:
-    for binary_sensor.reservoir/warning:
-      icon: "${water_icon}";
-    end;
+	definitionDir, sharedDefinitionDir := t.TempDir(), writeSharedDefaults(t, `defaults:
+  for binary_sensor.reservoir/warning:
+    icon: "${water_icon}";
+  end;
 
-    for binary_sensor.door:
-      icon: "mdi:door-open";
-    end;
+  for binary_sensor.door:
+    icon: "mdi:door-open";
   end;
 end;
 `)
@@ -63,7 +59,7 @@ end;
 		t.Fatalf("failed to write Settings.def: %v", err)
 	}
 
-	rules, warnings := collectCapabilityDefaults(definitionDir, t.TempDir())
+	rules, warnings := collectCapabilityDefaults(definitionDir, sharedDefinitionDir)
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
@@ -84,19 +80,17 @@ end;
 // whole block, including every metadata line and "end;", fell through as unrecognised, silently
 // registering no rule whatsoever.
 func TestCollectCapabilityDefaultsForLineWithMultipleTargets(t *testing.T) {
-	definitionDir := writePhysicalDef(t, `physical layer with:
-  defaults:
-    for sensor.*/total_power sensor.*/current_power:
-      device_class: "power";
-      unit: "W";
-      state_class: "measurement";
-      icon: "mdi:flash";
-    end;
+	definitionDir, sharedDefinitionDir := t.TempDir(), writeSharedDefaults(t, `defaults:
+  for sensor.*/total_power sensor.*/current_power:
+    device_class: "power";
+    unit: "W";
+    state_class: "measurement";
+    icon: "mdi:flash";
   end;
 end;
 `)
 
-	rules, warnings := collectCapabilityDefaults(definitionDir, t.TempDir())
+	rules, warnings := collectCapabilityDefaults(definitionDir, sharedDefinitionDir)
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
@@ -252,5 +246,26 @@ func TestRegisterHassBridgeAttributeEntityUsesCapabilityDefaultsRules(t *testing
 	load := link.AttributeEntityIDs["cpu/load"]
 	if load.Unit != "%" || load.Icon != "mdi:cpu-64-bit" || load.StateClass != "measurement" {
 		t.Errorf("cpu/load metadata = %+v, want unit=%%, icon=mdi:cpu-64-bit, state_class=measurement from the wildcard defaults rule", load)
+	}
+}
+
+// writeSharedDefaults writes content as a shared Defaults.def, the only place "defaults:" rules
+// live since PROJECT.md 30, and returns its folder.
+func writeSharedDefaults(t *testing.T, content string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Defaults.def"), []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write Defaults.def: %v", err)
+	}
+	return dir
+}
+
+// TestCollectCapabilityDefaultsRejectsPhysicalDefBlock: a "defaults:" block in Physical.def is
+// reported and ignored (PROJECT.md 30) -- a capability's own "with icon:" replaces it.
+func TestCollectCapabilityDefaultsRejectsPhysicalDefBlock(t *testing.T) {
+	definitionDir := writePhysicalDef(t, "physical layer with:\n  defaults:\n    for binary_sensor.door with icon: \"mdi:door-open\";\n  end;\nend;\n")
+	rules, warnings := collectCapabilityDefaults(definitionDir, t.TempDir())
+	if len(rules) != 0 || len(warnings) != 1 {
+		t.Errorf("rules = %v, warnings = %v; want none and one warning", rules, warnings)
 	}
 }

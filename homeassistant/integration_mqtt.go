@@ -65,6 +65,21 @@ func rawMQTTLeaf(deviceID, label string) string {
 
 // parseMQTTIntegrationBody parses an "integration mqtt" block's body into gateway devices (Raw).
 func parseMQTTIntegrationBody(bodyLines []string) ([]TDiscoveryGatewayDevice, []string) {
+	bodyLines, icons := cutCapabilityIcons(bodyLines)
+	devices, warnings := parseMQTTIntegrationBodyLines(bodyLines)
+	for _, d := range devices {
+		for label, capability := range d.Capabilities {
+			if icon := icons[d.DeviceID+"!"+label]; icon != "" {
+				capability.Icon = icon
+				d.Capabilities[label] = capability
+			}
+		}
+	}
+	return devices, warnings
+}
+
+// parseMQTTIntegrationBodyLines is parseMQTTIntegrationBody on lines without their capabilities' "with icon: ..." (capability_icon.go).
+func parseMQTTIntegrationBodyLines(bodyLines []string) ([]TDiscoveryGatewayDevice, []string) {
 	cur := newLineCursor(bodyLines)
 	var devices []TDiscoveryGatewayDevice
 	var warnings []string
@@ -205,12 +220,13 @@ func splitInstanceIntegrationDevices(bodyLines []string, instance string) (rest 
 			devices = append(devices, *current)
 			current = nil
 		default:
+			line, icon := cutCapabilityIcon(line)
 			m := instanceNodeCapabilityPattern.FindStringSubmatch(line)
 			if m == nil {
 				warnings = append(warnings, fmt.Sprintf("Physical.def: unrecognised line inside %q (only \"capability binary_sensor.node;\" so far): %q", current.DeviceID, line))
 				continue
 			}
-			current.Capabilities["node"] = TDiscoveryCapability{Domain: "binary_sensor", Leaf: rawMQTTLeaf(current.DeviceID, "node"), AssignedID: m[1]}
+			current.Capabilities["node"] = TDiscoveryCapability{Domain: "binary_sensor", Leaf: rawMQTTLeaf(current.DeviceID, "node"), AssignedID: m[1], Icon: icon}
 			current.RawTopics["node"] = TRawTopicCapability{Topic: instanceStatusTopic(instance), On: "online", Implied: true}
 		}
 	}

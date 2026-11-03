@@ -281,6 +281,9 @@ func importedYAMLEntityBodies(device TImportedDevice, admin *TAdministrationStat
 				SuggestedArea: area, Remote: remote, NodeAvailabilityTopics: availabilityFor(name),
 			})
 		}
+		if capability.Icon != "" {
+			body["icon"] = capability.Icon
+		}
 		entities = append(entities, discoveredYAMLEntity(domain, entityID, body))
 	}
 	return entities, missing

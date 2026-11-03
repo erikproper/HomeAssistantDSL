@@ -69,6 +69,7 @@ package main
 // struct shape.
 type TImportedCapability struct {
 	Domain                string
+	Icon                  string // its own "with icon: ..." (capability_icon.go), "" when it has none
 	DerivedFromCapability string
 	DerivedViaTemplate    string
 	// AssignedID is the capability's frozen universal ID (PROJECT.md item 48, "capability ... as

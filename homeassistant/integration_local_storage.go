@@ -62,6 +62,7 @@ import "fmt"
 // exclusive with AvailabilityOf/MediaPlayerEntity.
 type TLocalCapability struct {
 	Domain                string
+	Icon                  string // its own "with icon: ..." (capability_icon.go), "" when it has none
 	AvailabilityOf        string
 	AvailabilityOfDomain  string
 	MediaPlayerEntity     string

@@ -140,6 +140,9 @@ func registerDiscoveryEntityLink(administration *TAdministrationState, decl TDis
 	spaceName := administration.CurrentSpaceName()
 	administration.RegisterDiscoveryImpliedEntity(spaceName, fullName, provenance, decl.GatewayDeviceID+"!"+decl.Leaf, decl.NoCollect)
 	deviceClass, unit, stateClass, icon := resolveCapabilityDefaults(administration.CapabilityDefaults, identity.Domain, identity.Path)
+	if capability.Icon != "" {
+		icon = capability.Icon // its own "with icon:" (capability_icon.go)
+	}
 	administration.DiscoveryEntityLinks[entityID] = TDiscoveryEntityLink{
 		EntityID:        entityID,
 		GatewayDeviceID: decl.GatewayDeviceID,
@@ -186,6 +189,9 @@ func registerDiscoveryDerivedFromRawLeafEntityLink(administration *TAdministrati
 	spaceName := administration.CurrentSpaceName()
 	administration.RegisterDiscoveryImpliedEntity(spaceName, fullName, provenance, decl.GatewayDeviceID+"!"+decl.Leaf, decl.NoCollect)
 	deviceClass, unit, stateClass, icon := resolveCapabilityDefaults(administration.CapabilityDefaults, identity.Domain, identity.Path)
+	if capability.Icon != "" {
+		icon = capability.Icon // its own "with icon:" (capability_icon.go)
+	}
 	administration.DiscoveryEntityLinks[entityID] = TDiscoveryEntityLink{
 		EntityID:          entityID,
 		GatewayDeviceID:   decl.GatewayDeviceID,
@@ -277,6 +283,9 @@ func registerDiscoveryAvailabilityEntityLink(administration *TAdministrationStat
 
 	spaceName := administration.CurrentSpaceName()
 	deviceClass, _, _, icon := resolveCapabilityDefaults(administration.CapabilityDefaults, identity.Domain, identity.Path)
+	if capability.Icon != "" {
+		icon = capability.Icon // its own "with icon:" (capability_icon.go)
+	}
 	administration.AppendEntityRecord(spaceName, TEntityRecord{
 		Name:              fullName,
 		SourceKey:         "physical:" + decl.GatewayDeviceID + "!" + decl.Leaf,
@@ -357,6 +366,9 @@ func registerDiscoveryDerivedEntityLink(administration *TAdministrationState, de
 
 	spaceName := administration.CurrentSpaceName()
 	deviceClass, _, _, icon := resolveCapabilityDefaults(administration.CapabilityDefaults, identity.Domain, identity.Path)
+	if capability.Icon != "" {
+		icon = capability.Icon // its own "with icon:" (capability_icon.go)
+	}
 	administration.AppendEntityRecord(spaceName, TEntityRecord{
 		Name:              fullName,
 		SourceKey:         "physical:" + decl.GatewayDeviceID + "!" + decl.Leaf,

@@ -133,7 +133,11 @@ func collectLayerContent(definitionDir string, fileNames []string, layerName str
 		warnings = append(warnings, fmt.Sprintf("no %q layer with: ... end; block found across %v", layerName, fileNames))
 	}
 
-	return strings.Join(merged, "\n"), mergedLineNos, warnings
+	content := strings.Join(merged, "\n")
+	if layerName == LayerPhysical {
+		content = resolveCapabilityIconSettings(content, capabilityIconSettings(definitionDir))
+	}
+	return content, mergedLineNos, warnings
 }
 
 // misplacedContentWarnings flags top-level lines in a layer chunk that start with a

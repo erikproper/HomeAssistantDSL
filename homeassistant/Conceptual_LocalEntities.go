@@ -106,6 +106,9 @@ func registerLocalCapabilityEntityLink(administration *TAdministrationState, dec
 			return []string{fmt.Sprintf("%s: could not build a condition from sibling entity %q", provenance, siblingAttr.EntityID)}, false
 		}
 		deviceClass, _, _, icon := resolveCapabilityDefaults(administration.CapabilityDefaults, identity.Domain, identity.Path)
+		if capability.Icon != "" {
+			icon = capability.Icon
+		}
 		administration.AppendEntityRecord(spaceName, TEntityRecord{
 			Name:              fullName,
 			SourceKey:         "physical:" + decl.DeviceID + "!" + bareName,
@@ -136,6 +139,9 @@ func registerLocalCapabilityEntityLink(administration *TAdministrationState, dec
 		}
 		expr := strings.ReplaceAll(capability.DerivedViaTemplate, "$", "$1")
 		deviceClass, _, _, icon := resolveCapabilityDefaults(administration.CapabilityDefaults, identity.Domain, identity.Path)
+		if capability.Icon != "" {
+			icon = capability.Icon
+		}
 		administration.AppendEntityRecord(spaceName, TEntityRecord{
 			Name:              fullName,
 			SourceKey:         "physical:" + decl.DeviceID + "!" + bareName,
@@ -158,6 +164,7 @@ func registerLocalCapabilityEntityLink(administration *TAdministrationState, dec
 			Identity:   identity,
 			Provenance: provenance,
 			NoCollect:  decl.NoCollect,
+			EntityIcon: capability.Icon,
 		})
 	}
 

@@ -139,6 +139,7 @@ func commandlineYAMLEntityBodies(d TCommandlineDevice, admin *TAdministrationSta
 			uniqueID = capability.AssignedID
 		}
 		body := map[string]interface{}{"unique_id": uniqueID, "default_entity_id": entityID, "name": displayName}
+		setIfNotEmpty(body, "icon", capability.Icon)
 		base := "commandline/" + d.Host + "/" + name
 		switch capability.Kind {
 		case "switch":

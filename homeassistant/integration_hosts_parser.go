@@ -26,6 +26,25 @@ import (
 // end;" block into device declarations. Lines that don't parse cleanly (e.g. a malformed
 // "device ...;" line) are reported as warnings rather than aborting the parse.
 func parseHostsIntegrationBody(bodyLines []string) ([]THostDevice, []string) {
+	bodyLines, icons := cutCapabilityIcons(bodyLines)
+	devices, warnings := parseHostsIntegrationBodyLines(bodyLines)
+	for i, d := range devices {
+		for name := range d.Capabilities {
+			if icon := icons[d.DeviceID+"!"+name]; icon != "" {
+				if devices[i].CapabilityIcons == nil {
+					devices[i].CapabilityIcons = map[string]string{}
+				}
+				_, leaf := splitCapabilityName(name)
+				devices[i].CapabilityIcons[leaf] = icon
+			}
+		}
+	}
+	return devices, warnings
+}
+
+// parseHostsIntegrationBodyLines is parseHostsIntegrationBody on lines without their
+// capabilities' "with icon: ..." (capability_icon.go).
+func parseHostsIntegrationBodyLines(bodyLines []string) ([]THostDevice, []string) {
 	var devices []THostDevice
 	var warnings []string
 

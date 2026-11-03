@@ -210,7 +210,8 @@ func parseDiscoveryDeviceBody(cur *TLineCursor, deviceID, parentDeviceID string)
 		// read), not something the conceptual (or logical) layer should see. "inverted" marks a
 		// switch/binary_sensor whose raw on/off payload means the opposite of what it should
 		// report/command (TDiscoveryCapability.Inverted's own doc comment has the full rationale).
-		capabilityLine, hidden := strings.CutPrefix(line, "internal ")
+		capabilityLine, icon := cutCapabilityIcon(line)
+		capabilityLine, hidden := strings.CutPrefix(capabilityLine, "internal ")
 		capabilityLine, inverted := strings.CutPrefix(capabilityLine, "inverted ")
 		if !hidden {
 			// Also accept the opposite order, "inverted internal ...;".
@@ -229,6 +230,7 @@ func parseDiscoveryDeviceBody(cur *TLineCursor, deviceID, parentDeviceID string)
 				DerivedViaTemplate:    decl.Template,
 				Hidden:                hidden,
 				Inverted:              inverted,
+				Icon:                  icon,
 			}
 			cur.Advance()
 			continue
@@ -249,7 +251,7 @@ func parseDiscoveryDeviceBody(cur *TLineCursor, deviceID, parentDeviceID string)
 					cur.Advance()
 					continue
 				}
-				current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], AvailabilityOf: siblingMatch[2], AvailabilityOfDomain: siblingMatch[1], Hidden: hidden, Inverted: inverted}
+				current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], AvailabilityOf: siblingMatch[2], AvailabilityOfDomain: siblingMatch[1], Hidden: hidden, Inverted: inverted, Icon: icon}
 			} else if sourceDomain, leaf, ok := strings.Cut(rawSource, ":"); ok {
 				// "<raw-domain>:<leaf>" (2026-09-15) -- an optional qualifier disambiguating a
 				// leaf id Zigbee2MQTT (or any gateway) publishes under more than one raw MQTT
@@ -261,9 +263,9 @@ func parseDiscoveryDeviceBody(cur *TLineCursor, deviceID, parentDeviceID string)
 				// leaf) matches whichever raw domain publishes it, unchanged from before -- this is
 				// what lets e.g. "fan.core: 0x..._switch_zigbee2mqtt;" deliberately relay a
 				// switch-domain-published leaf under a different declared conceptual domain.
-				current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], Leaf: leaf, SourceDomain: sourceDomain, Hidden: hidden, Inverted: inverted, AssignedID: assignedID}
+				current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], Leaf: leaf, SourceDomain: sourceDomain, Hidden: hidden, Inverted: inverted, AssignedID: assignedID, Icon: icon}
 			} else {
-				current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], Leaf: rawSource, Hidden: hidden, Inverted: inverted, AssignedID: assignedID}
+				current.Capabilities[matches[2]] = TDiscoveryCapability{Domain: matches[1], Leaf: rawSource, Hidden: hidden, Inverted: inverted, AssignedID: assignedID, Icon: icon}
 			}
 			cur.Advance()
 			continue

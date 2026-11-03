@@ -212,7 +212,11 @@ func hostYAMLEntityBodies(d THostDevice, link TDeviceConceptualLink, mat THostsE
 		setIfNotEmpty(body, "device_class", attribute.DeviceClass)
 		setIfNotEmpty(body, "unit_of_measurement", attribute.Unit)
 		setIfNotEmpty(body, "state_class", attribute.StateClass)
-		setIfNotEmpty(body, "icon", attribute.Icon)
+		icon := attribute.Icon
+		if own := d.CapabilityIcons[leaf]; own != "" {
+			icon = own
+		}
+		setIfNotEmpty(body, "icon", icon)
 		entities = append(entities, THostYAMLEntity{Domain: "sensor", EntityID: attribute.EntityID, Body: body})
 	}
 	return entities

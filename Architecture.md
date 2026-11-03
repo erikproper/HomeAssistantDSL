@@ -595,6 +595,15 @@ touching the real files) -- both houses regenerate byte-identical, so no deploy 
 `delay_on: 00:01:00;`, and `enabled by ... with delay_off: 00:01:00;`. `condition`/`value` stay as
 they are: statements, not properties. The old form is reported as an unrecognised line.
 
+**Every integration's capability line may end in `with icon: "<icon>";`** (PROJECT.md 30,
+2026-11-03, Erik): discovery, mqtt, an instance's integration device, local, import, commandline,
+hosts and home_assistant (which had it already). It is the icon of the entities positioned from
+that capability, ahead of a Defaults.def rule; a `${...}` setting may stand inside the quotes
+(resolved in `collectLayerContent`). The parsers that don't read it themselves get their lines
+without it (`cutCapabilityIcons`, `capability_icon.go`). It replaces a house's own `defaults:`
+block in Physical.def, which is gone: its one use (Junglinster's reservoir) gave one entity an
+icon. `Shared/Definitions/Defaults.def` stays the place for rules that apply to many entities.
+
 **An aggregate is a new logical device absorbing from several (PROJECT.md 26, 2026-11-02).** A
 device that exists only in Logical.def can absorb from any number of devices; no separate
 `aggregate`, `complement` or `virtual device` construct is needed (Erik). Like every logical

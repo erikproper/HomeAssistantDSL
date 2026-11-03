@@ -61,6 +61,21 @@ var commandlineScriptCountByKind = map[string]int{
 // ... end;" block into every declared device. Lines that don't parse cleanly are reported as
 // warnings rather than aborting the parse.
 func parseCommandlineIntegrationBody(bodyLines []string) ([]TCommandlineDevice, []string) {
+	bodyLines, icons := cutCapabilityIcons(bodyLines)
+	devices, warnings := parseCommandlineIntegrationBodyLines(bodyLines)
+	for _, d := range devices {
+		for label, capability := range d.Capabilities {
+			if icon := icons[d.DeviceID+"!"+label]; icon != "" {
+				capability.Icon = icon
+				d.Capabilities[label] = capability
+			}
+		}
+	}
+	return devices, warnings
+}
+
+// parseCommandlineIntegrationBodyLines is parseCommandlineIntegrationBody on lines without their capabilities' "with icon: ..." (capability_icon.go).
+func parseCommandlineIntegrationBodyLines(bodyLines []string) ([]TCommandlineDevice, []string) {
 	var devices []TCommandlineDevice
 	var warnings []string
 

@@ -61,12 +61,10 @@ var capabilityDefaultsMetadataPattern = regexp.MustCompile(`^(unit|icon|device_c
 // full precision (set through the registry repair, registry_manifest.go's "display").
 var capabilityDefaultsPrecisionPattern = regexp.MustCompile(`^precision:\s*(\d)\s*;\s*$`)
 
-// collectCapabilityDefaults scans for every "defaults: ... end;" block and parses their
-// "for <domain>.<pattern>: ...; end;" rules -- both sharedDefinitionDir's own Defaults.def
-// (a flat, wrapper-less file, same convention as the shared Settings.def: its whole content is
-// implicitly rules, no "physical layer with:" wrapper needed) and, for a house that wants
-// local additions/overrides, any "defaults: ... end;" block still declared inside its own
-// Physical.def. There is normally only one block per source, but nothing requires that.
+// collectCapabilityDefaults scans sharedDefinitionDir's Defaults.def (a flat, wrapper-less file,
+// same convention as the shared Settings.def) for its "defaults: ... end;" blocks and parses their
+// "for <domain>.<pattern>: ...; end;" rules. A house's own "defaults:" block in Physical.def is
+// reported and ignored since PROJECT.md 30.
 func collectCapabilityDefaults(definitionDir, sharedDefinitionDir string) ([]TCapabilityDefaultRule, []string) {
 	var rules []TCapabilityDefaultRule
 	var warnings []string
@@ -94,10 +92,12 @@ func collectCapabilityDefaults(definitionDir, sharedDefinitionDir string) ([]TCa
 		collect(sharedContent, "Defaults.def")
 	}
 
-	physicalContent, _, physicalWarnings := collectLayerContent(definitionDir, []string{"Physical.def"}, LayerPhysical)
-	physicalContent = resolveDerivedConditionOneLiners(physicalContent)
-	warnings = append(warnings, physicalWarnings...)
-	collect(physicalContent, "Physical.def")
+	// A house's own "defaults:" block in Physical.def is gone (PROJECT.md 30, 2026-11-03): its one
+	// use gave one entity an icon, which its capability's "with icon:" does now (capability_icon.go).
+	physicalContent, _, _ := collectLayerContent(definitionDir, []string{"Physical.def"}, LayerPhysical)
+	if blocks, _ := scanGroupClauseBlocks(splitLines(physicalContent), "Physical.def", capabilityDefaultsHeaderPattern); len(blocks) > 0 {
+		warnings = append(warnings, "Physical.def: a \"defaults:\" block belongs in Shared/Definitions/Defaults.def; for one capability write \"with icon: ...\" on its line -- ignored")
+	}
 
 	return rules, warnings
 }

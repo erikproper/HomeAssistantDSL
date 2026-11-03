@@ -163,6 +163,21 @@ func applyLocalCapabilityLine(dev *TLocalDevice, deviceID, line string) (warning
 // into every declared device. Lines that don't parse cleanly are reported as warnings rather than
 // aborting the parse.
 func parseLocalIntegrationBody(bodyLines []string) ([]TLocalDevice, []string) {
+	bodyLines, icons := cutCapabilityIcons(bodyLines)
+	devices, warnings := parseLocalIntegrationBodyLines(bodyLines)
+	for _, d := range devices {
+		for label, capability := range d.Capabilities {
+			if icon := icons[d.DeviceID+"!"+label]; icon != "" {
+				capability.Icon = icon
+				d.Capabilities[label] = capability
+			}
+		}
+	}
+	return devices, warnings
+}
+
+// parseLocalIntegrationBodyLines is parseLocalIntegrationBody on lines without their capabilities' "with icon: ..." (capability_icon.go).
+func parseLocalIntegrationBodyLines(bodyLines []string) ([]TLocalDevice, []string) {
 	var devices []TLocalDevice
 	var warnings []string
 

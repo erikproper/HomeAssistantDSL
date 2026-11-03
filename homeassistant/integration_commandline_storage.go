@@ -37,6 +37,7 @@ import "fmt"
 // reused parametrically rather than needing one bespoke script per entity.
 type TCommandlineCapability struct {
 	Kind         string // "switch", "sensor", or "button"
+	Icon         string // its own "with icon: ..." (capability_icon.go), "" when it has none
 	StatusScript string
 	OnScript     string
 	OffScript    string
