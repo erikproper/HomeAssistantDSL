@@ -21,7 +21,7 @@ func TestApplyEnabledByImpliesNode(t *testing.T) {
 		"  end;",
 		"end;",
 		"device appliance.samsungtv with:",
-		"  enabled by switch.switch from switch.cycling with delay_off 00:01:00;",
+		"  enabled by switch.switch from switch.cycling with delay_off: 00:01:00;",
 		"  dependency on node.samsungtv;",
 		"end;",
 	}, nil)
@@ -88,7 +88,7 @@ func TestWriteFrozenUniqueIDsOnEnabledByLine(t *testing.T) {
 		"    enabled by switch.switch from switch.imac;\n" +
 		"  end;\n" +
 		"  device appliance.tv with:\n" +
-		"    enabled by switch.switch from switch.tv with delay_off 00:01:00;\n" +
+		"    enabled by switch.switch from switch.tv with delay_off: 00:01:00;\n" +
 		"  end;\n" +
 		"end;"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -101,7 +101,7 @@ func TestWriteFrozenUniqueIDsOnEnabledByLine(t *testing.T) {
 	got, _ := os.ReadFile(path)
 	for _, want := range []string{
 		"    enabled by switch.switch from switch.imac as binary_sensor.imac_node;\n",
-		"    enabled by switch.switch from switch.tv as binary_sensor.tv_node with delay_off 00:01:00;\n",
+		"    enabled by switch.switch from switch.tv as binary_sensor.tv_node with delay_off: 00:01:00;\n",
 	} {
 		if !strings.Contains(defStatements(string(got)), strings.TrimSpace(want)) {
 			t.Errorf("Logical.def lacks %q:\n%s", want, got)

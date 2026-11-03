@@ -407,7 +407,7 @@ else `controller` (the device's own link to its controller, e.g. Vienna's ha2mqt
 machine). Generate warns about any node outside the infrastructural sphere (`checkNodeSpheres`).
 
 **"enabled by"** (PROJECT.md 17k, 2026-10-26, Erik): a Logical.def device statement
-`enabled by <domain>.<label> from <device> [as <id>] [with delay_off <time>];` says the device is
+`enabled by <domain>.<label> from <device> [as <id>] [with delay_off: <time>];` says the device is
 powered by that device's switch (`logical_enabled_by.go`). It absorbs the switch as the device's
 `enabler` and implies its node: (its own Physical.def node, if any) and (the node of every device
 it is built from -- absorbed, colocated or `dependency on`) or (the enabler is off); the `as` and
@@ -457,7 +457,7 @@ device appliance.living_room_tv with:
 
   derived capability binary_sensor.node with:
     condition (physical appliance.living_room_tv and node.tv) or jinja "$[switch.enabler] == 'off'";
-    delay_off 00:01:00;
+    delay_off: 00:01:00;
   end;
 end;
 ```
@@ -575,10 +575,10 @@ binary_sensor.node with condition ...;` -- visually indistinguishable from a dev
 the same general shape (`<domain>.<label> is switched by ...;`, a refinement-block body line) on a
 quick read. The keyword goes at the very front of a bare line (`capability media_player.core;`),
 or right after `derived`/`defined` for those two block-opening forms (`derived capability
-binary_sensor.node with: ...;`, `defined capability input_number.x with: ...;`) -- block openers
-that DON'T start with `derived`/`defined` (hassbridge/local's own `<domain>.<label> <value> with:`
-capability-refinement block, which nests further modifier lines rather than declaring a second
-capability) stay unprefixed, same as any other device-level fact. Logical.def's absorb-block
+binary_sensor.node with: ...;`, `defined capability input_number.x with: ...;`). The
+hassbridge/local `<domain>.<label> <value> with:` refinement block first stayed unprefixed, then
+took the keyword optionally (2026-10-23); since PROJECT.md 30 (2026-11-03) it is required there
+too: `capability vacuum.vacuum vacuum.roomba as <id> with:`. Logical.def's absorb-block
 opener was renamed from `capabilities from <id>:` to `absorb from <id>:` in the same change --
 "absorb" already being this mechanism's own internal name everywhere else in the codebase
 (`TLogicalCapability.AbsorbedFromDeviceID`/`AbsorbedFromCapability`) -- with its own body lines
@@ -587,6 +587,13 @@ spent, same precedent as item 10's own migration tools -- rewrote ~1600 real lin
 houses' entire Physical.def/Logical.def in one pass, via a single kind-agnostic classifier
 covering every integration's own capability-line shape, verified by hand against a dry run before
 touching the real files) -- both houses regenerate byte-identical, so no deploy was needed.
+
+**The properties of a Logical.def `defined`/`derived capability` block are written `<field>:
+<value>;` (PROJECT.md 30, 2026-11-03)**, like Physical.def's metadata: a text value quoted (a
+`${...}` setting inside the quotes), a number or a time not -- `minimum: ${wind_speed_min};`,
+`icon: "${wind_speed_icon}";`, `unit: "km/h";` (was `units`), `device_class: "safety";`,
+`delay_on: 00:01:00;`, and `enabled by ... with delay_off: 00:01:00;`. `condition`/`value` stay as
+they are: statements, not properties. The old form is reported as an unrecognised line.
 
 **An aggregate is a new logical device absorbing from several (PROJECT.md 26, 2026-11-02).** A
 device that exists only in Logical.def can absorb from any number of devices; no separate

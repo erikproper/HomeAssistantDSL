@@ -81,7 +81,7 @@ func TestParseLogicalLayerBodyOneLinerDependencyOn(t *testing.T) {
 // there is no one-line form for those, so this must warn rather than silently mis-parse.
 func TestParseLogicalLayerBodyOneLinerRejectsBlockOpeningStatement(t *testing.T) {
 	devices, warnings := parseLogicalLayerBody([]string{
-		"device utility.thing with defined capability sensor.threshold with: minimum 0; end;",
+		"device utility.thing with defined capability sensor.threshold with: minimum: 0; end;",
 	}, nil)
 	if len(devices) != 0 {
 		t.Errorf("got %d devices, want 0 (rejected one-liner shouldn't register a device)", len(devices))
@@ -280,11 +280,11 @@ func TestParseLogicalLayerBodyDefinedInputNumber(t *testing.T) {
 	devices, warnings := parseLogicalLayerBody([]string{
 		"device sensors.vienna_terrace_wind with:",
 		"  defined capability input_number.windy_threshold with:",
-		"    minimum 0;",
-		"    maximum 30;",
-		"    step 1;",
-		"    icon mdi:weather-windy;",
-		"    units km/h;",
+		"    minimum: 0;",
+		"    maximum: 30;",
+		"    step: 1;",
+		"    icon: \"mdi:weather-windy\";",
+		"    unit: \"km/h\";",
 		"  end;",
 		"end;",
 	}, nil)
@@ -313,7 +313,7 @@ func TestParseLogicalLayerBodyDefinedInputNumber(t *testing.T) {
 func TestParseLogicalLayerBodyDefinedOneLiner(t *testing.T) {
 	devices, warnings := parseLogicalLayerBody([]string{
 		"device sensors.x with:",
-		"  defined capability input_number.threshold with minimum 5;",
+		"  defined capability input_number.threshold with minimum: 5;",
 		"end;",
 	}, nil)
 	if len(warnings) != 0 {
@@ -338,9 +338,9 @@ func TestParseLogicalLayerBodyDerivedCondition(t *testing.T) {
 		"device sensors.vienna_terrace_wind with:",
 		`  derived capability binary_sensor.windy with:`,
 		`    condition jinja "($[sensor.wind_speed] in ['unknown', 'unavailable']) or (($[sensor.wind_speed] | int) > ($[input_number.windy_threshold] | int))";`,
-		"    device_class wind;",
-		"    delay_on  00:01:00;",
-		"    delay_off 00:10:00;",
+		"    device_class: \"wind\";",
+		"    delay_on: 00:01:00;",
+		"    delay_off: 00:10:00;",
 		"  end;",
 		"end;",
 	}, nil)
@@ -378,17 +378,17 @@ func TestParseLogicalLayerBodyDefinedAndDerivedCoexist(t *testing.T) {
 	devices, warnings := parseLogicalLayerBody([]string{
 		"device sensors.vienna_terrace_wind with:",
 		"  defined capability input_number.windy_threshold with:",
-		"    minimum 0;",
-		"    maximum 30;",
-		"    step 1;",
-		"    icon mdi:weather-windy;",
-		"    units km/h;",
+		"    minimum: 0;",
+		"    maximum: 30;",
+		"    step: 1;",
+		"    icon: \"mdi:weather-windy\";",
+		"    unit: \"km/h\";",
 		"  end;",
 		`  derived capability binary_sensor.windy with:`,
 		`    condition jinja "($[sensor.wind_speed]|int) > ($[input_number.windy_threshold]|int)";`,
-		"    device_class wind;",
-		"    delay_on  00:01:00;",
-		"    delay_off 00:10:00;",
+		"    device_class: \"wind\";",
+		"    delay_on: 00:01:00;",
+		"    delay_off: 00:10:00;",
 		"  end;",
 		"end;",
 	}, nil)
@@ -691,7 +691,7 @@ func TestParseLogicalLayerBodyDerivedOneLinerMatchesBlockForm(t *testing.T) {
 func TestParseLogicalLayerBodyDerivedOneLinerRejectsOtherFields(t *testing.T) {
 	devices, warnings := parseLogicalLayerBody([]string{
 		"device appliance.sonos with:",
-		"  derived capability binary_sensor.node with delay_off 00:01:00;",
+		"  derived capability binary_sensor.node with delay_off: 00:01:00;",
 		"end;",
 	}, nil)
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "block form") {

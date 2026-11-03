@@ -43,7 +43,7 @@ func TestParseLogicalLayerBodyFrozenIDs(t *testing.T) {
 		"    condition physical appliance.tv and node.tv;",
 		"  derived capability binary_sensor.windy as binary_sensor.social_windy with:",
 		"    condition node.tv;",
-		"    delay_off 00:01:00;",
+		"    delay_off: 00:01:00;",
 		"  end;",
 		"end;",
 	}, nil)

@@ -68,8 +68,9 @@ var logicalDependencyOnPattern = regexp.MustCompile(`^dependency\s+on\s+(\S+)\s*
 var logicalColocatedPattern = regexp.MustCompile(`^colocated\s+(\S+)\s+as\s+(\S+)\s*;\s*$`)
 
 // logicalEnabledByPattern is "enabled by <domain>.<label> from <device-id> [as <id>] [with
-// delay_off <time>];" (PROJECT.md 17k, 2026-10-26) -- see TLogicalDevice.EnabledBy.
-var logicalEnabledByPattern = regexp.MustCompile(`^enabled\s+by\s+([a-z_]+)\.([a-z0-9_/]+)\s+from\s+(\S+?)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_.]*))?(?:\s+with\s+delay_off\s+(\S+?))?\s*;\s*$`)
+// delay_off: <time>];" (PROJECT.md 17k, 2026-10-26; the colon since PROJECT.md 30, as in a derived
+// block) -- see TLogicalDevice.EnabledBy.
+var logicalEnabledByPattern = regexp.MustCompile(`^enabled\s+by\s+([a-z_]+)\.([a-z0-9_/]+)\s+from\s+(\S+?)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_.]*))?(?:\s+with\s+delay_off:\s*(\S+?))?\s*;\s*$`)
 
 // enabledByFact returns line's "enabled by" fact, if it is one.
 func enabledByFact(line string) (*TLogicalEnabledByFact, bool) {
@@ -182,25 +183,29 @@ var logicalDefinedBlockPattern = regexp.MustCompile(`^defined\s+capability\s+([A
 // the multi-line block form AND logicalDefinedOneLinerPattern's folded one-liner (rarely useful
 // given every real case needs all five, but free once the statement list exists, and consistent
 // with every other with-clause consumer in this DSL gaining one).
+//
+// Written "<field>: <value>;" like Physical.def's metadata, a text value quoted (PROJECT.md 30,
+// 2026-11-03; was "<field> <value>;" with "units"): "minimum: 0;", "icon: "${wind_speed_icon}";",
+// "unit: "km/h";".
 var logicalDefinedFieldStatements = []TWithClauseStatement[TLogicalCapability]{
 	{
-		Pattern: regexp.MustCompile(`^minimum\s+(.+?)\s*;\s*$`),
+		Pattern: regexp.MustCompile(`^minimum:\s*(.+?)\s*;\s*$`),
 		Apply: func(cap TLogicalCapability, m []string) TLogicalCapability { cap.DefinedMinimum = m[1]; return cap },
 	},
 	{
-		Pattern: regexp.MustCompile(`^maximum\s+(.+?)\s*;\s*$`),
+		Pattern: regexp.MustCompile(`^maximum:\s*(.+?)\s*;\s*$`),
 		Apply: func(cap TLogicalCapability, m []string) TLogicalCapability { cap.DefinedMaximum = m[1]; return cap },
 	},
 	{
-		Pattern: regexp.MustCompile(`^step\s+(.+?)\s*;\s*$`),
+		Pattern: regexp.MustCompile(`^step:\s*(.+?)\s*;\s*$`),
 		Apply: func(cap TLogicalCapability, m []string) TLogicalCapability { cap.DefinedStep = m[1]; return cap },
 	},
 	{
-		Pattern: regexp.MustCompile(`^icon\s+(.+?)\s*;\s*$`),
+		Pattern: regexp.MustCompile(`^icon:\s*"([^"]*)"\s*;\s*$`),
 		Apply: func(cap TLogicalCapability, m []string) TLogicalCapability { cap.DefinedIcon = m[1]; return cap },
 	},
 	{
-		Pattern: regexp.MustCompile(`^units\s+(.+?)\s*;\s*$`),
+		Pattern: regexp.MustCompile(`^unit:\s*"([^"]*)"\s*;\s*$`),
 		Apply: func(cap TLogicalCapability, m []string) TLogicalCapability { cap.DefinedUnits = m[1]; return cap },
 	},
 }
@@ -235,8 +240,9 @@ var logicalDerivedOneLinerPattern = regexp.MustCompile(`^derived\s+capability\s+
 var logicalAssignedIDSuffixPattern = regexp.MustCompile(`\s+as\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;\s*$`)
 
 // logicalDerivedFieldPattern matches one of a "derived" block's OWN non-"condition"/"value" body
-// lines -- device_class/delay_on/delay_off, any subset, any order.
-var logicalDerivedFieldPattern = regexp.MustCompile(`^(device_class|delay_on|delay_off)\s+(.+?)\s*;\s*$`)
+// lines -- device_class/delay_on/delay_off, any subset, any order -- written "<field>: <value>;",
+// device_class quoted (PROJECT.md 30, as logicalDefinedFieldStatements).
+var logicalDerivedFieldPattern = regexp.MustCompile(`^(device_class:\s*"([^"]*)"|(delay_on|delay_off):\s*(\S+?))\s*;\s*$`)
 
 // findTopLevelSemicolon returns the byte index of the first ";" in s that is outside a quoted
 // string and at bracket/paren depth 0, or -1 if s doesn't (yet) contain one -- used to accumulate
@@ -397,13 +403,13 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 				continue
 			}
 			if matches := logicalDerivedFieldPattern.FindStringSubmatch(line); matches != nil {
-				switch matches[1] {
-				case "device_class":
+				switch matches[3] {
+				case "":
 					currentDerivedDeviceClass = matches[2]
 				case "delay_on":
-					currentDerivedDelayOn = matches[2]
+					currentDerivedDelayOn = matches[4]
 				case "delay_off":
-					currentDerivedDelayOff = matches[2]
+					currentDerivedDelayOff = matches[4]
 				}
 				continue
 			}
