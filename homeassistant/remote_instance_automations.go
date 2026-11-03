@@ -358,6 +358,10 @@ func generateInstanceAutomationTrees(haOutputDir string, instances map[string]TH
 		if err := writeAutomationFile(instanceHAOutputDir, "infrastructural", "coordinator_ping_pong", generatorHeader+pingPongAutomationBody(name)); err != nil {
 			return err
 		}
+		// PROJECT.md 29: report the config entries that aren't loaded.
+		if err := writeAutomationFile(instanceHAOutputDir, "infrastructural", "coordinator_integration_health", generatorHeader+integrationHealthAutomationBody(name)); err != nil {
+			return err
+		}
 		// PROJECT.md 23: reload an integration whose indicator entities stay unavailable.
 		guards, problems := bridgeReloadGuards(name, hassBridgeDevicesByID)
 		if name == "main" {

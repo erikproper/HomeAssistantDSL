@@ -219,6 +219,12 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 	if err := generateInstanceAutomationTrees(haOutputDir, instances, hassBridgeDevicesByID, admin); err != nil {
 		return err
 	}
+	// PROJECT.md 29: main tells Erik about an instance's integration that doesn't load.
+	if service := collectProblemsNotifyService(physicalContent); service != "" && haOutputDir != "" && len(instanceNames) > 0 {
+		if err := writeAutomationFile(haOutputDir, "infrastructural", "coordinator_integration_problems", generatorHeader+integrationProblemsNotifyAutomationBody(instanceNames, service, ctx.Installation)); err != nil {
+			return err
+		}
+	}
 	// hostDevicesByID, like hassBridgeDevicesByID above, is collected independently here rather
 	// than threaded from generator.go's own earlier parse -- generateEntityCatalogueSuggestions
 	// only needs it for its own "ignore other capabilities;" device-id set

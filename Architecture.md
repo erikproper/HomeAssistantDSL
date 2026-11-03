@@ -1715,6 +1715,27 @@ entities stayed away until Erik reloaded by hand. Hence a third automation per p
 entities have been unavailable for at least their guard time, and asks the guard by the same
 event as the start companion. The guard's pause keeps it to one reload per pause.
 
+**An integration that doesn't load: a message to Erik (PROJECT.md 29, 2026-11-03).** A guard only
+helps when a reload does. An integration that needs re-authenticating (Overkiz, 2026-11-02: only
+its own "Reconfigure" in the UI showed it, and Erik found out hours later) or fails to set up needs
+Erik. Every instance reports, every five minutes and not retained, its config entries in a state
+that needs action -- `setup_error`, `migration_error`, `failed_unload`, `not_loaded`, a disabled
+entry excepted -- on `homeassistant_instances/<instance>/integrations` (`{"items": ["<title>
+(<domain>): <state>", ...]}`). Not `setup_retry`: that is a device or service Home Assistant can't
+reach and keeps retrying (Vienna's TV switched off; an outage, which the guards handle), Erik's
+choice. A template finds the config entries through their entities (`config_entry_id` over
+`states`, 0.2 s over Junglinster main's 2,145 entities), so an entry without any entity isn't seen
+-- deliberately left so (Erik): the point is that the entities actually used work, and an
+integration without entities isn't used.
+Main has one problem binary_sensor per instance, `binary_sensor.infrastructural_integrations_<instance>`
+(with the reload and restart buttons, `coordinator_yaml_entities.go`), unavailable after three
+missed reports (`expire_after`). Physical.def names where main sends the message:
+
+    notify problems via notify.mobile_app_eriks_iphone_15_pro;
+
+-- when an instance's list has stood 15 minutes with problems in it, and when it is empty again,
+under one tag per instance so the second replaces the first on the phone.
+
 Node positioning, a fix (2026-10-28): a derived node whose condition refers to another device's
 node ("condition node from integration.zigbee2mqtt") materializes that node itself when it isn't
 positioned -- but now only when nothing positions it explicitly further down Conceptual.def

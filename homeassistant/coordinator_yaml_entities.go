@@ -11,7 +11,9 @@
  *   - a reload and a restart button per Home Assistant instance, for this installation, and for
  *     "all" (house_event_bus_coordinator/meta_reload_restart.go handles their command topics),
  *   - the "Discover entity" text input (discover_entity_input.go),
- *   - the "missing declared entities" indicator (missing_declared_entities.go).
+ *   - the "missing declared entities" indicator (missing_declared_entities.go),
+ *   - per instance, its integrations that aren't loaded (PROJECT.md 29, 2026-11-03; the instance
+ *     reports them itself, remote_instance_integration_health.go).
  *
  * Each is exactly what the coordinator published: the same unique_id, entity_id, name, topics and
  * payloads (its object_id becomes the default_entity_id), so the registry entry stays. The
@@ -107,5 +109,8 @@ func coordinatorYAMLEntityBodies(instances []string, installation string) []THos
 		"json_attributes_topic": "coordinator/missing_declared_entities/attributes",
 		"entity_category":       "diagnostic",
 	}})
+	for _, instance := range instances {
+		entities = append(entities, integrationHealthEntityBody(instance))
+	}
 	return entities
 }
