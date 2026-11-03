@@ -33,8 +33,8 @@ func TestAutoAssignDiscoveryStableIDsAssignsFreshIDForLiveCapability(t *testing.
 		"integration discovery with:",
 		"  device switches.garage_fuse_cabinet_zwave_058 with:",
 		"    identifiers \"zwavejs2mqtt_0xd0204fb2_node58\";",
-		"    fan.fan zwavejs2mqtt_0xd0204fb2_58-37-1-currentValue;",
-		"    light.light zwavejs2mqtt_0xd0204fb2_58-37-2-currentValue;",
+		"    capability fan.fan zwavejs2mqtt_0xd0204fb2_58-37-1-currentValue;",
+		"    capability light.light zwavejs2mqtt_0xd0204fb2_58-37-2-currentValue;",
 		"  end;",
 		"end;",
 	}, "\n"))
@@ -89,10 +89,10 @@ func TestAutoAssignDiscoveryStableIDsDisambiguatesCollision(t *testing.T) {
 	writePhysicalDefFixture(t, dir, strings.Join([]string{
 		"integration discovery with:",
 		"  device sensors.a with:",
-		"    sensor.temperature 0xAAA_temperature_zigbee2mqtt;",
+		"    capability sensor.temperature 0xAAA_temperature_zigbee2mqtt;",
 		"  end;",
 		"  device sensors.b with:",
-		"    sensor.temperature 0xBBB_temperature_zigbee2mqtt as sensor.physical_duplicate_name;",
+		"    capability sensor.temperature 0xBBB_temperature_zigbee2mqtt as sensor.physical_duplicate_name;",
 		"  end;",
 		"end;",
 	}, "\n"))
@@ -136,7 +136,7 @@ func TestAutoAssignDiscoveryStableIDsWarnsOnOrphanedID(t *testing.T) {
 	content := strings.Join([]string{
 		"integration discovery with:",
 		"  device sensors.retired with:",
-		"    sensor.temperature 0xCCC_temperature_zigbee2mqtt as sensor.physical_old_room_temperature;",
+		"    capability sensor.temperature 0xCCC_temperature_zigbee2mqtt as sensor.physical_old_room_temperature;",
 		"  end;",
 		"end;",
 	}, "\n")
@@ -173,7 +173,7 @@ func TestBootstrapDiscoveryStableIDsPreservesRegistryValue(t *testing.T) {
 	writePhysicalDefFixture(t, dir, strings.Join([]string{
 		"integration discovery with:",
 		"  device sensors.house_kitchen_workplace_dimmer with:",
-		"    light.light 0x00124b0019e7af0c_light_zigbee2mqtt;",
+		"    capability light.light 0x00124b0019e7af0c_light_zigbee2mqtt;",
 		"  end;",
 		"end;",
 	}, "\n"))
@@ -217,7 +217,7 @@ func TestBootstrapDiscoveryStableIDsWarnsOnMissingRegistryEntry(t *testing.T) {
 	content := strings.Join([]string{
 		"integration discovery with:",
 		"  device sensors.example with:",
-		"    light.light 0xABC_light_zigbee2mqtt;",
+		"    capability light.light 0xABC_light_zigbee2mqtt;",
 		"  end;",
 		"end;",
 	}, "\n")

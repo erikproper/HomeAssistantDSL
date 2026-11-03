@@ -244,9 +244,10 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 	// once per field. Checked before capabilityPattern since the two are mutually exclusive by
 	// trailing token ("with:" vs ";") but both start the same way. Same colon-dropped grammar as
 	// capabilityPattern just above.
-	// The "capability" keyword is optional here (2026-10-23), so a block reads like its one-line
-	// counterpart: "capability cover.cover <source> as <id> with: ... end;".
-	capabilityWithPattern := regexp.MustCompile(`^(?:capability\s+)?([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+(.+?)\s*with:\s*$`)
+	// The "capability" keyword is required here too (PROJECT.md 30, 2026-11-03; it was optional
+	// since 2026-10-23), so a block reads like its one-line counterpart: "capability cover.cover
+	// <source> as <id> with: ... end;".
+	capabilityWithPattern := regexp.MustCompile(`^capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)\s+(.+?)\s*with:\s*$`)
 	// "slow speed <source>;" -- inside a capability's own "with: ... end;" block (2026-10-23, the
 	// Somfy covers): <source> is a "shadow" of the capability's own source, the same cover run at
 	// slow speed. It becomes a sibling capability "slow/<label>" of the same domain (cover.cover

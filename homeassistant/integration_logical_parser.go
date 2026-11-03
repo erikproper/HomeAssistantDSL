@@ -607,7 +607,7 @@ func collectLogicalDevicesByID(definitionDir string, settings map[string]string)
 	// during expansion), Logical.def is never macro-expanded and has no per-field resolution of
 	// its own -- so every "${name}" reference (e.g. "windy"'s own minimum/maximum/icon/device_class
 	// fields, 2026-09-18) is substituted here, once, over the whole raw body, before parsing. A
-	// jinja template call's own "${name}" (e.g. "jinja ${int_less_then}(10)") is a DIFFERENT
+	// jinja template call's own "${name}" (e.g. "jinja ${int_less_than}(10)") is a DIFFERENT
 	// namespace (parseJinjaTemplateDefinitions, not parseDefinitionAssignments) and is resolved
 	// later, inside parseConditionExpr/parseValueExpr itself (logical_condition_expr.go) -- safe to
 	// run this pass first regardless, since resolveSettingsVar leaves an unknown "${name}" (never a

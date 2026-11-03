@@ -36,13 +36,13 @@
  * site that synthesizes jinja-clause text (logical_enabler_dependency_sugar.go's own "enabler"
  * OR-exception) were migrated together, twice, in the same day.
  *
- * A named-template-call head ("${name}(args)", Settings.def's int_less_then/int_more_then/...,
+ * A named-template-call head ("${name}(args)", Settings.def's int_less_than/int_more_than/...,
  * folded in here instead of the old separate resolveJinjaTemplateCallsInLogicalConditions
  * text-rewrite pass) still needs an explicit SINGLE source, kept parenthesized -- its own template
  * text lives in Settings.def, author-blind to any particular device, so it always resolves against
  * exactly one bare "$"/"$1" placeholder; there is nothing for it to embed a "$[...]" placeholder
  * INTO. "(ref)" here reads as "this template, applied to this one source," not a general sources
- * list -- e.g. jinja (sensor.battery_level) ${int_less_then}(20).
+ * list -- e.g. jinja (sensor.battery_level) ${int_less_than}(20).
  *
  * "not" binds tighter than "and", which binds tighter than "or"; parens override. Two independent
  * jinja clauses coexist in one condition with no index-collision risk at all now, by construction

@@ -60,7 +60,7 @@ func TestParseHassBridgeCapabilityOneLinerIcon(t *testing.T) {
 func TestParseHassBridgeCapabilityOneLinerAndBlockFormCoexist(t *testing.T) {
 	block := []string{
 		"device appliance.vacuum with:",
-		"  vacuum.core vacuum.roomba with:",
+		"  capability vacuum.core vacuum.roomba with:",
 		`    map: "home" "docked";`,
 		`    icon: "mdi:robot-vacuum";`,
 		"  end;",

@@ -670,10 +670,10 @@ func TestCollectHassBridgeDevicesByIDParsesCapabilityWithClause(t *testing.T) {
 
   integration home_assistant main with:
     device host.junglinster with:
-      binary_sensor.node sensor.processor_use is available with:
+      capability binary_sensor.node sensor.processor_use is available with:
         device_class: "connectivity";
       end;
-      sensor.cpu/load sensor.processor_use with:
+      capability sensor.cpu/load sensor.processor_use with:
         unit: "%";
         icon: "mdi:cpu-64-bit";
         state_class: "measurement";

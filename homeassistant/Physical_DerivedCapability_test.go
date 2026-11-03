@@ -82,7 +82,7 @@ func TestParseJinjaTemplateDefinitions(t *testing.T) {
 	content := `
 # comment line, ignored
 ${some_other_setting} = "value";
-jinja ${int_less_then}(i) = "'on' if (($ | int(0)) < ${i}) else 'off'";
+jinja ${int_less_than}(i) = "'on' if (($ | int(0)) < ${i}) else 'off'";
 jinja ${add_float_value}(a) = "($ | float(0)) + ${a}";
 jinja ${adjust_float_value}(a, s) = "(($ | float(0)) + ${a}) * ${s}";
 `
@@ -91,7 +91,7 @@ jinja ${adjust_float_value}(a, s) = "(($ | float(0)) + ${a}) * ${s}";
 		t.Fatalf("got %d definitions, want 3: %+v", len(defs), defs)
 	}
 	want := map[string]TJinjaTemplateDefinition{
-		"int_less_then":      {Params: []string{"i"}, Template: "'on' if (($ | int(0)) < ${i}) else 'off'"},
+		"int_less_than":      {Params: []string{"i"}, Template: "'on' if (($ | int(0)) < ${i}) else 'off'"},
 		"add_float_value":    {Params: []string{"a"}, Template: "($ | float(0)) + ${a}"},
 		"adjust_float_value": {Params: []string{"a", "s"}, Template: "(($ | float(0)) + ${a}) * ${s}"},
 	}
@@ -119,11 +119,11 @@ jinja ${adjust_float_value}(a, s) = "(($ | float(0)) + ${a}) * ${s}";
 // count, so a caller's own line-number bookkeeping stays valid).
 func TestResolveJinjaTemplateCallsInDerivedLines(t *testing.T) {
 	jinjaTemplates := map[string]TJinjaTemplateDefinition{
-		"int_less_then": {Params: []string{"i"}, Template: "'on' if (($ | int(0)) < ${i}) else 'off'"},
+		"int_less_than": {Params: []string{"i"}, Template: "'on' if (($ | int(0)) < ${i}) else 'off'"},
 	}
 	content := "identifiers \"zigbee2mqtt_0x00158d0003d4e964\";\n" +
 		"capability sensor.battery_level 0x00158d0003d4e964_battery_zigbee2mqtt;\n" +
-		"derived capability binary_sensor.battery_alert from sensor.battery_level via jinja ${int_less_then}(10);\n"
+		"derived capability binary_sensor.battery_alert from sensor.battery_level via jinja ${int_less_than}(10);\n"
 
 	got, warnings := resolveJinjaTemplateCallsInDerivedLines(content, jinjaTemplates)
 	if len(warnings) != 0 {
@@ -189,12 +189,12 @@ func TestCollectDiscoveryGatewaysByIDResolvesJinjaDerivedCapability(t *testing.T
     device discovery.hallway_aqara_windoor with:
       identifiers "zigbee2mqtt_0x00158d0003d4e964";
       capability sensor.battery_level 0x00158d0003d4e964_battery_zigbee2mqtt;
-      derived capability binary_sensor.battery_alert from sensor.battery_level via jinja ${int_less_then}(10);
+      derived capability binary_sensor.battery_alert from sensor.battery_level via jinja ${int_less_than}(10);
     end;
   end;
 end;
 `
-	settingsDef := `jinja ${int_less_then}(i) = "'on' if (($ | int(0)) < ${i}) else 'off'";`
+	settingsDef := `jinja ${int_less_than}(i) = "'on' if (($ | int(0)) < ${i}) else 'off'";`
 	if err := os.WriteFile(filepath.Join(definitionDir, "Physical.def"), []byte(physicalDef), 0o644); err != nil {
 		t.Fatalf("WriteFile Physical.def: %v", err)
 	}

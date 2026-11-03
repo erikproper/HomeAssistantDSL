@@ -1795,7 +1795,13 @@ Logical.def) as it writes them. The layout, uniform for all files:
   (`as`, `from`, `via`, `topic`, `with` -- never `with:`), each continuation 4 deeper, packed
   greedily; never after a `:` or `;` (that line would read as a statement of its own);
 - comment lines, blank lines and trailing comments stay as written; a `when`/`if` rule clause, a
-  `${...}` setting and a statement with a comment inside are never broken.
+  `${...}` setting and a statement with a comment inside are never broken;
+- a block holding a single statement is written in its one-line form (PROJECT.md 30, Erik: a
+  `: ...; end;` clause with one member should have been the one-liner), where the grammar has
+  one: `device <id> with entity ...;` (not when the entity has a `with` of its own),
+  `derived capability ... with condition ...;` / `with value ...;`, and `then <action>;`. Not
+  (yet) for a `for` default, a hosts device's metadata, `absorb from`, a space, a `device ... as
+  leaf` block or `else:`; a comment on any of the three lines keeps the block.
 
 The DSL already reads a broken statement as one (`joinWrappedStatementContinuations`), so
 formatting changes no meaning: both houses generate byte-identical output before and after, and a

@@ -13,7 +13,7 @@ import (
 func TestParseHassBridgeValueMapBothForms(t *testing.T) {
 	body := []string{
 		"device appliance.vacuum with:",
-		`  vacuum.roomba vacuum.roomba with:`,
+		`  capability vacuum.roomba vacuum.roomba with:`,
 		`    map: "home" "docked";`,
 		`    map: "run" "cleaning";`,
 		"  end;",

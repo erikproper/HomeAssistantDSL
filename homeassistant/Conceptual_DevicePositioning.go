@@ -115,17 +115,13 @@ func extractDeviceWithBlockHeader(line string) (*TDevicePositioningDeclaration, 
 	return &TDevicePositioningDeclaration{DeviceID: matches[1]}, true
 }
 
-// deviceAtLeafWithBlockHeaderPattern is "device <device-id> at <leaf> with:" (2026-10-15) -- a
-// NARROWLY new, separate mechanism from the "device <id> as <leaf> with:" grammar removed
-// outright 2026-10-11 (PROJECT.md item 10): that one implicitly folded its leaf into EVERY
-// entity line in the block with an explicit sphere-path, with no way to opt out line by line --
-// exactly the blanket behaviour the user had just finished removing. This one is opt-in per
-// line, via "::" (expandDeviceAtLeafDoubleColon, parser.go) -- a plain single ":" spec inside
-// such a block is completely untouched, only an explicit "::" folds in <leaf> -- e.g. a button's
-// own event, "entity event.physical:: from event.pressed;", is named after the button's leaf.
-//
-// Written "device <device-id> as leaf <leaf> with:" since 2026-10-26 (Erik: makes the distinction
-// from a space's "as area" explicit; was "at <leaf>").
+// deviceAtLeafWithBlockHeaderPattern is "device <device-id> as leaf <leaf> with:" (2026-10-15, as
+// "at <leaf>"; "as leaf" since 2026-10-26, Erik: makes the distinction from a space's "as area"
+// explicit). Every relative entity spec in the block is relative to <leaf>
+// (foldDeviceLeaf): "entity sensor.infrastructural:battery_level;" names the leaf's
+// battery_level. Until PROJECT.md 30 (2026-11-03) a line opted in with "::" instead; Erik: the
+// "::" shouldn't be needed, so it is now rejected, and a device whose entities don't all sit
+// under one leaf simply uses "device <id> with:".
 var deviceAtLeafWithBlockHeaderPattern = regexp.MustCompile(`^device\s+(\S+)\s+as\s+leaf\s+(\S+)\s+with:$`)
 
 // extractDeviceAtLeafWithBlockHeader recognises a "device <device-id> at <leaf> with:" block
@@ -139,22 +135,47 @@ func extractDeviceAtLeafWithBlockHeader(line string) (deviceID, leaf string, ok 
 	return matches[1], matches[2], true
 }
 
-// expandDeviceAtLeafDoubleColon folds atLeaf into line's FIRST "::" occurrence, leaving every
-// other colon (including a line with no "::" at all) completely untouched -- the opt-in
-// distinction deviceAtLeafWithBlockHeaderPattern's own doc comment describes. "X::Y" becomes
-// "X:<leaf>/Y"; "X::;" (nothing between "::" and the statement's own trailing punctuation)
-// becomes "X:<leaf>;", not "X:<leaf>/;" -- no stray trailing slash.
-func expandDeviceAtLeafDoubleColon(line, atLeaf string) string {
-	idx := strings.Index(line, "::")
-	if idx < 0 {
+// foldDeviceLeaf folds leaf into the relative spec of an "entity <spec> ...;" line
+// (deviceAtLeafWithBlockHeaderPattern's doc comment): "X:Y" becomes "X:<leaf>/Y", and "X:" (the
+// device's own entity) becomes "X:<leaf>". An absolute spec (no ":", or ":/") and any other line
+// stay as they are.
+func foldDeviceLeaf(line, leaf string) string {
+	rest, ok := strings.CutPrefix(line, "entity ")
+	if !ok {
 		return line
 	}
-	before := line[:idx+1] // up to and including the FIRST ':' of the pair
-	after := line[idx+2:]
-	if after == "" || after[0] == ';' || after[0] == ' ' {
-		return before + atLeaf + after
+	end := strings.IndexAny(rest, " ;")
+	if end < 0 {
+		end = len(rest)
 	}
-	return before + atLeaf + "/" + after
+	spec := rest[:end]
+	sphere, path, relative := strings.Cut(spec, ":")
+	if !relative || strings.HasPrefix(path, "/") {
+		return line
+	}
+	if path == "" {
+		path = leaf
+	} else {
+		path = leaf + "/" + path
+	}
+	return "entity " + sphere + ":" + path + rest[end:]
+}
+
+// withoutQuotedText returns s without its double-quoted strings (a jinja template, a name), so a
+// check on the grammar's own punctuation doesn't trip over their content.
+func withoutQuotedText(s string) string {
+	var out strings.Builder
+	inQuote := false
+	for i := 0; i < len(s); i++ {
+		if s[i] == '"' && (i == 0 || s[i-1] != '\\') {
+			inQuote = !inQuote
+			continue
+		}
+		if !inQuote {
+			out.WriteByte(s[i])
+		}
+	}
+	return out.String()
 }
 
 // deviceWithOneLinerPattern is "device <device-id> with <entity-statement>;" -- sugar for a

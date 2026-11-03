@@ -12,7 +12,7 @@ import "testing"
 func TestParseHassBridgeAttributeBothForms(t *testing.T) {
 	body := []string{
 		"device appliance.vacuum with:",
-		`  vacuum.roomba vacuum.roomba with:`,
+		`  capability vacuum.roomba vacuum.roomba with:`,
 		`    map: "home" "docked";`,
 		`    attribute error: vacuum.roomba!error;`,
 		"  end;",
@@ -52,7 +52,7 @@ func TestParseHassBridgeAttributeBothForms(t *testing.T) {
 func TestParseHassBridgeAttributeValueMapDisambiguatedFromStateMap(t *testing.T) {
 	body := []string{
 		"device appliance.vacuum with:",
-		`  vacuum.roomba vacuum.roomba with:`,
+		`  capability vacuum.roomba vacuum.roomba with:`,
 		`    map error: "Stuck near a cliff" "stuck_cliff";`,
 		`    map: "home" "docked";`,
 		`    attribute error: vacuum.roomba!error;`,

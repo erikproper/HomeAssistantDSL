@@ -65,13 +65,14 @@ const localAvailabilitySuffix = " is available"
 
 var localAvailabilitySiblingPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)$`)
 
-// localCapabilityWithPattern opens a "switch.<label> <media-player-entity> with: ... end;" block
-// (2026-09-27, the media_player->switch coercion relocated here from Logical.def -- see
+// localCapabilityWithPattern opens a "capability switch.<label> <media-player-entity> with: ...
+// end;" block (2026-09-27; the "capability" keyword required since PROJECT.md 30, 2026-11-03;
+// the media_player->switch coercion relocated here from Logical.def -- see
 // TLocalCapability's own doc comment) -- the ONLY local capability shape that ever needs a nested
 // block, for the optional "no_play_input" refinement. Checked before localCapabilityPattern, same
 // mutually-exclusive-by-trailing-token ordering every other integration kind's own
-// "<domain>.<label> <value> with:" pattern already uses.
-var localCapabilityWithPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s*with:\s*$`)
+// "capability <domain>.<label> <value> with:" pattern already uses.
+var localCapabilityWithPattern = regexp.MustCompile(`^capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s*with:\s*$`)
 
 // localNoPlayInputPattern mirrors Logical.def's own identically-named directive exactly (same
 // field, same grammar, just a new home) -- see TLocalCapability.NoPlayInput's own doc comment.

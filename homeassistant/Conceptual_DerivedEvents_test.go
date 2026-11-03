@@ -52,7 +52,7 @@ func requestDSL(buttons ...string) string {
 	dsl := "space social:wc as area with:\n  entity light.social:main;\n\n" +
 		"  device request.wc_light_toggle with:\n    entity event.social:main/light/toggle;\n  end;\n\n"
 	for _, button := range buttons {
-		dsl += "  device " + button + " as leaf " + bareCapabilityLabel(button) + " with:\n    entity event.physical:: from event.pressed;\n  end;\n\n"
+		dsl += "  device " + button + " as leaf " + bareCapabilityLabel(button) + " with:\n    entity event.physical: from event.pressed;\n  end;\n\n"
 	}
 	return dsl + "  rule social:main/light/toggle with:\n    when event.social:main/light/toggle is raised\n    then toggle light.social:main;\n  end;\nend;"
 }

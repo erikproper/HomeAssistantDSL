@@ -158,9 +158,9 @@ func TestParseConditionExprJinjaClauseMultipleSources(t *testing.T) {
 
 func TestParseConditionExprJinjaNamedTemplateCall(t *testing.T) {
 	jinjaTemplates := map[string]TJinjaTemplateDefinition{
-		"int_less_then": {Params: []string{"i"}, Template: "'on' if (($ | int(0)) < ${i}) else 'off'"},
+		"int_less_than": {Params: []string{"i"}, Template: "'on' if (($ | int(0)) < ${i}) else 'off'"},
 	}
-	tree, warnings := parseConditionExpr("jinja (sensor.battery_level) ${int_less_then}(10)", jinjaTemplates, "test")
+	tree, warnings := parseConditionExpr("jinja (sensor.battery_level) ${int_less_than}(10)", jinjaTemplates, "test")
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
@@ -178,9 +178,9 @@ func TestParseConditionExprJinjaNamedTemplateCallUndeclared(t *testing.T) {
 
 func TestParseConditionExprJinjaNamedTemplateCallWrongArgCount(t *testing.T) {
 	jinjaTemplates := map[string]TJinjaTemplateDefinition{
-		"int_less_then": {Params: []string{"i"}, Template: "'on' if (($ | int(0)) < ${i}) else 'off'"},
+		"int_less_than": {Params: []string{"i"}, Template: "'on' if (($ | int(0)) < ${i}) else 'off'"},
 	}
-	_, warnings := parseConditionExpr("jinja (sensor.x) ${int_less_then}(10, 20)", jinjaTemplates, "test")
+	_, warnings := parseConditionExpr("jinja (sensor.x) ${int_less_than}(10, 20)", jinjaTemplates, "test")
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "2 argument") {
 		t.Fatalf("warnings = %v, want exactly one warning naming the wrong argument count", warnings)
 	}

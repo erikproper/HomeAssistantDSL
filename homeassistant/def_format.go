@@ -14,6 +14,9 @@
  *   - comment lines, blank lines and trailing comments stay as written; a "when"/"if" rule clause,
  *     a "${...}" setting and a statement with a comment inside are never broken.
  *
+ * A block holding a single statement is written in its one-line form (foldSingleMemberBlocks,
+ * PROJECT.md 30), where the grammar has one.
+ *
  * Formatting is idempotent, and changes no meaning: the generated output is the same before and
  * after. The generator's own writers into the defs (frozen IDs, metadata, import identities)
  * read a file with its statements joined (readDefStatementLines) and write it back through this
@@ -21,7 +24,7 @@
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 28.10.2026
+ * Version of: 03.11.2026
  *
  */
 
@@ -47,29 +50,15 @@ var defBreakKeywords = map[string]bool{"as": true, "from": true, "via": true, "t
 
 // formatDefContent returns content in the uniform layout (this file's header comment).
 func formatDefContent(content string) string {
-	content = strings.ReplaceAll(content, "\r\n", "\n")
-	lines := strings.Split(content, "\n")
+	statements := foldSingleMemberBlocks(splitDefStatements(content))
 	var out []string
 	depth := 0
-	for i := 0; i < len(lines); i++ {
-		line := strings.ReplaceAll(strings.TrimRight(lines[i], " \t"), "\t", " ")
-		if isCommentOrBlankLine(line) {
-			out = append(out, line)
+	for _, statement := range statements {
+		if statement.code == "" {
+			out = append(out, statement.group[0])
 			continue
 		}
-		// One statement, possibly over several lines (the same rule the parser joins by).
-		group := []string{line}
-		joined := strings.TrimSpace(line)
-		for !lineIsCompleteStatement(joined) && i+1 < len(lines) {
-			next := strings.TrimRight(lines[i+1], " \t")
-			if isCommentOrBlankLine(next) {
-				break
-			}
-			i++
-			group = append(group, next)
-			joined += " " + strings.TrimSpace(next)
-		}
-		code, comment := splitTrailingComment(joined)
+		code, comment, group := statement.code, statement.comment, statement.group
 		if strings.HasPrefix(code, "end;") && depth > 0 {
 			depth--
 		}
@@ -93,6 +82,88 @@ func formatDefContent(content string) string {
 	}
 	return strings.Join(alignSettings(out), "\n")
 }
+
+// tDefStatement is one statement of a def file as written: its lines, and its code and trailing
+// comment joined onto one line. A comment or blank line is a statement with no code.
+type tDefStatement struct {
+	group         []string
+	code, comment string
+}
+
+// splitDefStatements splits content into its statements, a statement possibly written over several
+// lines (the same rule the parser joins by).
+func splitDefStatements(content string) []tDefStatement {
+	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	var statements []tDefStatement
+	for i := 0; i < len(lines); i++ {
+		line := strings.ReplaceAll(strings.TrimRight(lines[i], " \t"), "\t", " ")
+		if isCommentOrBlankLine(line) {
+			statements = append(statements, tDefStatement{group: []string{line}})
+			continue
+		}
+		group := []string{line}
+		joined := strings.TrimSpace(line)
+		for !lineIsCompleteStatement(joined) && i+1 < len(lines) {
+			next := strings.TrimRight(lines[i+1], " \t")
+			if isCommentOrBlankLine(next) {
+				break
+			}
+			i++
+			group = append(group, next)
+			joined += " " + strings.TrimSpace(next)
+		}
+		code, comment := splitTrailingComment(joined)
+		statements = append(statements, tDefStatement{group: group, code: code, comment: comment})
+	}
+	return statements
+}
+
+// foldSingleMemberBlocks writes a block holding a single statement as its one-line form (PROJECT.md
+// 30, Erik: "if a ': ...; end;' clause only has one member, then we should have used the version
+// without the ': ...; end;' option" -- the formatter enforces it). Only where that one-line form is
+// part of the grammar (foldedBlockHeader), and never when a comment sits on any of the three lines.
+func foldSingleMemberBlocks(statements []tDefStatement) []tDefStatement {
+	var folded []tDefStatement
+	for i := 0; i < len(statements); i++ {
+		if i+2 < len(statements) {
+			header, member, end := statements[i], statements[i+1], statements[i+2]
+			if header.comment == "" && member.comment == "" && end.comment == "" && end.code == "end;" &&
+				member.code != "" && !strings.HasSuffix(member.code, ":") && !hasInternalComment(member.group) {
+				if head, ok := foldedBlockHeader(header.code, member.code); ok {
+					code := head + " " + member.code
+					folded = append(folded, tDefStatement{group: []string{code}, code: code})
+					i += 2
+					continue
+				}
+			}
+		}
+		folded = append(folded, statements[i])
+	}
+	return folded
+}
+
+// foldedBlockHeader returns header without its ":" when "<header> <member>" is the one-line form of
+// that block in the grammar:
+//
+//   - "device <id> with entity ...;" (Conceptual.def; without a second "with", which needs the block),
+//   - "derived capability ... with condition ...;" and "... with value ...;" (Physical.def, Logical.def),
+//   - "then <action>;" (a rule).
+func foldedBlockHeader(header, member string) (string, bool) {
+	switch {
+	case defDeviceBlockHeaderPattern.MatchString(header):
+		return strings.TrimSuffix(header, ":"), strings.HasPrefix(member, "entity ") && !strings.Contains(withoutQuotedText(member), " with ")
+	case defDerivedBlockHeaderPattern.MatchString(header):
+		return strings.TrimSuffix(header, ":"), strings.HasPrefix(member, "condition ") || strings.HasPrefix(member, "value ")
+	case header == "then:":
+		return "then", true
+	}
+	return "", false
+}
+
+var (
+	defDeviceBlockHeaderPattern  = regexp.MustCompile(`^device\s+\S+\s+with:$`)
+	defDerivedBlockHeaderPattern = regexp.MustCompile(`^(?:hidden\s+)?derived\s+capability\s+\S+(?:\s+as\s+\S+)?\s+with:$`)
+)
 
 // defSettingLinePattern matches a setting line, "${<name>} = <value>;" (with its indentation).
 var defSettingLinePattern = regexp.MustCompile(`^(\s*)(\$\{[^}]+\})\s*=\s*(.*)$`)

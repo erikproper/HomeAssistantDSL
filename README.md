@@ -156,8 +156,10 @@ binary_sensor derived from values) only while all its sources have a value; a te
 space makes that space's own aggregates need every member. Entities that test availability
 themselves (nodes, battery alerts, "is available" conditions) get none.
 
-A device block header is `device <id> with:`, or `device <id> as leaf <leaf> with:` to name the
-entities written with `::` after that leaf (`entity event.physical:: from event.pressed;`). An area
+A device block header is `device <id> with:`, or `device <id> as leaf <leaf> with:`, in which
+every relative entity spec is relative to that leaf (`entity event.physical: from event.pressed;`
+names the leaf's own event, `entity sensor.infrastructural:battery_level;` its battery level).
+`::` is not part of the grammar. An area
 is declared on a space, never on a device (`space social:xc40 as area with:`); any other device
 header is reported as unrecognised.
 

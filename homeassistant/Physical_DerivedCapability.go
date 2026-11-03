@@ -83,7 +83,7 @@ func substituteDerivedTemplate(template, baseExpr string) string {
 
 // jinjaTemplateDefinitionPattern is Settings.def's "jinja ${name}(param1, param2, ...) =
 // "template";" declaration (2026-09-15) -- a small, named, parameterized alternative to writing
-// out a "derived ... via "...";" template's own text every time (e.g. "int_less_then"/
+// out a "derived ... via "...";" template's own text every time (e.g. "int_less_than"/
 // "add_float_value" in Shared/Settings.def, reused across many devices' own battery_alert/pressure
 // declarations). Deliberately NOT the full macro system (Macros.def/expander.go): no typed
 // parameters, no entity generation, just named string-template substitution -- "derived"'s own
@@ -236,9 +236,9 @@ var physicalDeviceHeaderPattern = regexp.MustCompile(`^\s*device\s+([A-Za-z_][A-
 var bridgedCapabilityAssignedIDPattern = regexp.MustCompile(`^(\s*(?:hidden\s+)?capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s+[^\s;]+)\s+as\s+([A-Za-z_][A-Za-z0-9_.]*)((?:\s+with\s.*)?;)\s*$`)
 
 // bridgedCapabilityBlockAssignedIDPattern is bridgedCapabilityAssignedIDPattern's block-header
-// counterpart -- "[capability] <domain>.<label> <source> as <id> with:" -- the ID sits before the
+// counterpart -- "capability <domain>.<label> <source> as <id> with:" -- the ID sits before the
 // header's "with:", as in Logical.def's block form. Group 1 is the header up to (excluding) the ID.
-var bridgedCapabilityBlockAssignedIDPattern = regexp.MustCompile(`^(\s*(?:capability\s+)?[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s+\S.*?)\s+as\s+([A-Za-z_][A-Za-z0-9_.]*)\s+with:\s*$`)
+var bridgedCapabilityBlockAssignedIDPattern = regexp.MustCompile(`^(\s*capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s+\S.*?)\s+as\s+([A-Za-z_][A-Za-z0-9_.]*)\s+with:\s*$`)
 
 // slowSpeedAssignedIDPattern matches a "slow speed <source> as <id>;" line inside a bridged
 // capability's "with:" block -- the frozen ID of its slow-speed shadow capability "slow/<label>"
@@ -246,9 +246,9 @@ var bridgedCapabilityBlockAssignedIDPattern = regexp.MustCompile(`^(\s*(?:capabi
 var slowSpeedAssignedIDPattern = regexp.MustCompile(`^(\s*slow\s+speed\s+\S+)\s+as\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;\s*$`)
 
 // bridgedCapabilityBlockHeaderPattern captures the label of any bridged capability block header
-// ("[capability] <domain>.<label> <source> [as <id>] with:") -- the capability a following
+// ("capability <domain>.<label> <source> [as <id>] with:") -- the capability a following
 // "slow speed ...;" line shadows.
-var bridgedCapabilityBlockHeaderPattern = regexp.MustCompile(`^\s*(?:capability\s+)?[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s+\S.*\swith:\s*$`)
+var bridgedCapabilityBlockHeaderPattern = regexp.MustCompile(`^\s*capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s+\S.*\swith:\s*$`)
 
 // physicalIntegrationHeaderPattern captures the integration kind of an "integration <kind> ..."
 // block header.

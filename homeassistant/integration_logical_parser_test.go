@@ -430,12 +430,12 @@ func TestSubstituteSettingsVariablesLeavesUnknownNameUnchanged(t *testing.T) {
 // exactly one entry).
 func TestParseLogicalLayerBodyDerivedConditionJinjaNamedTemplateCall(t *testing.T) {
 	jinjaTemplates := map[string]TJinjaTemplateDefinition{
-		"int_less_then": {Params: []string{"i"}, Template: "'on' if (($ | int(0)) < ${i}) else 'off'"},
+		"int_less_than": {Params: []string{"i"}, Template: "'on' if (($ | int(0)) < ${i}) else 'off'"},
 	}
 	devices, warnings := parseLogicalLayerBody([]string{
 		"device appliance.sonos_roam with:",
 		"  derived capability binary_sensor.battery_alert with:",
-		"    condition jinja (sensor.infrastructural_apartment_bedroom_sonos_battery_level) ${int_less_then}(10);",
+		"    condition jinja (sensor.infrastructural_apartment_bedroom_sonos_battery_level) ${int_less_than}(10);",
 		"  end;",
 		"end;",
 	}, jinjaTemplates)

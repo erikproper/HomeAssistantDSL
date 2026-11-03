@@ -60,7 +60,8 @@ func TestParseLogicalLayerBodyFrozenIDs(t *testing.T) {
 }
 
 // TestWriteFrozenUniqueIDs: the ID lands right after a derived capability's name (also when the
-// statement spans lines, or is a "with:" block header), and only within the right device.
+// statement spans lines, or is a "with:" block header -- which, holding only its condition, is
+// written back in its one-line form, PROJECT.md 30), and only within the right device.
 func TestWriteFrozenUniqueIDs(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "Logical.def")
@@ -95,9 +96,7 @@ func TestWriteFrozenUniqueIDs(t *testing.T) {
 		"  device appliance.tv with:\n" +
 		"    derived capability binary_sensor.node as binary_sensor.infra_tv_node with condition physical appliance.tv and\n" +
 		"      node.tv;\n" +
-		"    derived capability binary_sensor.windy as binary_sensor.social_windy with:\n" +
-		"      condition node.tv;\n" +
-		"    end;\n" +
+		"    derived capability binary_sensor.windy as binary_sensor.social_windy with condition node.tv;\n" +
 		"  end;\n" +
 		"end;"
 	if defStatements(string(got)) != defStatements(want) {
@@ -141,7 +140,7 @@ func TestUniqueIDForSharedSourceKey(t *testing.T) {
 func TestBridgedFrozenIDsInBlockHeader(t *testing.T) {
 	content := "integration home_assistant ha2mqtt with:\n" +
 		"  device appliance.vacuum with:\n" +
-		"    vacuum.core vacuum.roomba as hassbridge_vacuum_x with:\n" +
+		"    capability vacuum.core vacuum.roomba as hassbridge_vacuum_x with:\n" +
 		"      icon: \"mdi:robot-vacuum\";\n" +
 		"    end;\n" +
 		"    capability sensor.battery_level sensor.roomba_battery as hassbridge_sensor_y with icon: \"mdi:battery\";\n" +

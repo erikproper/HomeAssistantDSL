@@ -7,14 +7,14 @@
  * PROJECT.md item 7 / plans/derived-capability-mechanism.md's Rule 3: a device declaring "power"
  * must also declare "consumes" (atomic or derived) -- one-directional, unlike Rule 2's
  * battery_level/battery_alert biconditional: "consumes" is inherently a threshold read off "power"
- * (see Settings.def's "${int_more_then}(i)" jinja macro, the migration-default threshold), but the
+ * (see Settings.def's "${int_more_than}(i)" jinja macro, the migration-default threshold), but the
  * reverse isn't asserted here -- a device could plausibly have a "consumes"-shaped capability
  * computed some other way without this generator needing to know about it.
  *
  * Introduced 2026-09-17 alongside the dishwasher's own migration off a hand-written, standalone
  * Conceptual.def "condition" entity (Macros.def's old "power_switch" macro's own "consumes"
  * binary_sensor) onto a real Physical.def "derived binary_sensor.consumes from sensor.power via
- * jinja ${int_more_then}(1);" capability -- this rule exists so the NEXT power-capable device
+ * jinja ${int_more_than}(1);" capability -- this rule exists so the NEXT power-capable device
  * migrated doesn't silently forget to bring "consumes" along too.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai

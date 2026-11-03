@@ -124,11 +124,9 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 	// colocated Logical.def target or a sibling-derived "node" leaf.
 	forDeviceNamePath := ""
 
-	// forDeviceAtLeaf is "" unless the current device block was opened via the NEW (2026-10-15)
-	// "device <id> at <leaf> with:" header -- deliberately SEPARATE from forDeviceNamePath above
-	// (not reusing namingSpacePath's own blanket fold, which applies to every explicit-sphere-path
-	// line unconditionally): this leaf only ever folds into a line that opts in via "::"
-	// (expandDeviceAtLeafDoubleColon, below).
+	// forDeviceAtLeaf is "" unless the current device block was opened via a "device <id> as leaf
+	// <leaf> with:" header -- deliberately SEPARATE from forDeviceNamePath above: this leaf folds
+	// into every relative entity spec of that block (foldDeviceLeaf, below).
 	forDeviceAtLeaf := ""
 
 	// currentRule is nil outside a "rule <spec> with: ...; end;" body -- a flat state flag, same
@@ -149,6 +147,11 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 	for i := 0; i < len(entityLines); i++ {
 		trimmed := strings.TrimSpace(entityLines[i])
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		// "::" is no longer part of the grammar (PROJECT.md 30, foldDeviceLeaf's doc comment).
+		if strings.Contains(withoutQuotedText(trimmed), "::") {
+			fmt.Fprintf(os.Stderr, "[WARNING] %s line %d: %q: \"::\" is not part of the grammar -- inside \"device <id> as leaf <leaf> with:\" a relative spec (\"<sphere>:<path>\") is already relative to the leaf; ignored\n", entitiesPath, sourceLine(i), trimmed)
 			continue
 		}
 
@@ -244,7 +247,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 				continue
 			}
 			if forDeviceAtLeaf != "" {
-				trimmed = expandDeviceAtLeafDoubleColon(trimmed, forDeviceAtLeaf)
+				trimmed = foldDeviceLeaf(trimmed, forDeviceAtLeaf)
 			}
 			expanded, ok := expandForDeviceShorthandLine(trimmed, forDeviceID)
 			if !ok {

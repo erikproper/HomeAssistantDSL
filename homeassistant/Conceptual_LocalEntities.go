@@ -26,7 +26,7 @@
  *     fixed 2026-09-24 in registerDiscoveryAvailabilityEntityLink/registerDiscoveryDerivedEntityLink
  *     for the exact same omission -- see Conceptual_DiscoveryEntities.go's own header comment).
  *   - A "derived" capability ("derived binary_sensor.battery_alert from sensor.battery_level via
- *     jinja ${int_less_then}(20);", TLocalCapability.DerivedFromCapability/DerivedViaTemplate,
+ *     jinja ${int_less_than}(20);", TLocalCapability.DerivedFromCapability/DerivedViaTemplate,
  *     2026-09-30) is the SAME mechanics as "is available" just above -- a condition over a sibling's
  *     own AttributeEntityIDs-resolved entity_id -- generalised from the fixed "is available" check
  *     to an arbitrary author-supplied template, mirroring registerDiscoveryDerivedEntityLink exactly

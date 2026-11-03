@@ -123,7 +123,7 @@ end;`, "\n"))
 // \"...\"; end;" block form (needed for the Sonos playbar's own relocation).
 func TestParseLocalIntegrationBodyMediaSwitchWithNoPlayInput(t *testing.T) {
 	devices, warnings := parseLocalIntegrationBody(strings.Split(`device appliance.sonos_playbar_livingroom with:
-  switch.media media_player.social_house_living_room_sonos with:
+  capability switch.media media_player.social_house_living_room_sonos with:
     no_play_input "TV";
   end;
 end;`, "\n"))
@@ -141,7 +141,7 @@ end;`, "\n"))
 // media_player->switch coercion's own no_play_input refinement.
 func TestParseLocalIntegrationBodyMediaSwitchWithBlockRejectsNonSwitchDomain(t *testing.T) {
 	_, warnings := parseLocalIntegrationBody(strings.Split(`device appliance.tv_living_room with:
-  camera.core media_player.foo with:
+  capability camera.core media_player.foo with:
     no_play_input "TV";
   end;
 end;`, "\n"))
@@ -286,12 +286,12 @@ func TestCollectLocalDevicesByIDResolvesJinjaDerivedCapability(t *testing.T) {
     device appliance.front_door_ring with:
       capability camera.core;
       capability sensor.battery_level;
-      derived capability binary_sensor.battery_alert from sensor.battery_level via jinja ${int_less_then}(20);
+      derived capability binary_sensor.battery_alert from sensor.battery_level via jinja ${int_less_than}(20);
     end;
   end;
 end;
 `
-	settingsDef := `jinja ${int_less_then}(i) = "'on' if (($ | int(0)) < ${i}) else 'off'";`
+	settingsDef := `jinja ${int_less_than}(i) = "'on' if (($ | int(0)) < ${i}) else 'off'";`
 	if err := os.WriteFile(filepath.Join(definitionDir, "Physical.def"), []byte(physicalDef), 0o644); err != nil {
 		t.Fatalf("WriteFile Physical.def: %v", err)
 	}

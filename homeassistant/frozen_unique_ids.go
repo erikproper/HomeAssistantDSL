@@ -218,7 +218,7 @@ func writeFrozenUniqueIDs(path string, assignments map[string]string) []string {
 			statement = regexp.MustCompile(`^\s*capability\s+[A-Za-z_][A-Za-z0-9_]*\.` + regexp.QuoteMeta(label) + `\s*;`)
 		}
 		if isBridged {
-			statement = regexp.MustCompile(`^\s*(?:hidden\s+)?(?:derived\s+)?(?:capability\s+)?[A-Za-z_][A-Za-z0-9_]*\.` + regexp.QuoteMeta(label) + `\s`)
+			statement = regexp.MustCompile(`^\s*(?:hidden\s+)?(?:derived\s+)?capability\s+[A-Za-z_][A-Za-z0-9_]*\.` + regexp.QuoteMeta(label) + `\s`)
 		}
 		if isCommandline {
 			statement = regexp.MustCompile(`^\s*capability\s+(?:switch|sensor|button)\.` + regexp.QuoteMeta(label) + `\s`)

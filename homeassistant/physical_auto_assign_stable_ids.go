@@ -155,7 +155,8 @@ func autoAssignDiscoveryStableIDs(definitionDir string, discoveryGatewaysByID ma
 // right after the leaf) -- an already-assigned capability's line simply won't match, which is
 // exactly the behaviour wanted (never assign twice).
 //
-// The "capability" keyword (PROJECT.md item 11b) is allowed in front; an "integration mqtt"
+// The "capability" keyword (PROJECT.md item 11b, required since PROJECT.md 30) follows the optional
+// "hidden"/"inverted" qualifiers, as the discovery parser reads them; an "integration mqtt"
 // capability (raw, PROJECT.md 39) is matched by its topic form instead of a leaf.
 func discoveryCapabilityLinePattern(domain, label, sourceDomain, leaf, rawTopic string) *regexp.Regexp {
 	source := regexp.QuoteMeta(leaf)
@@ -168,7 +169,7 @@ func discoveryCapabilityLinePattern(domain, label, sourceDomain, leaf, rawTopic 
 	if rawTopic != "" {
 		source = `topic\s+"` + regexp.QuoteMeta(rawTopic) + `"\s+on\s+"[^"]*"`
 	}
-	return regexp.MustCompile(`^\s*(?:capability\s+)?(?:hidden\s+|inverted\s+){0,2}` + regexp.QuoteMeta(domain) + `\.` + regexp.QuoteMeta(label) + `\s+` + source + `\s*;\s*$`)
+	return regexp.MustCompile(`^\s*(?:hidden\s+|inverted\s+){0,2}capability\s+` + regexp.QuoteMeta(domain) + `\.` + regexp.QuoteMeta(label) + `\s+` + source + `\s*;\s*$`)
 }
 
 // rewritePhysicalDefWithAssignedIDs locates each assignment's own capability line in the real,
