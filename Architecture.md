@@ -1961,6 +1961,7 @@ The main HA instance can simultaneously act as an integration too (again, chiefl
 
 - Coordinator and generator are likely a **split codebase** (different runtime characteristics: coordinator is a long-running process reacting to MQTT; generator is a batch process).
 - The generator **evolves from the existing one** rather than a ground-up rewrite — see the incremental migration plan in `PROJECT.md`.
+- Once a platform has moved through its incremental integration steps, the superseded generator logic for it is **retired outright**, not carried alongside the new path (PROJECT.md 31, done 2026-11-04: dead constructs, unreachable functions and the legacy topic shapes removed).
 - The generator should have **integration-specific source code per integration**: parsing that integration's source specification, storing the resulting data, and generating that integration's specific output. A bridge to another MQTT broker is itself just a special (bidirectional) kind of integration, not a separate mechanism.
 - **Introduce an explicit intermediate semantic model** inside the generator now, before it's strictly necessary, because it will inevitably be needed. Today the generator is roughly:
 
