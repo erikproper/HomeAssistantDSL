@@ -10,7 +10,8 @@
  * configuration how, which hosts get the cpu report script -- and "homeassistant -deploy" (step 2)
  * carries it out. The defs say:
  *
- *   home_assistant main: vienna via ssh hassio@vienna.homelinux.org:1967;   an HA OS instance
+ *   home_assistant main: vienna via ssh hassio@vienna.homelinux.org:1967
+ *     at https://home-vienna.erikproper.eu;         an HA OS instance, and its API's URL
  *   home_assistant ha2mqtt: protocols-server-1;     a container, on the hosts device of that name
  *   coordinator on protocols-server-1;              where the coordinator runs (the hub)
  *   deploy via ssh erikp@vienna.homelinux.org:1970; on a hosts device: how a Mac reaches it
@@ -27,7 +28,7 @@
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 03.11.2026
+ * Version of: 04.11.2026
  *
  */
 

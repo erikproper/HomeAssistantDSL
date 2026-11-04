@@ -27,12 +27,12 @@
  * command fails its step: the step's instance is then neither reloaded nor restarted, and the
  * deploy goes on with the next step, as before. The broker password is never printed.
  *
- * The registry repair and the reload check talk to HA's websocket and REST API through an SSH
- * tunnel (home_assistant_registry.go).
+ * The registry repair and the reload check talk to HA's websocket and REST API at the instance's
+ * own URL, "at <url>" in its declaration (home_assistant_registry.go).
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 03.11.2026
+ * Version of: 04.11.2026
  *
  */
 

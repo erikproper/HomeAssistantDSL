@@ -362,8 +362,10 @@ func clauseSegments(code string) []string {
 	words := splitOutsideQuotes(code)
 	var segments []string
 	current := ""
-	for _, word := range words {
-		if current != "" && defBreakKeywords[word] {
+	for i, word := range words {
+		// "at <url>": an instance's API (home_assistant_deploy.go) -- not "at most every".
+		urlClause := word == "at" && i+1 < len(words) && strings.HasPrefix(words[i+1], "http")
+		if current != "" && (defBreakKeywords[word] || urlClause) {
 			segments = append(segments, current)
 			current = word
 			continue

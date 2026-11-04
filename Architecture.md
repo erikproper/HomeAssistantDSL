@@ -563,9 +563,8 @@ belongs to its integration. Nothing else edits the registry: no ad-hoc
 or hand-made changes; any other registry change is an explicit, one-off migration.
 
 The repair runs on the deploying Mac (`home_assistant_registry.go`, since PROJECT.md 30,
-2026-11-03; until then `tools/ha_registry_sync.py`, piped into the HA add-on): through an SSH
-tunnel over the instance's own endpoint to its core (`homeassistant:8123`), logged in with the
-instance's long-lived access token `${<instance>_ha_token}` (the house's Settings.def). The
+2026-11-03; until then `tools/ha_registry_sync.py`, piped into the HA add-on): at the instance's
+own URL, `at <url>` in its declaration, logged in with the instance's long-lived access token `${<instance>_ha_token}` (the house's Settings.def). The
 previous manifest stays on the instance, `/config/.generator_registry_manifest.json`. With
 `-deploy -n` it reads the registry and reports what it would do, changing nothing.
 
@@ -1866,7 +1865,8 @@ paths written in (`homeassistant/deploy_plan.go`). Physical.def says how each ma
 and where the coordinator runs:
 
 ```
-home_assistant main: vienna via ssh hassio@vienna.homelinux.org:1967;   # HA OS with the SSH add-on
+home_assistant main: vienna via ssh hassio@vienna.homelinux.org:1967
+  at https://home-vienna.erikproper.eu;                                 # HA OS with the SSH add-on; its API
 home_assistant ha2mqtt: protocols-server-1;                             # a container on that host
 coordinator on protocols-server-1;                                      # the hub
 
@@ -1906,8 +1906,10 @@ errors. A failed command fails its step, whose instance is then neither reloaded
 parts named, comma-separated, like sourcing one deploy.d/ step used to: `coordinator`, an
 instance (`main`, `ha2mqtt`, ...; `home_assistant` for all), `hosts`, `containers`,
 `commandline` -- the reload check runs when `main` is among them. The registry repair and the
-reload check talk to HA's websocket and REST API through an SSH tunnel (`home_assistant_registry.go`),
-the access token from the defs; the deploy has no Python left.
+reload check talk to HA's websocket and REST API at the instance's URL (`home_assistant_registry.go`),
+the access token from the defs; the deploy has no Python left. (At first through an SSH tunnel
+over the add-on, 2026-11-03; Junglinster's add-on doesn't allow port forwarding, and the public URL
+needs no tunnel at all.)
 
 ## 7. Home Assistant's two roles
 

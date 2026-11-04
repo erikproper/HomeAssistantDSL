@@ -34,7 +34,8 @@ Debug reports can be collected by passing `--debug` before the `.def` path.
 How each machine is reached, and where the coordinator runs, is declared in `Physical.def`:
 
 ```
-home_assistant main: vienna via ssh hassio@vienna.homelinux.org:1967;  # HA OS with the SSH add-on
+home_assistant main: vienna via ssh hassio@vienna.homelinux.org:1967
+  at https://home-vienna.erikproper.eu;         # HA OS with the SSH add-on; its API's URL
 home_assistant ha2mqtt: protocols-server-1;     # a container, on the hosts device of that name
 coordinator on protocols-server-1;              # the hub: coordinator, ping, cpu script distribution
 

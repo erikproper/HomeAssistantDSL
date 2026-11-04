@@ -6,9 +6,10 @@
  *
  * PROJECT.md 30 (2026-11-03): the deploy's registry repair and reload check, in Go -- until now
  * tools/ha_registry_sync.py and tools/ha_reload_errors.py, piped over SSH into the HA add-on. The
- * deploy talks to Home Assistant's websocket and REST API itself, through an SSH tunnel over the
- * instance's own endpoint ("home_assistant main: vienna via ssh ...;") to its core
- * (homeassistant:8123 inside HA OS), with a long-lived access token from the defs,
+ * deploy talks to Home Assistant's websocket and REST API itself, at the instance's own URL
+ * ("home_assistant main: vienna via ssh ... at https://home-vienna.erikproper.eu;"; 2026-11-04:
+ * no longer an SSH tunnel through the add-on, which Junglinster's doesn't allow), with a
+ * long-lived access token from the defs,
  * ${<instance>_ha_token} (e.g. ${main_ha_token} in the house's Settings.def) -- never written into
  * deploy.yaml.
  *
@@ -38,7 +39,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -51,9 +51,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// haCoreAddress is Home Assistant's core as an HA OS add-on sees it.
-const haCoreAddress = "homeassistant:8123"
-
 // registryStatePath is where an instance keeps the manifest of its previous deploy.
 const registryStatePath = "/config/.generator_registry_manifest.json"
 
@@ -64,42 +61,24 @@ var registryYAMLPlatforms = map[string]bool{"template": true, "group": true, "co
 // registryMQTTKinds are the manifest's lists of MQTT entities.
 var registryMQTTKinds = []string{"mqtt", "imported", "hassbridge", "pending_removal"}
 
-// tHAConnection is a connection to one instance's API, through an SSH tunnel.
+// tHAConnection is a connection to one instance's API, at its own URL.
 type tHAConnection struct {
-	tunnel *exec.Cmd
-	base   string // "http://127.0.0.1:<port>"
+	base   string // the instance's URL, "https://<host>"
 	token  string
 	ws     *websocket.Conn
 	nextID int
 }
 
-// connectHomeAssistant opens a tunnel over sshArgs to the instance's core and logs in to its
-// websocket with token.
-func connectHomeAssistant(sshArgs []string, token string) (*tHAConnection, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+// connectHomeAssistant logs in to the websocket of the instance at url ("at <url>" in its
+// declaration) with token.
+func connectHomeAssistant(url, token string) (*tHAConnection, error) {
+	base := strings.TrimSuffix(url, "/")
+	c := &tHAConnection{base: base, token: token, nextID: 1}
+	ws, _, err := websocket.DefaultDialer.Dial(strings.Replace(base, "http", "ws", 1)+"/api/websocket", nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("no websocket at %s: %v", base, err)
 	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
-	tunnel := exec.Command("ssh", append([]string{"-N", "-o", "ExitOnForwardFailure=yes", "-L", fmt.Sprintf("127.0.0.1:%d:%s", port, haCoreAddress)}, sshArgs...)...)
-	tunnel.Stderr = os.Stderr
-	if err := tunnel.Start(); err != nil {
-		return nil, err
-	}
-	c := &tHAConnection{tunnel: tunnel, base: fmt.Sprintf("http://127.0.0.1:%d", port), token: token, nextID: 1}
-	for attempt := 0; ; attempt++ {
-		ws, _, dialErr := websocket.DefaultDialer.Dial(fmt.Sprintf("ws://127.0.0.1:%d/api/websocket", port), nil)
-		if dialErr == nil {
-			c.ws = ws
-			break
-		}
-		if attempt == 40 {
-			c.Close()
-			return nil, fmt.Errorf("no websocket through the tunnel: %v", dialErr)
-		}
-		time.Sleep(250 * time.Millisecond)
-	}
+	c.ws = ws
 	var greeting map[string]any
 	if err := c.ws.ReadJSON(&greeting); err != nil || greeting["type"] != "auth_required" {
 		c.Close()
@@ -117,14 +96,10 @@ func connectHomeAssistant(sshArgs []string, token string) (*tHAConnection, error
 	return c, nil
 }
 
-// Close ends the websocket and the tunnel.
+// Close ends the websocket.
 func (c *tHAConnection) Close() {
 	if c.ws != nil {
 		c.ws.Close()
-	}
-	if c.tunnel.Process != nil {
-		c.tunnel.Process.Kill()
-		c.tunnel.Wait()
 	}
 }
 
@@ -538,10 +513,10 @@ func replyError(reply map[string]any, err error) any {
 // it reads the registry and reports what it would do -- nothing changed, nothing saved.
 func (d *tDeployer) repairRegistry(instance TDeployInstance) {
 	manifestPath := filepath.Join(d.houseDir, instance.Files, "registry_manifest.json")
-	fmt.Printf("+ registry repair: %s against %s's registry (websocket, through an SSH tunnel)\n", manifestPath[len(d.houseDir)+1:], instance.Name)
+	fmt.Printf("+ registry repair: %s against %s's registry (websocket, %s)\n", manifestPath[len(d.houseDir)+1:], instance.Name, instance.URL)
 	token := d.instanceToken(instance)
-	if token == "" {
-		fmt.Printf("  WARNING: no ${%s_ha_token} in the defs -- registry repair skipped\n", instance.Name)
+	if token == "" || instance.URL == "" {
+		fmt.Printf("  WARNING: no ${%s_ha_token} in the defs, or no \"at <url>\" on home_assistant %s -- registry repair skipped\n", instance.Name, instance.Name)
 		return
 	}
 	data, err := os.ReadFile(manifestPath)
@@ -559,7 +534,7 @@ func (d *tDeployer) repairRegistry(instance TDeployInstance) {
 		json.Unmarshal(state, &previous)
 	}
 
-	ha, err := connectHomeAssistant(d.ssh(instance.Machine), token)
+	ha, err := connectHomeAssistant(instance.URL, token)
 	if err != nil {
 		fmt.Printf("  ERROR: %v\n", err)
 		d.stepFailed = true

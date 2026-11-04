@@ -13,7 +13,7 @@
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 03.11.2026
+ * Version of: 04.11.2026
  *
  */
 
@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -32,19 +33,26 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// cutInstanceSSH splits a "home_assistant <qualifier>: <name> [via ssh <endpoint>];" declaration's
-// fields into the name and its SSH endpoint (nil without one); ok is false for any other shape.
-func cutInstanceSSH(fields []string) (name string, ssh *TSSHEndpoint, ok bool) {
+// cutInstanceEndpoints splits a "home_assistant <qualifier>: <name> [via ssh <endpoint>] [at
+// <url>];" declaration's fields into the name, its SSH endpoint (nil without one) and the URL of
+// its API ("" without one: the registry repair and the reload check need it); ok is false for any
+// other shape.
+func cutInstanceEndpoints(fields []string) (name string, ssh *TSSHEndpoint, url string, ok bool) {
+	if n := len(fields); n >= 3 && fields[n-2] == "at" && instanceURLPattern.MatchString(fields[n-1]) {
+		url, fields = fields[n-1], fields[:n-2]
+	}
 	switch {
 	case len(fields) == 1:
-		return fields[0], nil, true
+		return fields[0], nil, url, true
 	case len(fields) == 4 && fields[1] == "via" && fields[2] == "ssh":
 		if endpoint, valid := parseSSHEndpoint(fields[3]); valid {
-			return fields[0], &endpoint, true
+			return fields[0], &endpoint, url, true
 		}
 	}
-	return "", nil, false
+	return "", nil, "", false
 }
+
+var instanceURLPattern = regexp.MustCompile(`^https?://[^\s/]+/?$`)
 
 // TDeployInstance is one Home Assistant instance's configuration push.
 type TDeployInstance struct {
@@ -53,6 +61,7 @@ type TDeployInstance struct {
 	Kind    string `yaml:"kind"` // "ha_os" or "container"
 	Files   string `yaml:"files"`
 	Config  string `yaml:"config"`
+	URL     string `yaml:"url,omitempty"` // its API, for the registry repair and the reload check
 }
 
 // defaultContainerHAConfig is a container instance's configuration folder, ${container_ha_config}
@@ -76,7 +85,7 @@ func (p *tDeployPlanner) planInstancesDeploy(instances map[string]THomeAssistant
 	for _, qualifier := range qualifiers {
 		instance := instances[qualifier]
 		name := resolveDefinitionReference(instance.Name, p.settings)
-		deploy := TDeployInstance{Name: qualifier, Machine: name, Files: "hass/" + name}
+		deploy := TDeployInstance{Name: qualifier, Machine: name, Files: "hass/" + name, URL: instance.URL}
 		if instance.SSH != nil {
 			p.plan.Machines[name] = *instance.SSH
 			deploy.Kind, deploy.Config = "ha_os", "/config"
@@ -238,17 +247,17 @@ func (d *tDeployer) checkReload(meta string, at int64) {
 	probe := strings.TrimSuffix(filepath.Base(probes[0]), ".yaml")
 	// The first 15 s let the reload start; then until the reload automation is idle again (a reload
 	// takes ~45 s) and an entity of the YAML mqtt config is there (home_assistant_registry.go).
-	fmt.Printf("+ sleep 15, then wait for %s's reload (automation.coordinator_meta_reload idle, %s there) and read its errors since then (websocket, through an SSH tunnel)\n", main.Name, probe)
+	fmt.Printf("+ sleep 15, then wait for %s's reload (automation.coordinator_meta_reload idle, %s there) and read its errors since then (websocket, %s)\n", main.Name, probe, main.URL)
 	if d.dryRun {
 		return
 	}
 	time.Sleep(15 * time.Second)
 	token := d.instanceToken(*main)
-	if token == "" {
-		fmt.Printf("  WARNING: no ${%s_ha_token} in the defs -- reload errors not checked\n", main.Name)
+	if token == "" || main.URL == "" {
+		fmt.Printf("  WARNING: no ${%s_ha_token} in the defs, or no \"at <url>\" on home_assistant %s -- reload errors not checked\n", main.Name, main.Name)
 		return
 	}
-	ha, err := connectHomeAssistant(d.ssh(main.Machine), token)
+	ha, err := connectHomeAssistant(main.URL, token)
 	if err != nil {
 		fmt.Printf("  WARNING: the reload check failed: %v\n", err)
 		return

@@ -91,3 +91,18 @@ func TestRunDeployOnly(t *testing.T) {
 		t.Errorf("-only nonsense was accepted")
 	}
 }
+
+// TestCutInstanceEndpoints: an instance's name, its "via ssh" endpoint and its "at <url>", each
+// optional but the name; anything else is refused.
+func TestCutInstanceEndpoints(t *testing.T) {
+	name, ssh, url, ok := cutInstanceEndpoints(strings.Fields("vienna via ssh hassio@h.example:1967 at https://home.example"))
+	if !ok || name != "vienna" || ssh == nil || ssh.Port != 1967 || url != "https://home.example" {
+		t.Errorf("got %q %v %q %v", name, ssh, url, ok)
+	}
+	if name, ssh, url, ok := cutInstanceEndpoints([]string{"ps1"}); !ok || name != "ps1" || ssh != nil || url != "" {
+		t.Errorf("got %q %v %q %v", name, ssh, url, ok)
+	}
+	if _, _, _, ok := cutInstanceEndpoints(strings.Fields("vienna at home.example")); ok {
+		t.Error("a URL without its scheme accepted")
+	}
+}
