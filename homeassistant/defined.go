@@ -532,15 +532,6 @@ func resolveDefinitionReference(expression string, vars map[string]string) strin
 	return ""
 }
 
-func firstNonEmptyEnv(names ...string) string {
-	for _, name := range names {
-		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
 func toHomeAssistantEntityID(fullName string) string {
 	trimmed := strings.TrimSpace(fullName)
 	if trimmed == "" {

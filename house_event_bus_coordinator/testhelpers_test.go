@@ -40,6 +40,34 @@ func buildRelayedDiscoveryConfig(entityID, gatewayID string, rawPayload map[stri
 	return discoveryTopic(prefix, entityID[:strings.Index(entityID, ".")], body["unique_id"].(string)), body, true
 }
 
+// hassBridgeUniqueID and hassBridgeDiscoveryTopic are a bridge entity's unique_id and discovery
+// topic, as the coordinator once published them -- now hamqtt.BridgeUniqueID in the generator's YAML.
+func hassBridgeUniqueID(localEntity, stableID string) string {
+	return hamqtt.BridgeUniqueID(localEntity, stableID)
+}
+
+func hassBridgeDiscoveryTopic(localEntity, stableID, prefix string) (topic string, ok bool) {
+	domain, _, found := strings.Cut(localEntity, ".")
+	if !found {
+		return "", false
+	}
+	return discoveryTopic(prefix, domain, hassBridgeUniqueID(localEntity, stableID)), true
+}
+
+// drainDiscoveryRelayQueue processes every job currently sitting in jobs, synchronously, without
+// waiting on discoveryRelayThrottle's own pacing -- what the real background worker eventually
+// does, just deterministically and immediately.
+func drainDiscoveryRelayQueue(jobs chan TDiscoveryRelayJob, publisher *TDiscoveryPublisher) {
+	for {
+		select {
+		case job := <-jobs:
+			processDiscoveryRelayJob(job, publisher)
+		default:
+			return
+		}
+	}
+}
+
 // localBridgeConfigs is, for each "<instance>|<local entity>" message, the discovery config the
 // coordinator once published to Home Assistant for a bridge entity -- its device block (store and
 // via_device), the source entity's live typing and the shared builder: exactly what the generator's
@@ -120,4 +148,24 @@ func importedAvailabilityTopics(importFile TImportedFile, match importCapability
 		topics = append(topics, importedStateTopic(node.LocalEntity))
 	}
 	return append(topics, device.DependsOnAvailability...)
+}
+
+// smartyDevice is a hosts device with a conceptual link, shared by several tests.
+func smartyDevice() TDevice {
+	return TDevice{
+		Host:        "smarty",
+		Integration: "cpu",
+		Topic:       "hosts/smarty/cpu/state",
+		NodeTopic:   "hosts/smarty/node/state",
+		Conceptual: &TDeviceConceptual{
+			NodeEntity:         "binary_sensor.infrastructural_smarty_node",
+			NodeDeviceClass:    "connectivity",
+			DisplayName:        "infrastructural/garage/smarty",
+			ConstantAttributes: map[string]TConceptualConstant{"model": {Value: "Compute host"}},
+			AttributeEntities: map[string]TConceptualAttribute{
+				"load":        {Entity: "sensor.infrastructural_smarty_cpu_load", StateClass: "measurement"},
+				"temperature": {Entity: "sensor.infrastructural_smarty_cpu_temperature", DeviceClass: "temperature", Unit: "°C", StateClass: "measurement"},
+			},
+		},
+	}
 }

@@ -123,17 +123,3 @@ func enqueueDiscoveryRelayJob(jobs chan<- TDiscoveryRelayJob, job TDiscoveryRela
 		fmt.Printf("[discovery-bridge] relay queue full, dropping %s %s\n", job.Action, job.Topic)
 	}
 }
-
-// drainDiscoveryRelayQueue processes every job currently sitting in jobs, synchronously, without
-// waiting on discoveryRelayThrottle's own pacing -- test-only helper, mirroring what the real
-// background worker eventually does, just deterministically and immediately.
-func drainDiscoveryRelayQueue(jobs chan TDiscoveryRelayJob, publisher *TDiscoveryPublisher) {
-	for {
-		select {
-		case job := <-jobs:
-			processDiscoveryRelayJob(job, publisher)
-		default:
-			return
-		}
-	}
-}

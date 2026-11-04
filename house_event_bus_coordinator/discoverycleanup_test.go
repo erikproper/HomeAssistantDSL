@@ -128,19 +128,19 @@ func TestIsCoordinatorOwnedTopicWithCompoundInstallationQualifiedPrefix(t *testi
 
 // --- manifest loading ---
 
-func TestLoadTopicManifestMissingFileReturnsEmpty(t *testing.T) {
-	got := loadTopicManifest(filepath.Join(t.TempDir(), "does_not_exist.json"))
+func TestLoadManifestMissingFileReturnsEmpty(t *testing.T) {
+	got, _ := loadManifest(filepath.Join(t.TempDir(), "does_not_exist.json"))
 	if len(got) != 0 {
 		t.Errorf("got %v, want an empty map for a missing file", got)
 	}
 }
 
-func TestLoadTopicManifestFallsBackToEmptyOnOldArrayShape(t *testing.T) {
+func TestLoadManifestFallsBackToEmptyOnOldArrayShape(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "discovery_topics.json")
 	if err := os.WriteFile(path, []byte(`{"topics": ["a", "b"]}`), 0o644); err != nil {
 		t.Fatalf("writing fixture: %v", err)
 	}
-	got := loadTopicManifest(path)
+	got, _ := loadManifest(path)
 	if len(got) != 0 {
 		t.Errorf("got %v, want an empty map for the previous fix's plain-array shape", got)
 	}

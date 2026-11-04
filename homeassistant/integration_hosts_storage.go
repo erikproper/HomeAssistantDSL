@@ -171,38 +171,6 @@ func collectHostsDevicesByID(definitionDir string) (map[string]THostDevice, []st
 	return byID, warnings
 }
 
-// homeAssistantCapabilityEntityIDs returns every entity ID referenced by a
-// home_assistant-type device's capabilities (e.g. sensor.processor_use for the "load"
-// capability), mapped to a "<device id>/<capability>" label. These entities aren't declared
-// in Spaces.def -- there's no space/entity linkage for physical-layer devices yet -- so
-// callers checking assumed-from-HA entities (presence.go) need to pull them in separately.
-// A capability value may carry a "!<attribute>" suffix (see THostDevice.Capabilities) -- that
-// part is stripped before checking presence, since it's the *entity* that must exist on the
-// instance, not a literal "id!attribute" string, which would never match a real entity id.
-//
-// Assumes every home_assistant-type device lives on "the main instance" -- true today
-// since Physical.def can only declare one home_assistant target per house. Once a second,
-// named HA instance can be declared (e.g. the protocols-server-2 integration-adapter role,
-// Architecture.md §7/§9.2), this needs to become per-instance, grouping devices by which
-// instance hosts them and checking each independently.
-func homeAssistantCapabilityEntityIDs(definitionDir string) map[string]string {
-	devicesByID, _ := collectHostsDevicesByID(definitionDir)
-
-	ids := map[string]string{}
-	for _, d := range devicesByID {
-		if d.IntegrationType != "home_assistant" {
-			continue
-		}
-		for capability, entityID := range d.Capabilities {
-			if bangIdx := strings.Index(entityID, "!"); bangIdx > 0 {
-				entityID = entityID[:bangIdx]
-			}
-			ids[entityID] = d.DeviceID + "/" + capability
-		}
-	}
-	return ids
-}
-
 // THostsAttributeSpec is the fixed HA typing metadata for one variable attribute -- what kind
 // of sensor it is, per the same "the integration should provide/determine the entity type and
 // unit" principle AttributeSpecs itself already follows. Empty fields are omitted from

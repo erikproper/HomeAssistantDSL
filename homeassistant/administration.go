@@ -1170,30 +1170,6 @@ func (state *TAdministrationState) HandleEndToken(onSpaceClosed func(string)) {
 	}
 }
 
-// GlobalVariables keeps the current value of global variables, seeded from the code defaults.
-var GlobalVariables = cloneStringMap(DefaultGlobalVariables)
-
-func cloneStringMap(source map[string]string) map[string]string {
-	clone := map[string]string{}
-	for key, value := range source {
-		clone[key] = value
-	}
-	return clone
-}
-
-func ResetGlobalVariables() {
-	GlobalVariables = cloneStringMap(DefaultGlobalVariables)
-}
-
-func lookupGlobalVariable(name string) (string, bool) {
-	value, exists := GlobalVariables[name]
-	if exists {
-		return value, true
-	}
-	value, exists = DefaultGlobalVariables[name]
-	return value, exists
-}
-
 // RecordSpaceOff accumulates entities/aggregations to turn off for a space (from an explicit directive).
 // Multiple "space off:" directives in the same space are merged; later calls do not replace earlier ones.
 func (state *TAdministrationState) RecordSpaceOff(spaceName string, items []string) {

@@ -233,17 +233,6 @@ func buildHassBridgeDeviceBlock(deviceID string, device THassBridgeDevice, live 
 	return devBlock
 }
 
-// hassBridgeUniqueID and hassBridgeDiscoveryTopic are shared by subscribeHassBridge's own handler
-// and expectedHassBridgeTopics, so the two can't drift apart on what topic a given capability's
-// discovery config belongs at. Keyed by the local entity_id -- always a clean, space-free HA
-// entity_id, unlike the source specification (which may be compound, e.g. "sensor.x is available").
-func hassBridgeUniqueID(localEntity, stableID string) string {
-	if stableID != "" {
-		return stableID
-	}
-	return "hassbridge_" + strings.ReplaceAll(localEntity, ".", "_")
-}
-
 // hassBridgeEntityStateTopic is the same topic convention hassBridgeReportingAutomationBody
 // (homeassistant/remote_instance_automations.go) builds on the generator side -- shared here so
 // subscribeHassBridgeDeviceInfo's republish-on-device-info-update path can reconstruct a
@@ -258,15 +247,6 @@ func hassBridgeEntityStateTopic(instance, localEntity string) string {
 // to when a capability declares >=1 "attribute <name>: ...;".
 func hassBridgeEntityAttributesTopic(instance, localEntity string) string {
 	return "homeassistant_instances/" + instance + "/bridge/" + localEntity + "/attributes"
-}
-
-func hassBridgeDiscoveryTopic(localEntity, stableID, prefix string) (topic string, ok bool) {
-	dotIdx := strings.Index(localEntity, ".")
-	if dotIdx < 0 {
-		return "", false
-	}
-	domain := localEntity[:dotIdx]
-	return discoveryTopic(prefix, domain, hassBridgeUniqueID(localEntity, stableID)), true
 }
 
 // exportStableID is the cloud-side stable identity for one exported capability --

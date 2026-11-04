@@ -168,7 +168,7 @@ func (t *TEntityExistenceTracker) KnownNotToExistItems() []string {
 
 // newEntityExistenceTracker loads path's previously persisted state, if any (loadPersisted --
 // never fails, missing/incompatible falls back to empty, exactly like discoverycleanup.go's
-// loadTopicManifest) so a coordinator restart resumes from what was already known instead of
+// loadManifest) so a coordinator restart resumes from what was already known instead of
 // forgetting it. path == "" disables persistence outright (no load, no writes) -- used by tests
 // that have no reason to touch disk.
 func newEntityExistenceTracker(path string) *TEntityExistenceTracker {

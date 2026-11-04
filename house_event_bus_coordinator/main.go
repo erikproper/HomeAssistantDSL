@@ -9,7 +9,7 @@
  * version covers role 2, discovery refinement (§6.1): it reads devices.yaml + secrets.yaml
  * (both generated alongside each other by homeassistant/integration_hosts_generator.go),
  * connects to the house's MQTT broker, publishes Home Assistant MQTT Discovery config for
- * every device with a conceptual link (endpoint.go, discovery.go), and logs traffic on the
+ * every device with a conceptual link (discovery.go), and logs traffic on the
  * "hosts/#" topics as a debug/sanity aid. It does not bridge or republish device state itself
  * -- Home Assistant subscribes directly to the same topics the discovery payloads point at.
  * Local infrastructure coordination (§6.1 role 1) and cross-home federation (role 3) are not

@@ -175,29 +175,6 @@ func TestBuildSensorGraphListFileYAML(t *testing.T) {
 	}
 }
 
-func TestImpliedAggregatesForVirtualSpaceUseVirtualPolicy(t *testing.T) {
-	spaceOrder := []string{"social/extension"}
-	entityRecordsBySpace := map[string][]TEntityRecord{
-		"social/extension": {
-			{Identity: TEntityIdentity{Domain: "light", Path: "extension/main"}},
-			{Identity: TEntityIdentity{Domain: "sensor", Path: "extension/temperature"}},
-		},
-	}
-
-	virtualAggregates := impliedAggregatesForSpace("social/extension", SpaceKindVirtual, spaceOrder, entityRecordsBySpace)
-	if len(virtualAggregates) != 1 || virtualAggregates[0] != "light.social/extension" {
-		t.Fatalf("unexpected virtual-space aggregates: %v", virtualAggregates)
-	}
-
-	regularAggregates := impliedAggregatesForSpace("social/extension", SpaceKindRegular, spaceOrder, entityRecordsBySpace)
-	if len(regularAggregates) != 2 {
-		t.Fatalf("expected regular space to include sensor aggregate as well, got %v", regularAggregates)
-	}
-	if !strings.Contains(strings.Join(regularAggregates, "\n"), "sensor.social/extension/temperature") {
-		t.Fatalf("expected temperature aggregate for regular space, got %v", regularAggregates)
-	}
-}
-
 func TestListPatternMatchesSegmentBoundary(t *testing.T) {
 	patterns := parseListPatterns("all binary_sensor.*/node")
 
@@ -1665,38 +1642,6 @@ func TestAttributeNamesExcludesDeviceInfoCapabilities(t *testing.T) {
 	for _, name := range got {
 		if name == "sw_version" {
 			t.Fatalf("AttributeNames must not include sw_version: %v", got)
-		}
-	}
-}
-
-func TestHomeAssistantCapabilityEntityIDsStripsAttributeSuffix(t *testing.T) {
-	definitionDir := t.TempDir()
-	physicalContent := `physical layer with:
-  integration hosts with:
-    device host.junglinster host junglinster home_assistant with:
-      capability load: sensor.processor_use;
-      capability sw_version: "Home Assistant Operating System " update.home_assistant_operating_system_update!installed_version;
-    end;
-  end;
-end;
-`
-	if err := os.WriteFile(filepath.Join(definitionDir, "Physical.def"), []byte(physicalContent), 0o644); err != nil {
-		t.Fatalf("failed to write Physical.def: %v", err)
-	}
-
-	ids := homeAssistantCapabilityEntityIDs(definitionDir)
-
-	if label, ok := ids["sensor.processor_use"]; !ok || label != "host.junglinster/load" {
-		t.Errorf("ids[sensor.processor_use] = (%q, %v), want (\"host.junglinster/load\", true)", label, ok)
-	}
-	// The "!installed_version" attribute suffix must be stripped -- checking presence of the
-	// literal "id!attribute" string would never match a real entity id from /api/states.
-	if label, ok := ids["update.home_assistant_operating_system_update"]; !ok || label != "host.junglinster/sw_version" {
-		t.Errorf("ids[update.home_assistant_operating_system_update] = (%q, %v), want (\"host.junglinster/sw_version\", true)", label, ok)
-	}
-	for id := range ids {
-		if strings.Contains(id, "!") {
-			t.Errorf("entity id %q must not contain an unstripped \"!attribute\" suffix", id)
 		}
 	}
 }

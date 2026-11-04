@@ -53,43 +53,6 @@ import (
 // entity with no owning device, guarded before calling device_attr on it.
 const entitiesDetailedPayloadTemplate = `{% set ns = namespace(items = []) %}{% for s in states %}{% set did = device_id(s.entity_id) %}{% set ns.items = ns.items + [{'entity_id': s.entity_id, 'device_id': did, 'device_name': device_attr(did, 'name') if did else none, 'area_name': area_name(s.entity_id)}] %}{% endfor %}{{ ns.items | tojson }}`
 
-// bootstrapAutomationBody returns the "report entities detailed on command" / "reload on
-// command" automation pair every named instance needs, fully substituted for name -- no header,
-// callers prepend generatorHeader themselves (writeAutomationFile writes whatever content it's
-// given verbatim). The report automation also fires on the "reload" command and on HA's own
-// startup event -- otherwise a fresh report only ever happens when someone manually publishes
-// the command, leaving stale data across an instance's own reload/restart even though that's
-// exactly when its entity set is most likely to have changed.
-func bootstrapAutomationBody(name string) string {
-	var sb strings.Builder
-	sb.WriteString("- alias: \"infrastructural/coordinator/bridge/report_entities_detailed\"\n")
-	sb.WriteString("  id: automation.coordinator_bootstrap_report_detailed_" + name + "\n")
-	sb.WriteString("  trigger:\n")
-	sb.WriteString("  - platform: mqtt\n")
-	sb.WriteString("    topic: \"homeassistant_instances/" + name + "/command\"\n")
-	sb.WriteString("    payload: \"report_entities_detailed\"\n")
-	sb.WriteString("  - platform: mqtt\n")
-	sb.WriteString("    topic: \"homeassistant_instances/" + name + "/command\"\n")
-	sb.WriteString("    payload: \"reload\"\n")
-	sb.WriteString("  - platform: homeassistant\n")
-	sb.WriteString("    event: start\n")
-	sb.WriteString("  action:\n")
-	sb.WriteString("  - service: mqtt.publish\n")
-	sb.WriteString("    data:\n")
-	sb.WriteString("      topic: \"homeassistant_instances/" + name + "/entities_detailed\"\n")
-	sb.WriteString("      retain: true\n")
-	sb.WriteString("      payload: \"" + entitiesDetailedPayloadTemplate + "\"\n")
-	sb.WriteString("- alias: \"infrastructural/coordinator/bridge/reload\"\n")
-	sb.WriteString("  id: automation.coordinator_bootstrap_reload_" + name + "\n")
-	sb.WriteString("  trigger:\n")
-	sb.WriteString("  - platform: mqtt\n")
-	sb.WriteString("    topic: \"homeassistant_instances/" + name + "/command\"\n")
-	sb.WriteString("    payload: \"reload\"\n")
-	sb.WriteString("  action:\n")
-	sb.WriteString("  - service: automation.reload\n")
-	return sb.String()
-}
-
 // bareEntityFromSource strips a source specification's "!attribute" or " is available" suffix
 // (sourceToJinja2's own two sugars), leaving the plain HA entity_id a state trigger can watch --
 // entity_id lists (unlike sourceToJinja2's Jinja output) have no room for a compound expression.
@@ -316,15 +279,11 @@ func generateInstanceAutomationTrees(haOutputDir string, instances map[string]TH
 			}
 		}
 
-		// coordinator_bootstrap generation is disabled for now (2026-08-27): its "report entities
-		// detailed" automation (entitiesDetailedPayloadTemplate, a synchronous {% for s in states
-		// %} loop over every entity, calling device_id()/device_attr()/area_name() per entity)
-		// hung "main" outright when forced -- fine at protocols-server-2's scale, not at main's.
-		// PROJECT.md 1.1 (entity-existence inquiry & optimistic generation, 2026-08-28 -- see
-		// memory: project_entity_existence_inquiry_design) replaces this; re-enable (or delete)
-		// bootstrapAutomationBody once the coordinator side of 1.1 lands, not before. A fresh
-		// ./generate run wipes this file from any previously-deployed tree, so simply not writing
-		// it here is enough to retire it on next deploy -- no separate cleanup needed.
+		// No coordinator_bootstrap automations any more (2026-08-27): their "report entities
+		// detailed" automation (a synchronous {% for s in states %} loop over every entity,
+		// calling device_id()/device_attr()/area_name() per entity) hung "main" outright -- fine
+		// at protocols-server-2's scale, not at main's. PROJECT.md 1.1's entity-existence inquiry
+		// replaced it.
 		if err := generateHassBridgeEntityReportingAutomations(instanceHAOutputDir, name, hassBridgeDevicesByID, admin); err != nil {
 			return err
 		}

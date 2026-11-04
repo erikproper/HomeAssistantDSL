@@ -68,12 +68,9 @@ func runGenerationFromDefFile(cwd, defPath string) error {
 	// its runPostGenerationChecks call, presence.go), so any HA YAML it writes -- e.g. the
 	// "hosts" integration's reporting automations -- lands too late for check [1]
 	// (referential integrity, checkEntityReferences) to see it: those files exist on disk
-	// but outside the scan that check performed. Currently harmless (the only entities a
-	// reporting automation references are already covered by check [2] via
-	// homeAssistantCapabilityEntityIDs), but worth revisiting once secondary HA instances
-	// exist (see the commented-out "home_assistant: protocols-server-2
-	// ${protocols_server_2_home_assistant_url};" line in Physical.def) and this path grows
-	// more physical-layer-generated HA YAML.
+	// but outside the scan that check performed, and no other check covers the entities those
+	// automations reference. Worth revisiting if this path grows more physical-layer-generated
+	// HA YAML.
 	if err := generatePhysicalIntegrationOutputs(definitionDir, cwd, outputDir, admin); err != nil {
 		return err
 	}

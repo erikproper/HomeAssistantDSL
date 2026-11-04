@@ -56,19 +56,6 @@ func substituteSettingsVariables(text string, settings map[string]string) string
 	})
 }
 
-// extractVariableName strips ${...} or $ prefix and any .accessor suffix, returning the bare name.
-func extractVariableName(ref string) string {
-	if strings.HasPrefix(ref, "${") && strings.HasSuffix(ref, "}") {
-		inner := ref[2 : len(ref)-1]
-		if dotIdx := strings.Index(inner, "."); dotIdx > 0 {
-			return strings.ToLower(inner[:dotIdx])
-		}
-		return strings.ToLower(inner)
-	}
-	return strings.ToLower(strings.TrimPrefix(ref, "$"))
-}
-
-
 // parseSpaceHeader recognises "space <spec> with:", "virtual space <spec> with:", and the "as
 // area" variant of either ("space <spec> as area with:") -- see administration.go's OpenSpace
 // for what isArea then does. Returns spaceKind, spec (with any "as area" marker stripped),
@@ -101,13 +88,6 @@ func parseSpaceHeader(line string) (string, string, bool, bool) {
 	}
 
 	return spaceKind, spec, isArea, true
-}
-
-func formatSpaceLabel(spaceKind string) string {
-	if spaceKind == SpaceKindVirtual {
-		return "Virtual space"
-	}
-	return "Space"
 }
 
 func parseSpaceCollectionItems(itemsStr string) []string {
@@ -491,63 +471,6 @@ func splitSpaceSegment(segment string) (string, string) {
 	return "", segment
 }
 
-func impliedAggregatesForSpace(spaceName, spaceKind string, spaceOrder []string, entityRecordsBySpace map[string][]TEntityRecord) []string {
-	aggregates := []string{}
-
-	sensorMetricAggregates := map[string]bool{}
-	includeSensorAggregates := spaceKind != SpaceKindVirtual
-
-	hasLightEntities := false
-	hasMediaSwitch := false
-	hasSpaceSwitch := false
-	for _, record := range entityRecordsBySpace[spaceName] {
-		if record.NoCollect {
-			continue
-		}
-		if record.Identity.Domain == "light" {
-			hasLightEntities = true
-		}
-		if record.Identity.Domain == "switch" && record.Identity.Sphere == "social" {
-			if lastPathSegment(record.Identity.Path) == "media" {
-				hasMediaSwitch = true
-			}
-			if lastPathSegment(record.Identity.Path) == "space" {
-				hasSpaceSwitch = true
-			}
-		}
-		if record.Identity.Domain == "sensor" && includeSensorAggregates {
-			metric := lastPathSegment(record.Identity.Path)
-			if isAggregateSensorMetric(metric) {
-				sensorMetricAggregates[metric] = true
-			}
-		}
-	}
-	spacePath := spaceName
-	if strings.HasPrefix(spacePath, "social/") {
-		spacePath = strings.TrimPrefix(spacePath, "social/")
-	}
-	if hasLightEntities {
-		aggregates = append(aggregates, fmt.Sprintf("light.social/%s", spacePath))
-	}
-	if hasMediaSwitch {
-		aggregates = append(aggregates, fmt.Sprintf("switch.social/%s/media", spacePath))
-	}
-	if hasSpaceSwitch {
-		aggregates = append(aggregates, fmt.Sprintf("switch.social/%s/space", spacePath))
-	}
-
-	metrics := []string{}
-	for metric := range sensorMetricAggregates {
-		metrics = append(metrics, metric)
-	}
-	sort.Strings(metrics)
-	for _, metric := range metrics {
-		aggregates = append(aggregates, fmt.Sprintf("sensor.%s/%s", spaceName, metric))
-	}
-
-	return aggregates
-}
-
 func lastPathSegment(path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -555,57 +478,6 @@ func lastPathSegment(path string) string {
 	}
 	parts := strings.Split(path, "/")
 	return parts[len(parts)-1]
-}
-
-func findAggregateConstituents(aggregateName, spaceName string, spaceOrder []string, entityRecordsBySpace map[string][]TEntityRecord) []string {
-	constituents := []string{}
-
-	if strings.HasPrefix(aggregateName, "switch.social/") {
-		for _, rec := range entityRecordsBySpace[spaceName] {
-			if rec.NoCollect {
-				continue
-			}
-			if rec.Identity.Domain == "switch" && rec.Identity.Sphere == "social" {
-				if rec.Name == aggregateName {
-					continue
-				}
-				if aggregateName == fmt.Sprintf("switch.social/%s/media", spaceName) && lastPathSegment(rec.Identity.Path) == "media" {
-					constituents = append(constituents, rec.Name)
-				}
-				if aggregateName == fmt.Sprintf("switch.social/%s/space", spaceName) && lastPathSegment(rec.Identity.Path) == "space" {
-					constituents = append(constituents, rec.Name)
-				}
-			}
-		}
-		return normalizeFullNames(constituents, spaceName)
-	}
-
-	if strings.HasPrefix(aggregateName, "sensor.") {
-		idx := strings.LastIndex(aggregateName, "/")
-		if idx < 0 {
-			return constituents
-		}
-		metric := aggregateName[idx+1:]
-		for _, rec := range entityRecordsBySpace[spaceName] {
-			if rec.NoCollect {
-				continue
-			}
-			if rec.Identity.Domain == "sensor" && lastPathSegment(rec.Identity.Path) == metric {
-				constituents = append(constituents, rec.Name)
-			}
-		}
-		return normalizeFullNames(constituents, spaceName)
-	}
-
-	return normalizeFullNames(constituents, spaceName)
-}
-
-func normalizeFullNames(names []string, spaceName string) []string {
-	out := make([]string, 0, len(names))
-	for _, n := range names {
-		out = append(out, normalizeEntityFullName(n, strings.Split(spaceName, "/")))
-	}
-	return out
 }
 
 // resolveConditionEntityID resolves an entity reference in a condition spec to a HA
@@ -681,48 +553,3 @@ func parseConditionDirective(t string, spacePath []string) (sources []string, ex
 	}
 	return
 }
-
-// scanInputNumberBody extracts minimum, maximum, step, units, icon from an input_number entity body.
-func scanInputNumberBody(lines []string, startIdx int) (min, max, step, unit, icon string) {
-	depth := 0
-	for i := startIdx + 1; i < len(lines); i++ {
-		t := strings.TrimSpace(lines[i])
-		if strings.HasSuffix(t, "with:") {
-			depth++
-			continue
-		}
-		if t == "end;" {
-			if depth == 0 {
-				break
-			}
-			depth--
-			continue
-		}
-		val := func(prefix string) string {
-			return strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(t, prefix), ";"))
-		}
-		if strings.HasPrefix(t, "minimum ") {
-			min = val("minimum ")
-		} else if strings.HasPrefix(t, "maximum ") {
-			max = val("maximum ")
-		} else if strings.HasPrefix(t, "step ") {
-			step = val("step ")
-		} else if strings.HasPrefix(t, "units ") {
-			unit = strings.Trim(val("units "), "\"")
-		} else if strings.HasPrefix(t, "icon ") {
-			icon = strings.Trim(val("icon "), "\"")
-		}
-	}
-	return
-}
-
-
-func isAggregateSensorMetric(metric string) bool {
-	switch metric {
-	case "temperature", "humidity", "co2", "pressure", "illuminance", "noise", "wind_speed", "wind_direction":
-		return true
-	default:
-		return false
-	}
-}
-

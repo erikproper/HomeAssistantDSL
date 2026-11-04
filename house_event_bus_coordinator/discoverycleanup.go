@@ -67,17 +67,11 @@ type TTopicManifest struct {
 	Passthrough map[string]bool   `json:"passthrough,omitempty"` // manifestKey-keyed; see RetireMissing
 }
 
-// loadTopicManifest reads path's content map. A missing file, or one in an incompatible shape
-// (e.g. an earlier version's plain topic-list form), both fall back to an empty map rather than
-// an error -- this is a coordinator-owned runtime cache, always safe to rebuild from nothing.
-func loadTopicManifest(path string) map[string]string {
-	known, _ := loadManifest(path)
-	return known
-}
-
-// loadManifest is loadTopicManifest's fuller counterpart, also returning the passthrough-exempt
-// topic set (TTopicManifest.Passthrough) newDiscoveryPublisher needs. Same missing-file/
-// incompatible-shape fallback as loadTopicManifest.
+// loadManifest reads path's content map, also returning the passthrough-exempt topic set
+// (TTopicManifest.Passthrough) newDiscoveryPublisher needs. A missing file, or one in an
+// incompatible shape (e.g. an earlier version's plain topic-list form), both fall back to empty
+// maps rather than an error -- this is a coordinator-owned runtime cache, always safe to rebuild
+// from nothing.
 func loadManifest(path string) (map[string]string, map[string]bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
