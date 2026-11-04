@@ -38,48 +38,25 @@ var reloadGuardPattern = regexp.MustCompile(`^reload\s+integration\s+when\s+([A-
 
 var hassBridgeIntegrationHeaderPattern = regexp.MustCompile(`^integration\s+home_assistant\s+(\S+)\s+with:\s*$`)
 
-// parseHassBridgeDeviceHeaderKeywords strips trailing "export"/"roaming"/"import" tokens (any
-// order) from a "device <id> [<keywords>] with:" header line, mirroring parseRoutingKeywords'
-// own pop-from-the-end approach (mqtt_routing_keywords.go) rather than growing withDevicePattern
-// into a combinatorial regex for every keyword-order permutation. "export" and "roaming" are
-// mutually sensible alternatives (both select this device's cross-post qualifier -- this
-// installation's own real name, or the fixed virtual name "roaming" respectively; declaring both
-// is a DSL-author mistake, left for the caller to warn about, not rejected here), "import" is
-// independent (same self-import meaning "cloud"+"import" already has for "hosts" devices,
-// mqtt_relay.go) -- see THassBridgeDevice.ExportAs/selfImport's own doc comments for the full
-// semantics. Returns line unchanged if it doesn't end in "with:".
-func parseHassBridgeDeviceHeaderKeywords(line string) (rest string, export, roaming, selfImport bool) {
+// parseHassBridgeDeviceHeaderKeywords strips a trailing "export" from a "device <id> [export]
+// with:" header line. Returns line unchanged if it doesn't end in "with:". ("roaming" and "import",
+// a shared cross-post identity and a self-import, went in PROJECT.md 31, 2026-11-04: unused since
+// the iPhone dropped them on 2026-10-21.)
+func parseHassBridgeDeviceHeaderKeywords(line string) (rest string, export bool) {
 	if !strings.HasSuffix(line, "with:") {
-		return line, false, false, false
+		return line, false
 	}
-	body := strings.TrimSpace(strings.TrimSuffix(line, "with:"))
-	tokens := strings.Fields(body)
-	for len(tokens) > 0 {
-		switch tokens[len(tokens)-1] {
-		case "export":
-			export = true
-			tokens = tokens[:len(tokens)-1]
-		case "roaming":
-			roaming = true
-			tokens = tokens[:len(tokens)-1]
-		case "import":
-			selfImport = true
-			tokens = tokens[:len(tokens)-1]
-		default:
-			return strings.Join(tokens, " ") + " with:", export, roaming, selfImport
-		}
+	tokens := strings.Fields(strings.TrimSpace(strings.TrimSuffix(line, "with:")))
+	if len(tokens) > 0 && tokens[len(tokens)-1] == "export" {
+		tokens, export = tokens[:len(tokens)-1], true
 	}
-	return strings.Join(tokens, " ") + " with:", export, roaming, selfImport
+	return strings.Join(tokens, " ") + " with:", export
 }
 
 // collectHassBridgeDevicesByID scans Physical.def for every "integration home_assistant
 // <qualifier> with: ... end;" block, parses its device declarations, and warns if a referenced
 // qualifier has no matching "home_assistant <qualifier>: <name>;" instance declaration
-// (collectHomeAssistantInstances, defined.go). Resolves each device's own selfImport flag
-// (parseHassBridgeDeviceHeaderKeywords' "import" keyword) into SelfImportFrom set to this
-// installation's own resolved name, mirroring generateHassBridgeFile's own resolution -- see
-// THassBridgeDevice.SelfImportFrom's doc comment for why this has to happen here rather than
-// inside the lower-level parser.
+// (collectHomeAssistantInstances, defined.go).
 func collectHassBridgeDevicesByID(definitionDir string) (map[string]THassBridgeDevice, []string) {
 	physicalContent, mergedLineNos, warnings := collectLayerContent(definitionDir, []string{"Physical.def"}, LayerPhysical)
 	physicalContent = resolveDerivedConditionOneLiners(physicalContent)
@@ -90,8 +67,6 @@ func collectHassBridgeDevicesByID(definitionDir string) (map[string]THassBridgeD
 	warnings = append(warnings, blockWarnings...)
 
 	instances := collectHomeAssistantInstances(physicalContent)
-	installation := resolveInstallationName(definitionDir)
-
 	byID := map[string]THassBridgeDevice{}
 	for _, block := range blocks {
 		instanceQualifier := block.HeaderMatch[1]
@@ -103,64 +78,12 @@ func collectHassBridgeDevicesByID(definitionDir string) (map[string]THassBridgeD
 		devices, bodyWarnings := parseHassBridgeIntegrationBody(bodyLines, instanceQualifier)
 		warnings = append(warnings, bodyWarnings...)
 		for _, d := range devices {
-			if d.selfImport {
-				if installation == "" {
-					warnings = append(warnings, fmt.Sprintf("device %q: \"import\" declared but ${installation} is not set; cannot self-qualify -- ignored", d.DeviceID))
-				} else {
-					d.SelfImportFrom = installation
-				}
-			}
 			existing, exists := byID[d.DeviceID]
 			if !exists {
 				byID[d.DeviceID] = d
 				continue
 			}
-			// A duplicate DeviceID across two "integration home_assistant <qualifier> with:"
-			// blocks in the same house is almost always a Physical.def authoring mistake
-			// (first-wins, warned) -- EXCEPT for a "roaming" device (ExportAs "roaming"), which is
-			// deliberately declared once per real local instance it might be actively connected to
-			// (e.g. an HA companion-app phone reachable via either of two local HA instances): each
-			// such declaration contributes its own Instance to the SAME merged record, since each
-			// real instance still needs its own reporting automation generated
-			// (generateHassBridgeEntityReportingAutomations), even though they all publish under
-			// the one shared "roaming" identity rather than their own real instance names.
-			if existing.ExportAs == "roaming" && d.ExportAs == "roaming" {
-				merged := existing
-				if !containsString(merged.Instances, instanceQualifier) {
-					merged.Instances = append(merged.Instances, instanceQualifier)
-				}
-				// Union each capability's per-instance Sources rather than discarding d's own
-				// declaration wholesale -- real bug, found live 2026-09-05: a naive "keep
-				// existing, drop d" merge here silently threw away every instance's own source
-				// past the first, so every instance's reporting automation was generated against
-				// whichever declaration happened to be seen first, even when a later instance's
-				// local entity_id for the same capability genuinely differed (confirmed live:
-				// Vienna's own HA companion-app registration for hass.eriks_iphone did not, at
-				// first, use the identical entity_id Junglinster's instances did). Typing metadata
-				// (Domain/Unit/Icon/DeviceClass/StateClass) is assumed identical across instances
-				// -- it describes the one shared local/coordinator-side entity, not the remote
-				// source -- so the first declaration's copy of it wins; only Sources is unioned.
-				if merged.Capabilities == nil {
-					merged.Capabilities = map[string]THassBridgeCapability{}
-				}
-				for capName, dCap := range d.Capabilities {
-					mergedCap, known := merged.Capabilities[capName]
-					if !known {
-						merged.Capabilities[capName] = dCap
-						continue
-					}
-					if mergedCap.Sources == nil {
-						mergedCap.Sources = map[string]string{}
-					}
-					for instance, source := range dCap.Sources {
-						mergedCap.Sources[instance] = source
-					}
-					merged.Capabilities[capName] = mergedCap
-				}
-				byID[d.DeviceID] = merged
-				continue
-			}
-			warnings = append(warnings, fmt.Sprintf("Physical.def: device %q declared more than once across \"integration home_assistant\" blocks; keeping the first declaration (instance %q) -- if it should roam across instances, declare \"roaming\" consistently on every one", d.DeviceID, existing.Instances))
+			warnings = append(warnings, fmt.Sprintf("Physical.def: device %q declared more than once across \"integration home_assistant\" blocks; keeping the first declaration (instance %q)", d.DeviceID, existing.Instances))
 		}
 	}
 	warnings = append(warnings, warnAboutOrphanedHassBridgeDeviceBlocks(physicalContent, mergedLineNos, byID)...)
@@ -185,7 +108,7 @@ func containsString(list []string, want string) bool {
 	return false
 }
 
-var strayHassBridgeDevicePattern = regexp.MustCompile(`^device\s+(hass\.\S+)(?:\s+(?:export|roaming|import)){0,2}\s+with:\s*$`)
+var strayHassBridgeDevicePattern = regexp.MustCompile(`^device\s+(hass\.\S+)(?:\s+export)?\s+with:\s*$`)
 
 // warnAboutOrphanedHassBridgeDeviceBlocks finds every "device hass.<id> with:" header line
 // anywhere in physicalContent whose id never made it into byID -- almost always because the block
@@ -220,7 +143,7 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 	var devices []THassBridgeDevice
 	var warnings []string
 
-	// Trailing keywords ("export"/"roaming"/"import") are stripped by parseHassBridgeDeviceHeaderKeywords
+	// A trailing "export" is stripped by parseHassBridgeDeviceHeaderKeywords
 	// before this pattern ever sees the line -- see that function's own doc comment.
 	withDevicePattern := regexp.MustCompile(`^device\s+(\S+)\s+with:\s*$`)
 	// Domain is mandatory and explicit ("<entity_type>.<path>: <source>;") -- no group-prefix,
@@ -604,24 +527,15 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 			continue
 		}
 
-		strippedLine, export, roaming, selfImport := parseHassBridgeDeviceHeaderKeywords(line)
+		strippedLine, export := parseHassBridgeDeviceHeaderKeywords(line)
 		if matches := withDevicePattern.FindStringSubmatch(strippedLine); matches != nil {
-			exportAs := ""
-			if roaming {
-				exportAs = "roaming"
-			}
-			if export && roaming {
-				warnings = append(warnings, fmt.Sprintf("Physical.def: device %q: both \"export\" and \"roaming\" declared; \"roaming\" wins", matches[1]))
-			}
 			current = THassBridgeDevice{
 				DeviceID: matches[1], Instances: []string{instance},
 				Capabilities:              map[string]THassBridgeCapability{},
 				ConstantAttributes:        map[string]THostConstantAttribute{},
 				DeviceInfoCapabilities:    map[string]string{},
 				DeviceInfoLiteralPrefixes: map[string]string{},
-				Export:                    export || roaming,
-				ExportAs:                  exportAs,
-				selfImport:                selfImport,
+				Export:                    export,
 			}
 			inDeviceCapabilities = true
 			continue

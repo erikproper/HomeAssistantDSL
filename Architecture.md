@@ -1245,7 +1245,7 @@ one-off wrapper into a proper reversible topic/JSON rewriting mechanism, not yet
 **Phase 2, not built yet**: routing a command across the `export`/import cloud-broker link
 (§6.12) — the mirror image of state's own direction (state flows owning-house → cloud →
 consuming-house; a command must flow consuming-house → cloud → owning-house over the same link).
-Reuses `Export`/`SelfImportFrom`, no new Physical.def flag: those already mean "this device's
+Reuses `Export`, no new Physical.def flag: that already means "this device's
 traffic crosses the house boundary," and a command is just the reverse-direction half of that
 meaning once its domain is commandable. Deliberately deferred — same-broker was the forcing case
 (a same-house secondary HA instance), and nothing today needs a command to cross a house boundary
@@ -2394,6 +2394,11 @@ self-import relay and a real cross-house import (Vienna importing Junglinster's 
 topics, `<installation>/discovery_gateways/...` etc. — see the cloud existence-status entry below)
 is a separate mechanism for a separate reason (two houses' own "main" instances colliding on their
 own discovery topics) and is unaffected by this change.
+
+**Removed 2026-11-04 (PROJECT.md 31)**: the `roaming` and `import` keywords below, with
+`export_as`/`self_import_from`, the self-import relay and the roaming topic rewrite -- unused since
+the iPhone dropped them on 2026-10-21 (the Companion app reports to both Home Assistants directly).
+Kept as history.
 
 **Roaming `home_assistant`-bridge devices** (an HA companion-app device, e.g. a phone, reachable via more than one local HA instance — `hass.eriks_iphone`, built 2026-09-02): `THassBridgeDevice.Instances []string` lets the same device be declared identically under more than one `integration home_assistant <qualifier> with:` block in the same house's Physical.def, merged (not colliding) generator-side. `ExportAs` (the `roaming` keyword, replacing `export`) qualifies the cloud cross-post with a shared virtual installation name ("roaming") instead of this house's own real name, so several real installations can each export their own local copy of the device under one stable cloud identity; `SelfImportFrom` (the `import` keyword) additionally relays that shared cloud data back onto this coordinator's own local bridge topic, feeding the one Spaces.def-positioned entity rather than creating a second one.
 

@@ -192,12 +192,6 @@ func generateHassBridgeFile(outputRoot string, hassBridgeDevicesByID map[string]
 		if device.Export {
 			sb.WriteString("    export: true\n")
 		}
-		if device.ExportAs != "" {
-			sb.WriteString("    export_as: \"" + device.ExportAs + "\"\n")
-		}
-		if device.SelfImportFrom != "" {
-			sb.WriteString("    self_import_from: \"" + device.SelfImportFrom + "\"\n")
-		}
 		if link.DisplayName != "" {
 			sb.WriteString("    display_name: " + link.DisplayName + "\n")
 		}

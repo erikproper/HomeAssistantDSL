@@ -131,14 +131,8 @@ type THassBridgeCapability struct {
 // generalized-to-all-kinds "device (map)" MQTT field allowlist.
 type THassBridgeDevice struct {
 	DeviceID string
-	// Instances is every "home_assistant <qualifier>" this device's declaration has been merged
-	// from -- almost always exactly one, but a "roaming" device (ExportAs "roaming") may be
-	// declared identically in more than one qualifier block within the same house (e.g. an HA
-	// companion-app phone that can be actively connected to either of two local HA instances) --
-	// collectHassBridgeDevicesByID merges those into one record instead of the usual
-	// first-wins-on-collision rule, since each real instance still needs its own reporting
-	// automation generated for it (generateHassBridgeEntityReportingAutomations) even though they
-	// all publish under the shared "roaming" identity, not their own real instance names.
+	// Instances is the "home_assistant <qualifier>" this device is declared under -- one, since
+	// "roaming" went (PROJECT.md 31, 2026-11-04; a roaming device was declared under several).
 	Instances                 []string
 	Capabilities              map[string]THassBridgeCapability
 	ConstantAttributes        map[string]THostConstantAttribute
@@ -150,35 +144,6 @@ type THassBridgeDevice struct {
 	// discoveryhassbridge.go) to cross-post this device's metadata/state traffic onto the cloud
 	// broker too, alongside "main".
 	Export bool
-	// ExportAs overrides the installation name a device's export is qualified under on the cloud
-	// broker -- "" (the default) means "export under this installation's own real name," exactly
-	// today's Export-alone behaviour; a non-empty value (currently only ever the fixed virtual
-	// name "roaming", set by the "roaming" keyword replacing "export" on the device header) means
-	// "export under THIS name instead," so several real installations can each independently
-	// export their own local copy of a device (e.g. the HA companion app's own sensors, live on
-	// whichever real HA instance the phone happens to be connected to) under one shared, stable
-	// cloud-side identity, rather than three separate real-name-qualified identities that could
-	// never be picked up as one. Added 2026-09-02 alongside "import"'s self-import unification --
-	// see mqtt_relay.go's doc comment for the "hosts"-kind precedent this generalizes.
-	ExportAs string
-	// selfImport is parseHassBridgeDeviceHeaderKeywords' "import" keyword on the same device
-	// header, parsed alongside Export/ExportAs by parseHassBridgeIntegrationBody but NOT resolved
-	// there -- that function has no installation name available to resolve it against. Unexported:
-	// pure parse-to-resolve plumbing, mirrors THostDevice.selfImport in spirit, though hassbridge
-	// devices have only the one construction path (collectHassBridgeDevicesByID resolves it
-	// immediately after parsing, unlike "hosts" which has two independent call sites to keep in
-	// sync).
-	selfImport bool
-	// SelfImportFrom is "" unless selfImport was set, in which case it's this installation's own
-	// resolved name -- makes this installation additionally relay whatever's published under
-	// ExportAs (or, if ExportAs is "", this installation's own real name) back onto its own
-	// already-existing local bridge topic, feeding the SAME entity Spaces.def positioning already
-	// creates rather than a second one (see the coordinator-side relay this drives,
-	// discoveryhassbridge.go -- deliberately NOT routed through TImportedDevice/
-	// discoveryimport.go, which would create a structurally distinct, duplicate discovery
-	// entity). Propagated to coordinator/homeassistant_bridge.yaml as "self_import_from:
-	// \"<installation>\"".
-	SelfImportFrom string
 	// DependsOnAvailabilityTopics (2026-09-16, PROJECT.md's logical-layer work) mirrors
 	// TImportedDevice's own identically-named field exactly -- resolved generator-side
 	// (integration_logical_storage.go's resolveDependencyAvailabilityTopics) from a Logical.def

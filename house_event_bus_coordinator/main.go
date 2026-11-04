@@ -462,10 +462,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
-	if err := subscribeHassBridgeSelfImport(cloudClient, client, devicesFile.Installation, hassBridgeFile); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
 	// "Change in store => change in config", irrespective of which of store's several callers
 	// (a hosts device's own device-info topic, a hassbridge device-info topic, or an
 	// entity-existence inquiry reply carrying manufacturer/model) actually made the change --
@@ -495,23 +491,7 @@ func main() {
 			return
 		}
 		if device, known := hassBridgeFile.Devices[deviceID]; known {
-			// This generic callback only ever hands back deviceID, not which instance made the
-			// change -- but republishHassBridgeDeviceCapabilities' exportToCloud guard only exists
-			// to rule out a self-import feedback loop (subscribeHassBridge's own doc comment), and
-			// that risk doesn't apply here: subscribeHassBridgeSelfImport never touches this store
-			// at all (it only relays entity *values*, never device-info), and every OTHER path that
-			// feeds this store for a hassbridge device (entity-existence inquiry replies) only ever
-			// runs against instances this exact device itself declares (Seed's own scoping). So any
-			// of device.Instances is a legitimate stand-in here -- picking the first is enough to
-			// satisfy the guard correctly, letting an exported device's manufacturer/model actually
-			// cross the cloud broker for an importing house to pick up, not just update locally
-			// (found live 2026-09-08: Vienna's own imported copy of a Junglinster-exported Netatmo
-			// device never got manufacturer/model, even though Junglinster's own local copy did).
-			reportingInstance := ""
-			if len(device.Instances) > 0 {
-				reportingInstance = device.Instances[0]
-			}
-			republishHassBridgeDeviceCapabilities(client, cloudClient, devicesFile.Installation, reportingInstance, deviceID, device, store, publisher, conceptualPrefix, existenceTracker)
+			republishHassBridgeDeviceCapabilities(client, cloudClient, devicesFile.Installation, deviceID, device, store, publisher, conceptualPrefix, existenceTracker)
 		}
 	})
 	// PROJECT.md item 1 (2026-09-07): kind-4 existence tracking for shorthand-declared import

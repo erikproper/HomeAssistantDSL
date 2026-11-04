@@ -656,40 +656,6 @@ func TestCheckKnownNotToExistErrorsOptimisticWhenUnresolved(t *testing.T) {
 	}
 }
 
-// TestCheckKnownNotToExistErrorsSkipsRoamingDevices is a regression test for a real incident found
-// live 2026-09-05: Vienna's own hass.eriks_iphone declaration (a roaming device, ExportAs
-// "roaming", Instances: ["main"] -- Vienna's OWN local "main" instance only) started failing
-// generation the moment Vienna's coordinator began reliably publishing fresh existence status,
-// because Vienna's own "main" instance genuinely has no local pairing for this capability -- even
-// though the SAME roaming device is confirmed known-to-exist on Junglinster's own instances, which
-// Vienna's generator has no visibility into at all (each house only ever loads its own
-// Physical.def). A roaming device's existence can never be authoritatively judged from one house's
-// own local instance(s) alone, so it must never hard-fail generation this way.
-func TestCheckKnownNotToExistErrorsSkipsRoamingDevices(t *testing.T) {
-	definitionDir := t.TempDir()
-	seedExistenceCache(t, definitionDir, "main", TEntityExistenceStatusPayload{
-		"hass.eriks_iphone": {Entities: map[string]TEntityExistenceStatusEntry{
-			"sensor.eriks_iphone_15_pro_battery_level": {Status: "known-not-to-exist"},
-		}},
-	})
-
-	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.eriks_iphone": {
-			DeviceID:  "hass.eriks_iphone",
-			Instances: []string{"main"},
-			ExportAs:  "roaming",
-			Capabilities: map[string]THassBridgeCapability{
-				"battery_level": {Domain: "sensor", Sources: map[string]string{"main": "sensor.eriks_iphone_15_pro_battery_level"}},
-			},
-		},
-	}
-
-	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}
-	if problems := checkKnownNotToExistErrors(definitionDir, hassBridgeDevicesByID, ctx); len(problems) != 0 {
-		t.Errorf("a roaming device's own known-not-to-exist status (from THIS house's local instances alone) must never be reported as a problem, got: %v", problems)
-	}
-}
-
 func TestCheckKnownNotToExistErrorsNoInstancesIsNoop(t *testing.T) {
 	definitionDir := t.TempDir()
 	ctx := TPhysicalGenerationContext{MQTTSecrets: TMQTTBrokerSecrets{Server: "127.0.0.1", Port: "1"}}

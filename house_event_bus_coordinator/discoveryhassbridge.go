@@ -129,12 +129,8 @@ type TCapabilityCommand struct {
 // about the live-*reported* value (arriving via MQTT, subscribeHassBridgeDeviceInfo), never the
 // source specification used to produce it, which is purely the reporting automation's concern.
 type THassBridgeDevice struct {
-	// Instances is every "home_assistant <qualifier>" this device bridges from -- almost always
-	// exactly one, but a "roaming" device (ExportAs "roaming") may be declared identically across
-	// more than one qualifier block within the same house (e.g. an HA companion-app phone reachable
-	// via either of two local HA instances), merged into one record generator-side
-	// (homeassistant/integration_hassbridge_parser.go's collectHassBridgeDevicesByID) rather than
-	// colliding.
+	// Instances is the "home_assistant <qualifier>" this device bridges from -- one, since
+	// "roaming" went (PROJECT.md 31, 2026-11-04; a roaming device was declared under several).
 	Instances          []string                         `yaml:"instances"`
 	DisplayName        string                           `yaml:"display_name"`
 	Capabilities       map[string]THassBridgeCapability `yaml:"capabilities"`
@@ -148,23 +144,6 @@ type THassBridgeDevice struct {
 	// entities yet (PROJECT.md 1.6, still undesigned), so there is nothing to cross-post there
 	// yet -- add it alongside state/device-info once commands land, not before.
 	Export bool `yaml:"export,omitempty"`
-	// ExportAs overrides the installation name Export's cross-post is qualified under -- "" means
-	// this coordinator's own real installation name (today's only behaviour); a non-empty value
-	// (currently only ever "roaming", the "roaming" keyword replacing "export" on the device
-	// header) means several real installations can each export their own local copy of a device
-	// under one shared, stable cloud-side identity instead of three separate real-name-qualified
-	// ones. See exportQualifier, below, and mqtt_relay.go's doc comment for the "hosts"-kind
-	// precedent this generalizes. Added 2026-09-02.
-	ExportAs string `yaml:"export_as,omitempty"`
-	// SelfImportFrom is "" unless the "import" keyword was also declared, in which case it's this
-	// installation's own resolved name -- means this coordinator should additionally relay
-	// whatever's published under ExportAs (or, absent that, its own real name) back onto its own
-	// already-existing local bridge topic, feeding the SAME discovery entity Spaces.def
-	// positioning already creates for this device rather than a second one. See
-	// subscribeHassBridgeSelfImport, below -- deliberately NOT routed through
-	// TImportedDevice/discoveryimport.go, which would create a structurally distinct,
-	// duplicate discovery entity instead of feeding the existing one. Added 2026-09-02.
-	SelfImportFrom string `yaml:"self_import_from,omitempty"`
 	// DependsOnAvailability (2026-09-16, PROJECT.md's logical-layer work) mirrors
 	// TImportedDevice's own identically-named field (discoveryimport.go) exactly -- every extra raw
 	// MQTT topic this device's own capabilities' availability must additionally AND in, resolved
@@ -338,9 +317,8 @@ func hostExportID(host, capability string) string {
 // hassBridgeCloudDiscoveryTopic is exportStableID's own topic counterpart -- the discovery CONFIG
 // topic an exported capability's cloud copy is published under, keyed by domain (extracted from
 // localEntity, since the capability's declared Domain always matches it) and the stable id above.
-// Distinct from the capability's own cloud STATE topic (where its actual value lives, still
-// canonicalizeRoamingBridgeTopic-derived, unaffected by this) -- this is only the discovery
-// config's own address.
+// Distinct from the capability's own cloud STATE topic (where its actual value lives) -- this is
+// only the discovery config's own address.
 func hassBridgeCloudDiscoveryTopic(localEntity, stableID, prefix string) (topic string, ok bool) {
 	dotIdx := strings.Index(localEntity, ".")
 	if dotIdx < 0 {
@@ -485,19 +463,15 @@ func availabilityEntriesFrom(list interface{}) []TAvailabilityEntry {
 }
 
 // hassBridgeAcceptsInstance reports whether a bridge message whose instance segment is instance
-// may speak for device: one of its own declared instances, or -- for a self-importing ("import")
-// device only -- the synthetic ownInstallation segment subscribeHassBridgeSelfImport relays a
-// roaming sibling's traffic onto. Anything else is a retained leftover of an instance that no
-// longer exists. Real incident, 2026-10-21 (Junglinster): 184 retained bridge states under
-// "protocols-server-2" survived ha2mqtt's move/rename to protocols-server-1 on 2026-10-15; every
-// coordinator start then saw each entity under BOTH the dead and the live instance, flipping its
-// discovery state_topic between the two (~300 retire+republish cycles per restart) and leaving
-// whichever entity happened to be processed last pointed at the frozen dead topic.
-func hassBridgeAcceptsInstance(device THassBridgeDevice, instance, ownInstallation string) bool {
-	if containsString(device.Instances, instance) {
-		return true
-	}
-	return device.SelfImportFrom != "" && instance == ownInstallation
+// may speak for device: one of its own declared instances. Anything else is a retained leftover of
+// an instance that no longer exists. Real incident, 2026-10-21 (Junglinster): 184 retained bridge
+// states under "protocols-server-2" survived ha2mqtt's move/rename to protocols-server-1 on
+// 2026-10-15; every coordinator start then saw each entity under BOTH the dead and the live
+// instance, flipping its discovery state_topic between the two (~300 retire+republish cycles per
+// restart) and leaving whichever entity happened to be processed last pointed at the frozen dead
+// topic.
+func hassBridgeAcceptsInstance(device THassBridgeDevice, instance string) bool {
+	return containsString(device.Instances, instance)
 }
 
 // containsString reports whether want appears anywhere in list.
@@ -510,50 +484,8 @@ func containsString(list []string, want string) bool {
 	return false
 }
 
-// canonicalRoamingInstance is the fixed instance segment substituted into a roaming
-// (device.ExportAs != "") device's CLOUD-published bridge topics, in place of whichever real local
-// instance (device.Instances) actually produced this particular message. Arbitrary but stable --
-// unrelated to whether any real instance happens to be named "main" -- chosen purely so an importer
-// never needs to watch more than one topic per capability, or a wildcard, to see a roaming device's
-// current value.
-const canonicalRoamingInstance = "main"
-
-// canonicalizeRoamingBridgeTopic rewrites bareTopic's "homeassistant_instances/<instance>/..."
-// segment to canonicalRoamingInstance when device is a roaming device (ExportAs != "") -- applied
-// only when building the CLOUD-bound copy of a topic, never the local one (local traffic still
-// needs its real instance segment, e.g. for hassBridgeAvailabilityTopic's per-instance node lookup
-// and for subscribeHassBridgeSelfImport's own relay). No-op (returns bareTopic unchanged) for a
-// non-roaming device. Fixes the surprise found live 2026-09-05: before this, an iPhone reachable via
-// two HA instances cross-posted to TWO different cloud topics
-// ("roaming/homeassistant_instances/main/bridge/.../state" and ".../protocols-server-2/bridge/...")
-// depending on which instance happened to report most recently, forcing an importer to watch both
-// (or wildcard) instead of one stable topic.
-func canonicalizeRoamingBridgeTopic(bareTopic string, device THassBridgeDevice) string {
-	if device.ExportAs == "" {
-		return bareTopic
-	}
-	parts := strings.SplitN(bareTopic, "/", 3)
-	if len(parts) < 2 || parts[0] != "homeassistant_instances" {
-		return bareTopic
-	}
-	parts[1] = canonicalRoamingInstance
-	return strings.Join(parts, "/")
-}
-
-// exportQualifier resolves the installation name device's Export cross-post is qualified under on
-// the cloud broker -- device.ExportAs if set (currently only ever "roaming"), else ownInstallation
-// (today's only behaviour, unchanged for every device that doesn't declare "roaming"). Added
-// 2026-09-02 alongside "import"'s self-import unification -- see THassBridgeDevice.ExportAs' own
-// doc comment and mqtt_relay.go's doc comment for the "hosts"-kind precedent this generalizes.
-func exportQualifier(device THassBridgeDevice, ownInstallation string) string {
-	if device.ExportAs != "" {
-		return device.ExportAs
-	}
-	return ownInstallation
-}
-
 // expectedHassBridgeCloudTopics is expectedHassBridgeTopics' cloud-broker counterpart: every
-// "export"-flagged device's capabilities get a qualified (exportQualifier) discovery topic on the
+// "export"-flagged device's capabilities get an installation-qualified discovery topic on the
 // cloud broker too (subscribeHassBridge/subscribeHassBridgeDeviceInfo's own Export handling).
 // Bug found and fixed live 2026-08-30: without this, main.go's watchForOrphanedDiscoveryTopics
 // (subscribed on the cloud broker with its own expected-topics set) saw these topics as orphaned
@@ -569,7 +501,7 @@ func expectedHassBridgeCloudTopics(bridgeFile THassBridgeFile, ownInstallation, 
 		if !device.Export {
 			continue
 		}
-		qualifier := exportQualifier(device, ownInstallation)
+		qualifier := ownInstallation
 		if qualifier == "" {
 			continue
 		}
@@ -589,9 +521,8 @@ func expectedHassBridgeCloudTopics(bridgeFile THassBridgeFile, ownInstallation, 
 // directly; a hassbridge entity's reporting automation only ever publishes locally), so this is a
 // genuine, functional relay rather than the hosts mechanism's non-functional discovery catalogue
 // entry -- a future "integration import" consumer (PROJECT.md 1.2a, not built yet) can subscribe
-// to the qualified topic directly and get real values, not just a catalogue listing. qualifier is
-// already-resolved (exportQualifier) by the caller -- this function stays dumb, no per-device
-// logic of its own. No-op if cloudClient is nil (no cloud broker configured).
+// to the qualified topic directly and get real values, not just a catalogue listing. qualifier is this
+// installation's own name. No-op if cloudClient is nil (no cloud broker configured).
 func crossPostHassBridgeToCloud(cloudClient mqtt.Client, qualifier, bareTopic string, payload []byte) {
 	if cloudClient == nil {
 		return
@@ -632,12 +563,6 @@ func crossPostHassBridgeToCloud(cloudClient mqtt.Client, qualifier, bareTopic st
 // "hass.office_garden") and could collide with another exporting house's identically-named device
 // on the same shared cloud broker -- the importer needs "installation" to disambiguate/qualify.
 // Both no-ops when cloudClient is nil.
-//
-// For a roaming device (device.ExportAs != ""), the cloud-bound topic's own instance segment is
-// additionally rewritten to a fixed canonicalRoamingInstance (canonicalizeRoamingBridgeTopic),
-// regardless of which real declared instance (parts[1]) actually reported this message -- fixes the
-// surprise found live 2026-09-05 where the SAME roaming device cross-posted to two different cloud
-// topics depending on which of its instances last reported, forcing an importer to watch both.
 func subscribeHassBridge(client, cloudClient mqtt.Client, ownInstallation string, bridgeFile THassBridgeFile, store *TLiveDeviceInfoStore, publisher *TDiscoveryPublisher, conceptualPrefix string, existenceTracker *TEntityExistenceTracker) error {
 	if len(bridgeFile.Devices) == 0 {
 		return nil
@@ -663,7 +588,7 @@ func subscribeHassBridge(client, cloudClient mqtt.Client, ownInstallation string
 		device := bridgeFile.Devices[found.DeviceID]
 		// An empty payload is a retained message being cleared, not a report -- republishing
 		// discovery for it would point state_topic at a topic that no longer holds anything.
-		if len(msg.Payload()) == 0 || !hassBridgeAcceptsInstance(device, parts[1], ownInstallation) {
+		if len(msg.Payload()) == 0 || !hassBridgeAcceptsInstance(device, parts[1]) {
 			return
 		}
 		viaDeviceID := ""
@@ -683,26 +608,16 @@ func subscribeHassBridge(client, cloudClient mqtt.Client, ownInstallation string
 		// source entity reports of its typing is collected for it.
 		hassBridgeTyping.Record(localEntity, liveUnit, liveDeviceClass, liveIcon, client, cloudClient, ownInstallation)
 
-		// Only cross-post traffic that genuinely originated from one of this device's OWN
-		// declared real instances (parts[1], e.g. "main"/"protocols-server-2") -- not a message
-		// subscribeHassBridgeSelfImport itself just relayed onto this same wildcard from a
-		// sibling installation's cloud-published "roaming" data. Real bug found live 2026-09-05,
-		// first time "roaming"+"import" was ever exercised for a real device: that relay
-		// republishes onto a SYNTHETIC local topic named after ownInstallation (never a real
-		// declared instance), which this same wildcard subscription would otherwise treat as
-		// fresh local traffic and cross-post right back to cloud under "roaming" -- which the
-		// self-import relay is ALSO subscribed to, republishing it locally again, in an unbounded
-		// loop that flooded the shared cloud broker within seconds.
-		if cloudClient != nil && device.Export && containsString(device.Instances, parts[1]) {
-			qualifier := exportQualifier(device, ownInstallation)
-			cloudBareTopic := canonicalizeRoamingBridgeTopic(msg.Topic(), device)
+		if cloudClient != nil && device.Export {
+			qualifier := ownInstallation
+			cloudBareTopic := msg.Topic()
 			crossPostHassBridgeToCloud(cloudClient, qualifier, cloudBareTopic, msg.Payload())
 			var cloudAvailabilityTopics []string
 			for _, topic := range availabilityTopics {
-				cloudAvailabilityTopics = append(cloudAvailabilityTopics, qualifier+"/"+canonicalizeRoamingBridgeTopic(topic, device))
+				cloudAvailabilityTopics = append(cloudAvailabilityTopics, qualifier+"/"+topic)
 			}
 			stableID := exportStableID(qualifier, found.DeviceID, found.Capability)
-			cloudAttributesBareTopic := canonicalizeRoamingBridgeTopic(hassBridgeEntityAttributesTopic(parts[1], localEntity), device)
+			cloudAttributesBareTopic := hassBridgeEntityAttributesTopic(parts[1], localEntity)
 			// devBlock.withoutSuggestedArea(): which area a device sits in is always this house's
 			// own local Spaces.def positioning, never a fact for an importing house to inherit --
 			// see TDiscoveryDevice.withoutSuggestedArea's own doc comment.
@@ -753,13 +668,10 @@ func subscribeHassBridge(client, cloudClient mqtt.Client, ownInstallation string
 // own doc comment), shared by subscribeHassBridgeDeviceInfo's own device-info topic handler and,
 // via store's onChange callback (main.go), any other caller of store.Update for a hassbridge
 // device -- entity_existence.go's subscribeExistenceReply, today, for manufacturer/model learned
-// from an inquiry reply rather than a dedicated device-info report. reportingInstance is the
-// instance segment the update came from ("main"/"protocols-server-2"/...), used only for the
-// self-import export loop-guard (subscribeHassBridge's own doc comment) -- never ownInstallation
-// itself.
-func republishHassBridgeDeviceCapabilities(client, cloudClient mqtt.Client, ownInstallation, reportingInstance, deviceID string, device THassBridgeDevice, store *TLiveDeviceInfoStore, publisher *TDiscoveryPublisher, conceptualPrefix string, existenceTracker *TEntityExistenceTracker) {
-	exportToCloud := cloudClient != nil && device.Export && containsString(device.Instances, reportingInstance)
-	qualifier := exportQualifier(device, ownInstallation)
+// from an inquiry reply rather than a dedicated device-info report.
+func republishHassBridgeDeviceCapabilities(client, cloudClient mqtt.Client, ownInstallation, deviceID string, device THassBridgeDevice, store *TLiveDeviceInfoStore, publisher *TDiscoveryPublisher, conceptualPrefix string, existenceTracker *TEntityExistenceTracker) {
+	exportToCloud := cloudClient != nil && device.Export
+	qualifier := ownInstallation
 
 	viaDeviceID := ""
 	if existenceTracker != nil {
@@ -786,11 +698,11 @@ func republishHassBridgeDeviceCapabilities(client, cloudClient mqtt.Client, ownI
 		}
 		hassBridgeTyping.Record(cap.LocalEntity, liveUnit, liveDeviceClass, liveIcon, client, cloudClient, ownInstallation)
 		if exportToCloud {
-			cloudStateTopic := qualifier + "/" + canonicalizeRoamingBridgeTopic(hassBridgeEntityStateTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), device)
-			cloudAttributesTopic := qualifier + "/" + canonicalizeRoamingBridgeTopic(hassBridgeEntityAttributesTopic(hassBridgeDefaultInstance(device), cap.LocalEntity), device)
+			cloudStateTopic := qualifier + "/" + hassBridgeEntityStateTopic(hassBridgeDefaultInstance(device), cap.LocalEntity)
+			cloudAttributesTopic := qualifier + "/" + hassBridgeEntityAttributesTopic(hassBridgeDefaultInstance(device), cap.LocalEntity)
 			var cloudAvailabilityTopics []string
 			for _, topic := range availabilityTopics {
-				cloudAvailabilityTopics = append(cloudAvailabilityTopics, qualifier+"/"+canonicalizeRoamingBridgeTopic(topic, device))
+				cloudAvailabilityTopics = append(cloudAvailabilityTopics, qualifier+"/"+topic)
 			}
 			stableID := exportStableID(qualifier, deviceID, capability)
 			// devBlock.withoutSuggestedArea(): see the identical comment in subscribeHassBridge's
@@ -826,7 +738,7 @@ func subscribeHassBridgeDeviceInfo(client, cloudClient mqtt.Client, ownInstallat
 		}
 		deviceID := parts[4]
 		device, known := bridgeFile.Devices[deviceID]
-		if !known || len(msg.Payload()) == 0 || !hassBridgeAcceptsInstance(device, parts[1], ownInstallation) {
+		if !known || len(msg.Payload()) == 0 || !hassBridgeAcceptsInstance(device, parts[1]) {
 			return
 		}
 
@@ -843,16 +755,13 @@ func subscribeHassBridgeDeviceInfo(client, cloudClient mqtt.Client, ownInstallat
 		// bare inquiry reply, this handler exists specifically because something was reported).
 		store.Update(deviceID, fields)
 
-		// Same self-import feedback-loop guard as subscribeHassBridge's own handler -- see its
-		// doc comment for the full incident. parts[1] here is the reporting instance segment
-		// ("main"/"protocols-server-2"/...), never ownInstallation itself.
-		exportToCloud := cloudClient != nil && device.Export && containsString(device.Instances, parts[1])
-		qualifier := exportQualifier(device, ownInstallation)
+		exportToCloud := cloudClient != nil && device.Export
+		qualifier := ownInstallation
 
-		republishHassBridgeDeviceCapabilities(client, cloudClient, ownInstallation, parts[1], deviceID, device, store, publisher, conceptualPrefix, existenceTracker)
+		republishHassBridgeDeviceCapabilities(client, cloudClient, ownInstallation, deviceID, device, store, publisher, conceptualPrefix, existenceTracker)
 
 		if exportToCloud {
-			crossPostHassBridgeToCloud(cloudClient, qualifier, canonicalizeRoamingBridgeTopic(msg.Topic(), device), msg.Payload())
+			crossPostHassBridgeToCloud(cloudClient, qualifier, msg.Topic(), msg.Payload())
 		}
 	}
 
@@ -863,98 +772,6 @@ func subscribeHassBridgeDeviceInfo(client, cloudClient mqtt.Client, ownInstallat
 			return fmt.Errorf("subscribing to %s: %w", filter, err)
 		}
 		return fmt.Errorf("subscribing to %s: timed out", filter)
-	}
-	return nil
-}
-
-// subscribeHassBridgeSelfImport relays cloud-broker traffic published under a device's own
-// export qualifier (exportQualifier) back onto this instance's own bare local bridge topic --
-// modeled directly on relayCloudDevice (mqtt_relay.go, the "hosts"-side precedent this
-// generalizes), deliberately NOT on TImportedDevice/discoveryimport.go, which would
-// create a second, structurally distinct discovery entity (different unique_id/topics) instead of
-// feeding the ONE entity Spaces.def positioning already creates for this device via its own local
-// "export"/"roaming" declaration. Only devices with SelfImportFrom set (the "import" keyword,
-// homeassistant/integration_hassbridge_parser.go) are relayed -- letting this coordinator see its
-// own exported data, or a SIBLING installation's, whichever is currently live, without needing to
-// know or care which. Neither handler checks the arriving topic's own instance segment (parts[1]
-// for state, parts[4] for device-info) against anything -- subscribeHassBridge/
-// subscribeHassBridgeDeviceInfo's own LOCAL handlers already don't either (see their own topic
-// parsing), so a relayed message is picked up identically to a genuinely local one regardless of
-// which real instance actually published it.
-//
-// Operational precondition, not enforced here: every real installation sharing a "roaming" device
-// must declare it under the identical literal DeviceID in its own Physical.def, or a sibling's
-// relayed traffic will never resolve to a capability this coordinator's own bridgeFile knows
-// about (byLocal/bridgeFile.Devices lookups below simply won't match, and the message is silently
-// dropped).
-//
-// No-op if cloudClient is nil, or no device declares SelfImportFrom.
-func subscribeHassBridgeSelfImport(cloudClient, mainClient mqtt.Client, ownInstallation string, bridgeFile THassBridgeFile) error {
-	if cloudClient == nil {
-		return nil
-	}
-	byLocal := hassBridgeCapabilitiesByLocalEntity(bridgeFile)
-	qualifiers := map[string]bool{}
-	for _, device := range bridgeFile.Devices {
-		if device.SelfImportFrom != "" {
-			qualifiers[exportQualifier(device, ownInstallation)] = true
-		}
-	}
-	if len(qualifiers) == 0 {
-		return nil
-	}
-
-	stateHandler := func(_ mqtt.Client, msg mqtt.Message) {
-		// <qualifier>/homeassistant_instances/<source-instance>/bridge/<local_entity>/state
-		parts := strings.Split(msg.Topic(), "/")
-		if len(parts) != 6 || parts[1] != "homeassistant_instances" || parts[3] != "bridge" || parts[5] != "state" {
-			return
-		}
-		found, known := byLocal[parts[4]]
-		if !known || bridgeFile.Devices[found.DeviceID].SelfImportFrom == "" {
-			return
-		}
-		target := hassBridgeEntityStateTopic(ownInstallation, parts[4])
-		token := mainClient.Publish(target, 0, true, msg.Payload())
-		if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
-			if err := token.Error(); err != nil {
-				fmt.Printf("[hass-bridge:self-import] relaying %s -> %s: %v\n", msg.Topic(), target, err)
-			}
-		}
-	}
-
-	deviceInfoHandler := func(_ mqtt.Client, msg mqtt.Message) {
-		// <qualifier>/homeassistant_instances/<source-instance>/bridge/device/<deviceID>/state
-		parts := strings.Split(msg.Topic(), "/")
-		if len(parts) != 7 || parts[1] != "homeassistant_instances" || parts[3] != "bridge" || parts[4] != "device" || parts[6] != "state" {
-			return
-		}
-		deviceID := parts[5]
-		if bridgeFile.Devices[deviceID].SelfImportFrom == "" {
-			return
-		}
-		target := "homeassistant_instances/" + ownInstallation + "/bridge/device/" + deviceID + "/state"
-		token := mainClient.Publish(target, 0, true, msg.Payload())
-		if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
-			if err := token.Error(); err != nil {
-				fmt.Printf("[hass-bridge:self-import] relaying %s -> %s: %v\n", msg.Topic(), target, err)
-			}
-		}
-	}
-
-	for qualifier := range qualifiers {
-		for filter, handler := range map[string]mqtt.MessageHandler{
-			qualifier + "/homeassistant_instances/+/bridge/+/state":        stateHandler,
-			qualifier + "/homeassistant_instances/+/bridge/device/+/state": deviceInfoHandler,
-		} {
-			tok := subscribe(cloudClient, filter, 0, handler)
-			if !tok.WaitTimeout(10*time.Second) || tok.Error() != nil {
-				if err := tok.Error(); err != nil {
-					return fmt.Errorf("subscribing to %s: %w", filter, err)
-				}
-				return fmt.Errorf("subscribing to %s: timed out", filter)
-			}
-		}
 	}
 	return nil
 }

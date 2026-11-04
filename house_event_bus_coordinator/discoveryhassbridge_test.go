@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -468,37 +467,6 @@ func TestSubscribeHassBridgeDeviceInfoUpdatesStoreAndRepublishesCapabilities(t *
 	}
 }
 
-// TestSubscribeHassBridgeDeviceInfoSkipsCrossPostForSelfImportEcho is
-// TestSubscribeHassBridgeSkipsCrossPostForSelfImportEcho's device-info counterpart: the identical
-// feedback-loop risk exists on subscribeHassBridgeDeviceInfo's own six-segment device-info topic
-// (deviceInfoHandler in subscribeHassBridgeSelfImport relays onto
-// "homeassistant_instances/<ownInstallation>/bridge/device/<id>/state", a synthetic instance name
-// this device never actually declared).
-func TestSubscribeHassBridgeDeviceInfoSkipsCrossPostForSelfImportEcho(t *testing.T) {
-	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
-		"hass.eriks_iphone": {
-			Instances: []string{"protocols-server-2"}, Export: true, ExportAs: "roaming", SelfImportFrom: "junglinster",
-			Capabilities: map[string]THassBridgeCapability{
-				"battery_level": {LocalEntity: "sensor.infrastructural_eriks_iphone_battery_level"},
-			},
-		},
-	}}
-
-	echoTopic := "homeassistant_instances/junglinster/bridge/device/hass.eriks_iphone/state"
-	client := &fakeClient{retained: []fakeMessage{{topic: echoTopic, payload: []byte(`{"manufacturer": "Apple"}`)}}}
-	cloudClient := &fakeClient{}
-	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
-	store := NewLiveDeviceInfoStore("", nil)
-
-	if err := subscribeHassBridgeDeviceInfo(client, cloudClient, "junglinster", bridgeFile, store, publisher, testPrefix, nil); err != nil {
-		t.Fatalf("subscribeHassBridgeDeviceInfo error: %v", err)
-	}
-
-	if len(cloudClient.publishedSnapshot()) != 0 {
-		t.Errorf("expected NO cross-post to cloud for a self-import device-info echo (would loop forever), got %v", cloudClient.publishedSnapshot())
-	}
-}
-
 func TestSubscribeHassBridgeExportCrossPostsToCloud(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.vienna_terrace": {
@@ -570,167 +538,6 @@ func TestSubscribeHassBridgeExportCrossPostsToCloud(t *testing.T) {
 		if body["state_topic"] != localTopic {
 			t.Errorf("local discovery state_topic = %v, want the bare local topic %q unaffected by export", body["state_topic"], localTopic)
 		}
-	}
-}
-
-// TestSubscribeHassBridgeSkipsCrossPostForSelfImportEcho is a regression test for a real bug found
-// live 2026-09-05, the first time "roaming"+"import" was ever exercised for a real device:
-// subscribeHassBridgeSelfImport relays a sibling's cloud-published traffic onto a SYNTHETIC local
-// topic named after ownInstallation (e.g. "homeassistant_instances/junglinster/bridge/.../state")
-// -- "junglinster" is never a genuinely declared instance (real ones are "main"/
-// "protocols-server-2"). Before this fix, subscribeHassBridge's own wildcard treated that as fresh
-// local traffic and cross-posted it right back to cloud under "roaming", which the self-import
-// relay was ALSO subscribed to -- republishing it locally again, forever. This confirms a message
-// whose reporting-instance segment isn't one of the device's own declared Instances is relayed
-// locally (main copy still needs it) but never cross-posted.
-func TestSubscribeHassBridgeSkipsCrossPostForSelfImportEcho(t *testing.T) {
-	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
-		"hass.eriks_iphone": {
-			Instances: []string{"protocols-server-2"}, Export: true, ExportAs: "roaming", SelfImportFrom: "junglinster",
-			Capabilities: map[string]THassBridgeCapability{
-				"battery_level": {LocalEntity: "sensor.infrastructural_eriks_iphone_battery_level"},
-			},
-		},
-	}}
-
-	// Exactly what subscribeHassBridgeSelfImport's own relay handler publishes: ownInstallation
-	// ("junglinster") used as the topic's instance segment, never a real declared one.
-	echoTopic := "homeassistant_instances/junglinster/bridge/sensor.infrastructural_eriks_iphone_battery_level/state"
-	client := &fakeClient{retained: []fakeMessage{{topic: echoTopic, payload: []byte("87")}}}
-	cloudClient := &fakeClient{}
-	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
-	store := NewLiveDeviceInfoStore("", nil)
-
-	if err := subscribeHassBridge(client, cloudClient, "junglinster", bridgeFile, store, publisher, testPrefix, nil); err != nil {
-		t.Fatalf("subscribeHassBridge error: %v", err)
-	}
-
-	if len(cloudClient.publishedSnapshot()) != 0 {
-		t.Errorf("expected NO cross-post to cloud for a self-import echo (would loop forever), got %v", cloudClient.publishedSnapshot())
-	}
-	// The local/main discovery config still needs to be published/refreshed -- only the cloud
-	// cross-post is suppressed.
-	foundLocal := false
-	for _, p := range localBridgeConfigs(bridgeFile, store, nil, "junglinster|sensor.infrastructural_eriks_iphone_battery_level") {
-		var body map[string]interface{}
-		if err := json.Unmarshal(p.payload, &body); err == nil && body["state_topic"] == echoTopic {
-			foundLocal = true
-		}
-	}
-	if !foundLocal {
-		t.Errorf("expected the local discovery config still published pointing at %q, got %v", echoTopic, client.publishedSnapshot())
-	}
-}
-
-// TestSubscribeHassBridgeCanonicalizesRoamingCloudTopic is a regression test for the surprise the
-// user flagged live 2026-09-05: a roaming device reachable via more than one real local instance
-// cross-posted to a DIFFERENT cloud topic depending on which instance last reported
-// ("roaming/homeassistant_instances/main/bridge/.../state" vs ".../protocols-server-2/bridge/..."),
-// forcing an importer to watch both. The cloud copy's instance segment must always be
-// canonicalRoamingInstance ("main"), regardless of which real declared instance actually published.
-func TestSubscribeHassBridgeCanonicalizesRoamingCloudTopic(t *testing.T) {
-	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
-		"hass.eriks_iphone": {
-			Instances: []string{"main", "protocols-server-2"}, Export: true, ExportAs: "roaming",
-			Capabilities: map[string]THassBridgeCapability{
-				"battery_level": {LocalEntity: "sensor.infrastructural_eriks_iphone_battery_level"},
-			},
-		},
-	}}
-
-	realTopic := "homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_eriks_iphone_battery_level/state"
-	client := &fakeClient{retained: []fakeMessage{{topic: realTopic, payload: []byte("87")}}}
-	cloudClient := &fakeClient{}
-	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
-	store := NewLiveDeviceInfoStore("", nil)
-
-	if err := subscribeHassBridge(client, cloudClient, "junglinster", bridgeFile, store, publisher, testPrefix, nil); err != nil {
-		t.Fatalf("subscribeHassBridge error: %v", err)
-	}
-
-	wantCanonicalTopic := "roaming/homeassistant_instances/main/bridge/sensor.infrastructural_eriks_iphone_battery_level/state"
-	foundRaw := false
-	for _, p := range cloudClient.publishedSnapshot() {
-		if p.topic == wantCanonicalTopic && string(p.payload) == "87" {
-			foundRaw = true
-		}
-		if strings.Contains(p.topic, "protocols-server-2") {
-			t.Errorf("cloud publish %q must never carry the real reporting instance, want it canonicalized to %q", p.topic, canonicalRoamingInstance)
-		}
-	}
-	if !foundRaw {
-		t.Errorf("expected raw state cross-posted to canonicalized topic %q, got %v", wantCanonicalTopic, cloudClient.publishedSnapshot())
-	}
-
-	stableID := exportStableID("roaming", "hass.eriks_iphone", "battery_level")
-	discoveryTopic, ok := hassBridgeCloudDiscoveryTopic("sensor.infrastructural_eriks_iphone_battery_level", stableID, testPrefix)
-	if !ok {
-		t.Fatalf("hassBridgeCloudDiscoveryTopic returned ok=false")
-	}
-	wantCloudDiscoveryTopic := "roaming/" + discoveryTopic
-	foundDiscovery := false
-	for _, p := range cloudClient.publishedSnapshot() {
-		if p.topic != wantCloudDiscoveryTopic {
-			continue
-		}
-		foundDiscovery = true
-		var body map[string]interface{}
-		if err := json.Unmarshal(p.payload, &body); err != nil {
-			t.Fatalf("unmarshalling cloud discovery payload: %v", err)
-		}
-		if body["state_topic"] != wantCanonicalTopic {
-			t.Errorf("cloud discovery state_topic = %v, want the canonicalized topic %q", body["state_topic"], wantCanonicalTopic)
-		}
-	}
-	if !foundDiscovery {
-		t.Errorf("expected a discovery config published to cloud at %q, got %v", wantCloudDiscoveryTopic, cloudClient.publishedSnapshot())
-	}
-}
-
-// TestSubscribeHassBridgeDeviceInfoCanonicalizesRoamingCloudTopic is
-// TestSubscribeHassBridgeCanonicalizesRoamingCloudTopic's device-info counterpart:
-// hassBridgeDefaultInstance(device) alone (device.Instances[0]) isn't a reliable canonicalization --
-// it depends on declaration order, e.g. here Instances[0] is "protocols-server-2", not "main". The
-// cloud-bound state_topic must still land on canonicalRoamingInstance ("main") regardless.
-func TestSubscribeHassBridgeDeviceInfoCanonicalizesRoamingCloudTopic(t *testing.T) {
-	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
-		"hass.eriks_iphone": {
-			Instances: []string{"protocols-server-2", "main"}, Export: true, ExportAs: "roaming",
-			Capabilities: map[string]THassBridgeCapability{
-				"battery_level": {LocalEntity: "sensor.infrastructural_eriks_iphone_battery_level"},
-			},
-		},
-	}}
-
-	deviceInfoTopic := "homeassistant_instances/protocols-server-2/bridge/device/hass.eriks_iphone/state"
-	deviceInfoPayload := []byte(`{"manufacturer": "Apple"}`)
-	client := &fakeClient{retained: []fakeMessage{{topic: deviceInfoTopic, payload: deviceInfoPayload}}}
-	cloudClient := &fakeClient{}
-	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
-	store := NewLiveDeviceInfoStore("", nil)
-
-	if err := subscribeHassBridgeDeviceInfo(client, cloudClient, "junglinster", bridgeFile, store, publisher, testPrefix, nil); err != nil {
-		t.Fatalf("subscribeHassBridgeDeviceInfo error: %v", err)
-	}
-
-	wantCanonicalTopic := "roaming/homeassistant_instances/main/bridge/sensor.infrastructural_eriks_iphone_battery_level/state"
-	found := false
-	for _, p := range cloudClient.publishedSnapshot() {
-		var body map[string]interface{}
-		if err := json.Unmarshal(p.payload, &body); err != nil {
-			continue
-		}
-		if stateTopic, ok := body["state_topic"]; ok {
-			if strings.Contains(stateTopic.(string), "protocols-server-2") {
-				t.Errorf("cloud discovery state_topic = %v, must never carry the real reporting instance", stateTopic)
-			}
-			if stateTopic == wantCanonicalTopic {
-				found = true
-			}
-		}
-	}
-	if !found {
-		t.Errorf("expected a cloud discovery config with state_topic %q, got %v", wantCanonicalTopic, cloudClient.publishedSnapshot())
 	}
 }
 
@@ -962,7 +769,7 @@ func TestExpectedHassBridgeCloudTopicsEmptyWithNoInstallation(t *testing.T) {
 	}
 }
 
-// --- exportQualifier / "roaming" / self-import (2026-09-02) ---
+// --- exportStableID ---
 
 // TestExportStableIDIndependentOfLocalNaming is the regression test for the robustness gap found
 // live 2026-09-07: the cloud stable id must depend only on (installation, deviceID, capability),
@@ -987,123 +794,6 @@ func TestExportStableIDSanitizesSlashInCapability(t *testing.T) {
 	want := "junglinster_host_pro-1_cpu_load"
 	if got != want {
 		t.Errorf("exportStableID = %q, want %q", got, want)
-	}
-}
-
-func TestExportQualifierUsesExportAsWhenSet(t *testing.T) {
-	device := THassBridgeDevice{ExportAs: "roaming"}
-	if got := exportQualifier(device, "junglinster"); got != "roaming" {
-		t.Errorf("exportQualifier = %q, want %q (ExportAs wins over ownInstallation)", got, "roaming")
-	}
-}
-
-func TestExportQualifierFallsBackToOwnInstallation(t *testing.T) {
-	device := THassBridgeDevice{}
-	if got := exportQualifier(device, "junglinster"); got != "junglinster" {
-		t.Errorf("exportQualifier = %q, want %q (today's unchanged behaviour when ExportAs is unset)", got, "junglinster")
-	}
-}
-
-// TestExpectedHassBridgeCloudTopicsUsesExportAsQualifier confirms a "roaming"-exported device's
-// cloud topic is qualified with "roaming", not this coordinator's own ownInstallation.
-func TestExpectedHassBridgeCloudTopicsUsesExportAsQualifier(t *testing.T) {
-	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
-		"hass.eriks_iphone": {
-			Instances: []string{"protocols-server-2"}, Export: true, ExportAs: "roaming",
-			Capabilities: map[string]THassBridgeCapability{
-				"battery_level": {LocalEntity: "sensor.infrastructural_eriks_iphone_battery_level"},
-			},
-		},
-	}}
-
-	got := expectedHassBridgeCloudTopics(bridgeFile, "junglinster", testPrefix)
-
-	stableID := exportStableID("roaming", "hass.eriks_iphone", "battery_level")
-	wantTopic, ok := hassBridgeCloudDiscoveryTopic("sensor.infrastructural_eriks_iphone_battery_level", stableID, testPrefix)
-	if !ok {
-		t.Fatalf("hassBridgeCloudDiscoveryTopic returned ok=false")
-	}
-	if !got["roaming/"+wantTopic] {
-		t.Errorf("got %v, want it qualified with \"roaming/\", not \"junglinster/\"", got)
-	}
-	if got["junglinster/"+wantTopic] {
-		t.Errorf("got %v, must NOT also contain the ownInstallation-qualified topic", got)
-	}
-}
-
-// TestSubscribeHassBridgeSelfImportRelaysStateOntoLocalTopic confirms a self-imported device's
-// cloud-broker traffic (published under its own ExportAs qualifier by a real -- possibly sibling
-// -- installation) gets relayed verbatim onto this instance's own bare local bridge topic, the
-// SAME topic subscribeHassBridge's own local handler already treats as this entity's live-value
-// source -- no second discovery entity, just feeding the one that already exists.
-func TestSubscribeHassBridgeSelfImportRelaysStateOntoLocalTopic(t *testing.T) {
-	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
-		"hass.eriks_iphone": {
-			Instances: []string{"protocols-server-2"}, Export: true, ExportAs: "roaming", SelfImportFrom: "junglinster",
-			Capabilities: map[string]THassBridgeCapability{
-				"battery_level": {LocalEntity: "sensor.infrastructural_eriks_iphone_battery_level"},
-			},
-		},
-	}}
-
-	// Published by a sibling installation (protocols-server-2) under the shared "roaming" qualifier.
-	cloudTopic := "roaming/homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_eriks_iphone_battery_level/state"
-	cloudClient := &fakeClient{retained: []fakeMessage{{topic: cloudTopic, payload: []byte("87")}}}
-	mainClient := &fakeClient{}
-
-	if err := subscribeHassBridgeSelfImport(cloudClient, mainClient, "junglinster", bridgeFile); err != nil {
-		t.Fatalf("subscribeHassBridgeSelfImport error: %v", err)
-	}
-
-	wantTopic := "homeassistant_instances/junglinster/bridge/sensor.infrastructural_eriks_iphone_battery_level/state"
-	published := mainClient.publishedSnapshot()
-	found := false
-	for _, p := range published {
-		if p.topic == wantTopic && string(p.payload) == "87" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("mainClient published = %v, want a publish to %q with payload \"87\"", published, wantTopic)
-	}
-}
-
-// TestSubscribeHassBridgeSelfImportSkipsDevicesWithoutSelfImportFrom confirms a device that
-// declared "roaming"/"export" but NOT "import" is never relayed -- SelfImportFrom empty means
-// this installation never asked to see this data reflected back onto its own local topic.
-func TestSubscribeHassBridgeSelfImportSkipsDevicesWithoutSelfImportFrom(t *testing.T) {
-	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
-		"hass.eriks_iphone": {
-			Instances: []string{"protocols-server-2"}, Export: true, ExportAs: "roaming",
-			Capabilities: map[string]THassBridgeCapability{
-				"battery_level": {LocalEntity: "sensor.infrastructural_eriks_iphone_battery_level"},
-			},
-		},
-	}}
-	cloudClient := &fakeClient{}
-	mainClient := &fakeClient{}
-
-	if err := subscribeHassBridgeSelfImport(cloudClient, mainClient, "junglinster", bridgeFile); err != nil {
-		t.Fatalf("subscribeHassBridgeSelfImport error: %v", err)
-	}
-	if len(cloudClient.subscribedHandlersSnapshot()) != 0 {
-		t.Errorf("expected no cloud subscriptions at all when no device declares SelfImportFrom")
-	}
-}
-
-// TestSubscribeHassBridgeSelfImportNoopWhenCloudClientNil confirms no panic/subscription attempt
-// when this house has no cloud broker configured.
-func TestSubscribeHassBridgeSelfImportNoopWhenCloudClientNil(t *testing.T) {
-	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
-		"hass.eriks_iphone": {
-			Instances: []string{"protocols-server-2"}, Export: true, ExportAs: "roaming", SelfImportFrom: "junglinster",
-			Capabilities: map[string]THassBridgeCapability{
-				"battery_level": {LocalEntity: "sensor.infrastructural_eriks_iphone_battery_level"},
-			},
-		},
-	}}
-	if err := subscribeHassBridgeSelfImport(nil, &fakeClient{}, "junglinster", bridgeFile); err != nil {
-		t.Fatalf("subscribeHassBridgeSelfImport error: %v", err)
 	}
 }
 
@@ -1312,8 +1002,8 @@ func TestSubscribeHassBridgeOmitsJSONAttributesTopicWhenNotDeclared(t *testing.T
 
 // TestSubscribeHassBridgeExportCrossPostsAttributesTopicToCloud mirrors
 // TestSubscribeHassBridgeExportCrossPostsToCloud for the new json_attributes_topic field: the
-// cloud-exported discovery config's own attributes topic must be qualifier-prefixed and
-// roaming-canonicalized the same way its state_topic already is, not left as the bare local one.
+// cloud-exported discovery config's own attributes topic must be qualifier-prefixed the same way
+// its state_topic already is, not left as the bare local one.
 func TestSubscribeHassBridgeExportCrossPostsAttributesTopicToCloud(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.roomba": {
@@ -1501,11 +1191,9 @@ func TestBuildHassBridgeEntityDiscoveryBodyNoPositionOmitsFields(t *testing.T) {
 
 // TestHassBridgeAcceptsInstance covers the 2026-10-21 guard (hassBridgeAcceptsInstance's own doc
 // comment): retained bridge traffic under an instance a device no longer declares (Junglinster's
-// pre-rename "protocols-server-2") must be ignored, while a roaming self-import device keeps
-// accepting the synthetic ownInstallation segment its sibling's relayed traffic arrives under.
+// pre-rename "protocols-server-2") must be ignored.
 func TestHassBridgeAcceptsInstance(t *testing.T) {
 	plain := THassBridgeDevice{Instances: []string{"ha2mqtt"}}
-	roaming := THassBridgeDevice{Instances: []string{"main"}, Export: true, ExportAs: "roaming", SelfImportFrom: "roaming"}
 	cases := []struct {
 		name     string
 		device   THassBridgeDevice
@@ -1514,13 +1202,10 @@ func TestHassBridgeAcceptsInstance(t *testing.T) {
 	}{
 		{"declared instance", plain, "ha2mqtt", true},
 		{"retired instance", plain, "protocols-server-2", false},
-		{"own installation, not self-importing", plain, "junglinster", false},
-		{"roaming, own instance", roaming, "main", true},
-		{"roaming, self-import relay", roaming, "junglinster", true},
-		{"roaming, retired instance", roaming, "protocols-server-2", false},
+		{"own installation", plain, "junglinster", false},
 	}
 	for _, c := range cases {
-		if got := hassBridgeAcceptsInstance(c.device, c.instance, "junglinster"); got != c.want {
+		if got := hassBridgeAcceptsInstance(c.device, c.instance); got != c.want {
 			t.Errorf("%s: hassBridgeAcceptsInstance(%q) = %v, want %v", c.name, c.instance, got, c.want)
 		}
 	}

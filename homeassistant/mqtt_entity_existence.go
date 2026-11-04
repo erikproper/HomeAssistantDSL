@@ -276,23 +276,6 @@ func checkKnownNotToExistErrors(definitionDir string, hassBridgeDevicesByID map[
 	var problems []string
 	for _, deviceID := range deviceIDs {
 		device := hassBridgeDevicesByID[deviceID]
-		// A roaming device (ExportAs != "") may be declared identically in more than one house's
-		// own Physical.def, each with its own local Instances -- but this house's generator only
-		// ever loads its OWN Physical.def, so device.Instances here is only ever THIS house's own
-		// subset. "Every declared instance we have status for confirms not-to-exist" (the check
-		// just below) is therefore meaningless for a roaming device: "not confirmed on any local
-		// instance this house declares" says nothing about whether it's genuinely paired with
-		// another house's own instance this generator has no visibility into at all. Real incident,
-		// found live 2026-09-05: Vienna's own hass.eriks_iphone declaration (Instances: ["main"])
-		// failed generation the moment Vienna's coordinator's own existence status became reliably
-		// fresh (see entity_existence.go's StartEntityExistenceInquiries immediate-publish fix),
-		// even though the SAME roaming device is confirmed known-to-exist on Junglinster's own
-		// instances -- information Vienna's generator can't see and was never meant to need. Skip
-		// the hard-fail check entirely for a roaming device -- generate optimistically, same as any
-		// not-known-to-exist source, regardless of what THIS house's own local instance(s) confirm.
-		if device.ExportAs != "" {
-			continue
-		}
 		capabilityNames := make([]string, 0, len(device.Capabilities))
 		for name := range device.Capabilities {
 			capabilityNames = append(capabilityNames, name)
@@ -301,11 +284,8 @@ func checkKnownNotToExistErrors(definitionDir string, hassBridgeDevicesByID map[
 		for _, capability := range capabilityNames {
 			cap := device.Capabilities[capability]
 			// A capability is only a real problem when EVERY declared instance we have status
-			// for confirms it not-to-exist -- a device declared on more than one LOCAL instance
-			// only needs to exist on ONE of them to actually work. Each instance's OWN declared
-			// source is looked up per-instance (cap.Sources[instance]), never a shared value -- a
-			// roaming device's own local entity_id for the same capability can genuinely differ
-			// across instances (found live 2026-09-05).
+			// for confirms it not-to-exist. Each instance's own declared source is looked up
+			// per-instance (cap.Sources[instance]).
 			checkedAny, confirmedNotToExist := false, false
 			for _, instance := range device.Instances {
 				source, declaredHere := cap.Sources[instance]
