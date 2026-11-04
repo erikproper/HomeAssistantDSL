@@ -79,28 +79,36 @@ JLI
  
 ## Migration & improvements
 
-30. Jointly check the consistency and cleanliness of the DSL.
+30. An "as local <domain>.<object>" option on a Physical.def native ("integration local")
+    capability, naming the entity's CURRENT HA entity_id, e.g. "capability
+    media_player.media_player as local media_player.office;" (Erik, 2026-10-26; then also an
+    allowed "as" qualifier, checkQualifiedAs). The deploy's registry repair
+    (home_assistant_registry.go) looks that entity_id up in HA's registry (read only), and writes
+    the integration's own platform and unique_id back into Physical.def as the capability's frozen
+    id, replacing the "local ..." -- from then on the native entity is identified by its real
+    unique_id, like the generator's own, and the registry repair renames it to its positioned
+    entity_id from the very first deploy (no matching by hand in the HA UI, no previous-manifest
+    comparison by source).
 
-30a. Review the per-house `generate`/`deploy` scripts (`deploy`, `deploy.d/*`) and decide what to
-     offer as generic infrastructure for other users. The pushes to the main HA and the ha2mqtt
-     instances, the registry sync, and the reload-or-restart choice (`MetaAction`) are the same in
-     both houses apart from host names and ports. Those could be generated from Physical.def, or
-     become a shared tool. Also standardize them on one language, Python or Bash (Erik,
-     2026-10-26) -- today the deploy is Bash with an embedded Python registry repair.
-     Future step (Erik, 2026-10-26): the registry repair as a proper Go app, a "pre-deploy" step
-     driven by the list of expected entries (registry_manifest.json), talking to Home Assistant's
-     websocket API directly instead of running a Python script over SSH inside the HA add-on. Its
-     credentials (a long-lived access token per HA instance) then become explicit secrets in the
-     def files, like the MQTT secrets -- today the script picks up the Supervisor token implicitly
-     inside the add-on.
-     With it (Erik, 2026-10-26): an "as local <domain>.<object>" option on a Physical.def native
-     ("integration local") capability, naming the entity's CURRENT HA entity_id, e.g.
-     "capability media_player.media_player as local media_player.office;". The pre-deploy step
-     looks that entity_id up in HA's registry (read only), and writes the integration's own
-     platform and unique_id back into Physical.def as the capability's frozen id, replacing the
-     "local ..." -- from then on the native entity is identified by its real unique_id, like the
-     generator's own, and the registry repair renames it to its positioned entity_id from the very
-     first deploy (no matching by hand in the HA UI, no previous-manifest comparison by source).
+50. Move to rsync and "cp -l" based backup of non-cloud parts of macs to p-s-1@jli.
+- rename /mnt/media on p-s-1@jli to /mnt/disk1 ... also for samba
+- use /mnt/disk1/snapshots as target for backups
+  => we already have /mnt/disk1/snapshots/pro1/00
+- Generic bash script in ~/bin (Nextcloud synced) that uses /mnt/disk1/snapshots/$hostname as its target
+- Allow for 10 snapshots (10 is a constant set in the bash script), rotated as follow: 
+  - version 09 is deleted
+  - versions 01 to 08 are "bumbed"
+  - version 00 is "cp -l"-ed to 01
+  - then an rsync of the selected sources to /mnt/disk1/snapshots/$hostname/01
+The selected sources may differ per mac, and will (manually) be set (avoiding e.g. clouds and associated symlinks)
+Name of the script: "snapshot"
+Note: there is already a basic version in place that I used to already make a snapshot of this laptop.
+Can we avoid having to enter the root Opassword? Wrap it in a setuid app?
+We also need a "wrapper" that can be positioned on the toolbar of the macs, to run the script from there, and leave the window open for inspection afterwards.
+Note: there is an issue with the Documents folder:
+rsync(93124): error: open Documents: Operation not permitted
+rsync(93124): error: froot_open
+
 
 31. Code cleaning (dead code, superseded generator logic, parser)
 ==> Dead code found 2026-10-27 (go/ast analysis, not from item 19, left out of its cleanup): generator
