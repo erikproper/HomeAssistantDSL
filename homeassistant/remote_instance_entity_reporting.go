@@ -158,10 +158,9 @@ func applyValueMap(valueMap map[string]string, expr string) string {
 	return "{" + strings.Join(pairs, ", ") + "}.get(" + expr + ", " + expr + ")"
 }
 
-// resolveHassBridgeCapabilityExpr resolves capability label's own value, as reported by instance,
-// into a Jinja expression plus the bare HA entity_id whose state changing should trigger
+// resolveHassBridgeCapabilityExpr resolves capability label's own value into a Jinja expression plus the bare HA entity_id whose state changing should trigger
 // republishing. For an ordinary (atomic) capability this is exactly what it always was --
-// applyValueMap(sourceToJinja2(Source)) and bareEntityFromSource(Source), both per-instance. For a
+// applyValueMap(sourceToJinja2(Source)) and bareEntityFromSource(Source). For a
 // "derived" capability (DerivedFromCapability/DerivedViaTemplate,
 // Physical_DerivedCapability.go/plans/derived-capability-mechanism.md Phase 2), there is no
 // Source of its own to read -- instead this recursively resolves the SAME-DEVICE sibling capability
@@ -169,10 +168,10 @@ func applyValueMap(valueMap map[string]string, expr string) string {
 // its resolved expression into DerivedViaTemplate; the trigger entity is always the ultimate
 // atomic base's own entity, however many derivation steps deep, since that's the one whose real HA
 // state changes drive every capability derived from it. ok is false when the chain can't be
-// resolved (an unknown label, no Source declared for this instance anywhere along the chain, or a
+// resolved (an unknown label, no Source declared anywhere along the chain, or a
 // cycle -- validateDerivedCapabilities already warns about a bad chain at collection time; visited
 // is this function's own defence in depth against acting on one anyway).
-func resolveHassBridgeCapabilityExpr(device THassBridgeDevice, label, instance string, visited map[string]bool) (expr, triggerEntity string, ok bool) {
+func resolveHassBridgeCapabilityExpr(device THassBridgeDevice, label string, visited map[string]bool) (expr, triggerEntity string, ok bool) {
 	if visited[label] {
 		return "", "", false
 	}
@@ -184,14 +183,14 @@ func resolveHassBridgeCapabilityExpr(device THassBridgeDevice, label, instance s
 	}
 
 	if cap.DerivedFromCapability == "" {
-		source, declaredHere := cap.Sources[instance]
-		if !declaredHere {
+		source := cap.Source
+		if source == "" {
 			return "", "", false
 		}
 		return applyValueMap(cap.ValueMap, sourceToJinja2(source)), bareEntityFromSource(source), true
 	}
 
-	baseExpr, baseTriggerEntity, resolved := resolveHassBridgeCapabilityExpr(device, cap.DerivedFromCapability, instance, visited)
+	baseExpr, baseTriggerEntity, resolved := resolveHassBridgeCapabilityExpr(device, cap.DerivedFromCapability, visited)
 	if !resolved {
 		return "", "", false
 	}
@@ -199,17 +198,17 @@ func resolveHassBridgeCapabilityExpr(device THassBridgeDevice, label, instance s
 }
 
 // resolveHassBridgeCapabilityAttributeExprs resolves capability label's own declared Attributes
-// (added 2026-09-21) for instance into (attribute name -> ValueMap-applied Jinja expr), plus the
+// (added 2026-09-21) into (attribute name -> ValueMap-applied Jinja expr), plus the
 // sorted, deduplicated set of bare trigger entities across all of them -- almost always exactly
 // one (every attribute sourced from the SAME entity as the capability's own state, e.g.
 // vacuum.roomba's "error"/"error_code"), but not assumed: an attribute MAY be declared against a
 // different source entity than its own capability's state. Attributes only ever apply to an
-// atomic (Sources-bearing) capability, never resolved through a "derived" chain the way
+// atomic (Source-bearing) capability, never resolved through a "derived" chain the way
 // resolveHassBridgeCapabilityExpr's own state resolution is -- a capability with
 // DerivedFromCapability set is expected to declare no Attributes of its own (not validated here,
 // same tolerance the rest of this file extends to declaration mistakes). ok is false when the
-// capability declares no Attributes at all for this instance.
-func resolveHassBridgeCapabilityAttributeExprs(device THassBridgeDevice, label, instance string) (exprsByName map[string]string, triggerEntities []string, ok bool) {
+// capability declares no Attributes at all.
+func resolveHassBridgeCapabilityAttributeExprs(device THassBridgeDevice, label string) (exprsByName map[string]string, triggerEntities []string, ok bool) {
 	cap, known := device.Capabilities[label]
 	if !known || len(cap.Attributes) == 0 {
 		return nil, nil, false
@@ -223,10 +222,7 @@ func resolveHassBridgeCapabilityAttributeExprs(device THassBridgeDevice, label, 
 	exprsByName = map[string]string{}
 	triggerSet := map[string]bool{}
 	for _, name := range names {
-		source, declaredHere := cap.Attributes[name][instance]
-		if !declaredHere {
-			continue
-		}
+		source := cap.Attributes[name]
 		exprsByName[name] = applyValueMap(cap.AttributeValueMaps[name], sourceToJinja2(source))
 		triggerSet[bareEntityFromSource(source)] = true
 	}
@@ -266,7 +262,7 @@ func buildAttributesPayloadExpr(exprsByName map[string]string) string {
 func generateHassBridgeEntityReportingAutomations(instanceHAOutputDir, name string, hassBridgeDevicesByID map[string]THassBridgeDevice, admin *TAdministrationState) error {
 	deviceIDs := make([]string, 0, len(hassBridgeDevicesByID))
 	for deviceID, device := range hassBridgeDevicesByID {
-		if containsString(device.Instances, name) {
+		if device.Instance == name {
 			deviceIDs = append(deviceIDs, deviceID)
 		}
 	}
@@ -291,17 +287,14 @@ func generateHassBridgeEntityReportingAutomations(instanceHAOutputDir, name stri
 				continue
 			}
 			cap := device.Capabilities[capability]
-			// Per-instance, never a shared value: a roaming device's own local entity_id for the
-			// same capability can genuinely differ across instances (found live 2026-09-05). A
-			// capability whose resolution chain (itself, for an atomic one; its ultimate derived
-			// base, for a "derived" one) never declared a source for this specific instance is
-			// skipped entirely -- not every instance necessarily reports every capability.
-			mappedExpr, triggerEntity, resolved := resolveHassBridgeCapabilityExpr(device, capability, name, map[string]bool{})
+			// A capability whose resolution chain (itself, for an atomic one; its ultimate derived
+			// base, for a "derived" one) declares no source is skipped.
+			mappedExpr, triggerEntity, resolved := resolveHassBridgeCapabilityExpr(device, capability, map[string]bool{})
 			if !resolved {
 				continue
 			}
 			topic := "homeassistant_instances/" + name + "/bridge/" + attr.EntityID + "/state"
-			payloadExpr, triggerEntities := buildHassBridgeStatePayload(cap, name, mappedExpr, triggerEntity)
+			payloadExpr, triggerEntities := buildHassBridgeStatePayload(cap, mappedExpr, triggerEntity)
 			body := entityReportingAutomationBody(attr.Identity, triggerEntities, topic, payloadExpr, "")
 			// "infrastructural" regardless of the reported entity's own conceptual sphere
 			// (physical/social/whatever it is) -- this automation is physical-layer plumbing
@@ -320,7 +313,7 @@ func generateHassBridgeEntityReportingAutomations(instanceHAOutputDir, name stri
 			// discovery config at, alongside the state topic above. See PROJECT.md's
 			// json-attributes-topic work, 2026-09-21: vacuum.roomba's own "error"/"error_code"
 			// going unreported during a live fault was the motivating case.
-			if attrExprsByName, attrTriggerEntities, attrOk := resolveHassBridgeCapabilityAttributeExprs(device, capability, name); attrOk {
+			if attrExprsByName, attrTriggerEntities, attrOk := resolveHassBridgeCapabilityAttributeExprs(device, capability); attrOk {
 				attrTopic := "homeassistant_instances/" + name + "/bridge/" + attr.EntityID + "/attributes"
 				attrPayloadExpr := buildAttributesPayloadExpr(attrExprsByName)
 				attrBody := entityReportingAutomationBody(attr.Identity, attrTriggerEntities, attrTopic, attrPayloadExpr, "/attributes")

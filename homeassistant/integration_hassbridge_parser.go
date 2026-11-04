@@ -83,7 +83,7 @@ func collectHassBridgeDevicesByID(definitionDir string) (map[string]THassBridgeD
 				byID[d.DeviceID] = d
 				continue
 			}
-			warnings = append(warnings, fmt.Sprintf("Physical.def: device %q declared more than once across \"integration home_assistant\" blocks; keeping the first declaration (instance %q)", d.DeviceID, existing.Instances))
+			warnings = append(warnings, fmt.Sprintf("Physical.def: device %q declared more than once across \"integration home_assistant\" blocks; keeping the first declaration (instance %q)", d.DeviceID, existing.Instance))
 		}
 	}
 	warnings = append(warnings, warnAboutOrphanedHassBridgeDeviceBlocks(physicalContent, mergedLineNos, byID)...)
@@ -302,12 +302,9 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 			Pattern: capabilityWithAttributePattern,
 			Apply: func(cap THassBridgeCapability, m []string) THassBridgeCapability {
 				if cap.Attributes == nil {
-					cap.Attributes = map[string]map[string]string{}
+					cap.Attributes = map[string]string{}
 				}
-				if cap.Attributes[m[1]] == nil {
-					cap.Attributes[m[1]] = map[string]string{}
-				}
-				cap.Attributes[m[1]][instance] = m[2]
+				cap.Attributes[m[1]] = m[2]
 				return cap
 			},
 		},
@@ -327,10 +324,7 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 		{
 			Pattern: capabilityWithPositionPattern,
 			Apply: func(cap THassBridgeCapability, m []string) THassBridgeCapability {
-				if cap.Position == nil {
-					cap.Position = map[string]string{}
-				}
-				cap.Position[instance] = m[1]
+				cap.Position = m[1]
 				return cap
 			},
 		},
@@ -348,14 +342,14 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 
 		if inDeviceCapabilities && pendingCapabilityPath != "" {
 			if line == "end;" {
-				shadowSlowSpeedPosition(current.Capabilities, pendingCapabilityPath, instance)
+				shadowSlowSpeedPosition(current.Capabilities, pendingCapabilityPath)
 				pendingCapabilityPath = ""
 				continue
 			}
 			if matches := capabilityWithSlowSpeedPattern.FindStringSubmatch(line); matches != nil {
 				current.Capabilities[slowSpeedCapabilityLabel(pendingCapabilityPath)] = THassBridgeCapability{
-					Domain:  current.Capabilities[pendingCapabilityPath].Domain,
-					Sources: map[string]string{instance: matches[1]},
+					Domain: current.Capabilities[pendingCapabilityPath].Domain,
+					Source: matches[1],
 				}
 				continue
 			}
@@ -398,12 +392,12 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 				continue
 			}
 			if matches := capabilityWithPattern.FindStringSubmatch(line); matches != nil {
-				current.Capabilities[matches[2]] = THassBridgeCapability{Domain: matches[1], Sources: map[string]string{instance: matches[3]}}
+				current.Capabilities[matches[2]] = THassBridgeCapability{Domain: matches[1], Source: matches[3]}
 				pendingCapabilityPath = matches[2]
 				continue
 			}
 			if matches := capabilityWithOneLinerPattern.FindStringSubmatch(line); matches != nil {
-				cap := THassBridgeCapability{Domain: matches[1], Sources: map[string]string{instance: matches[3]}}
+				cap := THassBridgeCapability{Domain: matches[1], Source: matches[3]}
 				body := strings.TrimSpace(matches[4]) + ";"
 				if applied, ok := ApplyWithClauseBodyLine(cap, body, capabilityWithBodyStatements); ok {
 					current.Capabilities[matches[2]] = applied
@@ -413,7 +407,7 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 				continue
 			}
 			if matches := capabilityPattern.FindStringSubmatch(line); matches != nil {
-				current.Capabilities[matches[2]] = THassBridgeCapability{Domain: matches[1], Sources: map[string]string{instance: matches[3]}, Icon: icon}
+				current.Capabilities[matches[2]] = THassBridgeCapability{Domain: matches[1], Source: matches[3], Icon: icon}
 				continue
 			}
 			if matches := constantAttributePattern.FindStringSubmatch(quoteDeviceReference(line)); matches != nil {
@@ -466,12 +460,9 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 					continue
 				}
 				if cap.Attributes == nil {
-					cap.Attributes = map[string]map[string]string{}
+					cap.Attributes = map[string]string{}
 				}
-				if cap.Attributes[name] == nil {
-					cap.Attributes[name] = map[string]string{}
-				}
-				cap.Attributes[name][instance] = source
+				cap.Attributes[name] = source
 				current.Capabilities[path] = cap
 				continue
 			}
@@ -499,10 +490,7 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 					warnings = append(warnings, fmt.Sprintf("Physical.def: device %q: \"position\" declared for unknown capability %q; ignored", current.DeviceID, path))
 					continue
 				}
-				if cap.Position == nil {
-					cap.Position = map[string]string{}
-				}
-				cap.Position[instance] = source
+				cap.Position = source
 				current.Capabilities[path] = cap
 				continue
 			}
@@ -530,7 +518,7 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 		strippedLine, export := parseHassBridgeDeviceHeaderKeywords(line)
 		if matches := withDevicePattern.FindStringSubmatch(strippedLine); matches != nil {
 			current = THassBridgeDevice{
-				DeviceID: matches[1], Instances: []string{instance},
+				DeviceID: matches[1], Instance: instance,
 				Capabilities:              map[string]THassBridgeCapability{},
 				ConstantAttributes:        map[string]THostConstantAttribute{},
 				DeviceInfoCapabilities:    map[string]string{},
@@ -558,20 +546,17 @@ func slowSpeedCapabilityLabel(label string) string {
 // becomes "cover.front_low_speed!current_position". A cover offering set_position needs a position
 // topic in Home Assistant, or its discovery config is rejected -- which is what kept every slow
 // Somfy cover out of Home Assistant until 2026-10-23.
-func shadowSlowSpeedPosition(capabilities map[string]THassBridgeCapability, label, instance string) {
+func shadowSlowSpeedPosition(capabilities map[string]THassBridgeCapability, label string) {
 	slowLabel := slowSpeedCapabilityLabel(label)
 	slow, hasSlow := capabilities[slowLabel]
-	position := capabilities[label].Position[instance]
-	if !hasSlow || position == "" || slow.Position[instance] != "" {
+	position := capabilities[label].Position
+	if !hasSlow || position == "" || slow.Position != "" {
 		return
 	}
 	attribute := ""
 	if bang := strings.Index(position, "!"); bang >= 0 {
 		attribute = position[bang:]
 	}
-	if slow.Position == nil {
-		slow.Position = map[string]string{}
-	}
-	slow.Position[instance] = slow.Sources[instance] + attribute
+	slow.Position = slow.Source + attribute
 	capabilities[slowLabel] = slow
 }

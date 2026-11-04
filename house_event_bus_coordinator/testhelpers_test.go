@@ -56,9 +56,9 @@ func localBridgeConfigs(bridgeFile THassBridgeFile, store *TLiveDeviceInfoStore,
 		device := bridgeFile.Devices[found.DeviceID]
 		viaDeviceID, liveUnit, liveDeviceClass, liveIcon := "", "", "", ""
 		if tracker != nil {
-			viaDeviceID, _ = tracker.ResolveViaDevice(instance, found.DeviceID, hassBridgeOwnSourceEntities(device, instance))
-			if source, ok := found.SourceEntities[instance]; ok {
-				liveUnit, liveDeviceClass, liveIcon = tracker.LiveTyping(instance, source)
+			viaDeviceID, _ = tracker.ResolveViaDevice(instance, found.DeviceID, hassBridgeOwnSourceEntities(device))
+			if found.SourceEntity != "" {
+				liveUnit, liveDeviceClass, liveIcon = tracker.LiveTyping(instance, found.SourceEntity)
 			}
 		}
 		devBlock := buildHassBridgeDeviceBlock(found.DeviceID, device, store.Snapshot(found.DeviceID), viaDeviceID)

@@ -46,8 +46,8 @@ end;
 	if !ok {
 		t.Fatalf("expected hass.oops to be collected; got %v", byID)
 	}
-	if len(device.Instances) != 1 || device.Instances[0] != "main" {
-		t.Errorf("Instances = %v, want [main] (first declaration wins)", device.Instances)
+	if device.Instance != "main" {
+		t.Errorf("Instance = %q, want main (first declaration wins)", device.Instance)
 	}
 }
 
@@ -71,10 +71,10 @@ end;
 	if !ok {
 		t.Fatalf("expected hass.laserjet to be collected; got %v", byID)
 	}
-	if len(device.Instances) != 1 || device.Instances[0] != "protocols-server-2" {
-		t.Errorf("Instances = %v, want [protocols-server-2]", device.Instances)
+	if device.Instance != "protocols-server-2" {
+		t.Errorf("Instance = %q, want protocols-server-2", device.Instance)
 	}
-	if got := device.Capabilities["status"]; got.Domain != "sensor" || got.Sources["protocols-server-2"] != "sensor.hewlett_packard_hp_laserjet_professional_p1102w" {
+	if got := device.Capabilities["status"]; got.Domain != "sensor" || got.Source != "sensor.hewlett_packard_hp_laserjet_professional_p1102w" {
 		t.Errorf("Capabilities[status] = %+v, want Domain \"sensor\" and the printer's status entity as Sources[\"protocols-server-2\"]", got)
 	}
 	if device.Export {
@@ -113,8 +113,8 @@ end;
 	if got.Domain != "binary_sensor" || got.DerivedFromCapability != "battery_level" || got.DerivedViaTemplate != "( $ | int(0) < 20 )" {
 		t.Errorf("Capabilities[battery_alert] = %+v, want Domain=binary_sensor DerivedFromCapability=battery_level DerivedViaTemplate=\"( $ | int(0) < 20 )\"", got)
 	}
-	if len(got.Sources) != 0 {
-		t.Errorf("Sources = %v, want empty for a derived capability", got.Sources)
+	if got.Source != "" {
+		t.Errorf("Source = %q, want empty for a derived capability", got.Source)
 	}
 }
 
@@ -146,7 +146,7 @@ end;
 	if !device.Export {
 		t.Errorf("Export = false, want true -- the device declared the \"export\" keyword")
 	}
-	if got := device.Capabilities["humidity"]; got.Domain != "sensor" || got.Sources["protocols-server-2"] != "sensor.vienna_terrace_humidity" {
+	if got := device.Capabilities["humidity"]; got.Domain != "sensor" || got.Source != "sensor.vienna_terrace_humidity" {
 		t.Errorf("Capabilities[humidity] = %+v, want it parsed normally alongside \"export\"", got)
 	}
 }
@@ -159,10 +159,10 @@ func TestGenerateHassBridgeFileWritesExportFlag(t *testing.T) {
 	admin := newAdministrationState()
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.vienna_terrace": {
-			DeviceID: "hass.vienna_terrace", Instances: []string{"protocols-server-2"}, Export: true,
+			DeviceID: "hass.vienna_terrace", Instance: "protocols-server-2", Export: true,
 			Capabilities: map[string]THassBridgeCapability{
-				"node":        {Domain: "binary_sensor", Sources: map[string]string{"protocols-server-2": "sensor.vienna_terrace_temperature is available"}},
-				"temperature": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.vienna_terrace_temperature"}},
+				"node":        {Domain: "binary_sensor", Source: "sensor.vienna_terrace_temperature is available"},
+				"temperature": {Domain: "sensor", Source: "sensor.vienna_terrace_temperature"},
 			},
 		},
 	}
@@ -206,10 +206,10 @@ func TestGenerateHassBridgeFileWritesSuggestedAreaFromEnclosingSpace(t *testing.
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.living_room_terrace": {
-			DeviceID: "hass.living_room_terrace", Instances: []string{"protocols-server-2"},
+			DeviceID: "hass.living_room_terrace", Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"node":     {Domain: "binary_sensor", Sources: map[string]string{"protocols-server-2": "sensor.terrace_temperature is available"}},
-				"humidity": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.terrace_humidity"}},
+				"node":     {Domain: "binary_sensor", Source: "sensor.terrace_temperature is available"},
+				"humidity": {Domain: "sensor", Source: "sensor.terrace_humidity"},
 			},
 		},
 	}
@@ -244,10 +244,10 @@ func TestGenerateHassBridgeFileOmitsExportFlagWhenNotDeclared(t *testing.T) {
 	admin := newAdministrationState()
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.laserjet": {
-			DeviceID: "hass.laserjet", Instances: []string{"protocols-server-2"},
+			DeviceID: "hass.laserjet", Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"node":   {Domain: "binary_sensor", Sources: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w is available"}},
-				"status": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w"}},
+				"node":   {Domain: "binary_sensor", Source: "sensor.hewlett_packard_hp_laserjet_professional_p1102w is available"},
+				"status": {Domain: "sensor", Source: "sensor.hewlett_packard_hp_laserjet_professional_p1102w"},
 			},
 		},
 	}
@@ -343,7 +343,7 @@ end;
 	if !ok {
 		t.Fatalf("expected a \"node\" capability, got %v", byID["host.junglinster"].Capabilities)
 	}
-	if cap.Domain != "binary_sensor" || cap.Sources["main"] != "sensor.processor_use is available" {
+	if cap.Domain != "binary_sensor" || cap.Source != "sensor.processor_use is available" {
 		t.Errorf("Capabilities[node] = %+v, want Domain \"binary_sensor\", Sources[\"main\"] \"sensor.processor_use is available\"", cap)
 	}
 }
@@ -407,8 +407,8 @@ end;
 func TestRegisterHassBridgeDeviceImpliedEntitiesHasNoNodeEntity(t *testing.T) {
 	admin := newAdministrationState()
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.laserjet": {DeviceID: "hass.laserjet", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{
-			"status": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w"}},
+		"hass.laserjet": {DeviceID: "hass.laserjet", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{
+			"status": {Domain: "sensor", Source: "sensor.hewlett_packard_hp_laserjet_professional_p1102w"},
 		}},
 	}
 
@@ -469,7 +469,7 @@ end;
 	}
 
 	node, ok := device.Capabilities["node"]
-	if !ok || node.Sources["main"] != "sensor.processor_use is available" {
+	if !ok || node.Source != "sensor.processor_use is available" {
 		t.Fatalf("node capability = %+v, ok=%v", node, ok)
 	}
 	if node.DeviceClass != "connectivity" {
@@ -495,9 +495,9 @@ end;
 func TestRegisterHassBridgeDeviceImpliedEntitiesFallsBackToRemainingGoIconTable(t *testing.T) {
 	admin := newAdministrationState()
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"host.junglinster": {DeviceID: "host.junglinster", Instances: []string{"main"}, Capabilities: map[string]THassBridgeCapability{
-			"radio": {Domain: "sensor", Sources: map[string]string{"main": "sensor.some_radio_signal"}},
-			"node":  {Domain: "binary_sensor", Sources: map[string]string{"main": "sensor.processor_use is available"}},
+		"host.junglinster": {DeviceID: "host.junglinster", Instance: "main", Capabilities: map[string]THassBridgeCapability{
+			"radio": {Domain: "sensor", Source: "sensor.some_radio_signal"},
+			"node":  {Domain: "binary_sensor", Source: "sensor.processor_use is available"},
 		}},
 	}
 

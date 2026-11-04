@@ -63,7 +63,7 @@ func bridgeReloadGuards(instance string, devices map[string]THassBridgeDevice) (
 			if guard.Instance != instance {
 				continue
 			}
-			source := devices[id].Capabilities[guard.Capability].Sources[instance]
+			source := devices[id].Capabilities[guard.Capability].Source
 			if source == "" || !strings.Contains(source, ".") || strings.Contains(source, " ") {
 				problems = append(problems, fmt.Sprintf("%s: \"reload integration when %s ...\": no source entity of that capability on %s", id, guard.Capability, instance))
 				continue

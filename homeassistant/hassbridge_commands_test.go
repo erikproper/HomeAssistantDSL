@@ -66,7 +66,7 @@ func TestApplyStatePayloadTemplateWrapsVacuumState(t *testing.T) {
 // result, one trigger entity.
 func TestBuildHassBridgeStatePayloadNoPositionIsIdentity(t *testing.T) {
 	cap := THassBridgeCapability{Domain: "switch"}
-	payload, triggers := buildHassBridgeStatePayload(cap, "ha2mqtt", "states('switch.foo')", "switch.foo")
+	payload, triggers := buildHassBridgeStatePayload(cap, "states('switch.foo')", "switch.foo")
 	if payload != "states('switch.foo')" {
 		t.Errorf("payload = %q, want the atomic expression unchanged", payload)
 	}
@@ -83,9 +83,9 @@ func TestBuildHassBridgeStatePayloadNoPositionIsIdentity(t *testing.T) {
 func TestBuildHassBridgeStatePayloadFoldsPositionIntoAtomicDomain(t *testing.T) {
 	cap := THassBridgeCapability{
 		Domain:   "cover",
-		Position: map[string]string{"ha2mqtt": "cover.living_room_front!current_position"},
+		Position: "cover.living_room_front!current_position",
 	}
-	payload, triggers := buildHassBridgeStatePayload(cap, "ha2mqtt", "states('cover.living_room_front')", "cover.living_room_front")
+	payload, triggers := buildHassBridgeStatePayload(cap, "states('cover.living_room_front')", "cover.living_room_front")
 
 	want := "{'state': (states('cover.living_room_front')), 'position': (state_attr('cover.living_room_front', 'current_position'))} | tojson"
 	if payload != want {
@@ -103,29 +103,14 @@ func TestBuildHassBridgeStatePayloadFoldsPositionIntoAtomicDomain(t *testing.T) 
 func TestBuildHassBridgeStatePayloadPositionOnDifferentEntity(t *testing.T) {
 	cap := THassBridgeCapability{
 		Domain:   "cover",
-		Position: map[string]string{"ha2mqtt": "sensor.living_room_front_target_closure"},
+		Position: "sensor.living_room_front_target_closure",
 	}
-	_, triggers := buildHassBridgeStatePayload(cap, "ha2mqtt", "states('cover.living_room_front')", "cover.living_room_front")
+	_, triggers := buildHassBridgeStatePayload(cap, "states('cover.living_room_front')", "cover.living_room_front")
 
 	if len(triggers) != 2 {
 		t.Fatalf("triggers = %v, want both the state's own and the position's own distinct entities", triggers)
 	}
 	if triggers[0] != "cover.living_room_front" || triggers[1] != "sensor.living_room_front_target_closure" {
 		t.Errorf("triggers = %v, want [cover.living_room_front, sensor.living_room_front_target_closure]", triggers)
-	}
-}
-
-// TestBuildHassBridgeStatePayloadNoPositionForThisInstance confirms a capability with Position
-// declared for a DIFFERENT instance only (a roaming-style declaration this instance never
-// contributed to) reports plain state, matching every other per-instance Sources/Attributes lookup
-// in this codebase.
-func TestBuildHassBridgeStatePayloadNoPositionForThisInstance(t *testing.T) {
-	cap := THassBridgeCapability{
-		Domain:   "cover",
-		Position: map[string]string{"other-instance": "cover.other!current_position"},
-	}
-	payload, _ := buildHassBridgeStatePayload(cap, "ha2mqtt", "states('cover.living_room_front')", "cover.living_room_front")
-	if payload != "states('cover.living_room_front')" {
-		t.Errorf("payload = %q, want plain state -- no Position declared for instance %q", payload, "ha2mqtt")
 	}
 }

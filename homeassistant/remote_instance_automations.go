@@ -199,13 +199,11 @@ func collectHassBridgeDeviceInfoByInstance(hassBridgeDevicesByID map[string]THas
 		if len(device.DeviceInfoCapabilities) == 0 {
 			continue
 		}
-		for _, instance := range device.Instances {
-			byInstance[instance] = append(byInstance[instance], THassBridgeDeviceInfoReport{
-				DeviceID:        deviceID,
-				Fields:          device.DeviceInfoCapabilities,
-				LiteralPrefixes: device.DeviceInfoLiteralPrefixes,
-			})
-		}
+		byInstance[device.Instance] = append(byInstance[device.Instance], THassBridgeDeviceInfoReport{
+			DeviceID:        deviceID,
+			Fields:          device.DeviceInfoCapabilities,
+			LiteralPrefixes: device.DeviceInfoLiteralPrefixes,
+		})
 	}
 	for name := range byInstance {
 		sort.Slice(byInstance[name], func(i, j int) bool {

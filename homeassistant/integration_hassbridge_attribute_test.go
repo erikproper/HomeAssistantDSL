@@ -32,11 +32,11 @@ func TestParseHassBridgeAttributeBothForms(t *testing.T) {
 	if !ok {
 		t.Fatalf("capability %q not found in %v", "roomba", devices[0].Capabilities)
 	}
-	if got := cap.Attributes["error"]["protocols-server-2"]; got != "vacuum.roomba!error" {
-		t.Errorf(`Attributes["error"]["protocols-server-2"] = %q, want "vacuum.roomba!error"`, got)
+	if got := cap.Attributes["error"]; got != "vacuum.roomba!error" {
+		t.Errorf(`Attributes["error"] = %q, want "vacuum.roomba!error"`, got)
 	}
-	if got := cap.Attributes["error_code"]["protocols-server-2"]; got != "vacuum.roomba!error_code" {
-		t.Errorf(`Attributes["error_code"]["protocols-server-2"] = %q, want "vacuum.roomba!error_code"`, got)
+	if got := cap.Attributes["error_code"]; got != "vacuum.roomba!error_code" {
+		t.Errorf(`Attributes["error_code"] = %q, want "vacuum.roomba!error_code"`, got)
 	}
 	// The bare state map: from the same block must still land in ValueMap, untouched by the new
 	// attribute declarations sharing the same "with:" block.

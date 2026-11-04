@@ -247,10 +247,8 @@ func fetchEntityExistenceFromBroker(secrets TMQTTBrokerSecrets, instanceName, ow
 func checkKnownNotToExistErrors(definitionDir string, hassBridgeDevicesByID map[string]THassBridgeDevice, ctx TPhysicalGenerationContext) []string {
 	instanceNames := map[string]bool{}
 	for _, device := range hassBridgeDevicesByID {
-		for _, instance := range device.Instances {
-			if instance != "" {
-				instanceNames[instance] = true
-			}
+		if device.Instance != "" {
+			instanceNames[device.Instance] = true
 		}
 	}
 	if len(instanceNames) == 0 {
@@ -283,39 +281,17 @@ func checkKnownNotToExistErrors(definitionDir string, hassBridgeDevicesByID map[
 		sort.Strings(capabilityNames)
 		for _, capability := range capabilityNames {
 			cap := device.Capabilities[capability]
-			// A capability is only a real problem when EVERY declared instance we have status
-			// for confirms it not-to-exist. Each instance's own declared source is looked up
-			// per-instance (cap.Sources[instance]).
-			checkedAny, confirmedNotToExist := false, false
-			for _, instance := range device.Instances {
-				source, declaredHere := cap.Sources[instance]
-				if !declaredHere {
-					continue
-				}
-				status, known := statusByInstance[instance]
-				if !known {
-					continue
-				}
-				deviceStatus, hasDevice := status[deviceID]
-				if !hasDevice {
-					continue
-				}
-				entry, hasEntry := deviceStatus.Entities[source]
-				if !hasEntry {
-					continue
-				}
-				checkedAny = true
-				if entry.Status != existenceStatusKnownNotToExist {
-					confirmedNotToExist = false
-					break
-				}
-				confirmedNotToExist = true
-			}
-			if !checkedAny || !confirmedNotToExist {
+			// A capability is only a real problem when its instance confirms its source
+			// not-to-exist.
+			if cap.Source == "" {
 				continue
 			}
-			problems = append(problems, fmt.Sprintf("%s (device %q, capability %q): source entit(y/ies) %s confirmed not to exist on instance(s) %v",
-				capability, deviceID, capability, formatInstanceSources(cap.Sources, device.Instances), device.Instances))
+			entry, hasEntry := statusByInstance[device.Instance][deviceID].Entities[cap.Source]
+			if !hasEntry || entry.Status != existenceStatusKnownNotToExist {
+				continue
+			}
+			problems = append(problems, fmt.Sprintf("%s (device %q, capability %q): source entity %s confirmed not to exist on instance %s",
+				capability, deviceID, capability, cap.Source, device.Instance))
 		}
 	}
 
@@ -476,7 +452,7 @@ func usedHassBridgeEntityIDs(hassBridgeDevicesByID map[string]THassBridgeDevice,
 func ignoredHassBridgeDeviceIDs(hassBridgeDevicesByID map[string]THassBridgeDevice, instanceName string) map[string]bool {
 	ignored := map[string]bool{}
 	for deviceID, device := range hassBridgeDevicesByID {
-		if device.IgnoreOtherCapabilities && containsString(device.Instances, instanceName) {
+		if device.IgnoreOtherCapabilities && device.Instance == instanceName {
 			ignored[deviceID] = true
 		}
 	}
@@ -508,15 +484,13 @@ func ignoredHostDeviceIDs(hostDevicesByID map[string]THostDevice) map[string]boo
 func declaredDeviceIDByEntity(hassBridgeDevicesByID map[string]THassBridgeDevice, instanceName string) map[string]string {
 	declared := map[string]string{}
 	for deviceID, device := range hassBridgeDevicesByID {
-		if !containsString(device.Instances, instanceName) {
+		if device.Instance != instanceName {
 			continue
 		}
 		for _, cap := range device.Capabilities {
-			source, declaredHere := cap.Sources[instanceName]
-			if !declaredHere {
-				continue
+			if cap.Source != "" {
+				declared[bareEntityFromSource(cap.Source)] = deviceID
 			}
-			declared[bareEntityFromSource(source)] = deviceID
 		}
 		for _, source := range device.DeviceInfoCapabilities {
 			declared[bareEntityFromSource(source)] = deviceID
@@ -712,13 +686,9 @@ var undeclaredAttributesDenylist = map[string]bool{
 // (e.g. "attribute fault: \"vacuum.roomba!error\";" declares the local name "fault" for the live
 // key "error"). Comparison against a live inquiry reply's own AttributeKeys (raw HA names) must use
 // this, not cap.Attributes' own keys directly.
-func declaredLiveAttributeKeys(cap THassBridgeCapability, instance string) map[string]bool {
+func declaredLiveAttributeKeys(cap THassBridgeCapability) map[string]bool {
 	declared := map[string]bool{}
-	for _, perInstance := range cap.Attributes {
-		source, ok := perInstance[instance]
-		if !ok {
-			continue
-		}
+	for _, source := range cap.Attributes {
 		if bangIdx := strings.Index(source, "!"); bangIdx > 0 {
 			declared[source[bangIdx+1:]] = true
 		}
@@ -764,7 +734,7 @@ func buildUndeclaredAttributesSuggestions(status TEntityExistenceStatusPayload, 
 
 	for _, deviceID := range deviceIDs {
 		device := hassBridgeDevicesByID[deviceID]
-		if !containsString(device.Instances, instanceName) {
+		if device.Instance != instanceName {
 			continue
 		}
 		deviceStatus, hasDevice := status[deviceID]
@@ -778,16 +748,15 @@ func buildUndeclaredAttributesSuggestions(status TEntityExistenceStatusPayload, 
 		sort.Strings(capNames)
 		for _, capName := range capNames {
 			cap := device.Capabilities[capName]
-			source, declaredHere := cap.Sources[instanceName]
-			if !declaredHere {
+			if cap.Source == "" {
 				continue
 			}
-			bareEntity := bareEntityFromSource(source)
+			bareEntity := bareEntityFromSource(cap.Source)
 			entry, hasEntry := deviceStatus.Entities[bareEntity]
 			if !hasEntry || len(entry.AttributeKeys) == 0 {
 				continue
 			}
-			declared := declaredLiveAttributeKeys(cap, instanceName)
+			declared := declaredLiveAttributeKeys(cap)
 			var undeclared []string
 			for _, key := range entry.AttributeKeys {
 				if !declared[key] && !undeclaredAttributesDenylist[key] {

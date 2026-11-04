@@ -24,11 +24,11 @@ func TestParseHassBridgeCapabilityOneLinerPosition(t *testing.T) {
 	if !ok {
 		t.Fatalf("capability %q not found in %v", "cover", devices[0].Capabilities)
 	}
-	if cap.Domain != "cover" || cap.Sources["ha2mqtt"] != "cover.living_room_rear" {
+	if cap.Domain != "cover" || cap.Source != "cover.living_room_rear" {
 		t.Errorf("cap = %+v, want Domain=cover, Sources[ha2mqtt]=cover.living_room_rear", cap)
 	}
-	if cap.Position["ha2mqtt"] != "cover.living_room_rear!current_position" {
-		t.Errorf(`Position["ha2mqtt"] = %q, want "cover.living_room_rear!current_position"`, cap.Position["ha2mqtt"])
+	if cap.Position != "cover.living_room_rear!current_position" {
+		t.Errorf(`Position = %q, want "cover.living_room_rear!current_position"`, cap.Position)
 	}
 }
 

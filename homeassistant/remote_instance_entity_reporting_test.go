@@ -87,11 +87,11 @@ end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.davids_bedroom": {
-			DeviceID:  "hass.davids_bedroom",
-			Instances: []string{"protocols-server-2"},
+			DeviceID: "hass.davids_bedroom",
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"co2":      {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.davids_bedroom_carbon_dioxide"}},
-				"humidity": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.davids_bedroom_humidity"}},
+				"co2":      {Domain: "sensor", Source: "sensor.davids_bedroom_carbon_dioxide"},
+				"humidity": {Domain: "sensor", Source: "sensor.davids_bedroom_humidity"},
 			},
 		},
 	}
@@ -138,9 +138,9 @@ end;`
 // into a states()/state_attr() Jinja read, bareEntityFromSource as the trigger.
 func TestResolveHassBridgeCapabilityExprAtomic(t *testing.T) {
 	device := THassBridgeDevice{Capabilities: map[string]THassBridgeCapability{
-		"status": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.roomba_status"}, ValueMap: map[string]string{"home": "docked"}},
+		"status": {Domain: "sensor", Source: "sensor.roomba_status", ValueMap: map[string]string{"home": "docked"}},
 	}}
-	expr, trigger, ok := resolveHassBridgeCapabilityExpr(device, "status", "protocols-server-2", map[string]bool{})
+	expr, trigger, ok := resolveHassBridgeCapabilityExpr(device, "status", map[string]bool{})
 	if !ok {
 		t.Fatalf("expected a resolved expression")
 	}
@@ -158,10 +158,10 @@ func TestResolveHassBridgeCapabilityExprAtomic(t *testing.T) {
 // trigger entity is the sibling's real HA entity (not itself, since it has none).
 func TestResolveHassBridgeCapabilityExprDerived(t *testing.T) {
 	device := THassBridgeDevice{Capabilities: map[string]THassBridgeCapability{
-		"battery_level": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.roomba_battery_level"}},
+		"battery_level": {Domain: "sensor", Source: "sensor.roomba_battery_level"},
 		"battery_alert": {Domain: "binary_sensor", DerivedFromCapability: "battery_level", DerivedViaTemplate: "( $ | int(0) < 20 )"},
 	}}
-	expr, trigger, ok := resolveHassBridgeCapabilityExpr(device, "battery_alert", "protocols-server-2", map[string]bool{})
+	expr, trigger, ok := resolveHassBridgeCapabilityExpr(device, "battery_alert", map[string]bool{})
 	if !ok {
 		t.Fatalf("expected a resolved expression")
 	}
@@ -174,17 +174,16 @@ func TestResolveHassBridgeCapabilityExprDerived(t *testing.T) {
 	}
 }
 
-// TestResolveHassBridgeCapabilityExprDerivedMissingInstanceSource covers a derived capability
-// whose atomic base was never declared for the instance being resolved against -- must fail
-// cleanly (ok=false), matching how an ordinary capability with no Source for this instance is
-// skipped, not crash.
-func TestResolveHassBridgeCapabilityExprDerivedMissingInstanceSource(t *testing.T) {
+// TestResolveHassBridgeCapabilityExprDerivedMissingSource covers a derived capability whose atomic
+// base declares no source -- must fail cleanly (ok=false), matching how an ordinary capability
+// with no Source is skipped, not crash.
+func TestResolveHassBridgeCapabilityExprDerivedMissingSource(t *testing.T) {
 	device := THassBridgeDevice{Capabilities: map[string]THassBridgeCapability{
-		"battery_level": {Domain: "sensor", Sources: map[string]string{"main": "sensor.roomba_battery_level"}},
+		"battery_level": {Domain: "sensor"},
 		"battery_alert": {Domain: "binary_sensor", DerivedFromCapability: "battery_level", DerivedViaTemplate: "( $ | int(0) < 20 )"},
 	}}
-	if _, _, ok := resolveHassBridgeCapabilityExpr(device, "battery_alert", "protocols-server-2", map[string]bool{}); ok {
-		t.Errorf("expected ok=false: battery_level has no Source for instance \"protocols-server-2\"")
+	if _, _, ok := resolveHassBridgeCapabilityExpr(device, "battery_alert", map[string]bool{}); ok {
+		t.Errorf("expected ok=false: battery_level has no Source")
 	}
 }
 
@@ -201,10 +200,10 @@ end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.roomba": {
-			DeviceID:  "hass.roomba",
-			Instances: []string{"protocols-server-2"},
+			DeviceID: "hass.roomba",
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"battery_level": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.roomba_battery_level"}},
+				"battery_level": {Domain: "sensor", Source: "sensor.roomba_battery_level"},
 				"battery_alert": {Domain: "binary_sensor", DerivedFromCapability: "battery_level", DerivedViaTemplate: "( $ | int(0) < 20 )"},
 			},
 		},
@@ -240,18 +239,18 @@ end;`
 func TestResolveHassBridgeCapabilityAttributeExprsSingleTrigger(t *testing.T) {
 	device := THassBridgeDevice{Capabilities: map[string]THassBridgeCapability{
 		"roomba": {
-			Domain:  "vacuum",
-			Sources: map[string]string{"protocols-server-2": "vacuum.roomba"},
-			Attributes: map[string]map[string]string{
-				"error":      {"protocols-server-2": "vacuum.roomba!error"},
-				"error_code": {"protocols-server-2": "vacuum.roomba!error_code"},
+			Domain: "vacuum",
+			Source: "vacuum.roomba",
+			Attributes: map[string]string{
+				"error":      "vacuum.roomba!error",
+				"error_code": "vacuum.roomba!error_code",
 			},
 			AttributeValueMaps: map[string]map[string]string{
 				"error": {"Stuck near a cliff": "stuck_cliff"},
 			},
 		},
 	}}
-	exprsByName, triggers, ok := resolveHassBridgeCapabilityAttributeExprs(device, "roomba", "protocols-server-2")
+	exprsByName, triggers, ok := resolveHassBridgeCapabilityAttributeExprs(device, "roomba")
 	if !ok {
 		t.Fatalf("expected a resolved attribute set")
 	}
@@ -272,15 +271,15 @@ func TestResolveHassBridgeCapabilityAttributeExprsSingleTrigger(t *testing.T) {
 func TestResolveHassBridgeCapabilityAttributeExprsMultipleTriggerEntities(t *testing.T) {
 	device := THassBridgeDevice{Capabilities: map[string]THassBridgeCapability{
 		"roomba": {
-			Domain:  "vacuum",
-			Sources: map[string]string{"protocols-server-2": "vacuum.roomba"},
-			Attributes: map[string]map[string]string{
-				"error":       {"protocols-server-2": "vacuum.roomba!error"},
-				"battery_low": {"protocols-server-2": "sensor.roomba_battery!low"},
+			Domain: "vacuum",
+			Source: "vacuum.roomba",
+			Attributes: map[string]string{
+				"error":       "vacuum.roomba!error",
+				"battery_low": "sensor.roomba_battery!low",
 			},
 		},
 	}}
-	_, triggers, ok := resolveHassBridgeCapabilityAttributeExprs(device, "roomba", "protocols-server-2")
+	_, triggers, ok := resolveHassBridgeCapabilityAttributeExprs(device, "roomba")
 	if !ok {
 		t.Fatalf("expected a resolved attribute set")
 	}
@@ -299,9 +298,9 @@ func TestResolveHassBridgeCapabilityAttributeExprsMultipleTriggerEntities(t *tes
 // overwhelming majority of capabilities that declare no Attributes at all -- unchanged behaviour.
 func TestResolveHassBridgeCapabilityAttributeExprsNoneDeclared(t *testing.T) {
 	device := THassBridgeDevice{Capabilities: map[string]THassBridgeCapability{
-		"roomba": {Domain: "vacuum", Sources: map[string]string{"protocols-server-2": "vacuum.roomba"}},
+		"roomba": {Domain: "vacuum", Source: "vacuum.roomba"},
 	}}
-	if _, _, ok := resolveHassBridgeCapabilityAttributeExprs(device, "roomba", "protocols-server-2"); ok {
+	if _, _, ok := resolveHassBridgeCapabilityAttributeExprs(device, "roomba"); ok {
 		t.Errorf("expected ok=false: no Attributes declared")
 	}
 }
@@ -330,15 +329,15 @@ end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.roomba": {
-			DeviceID:  "hass.roomba",
-			Instances: []string{"protocols-server-2"},
+			DeviceID: "hass.roomba",
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
 				"roomba": {
-					Domain:  "vacuum",
-					Sources: map[string]string{"protocols-server-2": "vacuum.roomba"},
-					Attributes: map[string]map[string]string{
-						"error":      {"protocols-server-2": "vacuum.roomba!error"},
-						"error_code": {"protocols-server-2": "vacuum.roomba!error_code"},
+					Domain: "vacuum",
+					Source: "vacuum.roomba",
+					Attributes: map[string]string{
+						"error":      "vacuum.roomba!error",
+						"error_code": "vacuum.roomba!error_code",
 					},
 				},
 			},

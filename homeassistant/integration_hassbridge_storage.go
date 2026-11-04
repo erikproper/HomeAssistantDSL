@@ -19,32 +19,20 @@
 
 package main
 
-import (
-	"sort"
-	"strings"
-)
-
 // THassBridgeCapability is one declared entity a "home_assistant" bridge device exposes -- an
 // EXPLICIT domain (mandatory, never inferred/defaulted -- per the unified device-grammar design,
-// Architecture.md/the "intensional device→space linkage" plan's §D) plus each declaring instance's
-// own raw entity reference ("<entity>" or "<entity>!<attribute>", the same convention hosts
+// Architecture.md/the "intensional device→space linkage" plan's §D) plus its instance's own raw
+// entity reference ("<entity>" or "<entity>!<attribute>", the same convention hosts
 // capabilities use). The declared Domain need not match a Source's own HA domain -- a deliberate
 // *coercion* (e.g. Domain "binary_sensor" with a Source that's a "switch.*" entity, since their
 // on/off state values are compatible) -- the DSL author's responsibility to only coerce between
 // genuinely compatible domains; not validated here (no compatibility table defined yet).
 type THassBridgeCapability struct {
 	Domain string
-	// Sources holds this capability's remote source entity, keyed by the declaring instance's own
-	// name -- genuinely per-instance, not a single shared value: the same physical roaming device
-	// can register under a DIFFERENT local entity_id on each HA instance it connects to (real
-	// incident, found live 2026-09-05 -- Vienna's own registry initially lacked
-	// hass.eriks_iphone's battery_level entity under the identical name Junglinster's instances
-	// used, until manually aligned there; before this fix, collectHassBridgeDevicesByID's roaming
-	// merge silently discarded every instance's own declaration but the first, so every instance's
-	// reporting automation was generated against whichever source happened to win the merge). A
-	// non-roaming device still populates this with exactly one entry (its own sole instance) --
-	// every reader must key off the specific instance it cares about, never assume a shared value.
-	Sources map[string]string
+	// Source is this capability's remote source entity, "<entity>" or "<entity>!<attribute>" --
+	// "" for a derived capability. (Keyed per instance until PROJECT.md 31, 2026-11-04, for a
+	// roaming device declared under several.)
+	Source string
 	// Typing metadata, all optional -- declared via a separate "<path> unit: "<value>";"-shaped
 	// line per field (integration_hassbridge_parser.go's capabilityMetadataPattern), not
 	// hardwired per integration type the way hosts' cpuAttributeSpecs is: a hassbridge
@@ -80,16 +68,15 @@ type THassBridgeCapability struct {
 	// Attributes (added 2026-09-21) declares extra named attributes this capability exposes
 	// alongside its own state, via "attribute <name>: <source>;" (repeatable, same two places
 	// map:/unit:/... can go, source unquoted -- an entity reference, not an arbitrary value) --
-	// source is the same "<entity>[!<attribute>]" convention Sources
-	// uses. Keyed attribute-name -> per-instance source, for the same per-instance reason Sources
-	// itself is keyed that way (see Sources' own doc comment). Feeds a sibling "attributes"
+	// source is the same "<entity>[!<attribute>]" convention Source
+	// uses. Keyed attribute-name -> source. Feeds a sibling "attributes"
 	// MQTT-publish reporting automation (remote_instance_entity_reporting.go) and the coordinator's
 	// json_attributes_topic (house_event_bus_coordinator/discoveryhassbridge.go) -- real motivating
 	// case: vacuum.roomba going into a real fault ("stuck near a cliff") that never reached main
 	// HA's frontend, since only its bare state was ever bridged, never its "error"/"error_code"
 	// attributes. Empty/nil means this capability exposes no attributes beyond its own state --
 	// unchanged behaviour for every capability declared before this field existed.
-	Attributes map[string]map[string]string
+	Attributes map[string]string
 	// AttributeValueMaps is ValueMap's per-attribute sibling -- "map <attribute-name>: "<from>"
 	// "<to>";" (repeatable), keyed by attribute name, disambiguated from the bare (state-only)
 	// "map: "<from>" "<to>";" purely by the mandatory name token between "map" and ":"
@@ -105,15 +92,15 @@ type THassBridgeCapability struct {
 	// discovery-kind Z-Wave awnings cover's own existing full position-control feature set)
 	// declares this capability's own current-position source via "derived value <source>;" (same one
 	// place map:/unit:/... goes, source unquoted, same "<entity>[!<attribute>]" convention as
-	// Sources -- almost always "!current_position", e.g. "cover.living_room_front!
-	// current_position"). Keyed per-instance for the same roaming reason Sources/Attributes are.
+	// Source -- almost always "!current_position", e.g. "cover.living_room_front!
+	// current_position").
 	// Feeds a "position" key riding alongside "state" in this capability's own JSON state payload
 	// (remote_instance_entity_reporting.go, generalising the vacuum-only domainStatePayloadTemplate
 	// mechanism to a per-capability one) and the coordinator's position_topic/position_template
 	// (house_event_bus_coordinator/discoveryhassbridge.go), read off that SAME state_topic rather
 	// than a separate one. Empty/nil means this capability reports no position at all -- unchanged
 	// behaviour for every capability declared before this field existed.
-	Position map[string]string
+	Position string
 }
 
 // THassBridgeDevice is one "device <id> with: ... end;" declaration inside Physical.def's
@@ -131,9 +118,9 @@ type THassBridgeCapability struct {
 // generalized-to-all-kinds "device (map)" MQTT field allowlist.
 type THassBridgeDevice struct {
 	DeviceID string
-	// Instances is the "home_assistant <qualifier>" this device is declared under -- one, since
-	// "roaming" went (PROJECT.md 31, 2026-11-04; a roaming device was declared under several).
-	Instances                 []string
+	// Instance is the "home_assistant <qualifier>" this device is declared under (a list until
+	// PROJECT.md 31, 2026-11-04, for a roaming device declared under several).
+	Instance                  string
 	Capabilities              map[string]THassBridgeCapability
 	ConstantAttributes        map[string]THostConstantAttribute
 	DeviceInfoCapabilities    map[string]string // name -> source ("<entity>[!<attribute>]")
@@ -168,36 +155,6 @@ type THassBridgeDevice struct {
 	IgnoreOtherCapabilities bool
 	// ReloadGuards (PROJECT.md 23): "reload integration when ... is unavailable for ...;" lines.
 	ReloadGuards []TReloadGuard
-}
-
-// formatInstanceSources renders a capability's per-instance sources as "<instance>=<source>" pairs
-// (only for the instances named in instances, in that order) -- used for error messages that need
-// to name exactly which source was checked on which instance, since a roaming capability has no
-// single value to report.
-func formatInstanceSources(sources map[string]string, instances []string) string {
-	parts := make([]string, 0, len(instances))
-	for _, instance := range instances {
-		if source, ok := sources[instance]; ok {
-			parts = append(parts, instance+"="+source)
-		}
-	}
-	return strings.Join(parts, ", ")
-}
-
-// representativeSource picks one deterministic value out of a capability's per-instance Sources
-// map -- for display/logging purposes only (e.g. an error message naming "the source" a capability
-// resolves to), never for anything that actually routes or checks data, since a genuinely
-// multi-instance capability has no single canonical source to report. "" if sources is empty.
-func representativeSource(sources map[string]string) string {
-	if len(sources) == 0 {
-		return ""
-	}
-	instances := make([]string, 0, len(sources))
-	for instance := range sources {
-		instances = append(instances, instance)
-	}
-	sort.Strings(instances)
-	return sources[instances[0]]
 }
 
 // TReloadGuard is one "reload integration when <domain>.<label> is unavailable for <duration>;" of a

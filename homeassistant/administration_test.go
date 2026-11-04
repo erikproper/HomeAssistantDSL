@@ -83,7 +83,7 @@ space social:kitchen with:
 end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.laserjet": {DeviceID: "hass.laserjet", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{}},
+		"hass.laserjet": {DeviceID: "hass.laserjet", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{}},
 	}
 
 	var report strings.Builder
@@ -116,7 +116,7 @@ space social:kitchen with:
 end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.laserjet": {DeviceID: "hass.laserjet", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{}},
+		"hass.laserjet": {DeviceID: "hass.laserjet", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{}},
 	}
 
 	var report strings.Builder

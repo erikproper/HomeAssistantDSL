@@ -130,10 +130,10 @@ end;
 device hass.multiswitch with entity binary_sensor.infrastructural:node;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.multiswitch": {DeviceID: "hass.multiswitch", Instances: []string{"main"}, Capabilities: map[string]THassBridgeCapability{
-			"core_1": {Domain: "light", Sources: map[string]string{"main": "switch.raw_core_1"}},
-			"core_2": {Domain: "light", Sources: map[string]string{"main": "switch.raw_core_2"}},
-			"node":   {Domain: "binary_sensor", Sources: map[string]string{"main": "switch.raw_node"}},
+		"hass.multiswitch": {DeviceID: "hass.multiswitch", Instance: "main", Capabilities: map[string]THassBridgeCapability{
+			"core_1": {Domain: "light", Source: "switch.raw_core_1"},
+			"core_2": {Domain: "light", Source: "switch.raw_core_2"},
+			"node":   {Domain: "binary_sensor", Source: "switch.raw_node"},
 		}},
 	}
 
@@ -255,10 +255,10 @@ func TestRegisterDevicePositioningInheritsEnclosingAreaFromNestedSpace(t *testin
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.living_room_terrace": {
-			DeviceID:  "hass.living_room_terrace",
-			Instances: []string{"protocols-server-2"},
+			DeviceID: "hass.living_room_terrace",
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"node": {Domain: "binary_sensor", Sources: map[string]string{"protocols-server-2": "sensor.terrace_netatmo_temperature is available"}},
+				"node": {Domain: "binary_sensor", Source: "sensor.terrace_netatmo_temperature is available"},
 			},
 		},
 	}
@@ -288,9 +288,9 @@ func TestRegisterDevicePositioningExplicitSuggestedAreaWinsOverEnclosingArea(t *
 			ConstantAttributes: map[string]THostConstantAttribute{
 				"suggested_area": {Value: "Explicit Area"},
 			},
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"node": {Domain: "binary_sensor", Sources: map[string]string{"protocols-server-2": "sensor.terrace_netatmo_temperature is available"}},
+				"node": {Domain: "binary_sensor", Source: "sensor.terrace_netatmo_temperature is available"},
 			},
 		},
 	}
@@ -325,8 +325,8 @@ device utility.laserjet with entity binary_sensor.infrastructural:node;`
 		"node.laserjet": {DeviceID: "node.laserjet", HostName: "laserjet", IntegrationType: "ping"},
 	}
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"utility.laserjet": {DeviceID: "utility.laserjet", Instances: []string{"main"}, Capabilities: map[string]THassBridgeCapability{
-			"node": {Domain: "binary_sensor", Sources: map[string]string{"main": "sensor.laserjet_connectivity"}},
+		"utility.laserjet": {DeviceID: "utility.laserjet", Instance: "main", Capabilities: map[string]THassBridgeCapability{
+			"node": {Domain: "binary_sensor", Source: "sensor.laserjet_connectivity"},
 		}},
 	}
 

@@ -10,10 +10,10 @@ func TestRegisterExportedHassBridgeDevicesRegistersUnpositionedDevice(t *testing
 	admin := newAdministrationState()
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.vienna_terrace": {
-			DeviceID: "hass.vienna_terrace", Instances: []string{"protocols-server-2"}, Export: true,
+			DeviceID: "hass.vienna_terrace", Instance: "protocols-server-2", Export: true,
 			Capabilities: map[string]THassBridgeCapability{
-				"temperature": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.vienna_terrace_temperature"}},
-				"humidity":    {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.vienna_terrace_humidity"}},
+				"temperature": {Domain: "sensor", Source: "sensor.vienna_terrace_temperature"},
+				"humidity":    {Domain: "sensor", Source: "sensor.vienna_terrace_humidity"},
 			},
 		},
 	}
@@ -43,9 +43,9 @@ func TestRegisterExportedHassBridgeDevicesSkipsNonExportDevices(t *testing.T) {
 	admin := newAdministrationState()
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.laserjet": {
-			DeviceID: "hass.laserjet", Instances: []string{"protocols-server-2"},
+			DeviceID: "hass.laserjet", Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"status": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w"}},
+				"status": {Domain: "sensor", Source: "sensor.hewlett_packard_hp_laserjet_professional_p1102w"},
 			},
 		},
 	}
@@ -74,10 +74,10 @@ func TestRegisterExportedHassBridgeDevicesLeavesAlreadyPositionedDeviceUntouched
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.office_garden": {
-			DeviceID: "hass.office_garden", Instances: []string{"protocols-server-2"}, Export: true,
+			DeviceID: "hass.office_garden", Instance: "protocols-server-2", Export: true,
 			Capabilities: map[string]THassBridgeCapability{
-				"temperature": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.office_garden_temperature"}},
-				"humidity":    {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.office_garden_humidity"}},
+				"temperature": {Domain: "sensor", Source: "sensor.office_garden_temperature"},
+				"humidity":    {Domain: "sensor", Source: "sensor.office_garden_humidity"},
 			},
 		},
 	}

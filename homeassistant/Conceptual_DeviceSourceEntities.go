@@ -193,17 +193,11 @@ func registerDeviceSourceEntityLink(administration *TAdministrationState, decl T
 	if icon == "" {
 		icon = defaultIcon
 	}
-	sources := existing.Sources
+	source := existing.Source
 	if capabilityKey == "" {
 		// Bare "entity <spec> as <source> from <device-id>;" form -- decl.Source is DSL-author-
-		// supplied directly in Spaces.def, with no per-instance context available here (unlike a
-		// Physical.def capability line, which always knows its own declaring instance). Applied
-		// identically across every one of the device's currently known instances -- this form
-		// predates roaming's per-instance sources and was never meant to distinguish them.
-		sources = map[string]string{}
-		for _, instance := range device.Instances {
-			sources[instance] = decl.Source
-		}
+		// supplied directly in Spaces.def.
+		source = decl.Source
 	}
 	// Start from existing (already read above for its own DeviceClass/Unit/StateClass/Icon) rather
 	// than a fresh struct literal -- real bug, found live 2026-09-10 while wiring the "derived"
@@ -211,11 +205,11 @@ func registerDeviceSourceEntityLink(administration *TAdministrationState, decl T
 	// dropped ValueMap and (once added) DerivedFromCapability/DerivedViaTemplate every time this
 	// construct referenced an existing Physical.def-declared capability (capabilityKey != ""),
 	// since none of those fields were ever carried over. Only the fields this function actually
-	// resolves (Domain/Sources/typing) are reassigned below; everything else -- including any field
+	// resolves (Domain/Source/typing) are reassigned below; everything else -- including any field
 	// added to THassBridgeCapability in the future -- passes through unchanged.
 	updated := existing
 	updated.Domain = identity.Domain
-	updated.Sources = sources
+	updated.Source = source
 	updated.DeviceClass, updated.Unit, updated.StateClass, updated.Icon = deviceClass, unit, stateClass, icon
 	device.Capabilities[key] = updated
 	// See TDeviceAttributeLink.DisplaySuffix's own doc comment: an empty trailing path in the DSL

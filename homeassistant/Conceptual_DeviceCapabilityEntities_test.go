@@ -147,9 +147,9 @@ func TestForDeviceBlockRegistersSameAsExplicitDeviceIDLines(t *testing.T) {
 end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.laserjet": {DeviceID: "hass.laserjet", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{
-			"status":   {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w"}},
-			"cardrige": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w_black_cartridge_hp_ce285a"}},
+		"hass.laserjet": {DeviceID: "hass.laserjet", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{
+			"status":   {Domain: "sensor", Source: "sensor.hewlett_packard_hp_laserjet_professional_p1102w"},
+			"cardrige": {Domain: "sensor", Source: "sensor.hewlett_packard_hp_laserjet_professional_p1102w_black_cartridge_hp_ce285a"},
 		}},
 	}
 
@@ -182,9 +182,9 @@ func TestForDeviceBlockBareEntityShorthandRegistersSameAsExplicitFromLines(t *te
 end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.laserjet": {DeviceID: "hass.laserjet", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{
-			"status":   {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w"}},
-			"cardrige": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w_black_cartridge_hp_ce285a"}},
+		"hass.laserjet": {DeviceID: "hass.laserjet", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{
+			"status":   {Domain: "sensor", Source: "sensor.hewlett_packard_hp_laserjet_professional_p1102w"},
+			"cardrige": {Domain: "sensor", Source: "sensor.hewlett_packard_hp_laserjet_professional_p1102w_black_cartridge_hp_ce285a"},
 		}},
 	}
 
@@ -439,11 +439,11 @@ end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"appliance.washing_machine": {
-			DeviceID:  "appliance.washing_machine",
-			Instances: []string{"protocols-server-2"},
+			DeviceID: "appliance.washing_machine",
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"status": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.bathroom_washing_machine_status"}},
-				"node":   {Domain: "binary_sensor", Sources: map[string]string{"protocols-server-2": "sensor.bathroom_washing_machine is available"}},
+				"status": {Domain: "sensor", Source: "sensor.bathroom_washing_machine_status"},
+				"node":   {Domain: "binary_sensor", Source: "sensor.bathroom_washing_machine is available"},
 			},
 		},
 	}
@@ -666,9 +666,9 @@ device hass.frame with:
 end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.frame": {DeviceID: "hass.frame", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{
-			"node":      {Domain: "binary_sensor", Sources: map[string]string{"protocols-server-2": "sensor.frame is available"}},
-			"slideshow": {Domain: "switch", Sources: map[string]string{"protocols-server-2": "switch.frame_slideshow"}},
+		"hass.frame": {DeviceID: "hass.frame", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{
+			"node":      {Domain: "binary_sensor", Source: "sensor.frame is available"},
+			"slideshow": {Domain: "switch", Source: "switch.frame_slideshow"},
 		}},
 	}
 
@@ -692,8 +692,8 @@ func TestForDeviceBlockWarnsOnUnrecognisedLineAndKeepsParsing(t *testing.T) {
 end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.laserjet": {DeviceID: "hass.laserjet", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{
-			"status": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w"}},
+		"hass.laserjet": {DeviceID: "hass.laserjet", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{
+			"status": {Domain: "sensor", Source: "sensor.hewlett_packard_hp_laserjet_professional_p1102w"},
 		}},
 	}
 

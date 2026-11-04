@@ -75,17 +75,8 @@ func generateHassBridgeFile(outputRoot string, hassBridgeDevicesByID map[string]
 			}
 			anyResolved = true
 			capLines.WriteString("      " + name + ":\n")
-			// source_entities is per-instance, never a single value -- a roaming device's own
-			// local entity_id for the same capability can genuinely differ across instances
-			// (found live 2026-09-05).
-			capLines.WriteString("        source_entities:\n")
-			sourceInstances := make([]string, 0, len(device.Capabilities[name].Sources))
-			for instance := range device.Capabilities[name].Sources {
-				sourceInstances = append(sourceInstances, instance)
-			}
-			sort.Strings(sourceInstances)
-			for _, instance := range sourceInstances {
-				capLines.WriteString("          " + instance + ": " + device.Capabilities[name].Sources[instance] + "\n")
+			if source := device.Capabilities[name].Source; source != "" {
+				capLines.WriteString("        source_entity: " + source + "\n")
 			}
 			capLines.WriteString("        local_entity: " + attr.EntityID + "\n")
 			if id, frozen := admin.FrozenUniqueIDs["physical:"+deviceID+"!"+name]; frozen {
@@ -183,12 +174,7 @@ func generateHassBridgeFile(outputRoot string, hassBridgeDevicesByID map[string]
 
 		written = true
 		sb.WriteString("  " + deviceID + ":\n")
-		sb.WriteString("    instances:\n")
-		instances := append([]string{}, device.Instances...)
-		sort.Strings(instances)
-		for _, instance := range instances {
-			sb.WriteString("      - " + instance + "\n")
-		}
+		sb.WriteString("    instance: " + device.Instance + "\n")
 		if device.Export {
 			sb.WriteString("    export: true\n")
 		}

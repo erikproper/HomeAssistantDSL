@@ -117,7 +117,7 @@ func entityCommandAutomationBody(identity TEntityIdentity, command commandSpec, 
 func generateHassBridgeEntityCommandAutomations(instanceHAOutputDir, name string, hassBridgeDevicesByID map[string]THassBridgeDevice, admin *TAdministrationState) error {
 	deviceIDs := make([]string, 0, len(hassBridgeDevicesByID))
 	for deviceID, device := range hassBridgeDevicesByID {
-		if containsString(device.Instances, name) {
+		if device.Instance == name {
 			deviceIDs = append(deviceIDs, deviceID)
 		}
 	}
@@ -146,11 +146,10 @@ func generateHassBridgeEntityCommandAutomations(instanceHAOutputDir, name string
 			if !commandable {
 				continue
 			}
-			source, declaredHere := cap.Sources[name]
-			if !declaredHere {
+			if cap.Source == "" {
 				continue
 			}
-			bareTargetEntity := bareEntityFromSource(source)
+			bareTargetEntity := bareEntityFromSource(cap.Source)
 
 			for _, command := range commands {
 				topic := hassBridgeEntityCommandTopicFor(name, attr.EntityID, command)

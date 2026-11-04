@@ -99,10 +99,10 @@ end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.protocols_server_2": {
-			DeviceID:  "hass.protocols_server_2",
-			Instances: []string{"protocols-server-2"},
+			DeviceID: "hass.protocols_server_2",
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"roomba": {Domain: "vacuum", Sources: map[string]string{"protocols-server-2": "vacuum.roomba"}},
+				"roomba": {Domain: "vacuum", Source: "vacuum.roomba"},
 			},
 		},
 	}
@@ -145,10 +145,10 @@ end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.davids_bedroom": {
-			DeviceID:  "hass.davids_bedroom",
-			Instances: []string{"protocols-server-2"},
+			DeviceID: "hass.davids_bedroom",
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"co2": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.davids_bedroom_carbon_dioxide"}},
+				"co2": {Domain: "sensor", Source: "sensor.davids_bedroom_carbon_dioxide"},
 			},
 		},
 	}

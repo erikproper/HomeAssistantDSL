@@ -22,10 +22,10 @@ func findPublish(published []recordedPublish, topic string) (recordedPublish, bo
 func fixtureBridgeFileForExistence() THassBridgeFile {
 	return THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.davids_bedroom": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"co2":      {SourceEntities: map[string]string{"protocols-server-2": "sensor.davids_bedroom_carbon_dioxide"}, LocalEntity: "sensor.physical_david_bedroom_netatmo_co2"},
-				"humidity": {SourceEntities: map[string]string{"protocols-server-2": "sensor.davids_bedroom_humidity"}, LocalEntity: "sensor.physical_david_bedroom_netatmo_humidity"},
+				"co2":      {SourceEntity: "sensor.davids_bedroom_carbon_dioxide", LocalEntity: "sensor.physical_david_bedroom_netatmo_co2"},
+				"humidity": {SourceEntity: "sensor.davids_bedroom_humidity", LocalEntity: "sensor.physical_david_bedroom_netatmo_humidity"},
 			},
 		},
 	}}
@@ -54,10 +54,10 @@ func TestEntityExistenceTrackerSeedStripsIsAvailableSugar(t *testing.T) {
 	tracker := newEntityExistenceTracker("")
 	tracker.Seed(THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.junglinster": {
-			Instances: []string{"main"},
+			Instance: "main",
 			Capabilities: map[string]THassBridgeCapability{
-				"node":            {SourceEntities: map[string]string{"main": "sensor.processor_use is available"}},
-				"cpu/temperature": {SourceEntities: map[string]string{"main": "sensor.processor_temperature"}},
+				"node":            {SourceEntity: "sensor.processor_use is available"},
+				"cpu/temperature": {SourceEntity: "sensor.processor_temperature"},
 			},
 		},
 	}})
@@ -84,9 +84,9 @@ func TestEntityExistenceTrackerSeedSkipsIntegrationSources(t *testing.T) {
 	tracker.order["ha2mqtt"] = []string{"integration netatmo"}
 	tracker.Seed(THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"integration.netatmo": {
-			Instances: []string{"ha2mqtt"},
+			Instance: "ha2mqtt",
 			Capabilities: map[string]THassBridgeCapability{
-				"node": {SourceEntities: map[string]string{"ha2mqtt": "integration netatmo is available"}},
+				"node": {SourceEntity: "integration netatmo is available"},
 			},
 		},
 	}})
@@ -112,9 +112,9 @@ func TestEntityExistenceTrackerSeedPrunesConfirmedDeadOrphans(t *testing.T) {
 	tracker := newEntityExistenceTracker("")
 	tracker.Seed(THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.living_room_terrace": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"battery": {SourceEntities: map[string]string{"protocols-server-2": "sensor.living_room__battery"}},
+				"battery": {SourceEntity: "sensor.living_room__battery"},
 			},
 		},
 	}})
@@ -130,9 +130,9 @@ func TestEntityExistenceTrackerSeedPrunesConfirmedDeadOrphans(t *testing.T) {
 	// old one no longer appears anywhere in bridgeFile.
 	tracker.Seed(THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.living_room_terrace": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"battery": {SourceEntities: map[string]string{"protocols-server-2": "sensor.living_room_battery"}},
+				"battery": {SourceEntity: "sensor.living_room_battery"},
 			},
 		},
 	}})
@@ -171,10 +171,10 @@ func TestEntityExistenceTrackerSeedCorrectsSyntheticDeviceIDToRealOwner(t *testi
 	tracker := newEntityExistenceTracker("")
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.office_bathroom": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"co2":         {SourceEntities: map[string]string{"protocols-server-2": "sensor.office_bathroom_carbon_dioxide"}},
-				"temperature": {SourceEntities: map[string]string{"protocols-server-2": "sensor.office_bathroom_temperature"}},
+				"co2":         {SourceEntity: "sensor.office_bathroom_carbon_dioxide"},
+				"temperature": {SourceEntity: "sensor.office_bathroom_temperature"},
 			},
 		},
 	}}
@@ -230,15 +230,15 @@ func TestEntityExistenceTrackerSeedCorrectsStaleRealDeviceIDAfterRename(t *testi
 	// before a device rename.
 	tracker.Seed(THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.vienna_bedroom": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"battery_level": {SourceEntities: map[string]string{"protocols-server-2": "sensor.vienna_bedroom_battery"}},
+				"battery_level": {SourceEntity: "sensor.vienna_bedroom_battery"},
 			},
 		},
 		"hass.vienna_livingroom": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"pressure": {SourceEntities: map[string]string{"protocols-server-2": "sensor.vienna_atmospheric_pressure"}},
+				"pressure": {SourceEntity: "sensor.vienna_atmospheric_pressure"},
 			},
 		},
 	}})
@@ -260,15 +260,15 @@ func TestEntityExistenceTrackerSeedCorrectsStaleRealDeviceIDAfterRename(t *testi
 	// from the newly generated homeassistant_bridge.yaml.
 	tracker.Seed(THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"node.vienna_bedroom": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"battery_level": {SourceEntities: map[string]string{"protocols-server-2": "sensor.vienna_bedroom_battery"}},
+				"battery_level": {SourceEntity: "sensor.vienna_bedroom_battery"},
 			},
 		},
 		"node.vienna_livingroom": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"pressure": {SourceEntities: map[string]string{"protocols-server-2": "sensor.vienna_atmospheric_pressure"}},
+				"pressure": {SourceEntity: "sensor.vienna_atmospheric_pressure"},
 			},
 		},
 	}})
@@ -307,15 +307,15 @@ func TestEntityExistenceTrackerSeedCorrectsSiblingDeviceIDAfterRename(t *testing
 
 	tracker.Seed(THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"node.vienna_bedroom": {
-			Instances: []string{"ha2mqtt"},
+			Instance: "ha2mqtt",
 			Capabilities: map[string]THassBridgeCapability{
-				"battery_level": {SourceEntities: map[string]string{"ha2mqtt": "sensor.vienna_bedroom_battery"}},
+				"battery_level": {SourceEntity: "sensor.vienna_bedroom_battery"},
 			},
 		},
 		"node.vienna_livingroom": {
-			Instances: []string{"ha2mqtt"},
+			Instance: "ha2mqtt",
 			Capabilities: map[string]THassBridgeCapability{
-				"pressure": {SourceEntities: map[string]string{"ha2mqtt": "sensor.vienna_atmospheric_pressure"}},
+				"pressure": {SourceEntity: "sensor.vienna_atmospheric_pressure"},
 			},
 		},
 	}})
@@ -331,15 +331,15 @@ func TestEntityExistenceTrackerSeedCorrectsSiblingDeviceIDAfterRename(t *testing
 	// The rename lands, mirroring the real one exactly.
 	tracker.Seed(THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"sensors.vienna_bedroom": {
-			Instances: []string{"ha2mqtt"},
+			Instance: "ha2mqtt",
 			Capabilities: map[string]THassBridgeCapability{
-				"battery_level": {SourceEntities: map[string]string{"ha2mqtt": "sensor.vienna_bedroom_battery"}},
+				"battery_level": {SourceEntity: "sensor.vienna_bedroom_battery"},
 			},
 		},
 		"sensors.vienna_livingroom": {
-			Instances: []string{"ha2mqtt"},
+			Instance: "ha2mqtt",
 			Capabilities: map[string]THassBridgeCapability{
-				"pressure": {SourceEntities: map[string]string{"ha2mqtt": "sensor.vienna_atmospheric_pressure"}},
+				"pressure": {SourceEntity: "sensor.vienna_atmospheric_pressure"},
 			},
 		},
 	}})
@@ -373,17 +373,17 @@ func TestEntityExistenceTrackerSeedKeepsBorrowedSharedEntityWithItsRealDevice(t 
 	tracker := newEntityExistenceTracker("")
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"sensors.netatmo_bedroom": {
-			Instances: []string{"ha2mqtt"},
+			Instance: "ha2mqtt",
 			Capabilities: map[string]THassBridgeCapability{
-				"node": {SourceEntities: map[string]string{"ha2mqtt": "binary_sensor.vienna_bedroom_connectivity"}},
-				"co2":  {SourceEntities: map[string]string{"ha2mqtt": "sensor.vienna_bedroom_carbon_dioxide"}},
+				"node": {SourceEntity: "binary_sensor.vienna_bedroom_connectivity"},
+				"co2":  {SourceEntity: "sensor.vienna_bedroom_carbon_dioxide"},
 			},
 		},
 		"sensors.netatmo_livingroom": {
-			Instances: []string{"ha2mqtt"},
+			Instance: "ha2mqtt",
 			Capabilities: map[string]THassBridgeCapability{
-				"node":  {SourceEntities: map[string]string{"ha2mqtt": "binary_sensor.vienna_bedroom_connectivity"}},
-				"noise": {SourceEntities: map[string]string{"ha2mqtt": "sensor.vienna_noise"}},
+				"node":  {SourceEntity: "binary_sensor.vienna_bedroom_connectivity"},
+				"noise": {SourceEntity: "sensor.vienna_noise"},
 			},
 		},
 	}}
@@ -445,9 +445,9 @@ func TestDiscoverSiblingsIgnoresMalformedEntityID(t *testing.T) {
 	tracker := newEntityExistenceTracker("")
 	tracker.Seed(THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.living_room_terrace": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"battery": {SourceEntities: map[string]string{"protocols-server-2": "sensor.living_room_terrace_battery"}},
+				"battery": {SourceEntity: "sensor.living_room_terrace_battery"},
 			},
 		},
 	}})
@@ -478,9 +478,9 @@ func TestEntityExistenceTrackerSeedPrunesAlreadyPersistedMalformedGhost(t *testi
 
 	tracker.Seed(THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"node.living_room_terrace": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"battery": {SourceEntities: map[string]string{"protocols-server-2": "sensor.living_room_terrace_battery"}},
+				"battery": {SourceEntity: "sensor.living_room_terrace_battery"},
 			},
 		},
 	}})
@@ -498,9 +498,9 @@ func TestEntityExistenceTrackerSeedNeverPrunesStillDeclaredEntries(t *testing.T)
 	tracker := newEntityExistenceTracker("")
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.living_room_terrace": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"battery": {SourceEntities: map[string]string{"protocols-server-2": "sensor.still_broken"}},
+				"battery": {SourceEntity: "sensor.still_broken"},
 			},
 		},
 	}}
@@ -605,8 +605,8 @@ func TestEntityExistenceTrackerInquireNowBypassesPacing(t *testing.T) {
 
 	// A normal maybeInquire call establishes pacing for "main".
 	tracker.Seed(THassBridgeFile{Devices: map[string]THassBridgeDevice{
-		"hass.junglinster": {Instances: []string{"main"}, Capabilities: map[string]THassBridgeCapability{
-			"cpu/load": {SourceEntities: map[string]string{"main": "sensor.processor_use"}},
+		"hass.junglinster": {Instance: "main", Capabilities: map[string]THassBridgeCapability{
+			"cpu/load": {SourceEntity: "sensor.processor_use"},
 		}},
 	}})
 	tracker.maybeInquire(client, "main")
@@ -1463,15 +1463,15 @@ func TestEntityExistenceTrackerNoPathDoesNotTouchDisk(t *testing.T) {
 func fixtureTwoDeviceBridgeFileForViaDevice() THassBridgeFile {
 	return THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.module": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"battery_level": {SourceEntities: map[string]string{"protocols-server-2": "sensor.module_battery"}, LocalEntity: "sensor.physical_module_battery_level"},
+				"battery_level": {SourceEntity: "sensor.module_battery", LocalEntity: "sensor.physical_module_battery_level"},
 			},
 		},
 		"hass.base": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"node": {SourceEntities: map[string]string{"protocols-server-2": "sensor.base_connectivity"}, LocalEntity: "sensor.physical_base_node"},
+				"node": {SourceEntity: "sensor.base_connectivity", LocalEntity: "sensor.physical_base_node"},
 			},
 		},
 	}}
@@ -1546,23 +1546,23 @@ func TestResolveViaDeviceResolvesSharedSourceEntityRegardlessOfTrackerAttributio
 	tracker := newEntityExistenceTracker("")
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"node.vienna_bedroom": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"node":          {SourceEntities: map[string]string{"protocols-server-2": "binary_sensor.vienna_bedroom_connectivity"}},
-				"battery_level": {SourceEntities: map[string]string{"protocols-server-2": "sensor.vienna_bedroom_battery"}},
+				"node":          {SourceEntity: "binary_sensor.vienna_bedroom_connectivity"},
+				"battery_level": {SourceEntity: "sensor.vienna_bedroom_battery"},
 			},
 		},
 		"node.vienna_livingroom": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"node":     {SourceEntities: map[string]string{"protocols-server-2": "binary_sensor.vienna_bedroom_connectivity"}},
-				"pressure": {SourceEntities: map[string]string{"protocols-server-2": "sensor.vienna_atmospheric_pressure"}},
+				"node":     {SourceEntity: "binary_sensor.vienna_bedroom_connectivity"},
+				"pressure": {SourceEntity: "sensor.vienna_atmospheric_pressure"},
 			},
 		},
 		"node.base": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"node": {SourceEntities: map[string]string{"protocols-server-2": "sensor.base_node"}},
+				"node": {SourceEntity: "sensor.base_node"},
 			},
 		},
 	}}

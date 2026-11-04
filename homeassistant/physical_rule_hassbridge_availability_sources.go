@@ -54,41 +54,33 @@ import (
 //
 // A source whose pre-suffix text already looks like a raw entity_id (contains a ".", which a bare
 // capability label never does in this grammar) is left untouched -- label resolution only ever
-// applies to a genuinely bare token. Per-instance: a "roaming" device's own is-available reference
-// on instance X resolves against that SAME instance's own sibling source, never a different
-// instance's. An unknown label, a label naming itself, or a label whose OWN source is itself
+// applies to a genuinely bare token. An unknown label, a label naming itself, or a label whose OWN source is itself
 // another "is available" reference (matching validateHassBridgeAvailabilitySources' own "an
 // is-available source contributes nothing here" rule) is left unresolved, surfacing as that
 // validator's ordinary "likely a typo" warning unchanged.
 func resolveHassBridgeAvailabilityLabelReferences(hassBridgeDevicesByID map[string]THassBridgeDevice) {
 	for _, device := range hassBridgeDevicesByID {
 		for label, capability := range device.Capabilities {
-			for instance, source := range capability.Sources {
-				token, isAvailability := strings.CutSuffix(source, discoveryAvailabilitySuffix)
-				if !isAvailability || strings.Contains(token, ".") || token == label {
-					continue
-				}
-				sibling, found := device.Capabilities[token]
-				if !found {
-					continue
-				}
-				siblingSource, hasInstance := sibling.Sources[instance]
-				if !hasInstance {
-					continue
-				}
-				if _, siblingIsAvailability := strings.CutSuffix(siblingSource, discoveryAvailabilitySuffix); siblingIsAvailability {
-					continue
-				}
-				capability.Sources[instance] = siblingSource + discoveryAvailabilitySuffix
+			token, isAvailability := strings.CutSuffix(capability.Source, discoveryAvailabilitySuffix)
+			if !isAvailability || strings.Contains(token, ".") || token == label {
+				continue
 			}
+			sibling, found := device.Capabilities[token]
+			if !found || sibling.Source == "" {
+				continue
+			}
+			if _, siblingIsAvailability := strings.CutSuffix(sibling.Source, discoveryAvailabilitySuffix); siblingIsAvailability {
+				continue
+			}
+			capability.Source = sibling.Source + discoveryAvailabilitySuffix
+			device.Capabilities[label] = capability
 		}
 	}
 }
 
 // validateHassBridgeAvailabilitySources checks every hassbridge device's "... is available;"
 // capability sources against that SAME device's own other, plain (non-"is available") capability
-// sources -- the referenced entity_id must match at least one of them (any declaring instance),
-// or it's flagged as a likely typo. Warning-only, like validateDerivedCapabilities (the node rule,
+// sources -- the referenced entity_id must match at least one of them, or it's flagged as a likely typo. Warning-only, like validateDerivedCapabilities (the node rule,
 // validateEveryDeviceHasNode, is an error since 2026-11-02).
 func validateHassBridgeAvailabilitySources(hassBridgeDevicesByID map[string]THassBridgeDevice) []string {
 	var warnings []string
@@ -109,34 +101,23 @@ func validateHassBridgeAvailabilitySources(hassBridgeDevicesByID map[string]THas
 		sort.Strings(capabilityLabels)
 
 		// The pool of entity_ids an "is available" reference is expected to match one of --
-		// every PLAIN (non-"is available") source this device declares, across every instance
-		// (a "roaming" device's per-instance Sources, THassBridgeCapability's own doc comment).
-		// An "is available" source contributes nothing here, so a capability can never validate
+		// every PLAIN (non-"is available") source this device declares. An "is available" source contributes nothing here, so a capability can never validate
 		// against its own (or another capability's) availability reference, only a real value.
 		knownEntities := map[string]bool{}
 		for _, label := range capabilityLabels {
-			for _, source := range device.Capabilities[label].Sources {
-				if _, isAvailability := strings.CutSuffix(source, discoveryAvailabilitySuffix); isAvailability {
-					continue
-				}
-				knownEntities[bareEntityFromSource(source)] = true
+			source := device.Capabilities[label].Source
+			if _, isAvailability := strings.CutSuffix(source, discoveryAvailabilitySuffix); source == "" || isAvailability {
+				continue
 			}
+			knownEntities[bareEntityFromSource(source)] = true
 		}
 
 		for _, label := range capabilityLabels {
-			instances := make([]string, 0, len(device.Capabilities[label].Sources))
-			for instance := range device.Capabilities[label].Sources {
-				instances = append(instances, instance)
+			entityID, isAvailability := strings.CutSuffix(device.Capabilities[label].Source, discoveryAvailabilitySuffix)
+			if !isAvailability || knownEntities[entityID] || strings.HasPrefix(entityID, integrationSourcePrefix) {
+				continue
 			}
-			sort.Strings(instances)
-			for _, instance := range instances {
-				source := device.Capabilities[label].Sources[instance]
-				entityID, isAvailability := strings.CutSuffix(source, discoveryAvailabilitySuffix)
-				if !isAvailability || knownEntities[entityID] || strings.HasPrefix(entityID, integrationSourcePrefix) {
-					continue
-				}
-				warnings = append(warnings, fmt.Sprintf("device %q's %q capability's \"%s is available;\" doesn't match any of this device's OWN other capability sources -- likely a typo in the entity_id", deviceID, label, entityID))
-			}
+			warnings = append(warnings, fmt.Sprintf("device %q's %q capability's \"%s is available;\" doesn't match any of this device's OWN other capability sources -- likely a typo in the entity_id", deviceID, label, entityID))
 		}
 	}
 

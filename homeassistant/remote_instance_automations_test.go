@@ -10,8 +10,8 @@ import (
 func TestGenerateInstanceAutomationTreesWritesMainAndRemoteTrees(t *testing.T) {
 	admin := newAdministrationState()
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.laserjet": {DeviceID: "hass.laserjet", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{
-			"status": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w"}},
+		"hass.laserjet": {DeviceID: "hass.laserjet", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{
+			"status": {Domain: "sensor", Source: "sensor.hewlett_packard_hp_laserjet_professional_p1102w"},
 		}},
 	}
 	positioningDecl := TDevicePositioningDeclaration{Spec: "laserjet", DeviceID: "hass.laserjet"}
@@ -114,8 +114,8 @@ func TestGenerateInstanceAutomationTreesWritesMainAndRemoteTrees(t *testing.T) {
 func TestGenerateInstanceAutomationTreesUsesIncarnationValueForOutputDirNotQualifier(t *testing.T) {
 	admin := newAdministrationState()
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.laserjet": {DeviceID: "hass.laserjet", Instances: []string{"ha2mqtt"}, Capabilities: map[string]THassBridgeCapability{
-			"status": {Domain: "sensor", Sources: map[string]string{"ha2mqtt": "sensor.laserjet_status"}},
+		"hass.laserjet": {DeviceID: "hass.laserjet", Instance: "ha2mqtt", Capabilities: map[string]THassBridgeCapability{
+			"status": {Domain: "sensor", Source: "sensor.laserjet_status"},
 		}},
 	}
 	positioningDecl := TDevicePositioningDeclaration{Spec: "laserjet", DeviceID: "hass.laserjet"}

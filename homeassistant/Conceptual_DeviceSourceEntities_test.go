@@ -29,8 +29,8 @@ end;
 entity binary_sensor.infrastructural:laserjet/jammed as source switch.laserjet_jam_sensor from hass.laserjet;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.laserjet": {DeviceID: "hass.laserjet", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{
-			"status": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w"}},
+		"hass.laserjet": {DeviceID: "hass.laserjet", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{
+			"status": {Domain: "sensor", Source: "sensor.hewlett_packard_hp_laserjet_professional_p1102w"},
 		}},
 	}
 
@@ -58,10 +58,10 @@ entity binary_sensor.infrastructural:laserjet/jammed as source switch.laserjet_j
 	// device.Capabilities was mutated in place -- generateHassBridgeFile reads it directly, no
 	// changes needed there for this to feed through to coordinator/homeassistant_bridge.yaml.
 	cap, ok := hassBridgeDevicesByID["hass.laserjet"].Capabilities[wantEntityID]
-	if !ok || cap.Domain != "binary_sensor" || cap.Sources["protocols-server-2"] != "switch.laserjet_jam_sensor" {
+	if !ok || cap.Domain != "binary_sensor" || cap.Source != "switch.laserjet_jam_sensor" {
 		t.Errorf("Capabilities[%q] = (%+v, %v), want (Domain \"binary_sensor\", Sources[\"protocols-server-2\"] \"switch.laserjet_jam_sensor\", true) -- the coerced local domain, the source entity, and the original \"status\" capability preserved alongside it", wantEntityID, cap, ok)
 	}
-	if got := hassBridgeDevicesByID["hass.laserjet"].Capabilities["status"]; got.Sources["protocols-server-2"] != "sensor.hewlett_packard_hp_laserjet_professional_p1102w" {
+	if got := hassBridgeDevicesByID["hass.laserjet"].Capabilities["status"]; got.Source != "sensor.hewlett_packard_hp_laserjet_professional_p1102w" {
 		t.Errorf("original Physical.def-declared \"status\" capability was lost, got %+v", got)
 	}
 }
@@ -78,8 +78,8 @@ end;
 entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.davids_bedroom": {DeviceID: "hass.davids_bedroom", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{
-			"co2": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.davids_bedroom_carbon_dioxide"}},
+		"hass.davids_bedroom": {DeviceID: "hass.davids_bedroom", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{
+			"co2": {Domain: "sensor", Source: "sensor.davids_bedroom_carbon_dioxide"},
 		}},
 	}
 	capabilityDefaults := []TCapabilityDefaultRule{
@@ -128,9 +128,9 @@ entity sensor.physical:vacuum/status from hass.roomba sensor.status;
 entity binary_sensor.physical:vacuum/battery_alert from hass.roomba binary_sensor.battery_alert;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.roomba": {DeviceID: "hass.roomba", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{
-			"status":        {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.roomba_status"}, ValueMap: map[string]string{"home": "docked"}},
-			"battery_level": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.roomba_battery_level"}},
+		"hass.roomba": {DeviceID: "hass.roomba", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{
+			"status":        {Domain: "sensor", Source: "sensor.roomba_status", ValueMap: map[string]string{"home": "docked"}},
+			"battery_level": {Domain: "sensor", Source: "sensor.roomba_battery_level"},
 			"battery_alert": {Domain: "binary_sensor", DerivedFromCapability: "battery_level", DerivedViaTemplate: "( $ | int(0) < 20 )"},
 		}},
 	}
@@ -162,8 +162,8 @@ end;
 entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.davids_bedroom": {DeviceID: "hass.davids_bedroom", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{
-			"co2": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.davids_bedroom_carbon_dioxide"}, DeviceClass: "explicit_class", Unit: "explicit_unit"},
+		"hass.davids_bedroom": {DeviceID: "hass.davids_bedroom", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{
+			"co2": {Domain: "sensor", Source: "sensor.davids_bedroom_carbon_dioxide", DeviceClass: "explicit_class", Unit: "explicit_unit"},
 		}},
 	}
 	capabilityDefaults := []TCapabilityDefaultRule{
@@ -190,7 +190,7 @@ func TestDeviceSourceEntityWarnsWithoutPriorDevicePositioning(t *testing.T) {
 	const miniDSL = `entity binary_sensor.infrastructural:laserjet/jammed as source switch.laserjet_jam_sensor from hass.laserjet;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.laserjet": {DeviceID: "hass.laserjet", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{}},
+		"hass.laserjet": {DeviceID: "hass.laserjet", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{}},
 	}
 
 	var report strings.Builder
@@ -217,7 +217,7 @@ func TestDeviceSourceEntityDefersRatherThanWarnsOnFirstAttempt(t *testing.T) {
 	// the same file -- must come back empty-handed and deferred, not a premature warning.
 	admin := newAdministrationState()
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.laserjet": {DeviceID: "hass.laserjet", Instances: []string{"protocols-server-2"}, Capabilities: map[string]THassBridgeCapability{}},
+		"hass.laserjet": {DeviceID: "hass.laserjet", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{}},
 	}
 	decl := TDeviceSourceEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:laserjet/jammed", Source: "switch.laserjet_jam_sensor", DeviceID: "hass.laserjet"}
 	warnings, deferred := registerDeviceSourceEntityLink(admin, decl, hassBridgeDevicesByID, nil, "Spaces.def", 42, false, "", "")
@@ -254,10 +254,10 @@ end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.davids_bedroom": {
-			DeviceID:  "hass.davids_bedroom",
-			Instances: []string{"protocols-server-2"},
+			DeviceID: "hass.davids_bedroom",
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"co2": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.davids_bedroom_carbon_dioxide"}},
+				"co2": {Domain: "sensor", Source: "sensor.davids_bedroom_carbon_dioxide"},
 			},
 		},
 	}

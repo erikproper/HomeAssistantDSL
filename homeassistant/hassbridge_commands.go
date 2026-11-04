@@ -184,10 +184,10 @@ func applyStatePayloadTemplate(domain, expr string) string {
 // unchanged, exactly as before this function existed. Position declared: folds a 'position' key
 // into the SAME JSON dict domain-templated domains (vacuum) already build, or starts a fresh
 // {'state': ..., 'position': ...} dict for every other (atomic-payload) domain.
-func buildHassBridgeStatePayload(cap THassBridgeCapability, instance, mappedExpr, triggerEntity string) (payloadExpr string, triggerEntities []string) {
+func buildHassBridgeStatePayload(cap THassBridgeCapability, mappedExpr, triggerEntity string) (payloadExpr string, triggerEntities []string) {
 	triggerEntities = []string{triggerEntity}
-	positionSource, hasPosition := cap.Position[instance]
-	if !hasPosition {
+	positionSource := cap.Position
+	if positionSource == "" {
 		return applyStatePayloadTemplate(cap.Domain, mappedExpr), triggerEntities
 	}
 	positionExpr := sourceToJinja2(positionSource)

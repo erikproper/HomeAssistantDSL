@@ -600,10 +600,10 @@ func registerDeviceCapabilityEntityLinkAllowingHiddenCore(administration *TAdmin
 		}
 		warnings, deferred := registerDeviceSourceEntityLink(administration, TDeviceSourceEntityDeclaration{
 			LocalSpec: decl.LocalSpec,
-			// capabilityKey (bareName) is non-empty below, so registerDeviceSourceEntityLink
-			// preserves capability's own already-per-instance Sources map unchanged -- this Source
-			// value is display-only (the provenance string on a rare error path).
-			Source:    representativeSource(capability.Sources),
+			// capabilityKey (bareName) is non-empty below, so registerDeviceSourceEntityLink keeps
+			// capability's own Source -- this one is display-only (the provenance string on a rare
+			// error path).
+			Source:    capability.Source,
 			DeviceID:  decl.DeviceID,
 			NoCollect: decl.NoCollect,
 		}, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, lineNum, finalAttempt, bareName, deviceNamePath)
@@ -613,7 +613,7 @@ func registerDeviceCapabilityEntityLinkAllowingHiddenCore(administration *TAdmin
 		if slow, hasSlow := device.Capabilities[slowLabel]; hasSlow && !deferred && len(warnings) == 0 {
 			warnings, deferred = registerDeviceSourceEntityLink(administration, TDeviceSourceEntityDeclaration{
 				LocalSpec: slowSpeedLocalSpec(decl.LocalSpec),
-				Source:    representativeSource(slow.Sources),
+				Source:    slow.Source,
 				DeviceID:  decl.DeviceID,
 				NoCollect: decl.NoCollect,
 			}, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, lineNum, finalAttempt, slowLabel, deviceNamePath)

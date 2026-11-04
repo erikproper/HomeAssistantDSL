@@ -49,20 +49,15 @@ import (
 // THassBridgeCapability is one declared capability's source (remote) and local entity ids, plus
 // its optional typing metadata, from coordinator/homeassistant_bridge.yaml.
 type THassBridgeCapability struct {
-	// SourceEntities holds this capability's remote source entity, keyed by declaring instance --
-	// genuinely per-instance, not a single shared value: the same physical roaming device can
-	// register under a DIFFERENT local entity_id on each HA instance it connects to (real
-	// incident, found live 2026-09-05 -- Vienna's own registry initially lacked
-	// hass.eriks_iphone's battery_level entity under the identical name Junglinster's instances
-	// used). Kept for logging/context only here -- the source instance's own reporting automation
-	// already resolved it -- but Seed (entity_existence.go) DOES functionally depend on this being
-	// correct per-instance, to inquire about the right entity_id on each instance.
-	SourceEntities map[string]string `yaml:"source_entities"`
-	LocalEntity    string            `yaml:"local_entity"`
-	DeviceClass    string            `yaml:"device_class"`
-	Unit           string            `yaml:"unit"`
-	StateClass     string            `yaml:"state_class"`
-	Icon           string            `yaml:"icon"`
+	// SourceEntity is this capability's remote source entity on the device's instance ("" for a
+	// derived one) -- Seed (entity_existence.go) inquires about it. (Keyed per instance until
+	// PROJECT.md 31, 2026-11-04, for a roaming device.)
+	SourceEntity string `yaml:"source_entity"`
+	LocalEntity  string `yaml:"local_entity"`
+	DeviceClass  string `yaml:"device_class"`
+	Unit         string `yaml:"unit"`
+	StateClass   string `yaml:"state_class"`
+	Icon         string `yaml:"icon"`
 	// DisplaySuffix is the word buildHassBridgeEntityDiscoveryBody appends after the device's own
 	// display name to build a discovery config's "name" field -- resolved by the generator
 	// (homeassistant/Conceptual_DeviceSourceEntities.go's TDeviceAttributeLink.DisplaySuffix, see
@@ -129,9 +124,9 @@ type TCapabilityCommand struct {
 // about the live-*reported* value (arriving via MQTT, subscribeHassBridgeDeviceInfo), never the
 // source specification used to produce it, which is purely the reporting automation's concern.
 type THassBridgeDevice struct {
-	// Instances is the "home_assistant <qualifier>" this device bridges from -- one, since
-	// "roaming" went (PROJECT.md 31, 2026-11-04; a roaming device was declared under several).
-	Instances          []string                         `yaml:"instances"`
+	// Instance is the "home_assistant <qualifier>" this device bridges from (a list until
+	// PROJECT.md 31, 2026-11-04, for a roaming device declared under several).
+	Instance           string                           `yaml:"instance"`
 	DisplayName        string                           `yaml:"display_name"`
 	Capabilities       map[string]THassBridgeCapability `yaml:"capabilities"`
 	ConstantAttributes map[string]TConceptualConstant   `yaml:"constant_attributes"`
@@ -337,37 +332,16 @@ func hassBridgeCloudDiscoveryTopic(localEntity, stableID, prefix string) (topic 
 // at its last value with no unavailable signal at all -- this coordinator can't fix that upstream
 // behaviour, but it CAN make its own published entities honest about it.
 //
-// A multi-instance ("roaming") device has no single node topic to gate on -- hassBridgeEntityStateTopic
-// bakes the reporting instance's own name into the topic string, and different instances' own
-// copies of "node" live at genuinely different topics, only one of which is actually live at a
-// given moment. Rather than guess which, node-gating is skipped entirely for a device declared on
-// more than one instance -- its other capabilities' availability then depends only on their own
-// last-reported value never being the literal string "unavailable" (buildAvailabilityFields' other
-// half), still functional, just without the extra node cross-check.
-// hassBridgeDefaultInstance picks a deterministic single instance out of device.Instances for
-// contexts that need to reconstruct a state_topic without having observed a live message on it
-// (subscribeHassBridgeDeviceInfo's own republish-on-device-info-update path) -- "" if none
-// declared. For a "roaming" device with several, this is only ever a reasonable starting point,
-// not necessarily the currently-live one: subscribeHassBridge's own wildcard state handler
-// self-heals it the moment any instance's real traffic next arrives, republishing discovery with
-// state_topic pointing at whichever topic actually just fired.
-func hassBridgeDefaultInstance(device THassBridgeDevice) string {
-	if len(device.Instances) == 0 {
-		return ""
-	}
-	return device.Instances[0]
-}
-
-// hassBridgeOwnSourceEntities returns every source entity_id device itself declares on instance,
+// hassBridgeOwnSourceEntities returns every source entity_id device itself declares,
 // across all its capabilities -- the authoritative "is this entity mine" list ResolveViaDevice
 // needs (see its own doc comment for why this must come from Physical.def's own declaration
 // rather than the tracker's own DeviceID attribution, which can't represent a source entity two
 // devices legitimately share).
-func hassBridgeOwnSourceEntities(device THassBridgeDevice, instance string) []string {
+func hassBridgeOwnSourceEntities(device THassBridgeDevice) []string {
 	entities := make([]string, 0, len(device.Capabilities))
 	for _, cap := range device.Capabilities {
-		if source, ok := cap.SourceEntities[instance]; ok && source != "" {
-			entities = append(entities, bareEntityFromSource(source))
+		if cap.SourceEntity != "" {
+			entities = append(entities, bareEntityFromSource(cap.SourceEntity))
 		}
 	}
 	return entities
@@ -380,10 +354,8 @@ func hassBridgeOwnSourceEntities(device THassBridgeDevice, instance string) []st
 // importedAvailabilityTopics' own identical reasoning (discoveryimport.go), one file over.
 func hassBridgeAvailabilityTopics(device THassBridgeDevice, capability string) []string {
 	nodeTopic := ""
-	if len(device.Instances) == 1 {
-		if node, ok := device.Capabilities["node"]; ok && node.LocalEntity != "" {
-			nodeTopic = hassBridgeEntityStateTopic(device.Instances[0], node.LocalEntity)
-		}
+	if node, ok := device.Capabilities["node"]; ok && node.LocalEntity != "" && device.Instance != "" {
+		nodeTopic = hassBridgeEntityStateTopic(device.Instance, node.LocalEntity)
 	}
 	var topics []string
 	if own := availabilityTopicFor(nodeTopic, capability); own != "" {
@@ -471,7 +443,7 @@ func availabilityEntriesFrom(list interface{}) []TAvailabilityEntry {
 // restart) and leaving whichever entity happened to be processed last pointed at the frozen dead
 // topic.
 func hassBridgeAcceptsInstance(device THassBridgeDevice, instance string) bool {
-	return containsString(device.Instances, instance)
+	return device.Instance == instance
 }
 
 // containsString reports whether want appears anywhere in list.
@@ -594,9 +566,9 @@ func subscribeHassBridge(client, cloudClient mqtt.Client, ownInstallation string
 		viaDeviceID := ""
 		liveUnit, liveDeviceClass, liveIcon := "", "", ""
 		if existenceTracker != nil {
-			viaDeviceID, _ = existenceTracker.ResolveViaDevice(parts[1], found.DeviceID, hassBridgeOwnSourceEntities(device, parts[1]))
-			if source, ok := found.SourceEntities[parts[1]]; ok {
-				liveUnit, liveDeviceClass, liveIcon = existenceTracker.LiveTyping(parts[1], source)
+			viaDeviceID, _ = existenceTracker.ResolveViaDevice(parts[1], found.DeviceID, hassBridgeOwnSourceEntities(device))
+			if found.SourceEntity != "" {
+				liveUnit, liveDeviceClass, liveIcon = existenceTracker.LiveTyping(parts[1], found.SourceEntity)
 			}
 		}
 		devBlock := buildHassBridgeDeviceBlock(found.DeviceID, device, store.Snapshot(found.DeviceID), viaDeviceID)
@@ -675,8 +647,7 @@ func republishHassBridgeDeviceCapabilities(client, cloudClient mqtt.Client, ownI
 
 	viaDeviceID := ""
 	if existenceTracker != nil {
-		defaultInstance := hassBridgeDefaultInstance(device)
-		viaDeviceID, _ = existenceTracker.ResolveViaDevice(defaultInstance, deviceID, hassBridgeOwnSourceEntities(device, defaultInstance))
+		viaDeviceID, _ = existenceTracker.ResolveViaDevice(device.Instance, deviceID, hassBridgeOwnSourceEntities(device))
 	}
 	devBlock := buildHassBridgeDeviceBlock(deviceID, device, store.Snapshot(deviceID), viaDeviceID)
 	// What the bridge reports about the device goes into discovery_device_info/state too, for
@@ -692,14 +663,14 @@ func republishHassBridgeDeviceCapabilities(client, cloudClient mqtt.Client, ownI
 		availabilityTopics := hassBridgeAvailabilityTopics(device, capability)
 		liveUnit, liveDeviceClass, liveIcon := "", "", ""
 		if existenceTracker != nil {
-			if source, ok := cap.SourceEntities[hassBridgeDefaultInstance(device)]; ok {
-				liveUnit, liveDeviceClass, liveIcon = existenceTracker.LiveTyping(hassBridgeDefaultInstance(device), source)
+			if cap.SourceEntity != "" {
+				liveUnit, liveDeviceClass, liveIcon = existenceTracker.LiveTyping(device.Instance, cap.SourceEntity)
 			}
 		}
 		hassBridgeTyping.Record(cap.LocalEntity, liveUnit, liveDeviceClass, liveIcon, client, cloudClient, ownInstallation)
 		if exportToCloud {
-			cloudStateTopic := qualifier + "/" + hassBridgeEntityStateTopic(hassBridgeDefaultInstance(device), cap.LocalEntity)
-			cloudAttributesTopic := qualifier + "/" + hassBridgeEntityAttributesTopic(hassBridgeDefaultInstance(device), cap.LocalEntity)
+			cloudStateTopic := qualifier + "/" + hassBridgeEntityStateTopic(device.Instance, cap.LocalEntity)
+			cloudAttributesTopic := qualifier + "/" + hassBridgeEntityAttributesTopic(device.Instance, cap.LocalEntity)
 			var cloudAvailabilityTopics []string
 			for _, topic := range availabilityTopics {
 				cloudAvailabilityTopics = append(cloudAvailabilityTopics, qualifier+"/"+topic)

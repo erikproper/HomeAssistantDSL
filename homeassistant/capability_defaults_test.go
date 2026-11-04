@@ -215,9 +215,9 @@ func TestRegisterHassBridgeAttributeEntityUsesCapabilityDefaultsRules(t *testing
 		{Domain: "sensor", PatternPath: "*/load", Unit: "%", Icon: "mdi:cpu-64-bit", StateClass: "measurement"},
 	}
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"host.junglinster": {DeviceID: "host.junglinster", Instances: []string{"main"}, Capabilities: map[string]THassBridgeCapability{
-			"node":     {Domain: "binary_sensor", Sources: map[string]string{"main": "sensor.processor_use is available"}},
-			"cpu/load": {Domain: "sensor", Sources: map[string]string{"main": "sensor.processor_use"}},
+		"host.junglinster": {DeviceID: "host.junglinster", Instance: "main", Capabilities: map[string]THassBridgeCapability{
+			"node":     {Domain: "binary_sensor", Source: "sensor.processor_use is available"},
+			"cpu/load": {Domain: "sensor", Source: "sensor.processor_use"},
 		}},
 	}
 

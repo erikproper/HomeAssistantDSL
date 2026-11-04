@@ -13,18 +13,18 @@ func TestValidateHassBridgeAvailabilitySources(t *testing.T) {
 		// Matches one of its own OTHER capabilities' sources -- the real, working convention
 		// (e.g. node.fritz_box, node.vienna) -- must not be flagged.
 		"node.compliant": {DeviceID: "node.compliant", Capabilities: map[string]THassBridgeCapability{
-			"node":     {Domain: "binary_sensor", Sources: map[string]string{"vienna": "sensor.processor_use is available"}},
-			"cpu/load": {Domain: "sensor", Sources: map[string]string{"vienna": "sensor.processor_use"}},
+			"node":     {Domain: "binary_sensor", Source: "sensor.processor_use is available"},
+			"cpu/load": {Domain: "sensor", Source: "sensor.processor_use"},
 		}},
 		// Typo: "sensor.fritz_box_7590_ax_gb_recieved" (transposed) doesn't match the real source
 		// "sensor.fritz_box_7590_ax_gb_received" declared on the sibling "gb_received" capability.
 		"node.typo": {DeviceID: "node.typo", Capabilities: map[string]THassBridgeCapability{
-			"node":        {Domain: "binary_sensor", Sources: map[string]string{"vienna": "sensor.fritz_box_7590_ax_gb_recieved is available"}},
-			"gb_received": {Domain: "sensor", Sources: map[string]string{"vienna": "sensor.fritz_box_7590_ax_gb_received"}},
+			"node":        {Domain: "binary_sensor", Source: "sensor.fritz_box_7590_ax_gb_recieved is available"},
+			"gb_received": {Domain: "sensor", Source: "sensor.fritz_box_7590_ax_gb_received"},
 		}},
 		// No "is available" capability at all -- nothing to check, must not be flagged.
 		"node.plain": {DeviceID: "node.plain", Capabilities: map[string]THassBridgeCapability{
-			"status": {Domain: "sensor", Sources: map[string]string{"vienna": "sensor.something"}},
+			"status": {Domain: "sensor", Source: "sensor.something"},
 		}},
 	}
 
@@ -58,33 +58,33 @@ func TestValidateHassBridgeAvailabilitySources(t *testing.T) {
 func TestResolveHassBridgeAvailabilityLabelReferences(t *testing.T) {
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"utility.somfy_living_room_front": {DeviceID: "utility.somfy_living_room_front", Capabilities: map[string]THassBridgeCapability{
-			"node":       {Domain: "binary_sensor", Sources: map[string]string{"ha2mqtt": "cover is available"}},
-			"cover":      {Domain: "cover", Sources: map[string]string{"ha2mqtt": "cover.living_room_front"}},
-			"cover_slow": {Domain: "cover", Sources: map[string]string{"ha2mqtt": "cover.living_room_front_low_speed"}},
+			"node":       {Domain: "binary_sensor", Source: "cover is available"},
+			"cover":      {Domain: "cover", Source: "cover.living_room_front"},
+			"cover_slow": {Domain: "cover", Source: "cover.living_room_front_low_speed"},
 		}},
 		// Already-resolved raw entity_id -- must stay untouched (every pre-existing device's own
 		// convention, e.g. node.fritz_box/node.vienna).
 		"node.compliant": {DeviceID: "node.compliant", Capabilities: map[string]THassBridgeCapability{
-			"node":     {Domain: "binary_sensor", Sources: map[string]string{"vienna": "sensor.processor_use is available"}},
-			"cpu/load": {Domain: "sensor", Sources: map[string]string{"vienna": "sensor.processor_use"}},
+			"node":     {Domain: "binary_sensor", Source: "sensor.processor_use is available"},
+			"cpu/load": {Domain: "sensor", Source: "sensor.processor_use"},
 		}},
 		// Unknown label ("typo") -- left unresolved, still surfaces as validateHassBridgeAvailabilitySources'
 		// own "likely a typo" warning afterward.
 		"node.unknown_label": {DeviceID: "node.unknown_label", Capabilities: map[string]THassBridgeCapability{
-			"node":   {Domain: "binary_sensor", Sources: map[string]string{"vienna": "typo is available"}},
-			"status": {Domain: "sensor", Sources: map[string]string{"vienna": "sensor.something"}},
+			"node":   {Domain: "binary_sensor", Source: "typo is available"},
+			"status": {Domain: "sensor", Source: "sensor.something"},
 		}},
 	}
 
 	resolveHassBridgeAvailabilityLabelReferences(hassBridgeDevicesByID)
 
-	if got := hassBridgeDevicesByID["utility.somfy_living_room_front"].Capabilities["node"].Sources["ha2mqtt"]; got != "cover.living_room_front is available" {
+	if got := hassBridgeDevicesByID["utility.somfy_living_room_front"].Capabilities["node"].Source; got != "cover.living_room_front is available" {
 		t.Errorf("resolved source = %q, want the sibling \"cover\" capability's own real entity_id substituted in", got)
 	}
-	if got := hassBridgeDevicesByID["node.compliant"].Capabilities["node"].Sources["vienna"]; got != "sensor.processor_use is available" {
+	if got := hassBridgeDevicesByID["node.compliant"].Capabilities["node"].Source; got != "sensor.processor_use is available" {
 		t.Errorf("already-resolved source = %q, want it left completely untouched", got)
 	}
-	if got := hassBridgeDevicesByID["node.unknown_label"].Capabilities["node"].Sources["vienna"]; got != "typo is available" {
+	if got := hassBridgeDevicesByID["node.unknown_label"].Capabilities["node"].Source; got != "typo is available" {
 		t.Errorf("unknown-label source = %q, want it left unresolved (surfaces as the validator's own warning)", got)
 	}
 }

@@ -328,13 +328,9 @@ func (t *TEntityExistenceTracker) Seed(bridgeFile THassBridgeFile) {
 	claimants := seedClaimants(bridgeFile, deviceIDs)
 	for _, deviceID := range deviceIDs {
 		device := bridgeFile.Devices[deviceID]
-		// Each instance seeds its OWN declared source entity, never a shared one -- a roaming
-		// device's own local entity_id for the same capability can genuinely differ across
-		// instances (real incident, found live 2026-09-05: Vienna's own registry initially lacked
-		// hass.eriks_iphone's battery_level entity under the identical name Junglinster's
-		// instances used). A capability an instance never declared a source for is skipped for
-		// that instance -- not every instance necessarily reports every capability.
-		for _, instance := range device.Instances {
+		// The device's instance seeds each capability's declared source entity; a capability
+		// without one (a derived one) is skipped.
+		if instance := device.Instance; instance != "" {
 			if _, ok := t.entries[instance]; !ok {
 				t.entries[instance] = map[string]*TEntityExistenceEntry{}
 			}
@@ -342,8 +338,8 @@ func (t *TEntityExistenceTracker) Seed(bridgeFile THassBridgeFile) {
 				declared[instance] = map[string]bool{}
 			}
 			for _, cap := range device.Capabilities {
-				source, declaredHere := cap.SourceEntities[instance]
-				if source == "" || !declaredHere {
+				source := cap.SourceEntity
+				if source == "" {
 					continue
 				}
 				entity := bareEntityFromSource(source)
@@ -492,10 +488,10 @@ func seedClaimants(bridgeFile THassBridgeFile, deviceIDs []string) map[string]ma
 	claimants := map[string]map[string][]string{}
 	for _, deviceID := range deviceIDs {
 		device := bridgeFile.Devices[deviceID]
-		for _, instance := range device.Instances {
+		if instance := device.Instance; instance != "" {
 			for _, cap := range device.Capabilities {
-				source, declaredHere := cap.SourceEntities[instance]
-				if source == "" || !declaredHere {
+				source := cap.SourceEntity
+				if source == "" {
 					continue
 				}
 				entity := bareEntityFromSource(source)
@@ -884,8 +880,8 @@ func deviceIDClaimedByDifferentRemote(byEntity map[string]*TEntityExistenceEntry
 // ok is false if deviceID reported no via_device_id, or if the target it named isn't (yet, or
 // ever) itself a tracked device in this same instance -- a correct, unremarkable outcome (nothing
 // to link to), not an error.
-// ownSourceEntities is deviceID's own declared source entity_ids for instance (any capability's
-// SourceEntities[instance], e.g. from THassBridgeDevice.Capabilities) -- looked up directly by
+// ownSourceEntities is deviceID's own declared source entity_ids (any capability's SourceEntity,
+// e.g. from THassBridgeDevice.Capabilities) -- looked up directly by
 // entity_id rather than via the tracker's own DeviceID attribution, deliberately. Found live
 // 2026-09-14: two devices can legitimately declare the SAME source entity as their own capability
 // (node.vienna_bedroom and node.vienna_livingroom both declare "binary_sensor.vienna_bedroom_

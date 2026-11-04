@@ -36,19 +36,19 @@ func TestRecognizeCapability(t *testing.T) {
 func TestUsedHassBridgeEntityIDsFiltersByInstanceAndStripsAttributeSuffix(t *testing.T) {
 	devicesByID := map[string]THassBridgeDevice{
 		"hass.davids_bedroom": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"co2":  {Sources: map[string]string{"protocols-server-2": "sensor.davids_bedroom_carbon_dioxide"}},
-				"node": {Sources: map[string]string{"protocols-server-2": "sensor.davids_bedroom_connectivity is available"}},
+				"co2":  {Source: "sensor.davids_bedroom_carbon_dioxide"},
+				"node": {Source: "sensor.davids_bedroom_connectivity is available"},
 			},
 			DeviceInfoCapabilities: map[string]string{
 				"sw_version": "update.foo!installed_version",
 			},
 		},
 		"hass.other_instance_device": {
-			Instances: []string{"some_other_instance"},
+			Instance: "some_other_instance",
 			Capabilities: map[string]THassBridgeCapability{
-				"x": {Sources: map[string]string{"some_other_instance": "sensor.should_not_appear"}},
+				"x": {Source: "sensor.should_not_appear"},
 			},
 		},
 	}
@@ -159,7 +159,7 @@ func TestBuildSuggestionReportFromExistenceExcludesUsedAndUnresolved(t *testing.
 func TestBuildSuggestionReportFromExistenceExcludesUnknownState(t *testing.T) {
 	status := TEntityExistenceStatusPayload{
 		"utility.xc40": {Entities: map[string]TEntityExistenceStatusEntry{
-			"binary_sensor.volvo_xc40_sunroof":     {Status: existenceStatusKnownToExist, State: "unknown"},
+			"binary_sensor.volvo_xc40_sunroof":         {Status: existenceStatusKnownToExist, State: "unknown"},
 			"binary_sensor.volvo_xc40_door_front_left": {Status: existenceStatusKnownToExist, State: "off"},
 		}},
 		"": {Entities: map[string]TEntityExistenceStatusEntry{
@@ -313,13 +313,12 @@ func TestBuildSuggestionReportFromExistenceSkipsIgnoredDeviceEntirely(t *testing
 // author's own chosen local attribute name -- the two may legitimately differ.
 func TestDeclaredLiveAttributeKeysUsesSourceSuffix(t *testing.T) {
 	cap := THassBridgeCapability{
-		Attributes: map[string]map[string]string{
-			"fault":      {"protocols-server-2": "vacuum.roomba!error"},
-			"error_code": {"protocols-server-2": "vacuum.roomba!error_code"},
-			"other":      {"some_other_instance": "vacuum.roomba!unrelated"},
+		Attributes: map[string]string{
+			"fault":      "vacuum.roomba!error",
+			"error_code": "vacuum.roomba!error_code",
 		},
 	}
-	got := declaredLiveAttributeKeys(cap, "protocols-server-2")
+	got := declaredLiveAttributeKeys(cap)
 	want := map[string]bool{"error": true, "error_code": true}
 	if len(got) != len(want) {
 		t.Fatalf("declaredLiveAttributeKeys(...) = %v, want %v", got, want)
@@ -348,9 +347,9 @@ func TestBuildUndeclaredAttributesSuggestionsFlagsUndeclaredKey(t *testing.T) {
 	}
 	devicesByID := map[string]THassBridgeDevice{
 		"hass.roomba": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"roomba": {Sources: map[string]string{"protocols-server-2": "vacuum.roomba"}},
+				"roomba": {Source: "vacuum.roomba"},
 			},
 		},
 	}
@@ -376,9 +375,9 @@ func TestBuildUndeclaredAttributesSuggestionsSuppressesDenylistedKey(t *testing.
 	}
 	devicesByID := map[string]THassBridgeDevice{
 		"hass.roomba": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"roomba": {Sources: map[string]string{"protocols-server-2": "vacuum.roomba"}},
+				"roomba": {Source: "vacuum.roomba"},
 			},
 		},
 	}
@@ -447,11 +446,11 @@ func TestBuildUndeclaredAttributesSuggestionsSuppressesAlreadyDeclaredKey(t *tes
 	}
 	devicesByID := map[string]THassBridgeDevice{
 		"hass.roomba": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
 				"roomba": {
-					Sources:    map[string]string{"protocols-server-2": "vacuum.roomba"},
-					Attributes: map[string]map[string]string{"error": {"protocols-server-2": "vacuum.roomba!error"}},
+					Source:     "vacuum.roomba",
+					Attributes: map[string]string{"error": "vacuum.roomba!error"},
 				},
 			},
 		},
@@ -473,9 +472,9 @@ func TestBuildUndeclaredAttributesSuggestionsEmptyWhenNothingToReport(t *testing
 	}
 	devicesByID := map[string]THassBridgeDevice{
 		"hass.terrace": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"temperature": {Sources: map[string]string{"protocols-server-2": "sensor.vienna_terrace_temperature"}},
+				"temperature": {Source: "sensor.vienna_terrace_temperature"},
 			},
 		},
 	}
@@ -555,11 +554,11 @@ func TestCheckKnownNotToExistErrorsFlagsConfirmedAbsence(t *testing.T) {
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.davids_bedroom": {
-			DeviceID:  "hass.davids_bedroom",
-			Instances: []string{"protocols-server-2"},
+			DeviceID: "hass.davids_bedroom",
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"co2":      {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.davids_bedroom_carbon_dioxide"}},
-				"humidity": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.davids_bedroom_humidity"}},
+				"co2":      {Domain: "sensor", Source: "sensor.davids_bedroom_carbon_dioxide"},
+				"humidity": {Domain: "sensor", Source: "sensor.davids_bedroom_humidity"},
 			},
 		},
 	}
@@ -642,10 +641,10 @@ func TestCheckKnownNotToExistErrorsOptimisticWhenUnresolved(t *testing.T) {
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.davids_bedroom": {
-			DeviceID:  "hass.davids_bedroom",
-			Instances: []string{"protocols-server-2"},
+			DeviceID: "hass.davids_bedroom",
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
-				"co2": {Domain: "sensor", Sources: map[string]string{"protocols-server-2": "sensor.davids_bedroom_carbon_dioxide"}},
+				"co2": {Domain: "sensor", Source: "sensor.davids_bedroom_carbon_dioxide"},
 			},
 		},
 	}

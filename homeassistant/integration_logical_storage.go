@@ -385,11 +385,11 @@ func rawNodeTopics(gateways map[string]TDiscoveryGatewayDevice) (topics map[stri
 func hassBridgeNodeTopics(devices map[string]THassBridgeDevice, admin *TAdministrationState) map[string]string {
 	topics := map[string]string{}
 	for id, device := range devices {
-		if _, declared := device.Capabilities["node"]; !declared || len(device.Instances) != 1 {
+		if _, declared := device.Capabilities["node"]; !declared {
 			continue
 		}
 		if node := admin.DeviceConceptualLinks[id].AttributeEntityIDs["node"].EntityID; node != "" {
-			topics[id] = hamqtt.BridgeStateTopic(device.Instances[0], node)
+			topics[id] = hamqtt.BridgeStateTopic(device.Instance, node)
 		}
 	}
 	return topics

@@ -126,11 +126,7 @@ func hassBridgeYAMLEntityBodies(deviceID string, device THassBridgeDevice, admin
 	if !hasLink {
 		return nil, ""
 	}
-	if len(device.Instances) != 1 {
-		// Today none has more: the relay followed whichever instance reported; YAML can't.
-		return nil, fmt.Sprintf("%d instances -- a YAML entity has one state topic", len(device.Instances))
-	}
-	instance := device.Instances[0]
+	instance := device.Instance
 
 	deviceName := link.DisplayName
 	if deviceName == "" {

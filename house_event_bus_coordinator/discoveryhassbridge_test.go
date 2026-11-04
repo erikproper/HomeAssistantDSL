@@ -41,20 +41,20 @@ func TestBuildHassBridgeDeviceBlockSetsViaDeviceOnlyWhenResolved(t *testing.T) {
 func TestSubscribeHassBridgePublishesViaDeviceWhenResolvable(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.module": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
 				"battery_level": {
-					SourceEntities: map[string]string{"protocols-server-2": "sensor.module_battery"},
-					LocalEntity:    "sensor.physical_module_battery_level",
+					SourceEntity: "sensor.module_battery",
+					LocalEntity:  "sensor.physical_module_battery_level",
 				},
 			},
 		},
 		"hass.base": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
 				"node": {
-					SourceEntities: map[string]string{"protocols-server-2": "sensor.base_connectivity"},
-					LocalEntity:    "sensor.physical_base_node",
+					SourceEntity: "sensor.base_connectivity",
+					LocalEntity:  "sensor.physical_base_node",
 				},
 			},
 		},
@@ -105,13 +105,13 @@ func TestSubscribeHassBridgePublishesViaDeviceWhenResolvable(t *testing.T) {
 func TestSubscribeHassBridgePublishesDiscoveryAndState(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.laserjet": {
-			Instances:   []string{"protocols-server-2"},
+			Instance:    "protocols-server-2",
 			DisplayName: "infrastructural/house/downward_hallway/laserjet",
 			Capabilities: map[string]THassBridgeCapability{
 				"status": {
-					SourceEntities: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w"},
-					LocalEntity:    "sensor.infrastructural_house_downward_hallway_laserjet_status",
-					DisplaySuffix:  "status",
+					SourceEntity:  "sensor.hewlett_packard_hp_laserjet_professional_p1102w",
+					LocalEntity:   "sensor.infrastructural_house_downward_hallway_laserjet_status",
+					DisplaySuffix: "status",
 				},
 			},
 			ConstantAttributes: map[string]TConceptualConstant{
@@ -185,13 +185,13 @@ func TestSubscribeHassBridgePublishesDiscoveryAndState(t *testing.T) {
 func TestSubscribeHassBridgePublishesNullNameWhenDisplaySuffixEmpty(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.somfy_kitchen": {
-			Instances:   []string{"protocols-server-2"},
+			Instance:    "protocols-server-2",
 			DisplayName: "house/kitchen",
 			Capabilities: map[string]THassBridgeCapability{
 				"cover": {
-					SourceEntities: map[string]string{"protocols-server-2": "cover.somfy_kitchen"},
-					LocalEntity:    "cover.social_house_kitchen",
-					DisplaySuffix:  "",
+					SourceEntity:  "cover.somfy_kitchen",
+					LocalEntity:   "cover.social_house_kitchen",
+					DisplaySuffix: "",
 				},
 			},
 		},
@@ -245,13 +245,13 @@ func TestSubscribeHassBridgePublishesNullNameWhenDisplaySuffixEmpty(t *testing.T
 func TestSubscribeHassBridgeFallsBackToLiveTypingWhenDeclaredEmpty(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.fritz_box": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
 				"gb_received": {
 					// No Unit/DeviceClass declared -- neither Physical.def nor Defaults.def set
 					// anything for this capability.
-					SourceEntities: map[string]string{"protocols-server-2": "sensor.fritz_box_7490_gb_received"},
-					LocalEntity:    "sensor.infrastructural_fritz_box_gb_received",
+					SourceEntity: "sensor.fritz_box_7490_gb_received",
+					LocalEntity:  "sensor.infrastructural_fritz_box_gb_received",
 				},
 			},
 		},
@@ -302,19 +302,19 @@ func TestSubscribeHassBridgeFallsBackToLiveTypingWhenDeclaredEmpty(t *testing.T)
 func TestSubscribeHassBridgePublishesTypingMetadata(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"host.junglinster": {
-			Instances: []string{"main"},
+			Instance: "main",
 			Capabilities: map[string]THassBridgeCapability{
 				"node": {
-					SourceEntities: map[string]string{"main": "sensor.processor_use is available"},
-					LocalEntity:    "binary_sensor.infrastructural_junglinster_node",
-					DeviceClass:    "connectivity",
+					SourceEntity: "sensor.processor_use is available",
+					LocalEntity:  "binary_sensor.infrastructural_junglinster_node",
+					DeviceClass:  "connectivity",
 				},
 				"cpu/load": {
-					SourceEntities: map[string]string{"main": "sensor.processor_use"},
-					LocalEntity:    "sensor.infrastructural_junglinster_cpu_load",
-					Unit:           "%",
-					Icon:           "mdi:cpu-64-bit",
-					StateClass:     "measurement",
+					SourceEntity: "sensor.processor_use",
+					LocalEntity:  "sensor.infrastructural_junglinster_cpu_load",
+					Unit:         "%",
+					Icon:         "mdi:cpu-64-bit",
+					StateClass:   "measurement",
 				},
 			},
 		},
@@ -413,9 +413,9 @@ func TestSubscribeHassBridgeNoDevicesIsNoop(t *testing.T) {
 func TestSubscribeHassBridgeDeviceInfoUpdatesStoreAndRepublishesCapabilities(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"host.junglinster": {
-			Instances: []string{"main"},
+			Instance: "main",
 			Capabilities: map[string]THassBridgeCapability{
-				"cpu/load": {SourceEntities: map[string]string{"main": "sensor.processor_use"}, LocalEntity: "sensor.infrastructural_junglinster_cpu_load"},
+				"cpu/load": {SourceEntity: "sensor.processor_use", LocalEntity: "sensor.infrastructural_junglinster_cpu_load"},
 			},
 			ConstantAttributes: map[string]TConceptualConstant{
 				"model": {Value: "Home Assistant Green"},
@@ -470,12 +470,12 @@ func TestSubscribeHassBridgeDeviceInfoUpdatesStoreAndRepublishesCapabilities(t *
 func TestSubscribeHassBridgeExportCrossPostsToCloud(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.vienna_terrace": {
-			Instances: []string{"protocols-server-2"},
-			Export:    true,
+			Instance: "protocols-server-2",
+			Export:   true,
 			Capabilities: map[string]THassBridgeCapability{
 				"temperature": {
-					SourceEntities: map[string]string{"protocols-server-2": "sensor.vienna_terrace_temperature"},
-					LocalEntity:    "sensor.infrastructural_vienna_terrace_temperature",
+					SourceEntity: "sensor.vienna_terrace_temperature",
+					LocalEntity:  "sensor.infrastructural_vienna_terrace_temperature",
 				},
 			},
 		},
@@ -548,16 +548,16 @@ func TestSubscribeHassBridgeExportCrossPostsToCloud(t *testing.T) {
 func TestSubscribeHassBridgeExportCloudAvailabilityTopicIsInstallationQualified(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.vienna_terrace": {
-			Instances: []string{"protocols-server-2"},
-			Export:    true,
+			Instance: "protocols-server-2",
+			Export:   true,
 			Capabilities: map[string]THassBridgeCapability{
 				"node": {
-					SourceEntities: map[string]string{"protocols-server-2": "sensor.vienna_terrace_connectivity is available"},
-					LocalEntity:    "binary_sensor.infrastructural_vienna_terrace_node",
+					SourceEntity: "sensor.vienna_terrace_connectivity is available",
+					LocalEntity:  "binary_sensor.infrastructural_vienna_terrace_node",
 				},
 				"temperature": {
-					SourceEntities: map[string]string{"protocols-server-2": "sensor.vienna_terrace_temperature"},
-					LocalEntity:    "sensor.infrastructural_vienna_terrace_temperature",
+					SourceEntity: "sensor.vienna_terrace_temperature",
+					LocalEntity:  "sensor.infrastructural_vienna_terrace_temperature",
 				},
 			},
 		},
@@ -612,13 +612,13 @@ func TestSubscribeHassBridgeExportCloudAvailabilityTopicIsInstallationQualified(
 func TestSubscribeHassBridgeExportStripsSuggestedAreaFromCloudOnly(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.vienna_terrace": {
-			Instances:          []string{"protocols-server-2"},
+			Instance:           "protocols-server-2",
 			Export:             true,
 			ConstantAttributes: map[string]TConceptualConstant{"suggested_area": {Value: "social/terrace"}},
 			Capabilities: map[string]THassBridgeCapability{
 				"temperature": {
-					SourceEntities: map[string]string{"protocols-server-2": "sensor.vienna_terrace_temperature"},
-					LocalEntity:    "sensor.infrastructural_vienna_terrace_temperature",
+					SourceEntity: "sensor.vienna_terrace_temperature",
+					LocalEntity:  "sensor.infrastructural_vienna_terrace_temperature",
 				},
 			},
 		},
@@ -679,12 +679,12 @@ func TestSubscribeHassBridgeExportStripsSuggestedAreaFromCloudOnly(t *testing.T)
 func TestSubscribeHassBridgeNonExportDeviceNeverPublishesToCloud(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.laserjet": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
 				"status": {
-					SourceEntities: map[string]string{"protocols-server-2": "sensor.hewlett_packard_hp_laserjet_professional_p1102w"},
-					LocalEntity:    "sensor.infrastructural_house_downward_hallway_laserjet_status",
-					DisplaySuffix:  "status",
+					SourceEntity:  "sensor.hewlett_packard_hp_laserjet_professional_p1102w",
+					LocalEntity:   "sensor.infrastructural_house_downward_hallway_laserjet_status",
+					DisplaySuffix: "status",
 				},
 			},
 		},
@@ -715,13 +715,13 @@ func TestSubscribeHassBridgeNonExportDeviceNeverPublishesToCloud(t *testing.T) {
 func TestExpectedHassBridgeCloudTopicsOnlyIncludesExportedDevices(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.vienna_terrace": {
-			Instances: []string{"protocols-server-2"}, Export: true,
+			Instance: "protocols-server-2", Export: true,
 			Capabilities: map[string]THassBridgeCapability{
 				"temperature": {LocalEntity: "sensor.infrastructural_vienna_terrace_temperature"},
 			},
 		},
 		"hass.laserjet": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
 				"status": {LocalEntity: "sensor.infrastructural_house_downward_hallway_laserjet_status"},
 			},
@@ -758,7 +758,7 @@ func TestExpectedHassBridgeCloudTopicsOnlyIncludesExportedDevices(t *testing.T) 
 func TestExpectedHassBridgeCloudTopicsEmptyWithNoInstallation(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.vienna_terrace": {
-			Instances: []string{"protocols-server-2"}, Export: true,
+			Instance: "protocols-server-2", Export: true,
 			Capabilities: map[string]THassBridgeCapability{
 				"temperature": {LocalEntity: "sensor.infrastructural_vienna_terrace_temperature"},
 			},
@@ -808,13 +808,13 @@ func TestExportStableIDSanitizesSlashInCapability(t *testing.T) {
 func TestSubscribeHassBridgeSetsCommandTopicForCommandableCapability(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.roomba": {
-			Instances:   []string{"protocols-server-2"},
+			Instance:    "protocols-server-2",
 			DisplayName: "social/apartment/roomba",
 			Export:      true,
 			Capabilities: map[string]THassBridgeCapability{
 				"roomba": {
-					SourceEntities: map[string]string{"protocols-server-2": "vacuum.roomba"},
-					LocalEntity:    "vacuum.social_apartment_roomba",
+					SourceEntity: "vacuum.roomba",
+					LocalEntity:  "vacuum.social_apartment_roomba",
 					Commands: map[string]TCapabilityCommand{
 						"start": {Payload: "start", DiscoveryKey: "payload_start"},
 						"pause": {Payload: "pause", DiscoveryKey: "payload_pause"},
@@ -905,12 +905,12 @@ func TestHassBridgeEntityAttributesTopic(t *testing.T) {
 func TestSubscribeHassBridgeSetsJSONAttributesTopicWhenDeclared(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.roomba": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
 				"roomba": {
-					SourceEntities: map[string]string{"protocols-server-2": "vacuum.roomba"},
-					LocalEntity:    "vacuum.social_apartment_living_room",
-					HasAttributes:  true,
+					SourceEntity:  "vacuum.roomba",
+					LocalEntity:   "vacuum.social_apartment_living_room",
+					HasAttributes: true,
 				},
 			},
 		},
@@ -957,11 +957,11 @@ func TestSubscribeHassBridgeSetsJSONAttributesTopicWhenDeclared(t *testing.T) {
 func TestSubscribeHassBridgeOmitsJSONAttributesTopicWhenNotDeclared(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.terrace": {
-			Instances: []string{"protocols-server-2"},
+			Instance: "protocols-server-2",
 			Capabilities: map[string]THassBridgeCapability{
 				"temperature": {
-					SourceEntities: map[string]string{"protocols-server-2": "sensor.vienna_terrace_temperature"},
-					LocalEntity:    "sensor.infrastructural_vienna_terrace_temperature",
+					SourceEntity: "sensor.vienna_terrace_temperature",
+					LocalEntity:  "sensor.infrastructural_vienna_terrace_temperature",
 				},
 			},
 		},
@@ -1007,13 +1007,13 @@ func TestSubscribeHassBridgeOmitsJSONAttributesTopicWhenNotDeclared(t *testing.T
 func TestSubscribeHassBridgeExportCrossPostsAttributesTopicToCloud(t *testing.T) {
 	bridgeFile := THassBridgeFile{Devices: map[string]THassBridgeDevice{
 		"hass.roomba": {
-			Instances: []string{"protocols-server-2"},
-			Export:    true,
+			Instance: "protocols-server-2",
+			Export:   true,
 			Capabilities: map[string]THassBridgeCapability{
 				"roomba": {
-					SourceEntities: map[string]string{"protocols-server-2": "vacuum.roomba"},
-					LocalEntity:    "vacuum.social_apartment_living_room",
-					HasAttributes:  true,
+					SourceEntity:  "vacuum.roomba",
+					LocalEntity:   "vacuum.social_apartment_living_room",
+					HasAttributes: true,
 				},
 			},
 		},
@@ -1193,7 +1193,7 @@ func TestBuildHassBridgeEntityDiscoveryBodyNoPositionOmitsFields(t *testing.T) {
 // comment): retained bridge traffic under an instance a device no longer declares (Junglinster's
 // pre-rename "protocols-server-2") must be ignored.
 func TestHassBridgeAcceptsInstance(t *testing.T) {
-	plain := THassBridgeDevice{Instances: []string{"ha2mqtt"}}
+	plain := THassBridgeDevice{Instance: "ha2mqtt"}
 	cases := []struct {
 		name     string
 		device   THassBridgeDevice
