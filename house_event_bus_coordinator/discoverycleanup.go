@@ -135,15 +135,10 @@ func topicNodeID(topic, prefix string) (nodeID string, ok bool) {
 }
 
 // isCoordinatorOwnedTopic recognises a topic (under prefix) as one the coordinator itself would
-// publish -- either the current "coordinator" literal node_id (discovery.go's discoveryTopic), or
-// (transitional, until every existing entity has migrated once) a legacy deviceID/gatewayID-based
-// node_id ("host_"/"discovery_" prefix) from before topic keys became identity-based.
+// publish: its "coordinator" node_id (discovery.go's discoveryTopic).
 func isCoordinatorOwnedTopic(topic, prefix string) bool {
 	nodeID, ok := topicNodeID(topic, prefix)
-	if !ok {
-		return false
-	}
-	return nodeID == "coordinator" || strings.HasPrefix(nodeID, "host_") || strings.HasPrefix(nodeID, "discovery_")
+	return ok && nodeID == "coordinator"
 }
 
 // expectedCloudHostsPayloads computes every discovery topic AND its exact expected JSON payload

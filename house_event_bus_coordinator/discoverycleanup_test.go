@@ -95,11 +95,11 @@ func (c *fakeClient) Subscribe(_ string, _ byte, callback mqtt.MessageHandler) m
 
 // --- isCoordinatorOwnedTopic ---
 
-func TestIsCoordinatorOwnedTopicRecognizesCurrentAndLegacyShapes(t *testing.T) {
+func TestIsCoordinatorOwnedTopicRecognizesOnlyCoordinatorNode(t *testing.T) {
 	cases := map[string]bool{
 		"homeassistant/sensor/coordinator/host_smarty_temperature/config":  true,
-		"homeassistant/binary_sensor/host_smarty/some_reading/config":      true,
-		"homeassistant/sensor/discovery_ems_esp/boiler_outdoortemp/config": true,
+		"homeassistant/binary_sensor/host_smarty/some_reading/config":      false,
+		"homeassistant/sensor/discovery_ems_esp/boiler_outdoortemp/config": false,
 		"homeassistant/sensor/zigbee2mqtt/some_other_device/config":        false,
 		"homeassistant/sensor/coordinator/host_smarty_temperature/state":   false,
 	}
@@ -434,23 +434,6 @@ func TestWatchForOrphanedDiscoveryTopicsLeavesMatchingContentAlone(t *testing.T)
 	drainDiscoveryRelayQueue(jobs, publisher)
 	if len(client.published) != 0 {
 		t.Fatalf("got %d publishes, want 0 (content already matches): %+v", len(client.published), client.published)
-	}
-}
-
-func TestWatchForOrphanedDiscoveryTopicsRetiresUnexpectedLegacyTopic(t *testing.T) {
-	withShortSettleWindow(t)
-	legacyTopic := "homeassistant/sensor/host_smarty/infrastructural_smarty_cpu_temperature/config"
-	client := &fakeClient{retained: []fakeMessage{{topic: legacyTopic, payload: []byte(`{"old":true}`)}}}
-
-	publisher := newDiscoveryPublisher("")
-	jobs := make(chan TDiscoveryRelayJob, 100)
-	err := watchForOrphanedDiscoveryTopics(client, publisher, "main", map[string]bool{}, map[string]string{}, map[string]bool{}, testPrefix, jobs)
-	if err != nil {
-		t.Fatalf("watchForOrphanedDiscoveryTopics error: %v", err)
-	}
-	drainDiscoveryRelayQueue(jobs, publisher)
-	if len(client.published) != 1 || client.published[0].topic != legacyTopic {
-		t.Fatalf("published = %+v, want a single empty retire of %q", client.published, legacyTopic)
 	}
 }
 
