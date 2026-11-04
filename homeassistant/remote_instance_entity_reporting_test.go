@@ -80,9 +80,9 @@ func TestEntityReportingAutomationBody(t *testing.T) {
 func TestGenerateHassBridgeEntityReportingAutomationsOneFilePerCapability(t *testing.T) {
 	const miniDSL = `space social:david_bedroom with:
   device hass.davids_bedroom with:
+    entity sensor.physical:netatmo/co2      from sensor.co2;
+    entity sensor.physical:netatmo/humidity from sensor.humidity;
   end;
-  entity sensor.physical:netatmo/co2      from hass.davids_bedroom sensor.co2;
-  entity sensor.physical:netatmo/humidity from hass.davids_bedroom sensor.humidity;
 end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
@@ -193,9 +193,9 @@ func TestResolveHassBridgeCapabilityExprDerivedMissingSource(t *testing.T) {
 func TestGenerateHassBridgeEntityReportingAutomationsForDerivedCapability(t *testing.T) {
 	const miniDSL = `space social:living_room with:
   device hass.roomba with:
+    entity sensor.physical:vacuum/battery_level from sensor.battery_level;
+    entity binary_sensor.physical:vacuum/battery_alert from binary_sensor.battery_alert;
   end;
-  entity sensor.physical:vacuum/battery_level from hass.roomba sensor.battery_level;
-  entity binary_sensor.physical:vacuum/battery_alert from hass.roomba binary_sensor.battery_alert;
 end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
@@ -323,8 +323,8 @@ func TestBuildAttributesPayloadExprSortsKeys(t *testing.T) {
 func TestGenerateHassBridgeEntityReportingAutomationsWritesAttributesFile(t *testing.T) {
 	const miniDSL = `space social:living_room with:
   device hass.roomba with:
+    entity vacuum.physical:vacuum from vacuum.roomba;
   end;
-  entity vacuum.physical:vacuum from hass.roomba vacuum.roomba;
 end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{

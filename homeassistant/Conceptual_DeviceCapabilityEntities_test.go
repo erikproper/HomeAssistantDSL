@@ -357,7 +357,9 @@ func TestLogicalAbsorbResolvesHostsNodeWithNoPriorPositioning(t *testing.T) {
 	// content, passed as Go structs) -- this miniDSL is Conceptual.def-shaped content only: the one
 	// line that positions and so triggers resolution of appliance.ring_chime_hallway's own
 	// (absorbed) "node" capability.
-	const miniDSL = `entity binary_sensor.infrastructural:ring_chime/node from appliance.ring_chime_hallway binary_sensor.node;`
+	const miniDSL = `device appliance.ring_chime_hallway with:
+  entity binary_sensor.infrastructural:ring_chime/node from binary_sensor.node;
+end;`
 
 	hostDevicesByID := map[string]THostDevice{
 		"node.ring_chime_hallway": {DeviceID: "node.ring_chime_hallway", HostName: "ring-chime-hallway", IntegrationType: "ping"},
@@ -386,33 +388,6 @@ func TestLogicalAbsorbResolvesHostsNodeWithNoPriorPositioning(t *testing.T) {
 		t.Fatalf("expected node.ring_chime_hallway's own DeviceConceptualLinks entry to exist NOW (created by the absorb resolution itself), even though it has no direct positioning line of its own")
 	} else if result.Administration.DeviceConceptualLinks["node.ring_chime_hallway"].NodeEntityID == "" {
 		t.Errorf("node.ring_chime_hallway's own NodeEntityID is empty, want it resolved")
-	}
-}
-
-// TestHostCapabilityEntityLinkDefersWithoutPriorPositioning confirms a capability-link line
-// appearing BEFORE its device's positioning line in the same file still resolves correctly (via
-// the single retry ParseEntitiesAndFillAdministration makes after the whole file is read), mirroring
-// the same order-independence the hassbridge/import branches already have.
-func TestHostCapabilityEntityLinkDefersWithoutPriorPositioning(t *testing.T) {
-	const miniDSL = `entity sensor.infrastructural:xanadu/cpu/load from host.xanadu sensor.cpu/load;
-device host.xanadu with:
-end;`
-
-	hostDevicesByID := map[string]THostDevice{
-		"host.xanadu": {DeviceID: "host.xanadu", HostName: "xanadu", IntegrationType: "cpu"},
-	}
-
-	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, hostDevicesByID, nil, nil, nil, nil, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-	link, ok := result.Administration.DeviceConceptualLinks["host.xanadu"]
-	if !ok {
-		t.Fatalf("expected DeviceConceptualLinks[host.xanadu] to be populated")
-	}
-	if _, found := link.AttributeEntityIDs["load"]; !found {
-		t.Errorf("expected \"load\" to resolve via the deferred retry, got %v", link.AttributeEntityIDs)
 	}
 }
 
@@ -641,47 +616,6 @@ func TestNoRenameShorthandDoesNotMatchPartialSegment(t *testing.T) {
 		return candidate == "ll/mm" || candidate == "mm"
 	}); got != "ll/mm" {
 		t.Errorf("resolveLongestSuffixCapability(%q) = %q, want the LONGEST match %q when both %q and %q exist", "kk/ll/mm", got, "ll/mm", "ll/mm", "mm")
-	}
-}
-
-// TestDeferredCapabilityLinkResolvesAgainstItsOwnDeclaredSpace is the regression test for
-// PROJECT.md item 6's real bug, found live 2026-09-07: Vienna's "entity
-// switch.social:picture_frame from host.frame slideshow;", positioned inside a nested space
-// but BEFORE host.frame's own "device ... from host.frame;" positioning appeared later in the same
-// file, was deferred (registerDeviceCapabilityEntityLink's own retry-after-full-parse mechanism,
-// parser.go's pendingCapabilityLinks) and then, on retry, resolved against whatever
-// administration.SpacePath happened to be AFTER the whole file was read (back at "root", both
-// spaces closed) instead of the space the reference line actually sat in -- producing
-// "switch.social_picture_frame" instead of the wanted
-// "switch.social_apartment_living_room_picture_frame". Fixed by snapshotting
-// administration.SpacePath into pendingCapabilityLink at defer time and restoring it around each
-// retry call (parser.go).
-func TestDeferredCapabilityLinkResolvesAgainstItsOwnDeclaredSpace(t *testing.T) {
-	const dsl = `space social:apartment with:
-  space social:living_room with:
-    entity switch.social:picture_frame from hass.frame switch.slideshow;
-  end;
-end;
-device hass.frame with:
-end;`
-
-	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.frame": {DeviceID: "hass.frame", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{
-			"node":      {Domain: "binary_sensor", Source: "sensor.frame is available"},
-			"slideshow": {Domain: "switch", Source: "switch.frame_slideshow"},
-		}},
-	}
-
-	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", nil, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-
-	link := result.Administration.DeviceConceptualLinks["hass.frame"]
-	slideshow, ok := link.AttributeEntityIDs["slideshow"]
-	if !ok || slideshow.EntityID != "switch.social_apartment_living_room_picture_frame" {
-		t.Errorf("slideshow (deferred capability link) = %+v, ok=%v, want EntityID switch.social_apartment_living_room_picture_frame", slideshow, ok)
 	}
 }
 

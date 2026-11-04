@@ -93,8 +93,8 @@ func TestHassBridgeEntityCommandTopicFor(t *testing.T) {
 func TestGenerateHassBridgeEntityCommandAutomationsOneFilePerCommand(t *testing.T) {
 	const miniDSL = `space social:apartment with:
   device hass.protocols_server_2 with:
+    entity vacuum.social:roomba from vacuum.roomba;
   end;
-  entity vacuum.social:roomba from hass.protocols_server_2 vacuum.roomba;
 end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
@@ -139,8 +139,8 @@ end;`
 func TestGenerateHassBridgeEntityCommandAutomationsSkipsReadOnlyDomain(t *testing.T) {
 	const miniDSL = `space social:david_bedroom with:
   device hass.davids_bedroom with:
+    entity sensor.physical:netatmo/co2 from sensor.co2;
   end;
-  entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;
 end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{

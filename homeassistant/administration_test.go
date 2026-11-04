@@ -76,10 +76,14 @@ func TestDeviceSourceEntityWarnsOnCrossSpaceConceptualReuse(t *testing.T) {
 	const miniDSL = `device hass.laserjet with:
 end;
 space social:living_room with:
-  entity sensor.social:living_room/battery from hass.laserjet sensor.battery;
+  device hass.laserjet with:
+    entity sensor.social:living_room/battery from sensor.battery;
+  end;
 end;
 space social:kitchen with:
-  entity sensor.social:kitchen/battery from hass.laserjet sensor.battery;
+  device hass.laserjet with:
+    entity sensor.social:kitchen/battery from sensor.battery;
+  end;
 end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
@@ -112,10 +116,14 @@ func TestDeviceSourceEntityNoWarningForDistinctSources(t *testing.T) {
 	const miniDSL = `device hass.laserjet with:
 end;
 space social:living_room with:
-  entity sensor.social:living_room/battery from hass.laserjet sensor.battery;
+  device hass.laserjet with:
+    entity sensor.social:living_room/battery from sensor.battery;
+  end;
 end;
 space social:kitchen with:
-  entity sensor.social:kitchen/status from hass.laserjet sensor.status;
+  device hass.laserjet with:
+    entity sensor.social:kitchen/status from sensor.status;
+  end;
 end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{

@@ -200,8 +200,8 @@ end;`
 // itself, now an explicit reference like any other capability (2026-09-24).
 func TestDeviceWithBlockMatchesTwoStatementFormForHosts(t *testing.T) {
 	const separateLinesDSL = `device host.xanadu with entity binary_sensor.infrastructural:node;
-entity sensor.infrastructural:xanadu/cpu/load        from host.xanadu sensor.load;
-entity sensor.infrastructural:xanadu/cpu/temperature from host.xanadu sensor.temperature;`
+device host.xanadu with entity sensor.infrastructural:xanadu/cpu/load from sensor.load;
+device host.xanadu with entity sensor.infrastructural:xanadu/cpu/temperature from sensor.temperature;`
 	const mergedDSL = `device host.xanadu with:
   entity binary_sensor.infrastructural:node;
   entity sensor.infrastructural:xanadu/cpu/load        from load;

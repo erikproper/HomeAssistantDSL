@@ -38,7 +38,7 @@ func frameCommandlineDevicesByID() map[string]TCommandlineDevice {
 // positioning statement.
 func TestCommandlineCapabilityEntityLinkResolvesOnDualKindDevice(t *testing.T) {
 	const miniDSL = `device host.frame with entity binary_sensor.infrastructural:apartment/living_room/rack/frame/node from binary_sensor.node;
-entity switch.social:apartment/living_room/picture_frame from host.frame switch.slideshow;`
+device host.frame with entity switch.social:apartment/living_room/picture_frame from switch.slideshow;`
 
 	hostDevicesByID := map[string]THostDevice{
 		"host.frame": {DeviceID: "host.frame", HostName: "frame", IntegrationType: "cpu"},
@@ -78,8 +78,8 @@ entity switch.social:apartment/living_room/picture_frame from host.frame switch.
 // reference to an entity that will never actually exist under that domain.
 func TestCommandlineCapabilityEntityLinkRejectsDomainMismatch(t *testing.T) {
 	const miniDSL = `device host.frame with:
-end;
-entity binary_sensor.social:apartment/living_room/picture_frame from host.frame switch.slideshow;`
+  entity binary_sensor.social:apartment/living_room/picture_frame from switch.slideshow;
+end;`
 
 	hostDevicesByID := map[string]THostDevice{
 		"host.frame": {DeviceID: "host.frame", HostName: "frame", IntegrationType: "cpu"},

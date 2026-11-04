@@ -323,6 +323,11 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 		}
 
 		if capabilityDecl, ok := extractDeviceCapabilityEntityDeclaration(trimmed); ok {
+			// The flat form, outside a "device ... with:" block, is not part of the grammar
+			// (2026-09-18, Erik): a device's entities sit in its block.
+			if forDeviceID == "" {
+				return TExpansionParseResult{}, fmt.Errorf("%s line %d: %q outside a device block -- write \"device %s with: entity %s from %s; end;\"", entitiesPath, sourceLine(i), trimmed, capabilityDecl.DeviceID, capabilityDecl.LocalSpec, capabilityDecl.Capability)
+			}
 			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
 			warnings, deferred := registerDeviceCapabilityEntityLink(administration, *capabilityDecl, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, sourceLine(i), false, forDeviceNamePath, capabilityIsInferred)
 			if deferred {

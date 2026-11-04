@@ -199,7 +199,9 @@ every relative entity spec is relative to that leaf (`entity event.physical: fro
 names the leaf's own event, `entity sensor.infrastructural:battery_level;` its battery level).
 `::` is not part of the grammar. An area
 is declared on a space, never on a device (`space social:xc40 as area with:`); any other device
-header is reported as unrecognised.
+header is reported as unrecognised. A device's entities sit in its block (or in a one-liner
+`device <id> with entity <spec> [from <capability>];`): the flat `entity <spec> from <id>
+<capability>;` stops generation.
 
 Inside a device block, `from DD` with DD the entity's own domain means the device's capability
 `DD.DD`: `entity cover.social:front from cover;` positions `cover.cover` as `cover.social:front`,

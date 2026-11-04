@@ -13,8 +13,8 @@ import (
 // registerHassBridgeAttributeEntity path always has.
 func TestDeviceCapabilityEntityResolvesTypingDefaults(t *testing.T) {
 	const miniDSL = `device hass.davids_bedroom with:
-end;
-entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
+  entity sensor.physical:netatmo/co2 from sensor.co2;
+end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.davids_bedroom": {DeviceID: "hass.davids_bedroom", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{
@@ -62,9 +62,9 @@ entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
 // this silently too, had any real Spaces.def happened to position it this way.
 func TestDeviceCapabilityEntityPreservesValueMapAndDerivedFields(t *testing.T) {
 	const miniDSL = `device hass.roomba with:
-end;
-entity sensor.physical:vacuum/status from hass.roomba sensor.status;
-entity binary_sensor.physical:vacuum/battery_alert from hass.roomba binary_sensor.battery_alert;`
+  entity sensor.physical:vacuum/status from sensor.status;
+  entity binary_sensor.physical:vacuum/battery_alert from binary_sensor.battery_alert;
+end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.roomba": {DeviceID: "hass.roomba", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{
@@ -97,8 +97,8 @@ entity binary_sensor.physical:vacuum/battery_alert from hass.roomba binary_senso
 // precedence registerHassBridgeAttributeEntity's own path already guarantees.
 func TestDeviceCapabilityEntityExplicitTypingWinsOverDefaults(t *testing.T) {
 	const miniDSL = `device hass.davids_bedroom with:
-end;
-entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
+  entity sensor.physical:netatmo/co2 from sensor.co2;
+end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.davids_bedroom": {DeviceID: "hass.davids_bedroom", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{
@@ -168,48 +168,5 @@ func TestDeviceSourceEntityWarnsOnUnknownDevice(t *testing.T) {
 	}
 	if deferred {
 		t.Errorf("deferred = true, want false -- an unknown device can never resolve later, so this must be final immediately")
-	}
-}
-
-// TestDeviceCapabilityEntityBeforePositioningStillResolves is the order-independence regression
-// test for the single-pass redesign (2026-08-27): a U1 reference reached before its device's U2
-// positioning line must still resolve, via the parser's pending-list retry -- not by re-scanning
-// the file, and not by requiring positioning-before-usage source order.
-func TestDeviceCapabilityEntityBeforePositioningStillResolves(t *testing.T) {
-	const miniDSL = `space social:david_bedroom with:
-  entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;
-  device hass.davids_bedroom with:
-  end;
-end;`
-
-	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.davids_bedroom": {
-			DeviceID: "hass.davids_bedroom",
-			Instance: "protocols-server-2",
-			Capabilities: map[string]THassBridgeCapability{
-				"co2": {Domain: "sensor", Source: "sensor.davids_bedroom_carbon_dioxide"},
-			},
-		},
-	}
-
-	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-	admin := result.Administration
-
-	link, ok := admin.DeviceConceptualLinks["hass.davids_bedroom"]
-	if !ok {
-		t.Fatalf("expected DeviceConceptualLinks[hass.davids_bedroom] to be populated")
-	}
-	found := false
-	for entityID := range link.AttributeEntityIDs {
-		if strings.Contains(entityID, "co2") {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("AttributeEntityIDs = %v, want a co2 entry -- the U1 reference declared before its device's U2 positioning line should still resolve", link.AttributeEntityIDs)
 	}
 }
