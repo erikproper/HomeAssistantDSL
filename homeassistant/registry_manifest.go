@@ -17,12 +17,13 @@
  * devices imported from another installation, whose coordinator-published unique_id is still
  * name-based ("imported_<entity_id>"), listed so a later deploy can remove one that is no longer
  * generated and that HA itself didn't clean up (it doesn't for a disabled entity); "native" -- the
- * entities a native HA integration provides (PROJECT.md 17j), keyed by their source in the defs,
- * renamed when their expected entity_id changes between two deploys, never removed.
+ * entities a native HA integration provides (PROJECT.md 17j), found by their frozen ID (platform
+ * and unique_id, PROJECT.md 30) or else their "as local" entity_id, renamed to their expected
+ * entity_id, never removed.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 21.10.2026
+ * Version of: 04.11.2026
  *
  */
 
@@ -46,15 +47,18 @@ type TRegistryManifestEntry struct {
 }
 
 // TRegistryManifestNative is one entity a native HA integration provides (PROJECT.md 17j): its
-// source in the defs ("<device-id>!<capability>") and the entity_id the generator expects. The
-// registry repair renames it when that expected entity_id changes between two deploys -- the
-// source is what identifies it across the rename, since the generator doesn't know the unique_id
-// the integration gave it. It is never removed: it belongs to its integration.
+// source in the defs ("<device-id>!<capability>"), the entity_id the generator expects, and how
+// the registry repair finds it -- its frozen ID (Platform, UniqueID), or else its current
+// entity_id (Seed). It is never removed: it belongs to its integration.
 type TRegistryManifestNative struct {
 	Source   string `json:"source"`
 	EntityID string `json:"entity_id"`
-	// Seed (PROJECT.md 21, 2026-10-28) is the entity_id its integration gave it, when the defs name
-	// it: the repair renames that entity the first time, when no previous deploy knows the source.
+	// Platform and UniqueID (PROJECT.md 30, 2026-11-04): the frozen ID, "as unique_id <platform>
+	// "<unique_id>"" in Physical.def.
+	Platform string `json:"platform,omitempty"`
+	UniqueID string `json:"unique_id,omitempty"`
+	// Seed (PROJECT.md 21, 2026-10-28) is the entity_id it has in HA now, its "as local": the repair
+	// renames that entity and freezes its ID.
 	Seed string `json:"seed,omitempty"`
 }
 
@@ -174,7 +178,9 @@ func generateRegistryManifest(outputDir string, admin *TAdministrationState) err
 	for deviceID, labels := range admin.NativeCapabilities {
 		for _, label := range labels {
 			if attribute := admin.DeviceConceptualLinks[deviceID].AttributeEntityIDs[label]; attribute.EntityID != "" {
-				manifest.Native = append(manifest.Native, TRegistryManifestNative{Source: deviceID + "!" + label, EntityID: attribute.EntityID, Seed: admin.NativeSeeds[deviceID+"!"+label]})
+				source := deviceID + "!" + label
+				id := admin.NativeIDs[source]
+				manifest.Native = append(manifest.Native, TRegistryManifestNative{Source: source, EntityID: attribute.EntityID, Platform: id.Platform, UniqueID: id.UniqueID, Seed: admin.NativeSeeds[source]})
 			}
 		}
 	}

@@ -197,16 +197,19 @@ end;`
 	}
 }
 
-// TestLocalNativeSourceCapability: "capability <domain>.<label> <native entity>;" records the
-// native entity (the registry repair's seed), labels may hold "/", a sibling condition may name
-// one, and another domain's entity as source is still refused (PROJECT.md 21).
+// TestLocalNativeSourceCapability: "capability <domain>.<label> as local <native entity>;"
+// records the native entity (the registry repair's seed), "as unique_id <platform>
+// "<unique_id>"" its frozen ID (PROJECT.md 30), labels may hold "/", a sibling condition may name
+// one, and another domain's entity is refused, as is the native entity without "as local".
 func TestLocalNativeSourceCapability(t *testing.T) {
 	devices, warnings := parseLocalIntegrationBody([]string{
 		"device node.vienna with:",
-		"capability sensor.cpu/load sensor.processor_use;",
-		"capability sensor.cpu/temperature sensor.processor_temperature;",
+		"capability sensor.cpu/load as local sensor.processor_use;",
+		"capability sensor.cpu/temperature as local sensor.processor_temperature;",
+		`capability media_player.media_player as unique_id apple_tv "C0:95:6D:A1:4B:50" with icon: "mdi:apple";`,
 		"capability binary_sensor.node sensor.cpu/load is available;",
-		"capability sensor.bad switch.something;",
+		"capability sensor.bad as local switch.something;",
+		"capability sensor.old sensor.something;",
 		"end;",
 	})
 	if len(devices) != 1 {
@@ -216,10 +219,13 @@ func TestLocalNativeSourceCapability(t *testing.T) {
 	if caps["cpu/load"].NativeEntity != "sensor.processor_use" || caps["cpu/temperature"].NativeEntity != "sensor.processor_temperature" {
 		t.Errorf("native entities = %+v", caps)
 	}
+	if player := caps["media_player"]; player.NativePlatform != "apple_tv" || player.NativeUniqueID != "C0:95:6D:A1:4B:50" || player.Icon != "mdi:apple" {
+		t.Errorf("media_player = %+v, want frozen ID apple_tv C0:95:6D:A1:4B:50", player)
+	}
 	if caps["node"].AvailabilityOf != "cpu/load" {
 		t.Errorf("node = %+v, want availability of cpu/load", caps["node"])
 	}
-	if len(warnings) != 1 {
-		t.Errorf("warnings = %v, want one, for the other-domain source", warnings)
+	if len(warnings) != 2 {
+		t.Errorf("warnings = %v, want two: the other-domain entity, the one without \"as local\"", warnings)
 	}
 }

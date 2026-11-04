@@ -27,7 +27,7 @@
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 30.09.2026
+ * Version of: 04.11.2026
  *
  */
 
@@ -57,8 +57,17 @@ var localWithDeviceOneLinerPattern = regexp.MustCompile(`^device\s+(\S+)\s+with\
 var localCapabilityPattern = regexp.MustCompile(`^capability\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_/]*)(?:\s+(.+?))?\s*;\s*$`)
 
 // localNativeSourcePattern matches a native entity named as a capability's source:
-// "<domain>.<object id>".
+// "<domain>.<object id>" (until PROJECT.md 30, 2026-11-04, when "as local" replaced it).
 var localNativeSourcePattern = regexp.MustCompile(`^([a-z_]+)\.([a-z0-9_]+)$`)
+
+// localAsLocalPattern is "as local <domain>.<object id>": the entity_id a native capability's
+// entity has in HA now (PROJECT.md 30, 2026-11-04).
+var localAsLocalPattern = regexp.MustCompile(`^as\s+local\s+([a-z_]+)\.([a-z0-9_]+)$`)
+
+// localNativeIDPattern is a native capability's frozen ID, "as unique_id <platform>
+// "<unique_id>"" -- quoted, as an integration's unique_id may hold any character
+// ("C0:95:6D:A1:4B:50", "48.25-16.45").
+var localNativeIDPattern = regexp.MustCompile(`^as\s+unique_id\s+([a-z0-9_]+)\s+"([^"]+)"$`)
 
 // localAvailabilitySuffix mirrors discoveryAvailabilitySuffix exactly.
 const localAvailabilitySuffix = " is available"
@@ -145,15 +154,25 @@ func applyLocalCapabilityLine(dev *TLocalDevice, deviceID, line string) (warning
 		dev.Capabilities[label] = TLocalCapability{Domain: domain, AvailabilityOf: siblingMatch[2], AvailabilityOfDomain: siblingMatch[1]}
 		return "", true
 	}
-	// A native entity of the capability's own domain as its source (PROJECT.md 21, 2026-10-28):
-	// "capability sensor.cpu/load sensor.processor_use;" -- the entity_id its integration gave
-	// it, from which the registry repair renames it to its positioned id the first time.
-	if source := localNativeSourcePattern.FindStringSubmatch(rest); source != nil && source[1] == domain {
-		dev.Capabilities[label] = TLocalCapability{Domain: domain, NativeEntity: rest}
+	// The native entity's current entity_id (PROJECT.md 30, 2026-11-04): "capability
+	// sensor.cpu/load as local sensor.processor_use;" -- the registry repair renames it to its
+	// positioned id, and freezes its platform and unique_id in place of the "as local".
+	if m := localAsLocalPattern.FindStringSubmatch(rest); m != nil {
+		if m[1] != domain {
+			return fmt.Sprintf("device %q's %q capability is \"as local %s.%s\", an entity of another domain than %q", deviceID, label, m[1], m[2], domain), true
+		}
+		dev.Capabilities[label] = TLocalCapability{Domain: domain, NativeEntity: m[1] + "." + m[2]}
 		return "", true
 	}
+	if m := localNativeIDPattern.FindStringSubmatch(rest); m != nil {
+		dev.Capabilities[label] = TLocalCapability{Domain: domain, NativePlatform: m[1], NativeUniqueID: m[2]}
+		return "", true
+	}
+	if source := localNativeSourcePattern.FindStringSubmatch(rest); source != nil && source[1] == domain {
+		return fmt.Sprintf("device %q's %q capability names its native entity without \"as local\" -- write \"capability %s.%s as local %s;\"", deviceID, label, domain, label, rest), true
+	}
 	if domain != "switch" {
-		return fmt.Sprintf("device %q's %q capability has unrecognised trailing text %q -- only \"<domain>.<label> is available;\", a native entity of the same domain (\"%s.<object id>\"), or (domain \"switch\" only) a literal media_player entity is supported after a capability's own name", deviceID, label, rest, domain), true
+		return fmt.Sprintf("device %q's %q capability has unrecognised trailing text %q -- only \"<domain>.<label> is available;\", \"as local %s.<object id>\", \"as unique_id <platform> \\\"<unique_id>\\\"\", or (domain \"switch\" only) a literal media_player entity is supported after a capability's own name", deviceID, label, rest, domain), true
 	}
 	dev.Capabilities[label] = TLocalCapability{Domain: domain, MediaPlayerEntity: rest}
 	return "", true

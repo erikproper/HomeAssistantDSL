@@ -551,11 +551,15 @@ rename whose target entity_id is held by anything else. A unique_id that disappe
 table goes from Home Assistant too (Erik, 2026-10-26): the repair removes the generator-owned
 entries the generator no longer produces (e.g. replaced wrapper switches). Entities a native
 integration provides (Ring, Sonos, Apple TV, ...: Physical.def "integration local" capabilities
-the generator only refers to) are in the table too, as "native": their unique_id is the
-integration's, unknown to the generator, so each is keyed by its source in the defs
-("<device-id>!<capability>"); when the entity_id expected for a source changes from the previous
-deploy, the entry still holding the previous one is renamed (PROJECT.md 17j). A native entity is
-never removed -- it belongs to its integration. Nothing else edits the registry: no ad-hoc
+the generator only refers to) are in the table too, as "native" (PROJECT.md 17j, 30): each is
+found by its frozen ID -- the integration's own platform and unique_id, `capability
+media_player.media_player as unique_id apple_tv "C0:95:6D:A1:4B:50";` in Physical.def -- and
+renamed to its positioned entity_id. One without a frozen ID yet names the entity_id it has now,
+`capability sensor.cpu/load as local sensor.processor_use;`, or is already under its positioned
+id; the repair renames it from there, looks up its platform and unique_id (read only), and writes
+them into Physical.def in place of the `as local` -- generate before the next deploy. Unique_ids
+are quoted: an integration's may hold any character. A native entity is never removed -- it
+belongs to its integration. Nothing else edits the registry: no ad-hoc
 or hand-made changes; any other registry change is an explicit, one-off migration.
 
 The repair runs on the deploying Mac (`home_assistant_registry.go`, since PROJECT.md 30,
@@ -1456,11 +1460,11 @@ battery alert). Nothing else on the bus needed them -- not exported, not importe
 on" -- and a bus copy of the main instance's own host is useless anyway: when it is down, nothing
 works (Erik). Both moved to `integration local`; the block is gone. What made that possible:
 
-- A local capability may name its native entity: `capability sensor.cpu/load
-  sensor.processor_use;` -- a source of the capability's own domain (labels may hold `/`). The
-  generator records it in the registry manifest's native entry as `seed`; the repair renames that
-  entity to the positioned id the first time no previous deploy knows the source, and afterwards
-  as any native entry. A derived node names its sibling (`with condition sensor.cpu/load is
+- A local capability may name its native entity: `capability sensor.cpu/load as local
+  sensor.processor_use;` (since PROJECT.md 30; at first without the `as local`) -- an entity of
+  the capability's own domain (labels may hold `/`). The generator records it in the registry
+  manifest's native entry as `seed`; the repair renames that entity to the positioned id and
+  freezes its platform and unique_id in its place (see the registry repair above). A derived node names its sibling (`with condition sensor.cpu/load is
   available`), not the native entity, whose name changes.
 - The switch takes two deploys, because the repair runs before HA's reload: in the first the
   bridge entities are still live, so they stay (as orphans after the reload) and the native

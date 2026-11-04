@@ -155,3 +155,53 @@ func TestBridgedFrozenIDsInBlockHeader(t *testing.T) {
 		t.Errorf("ids = %v", ids)
 	}
 }
+
+// TestWriteNativeIDs (PROJECT.md 30): a native capability's frozen ID lands right after its name,
+// in place of its "as local", before its "with icon:", in a one-line device too, and only within
+// the right device; a capability that isn't there is reported.
+func TestWriteNativeIDs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Physical.def")
+	content := "physical layer with:\n" +
+		"  integration local with:\n" +
+		"    device node.vienna with:\n" +
+		"      derived capability binary_sensor.node with condition sensor.cpu/load is available;\n" +
+		"      capability sensor.cpu/load as local sensor.processor_use;\n" +
+		"    end;\n" +
+		"    device appliance.tv with:\n" +
+		"      derived capability binary_sensor.node with condition media_player.media_player is available;\n" +
+		"      capability media_player.media_player with icon: \"mdi:television\";\n" +
+		"    end;\n" +
+		"    device environment.weather with capability weather.weather;\n" +
+		"  end;\n" +
+		"end;"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reports := writeNativeIDs(path, map[string]TNativeID{
+		"node.vienna!cpu/load":        {"systemmonitor", "processor_use"},
+		"appliance.tv!media_player":   {"androidtv_remote", "84:3e:1d:74:6e:ba"},
+		"environment.weather!weather": {"met", "48.25-16.45"},
+		"node.vienna!media_player":    {"sonos", "RINCON_1"}, // not this device's
+	})
+	if len(reports) != 4 || !strings.Contains(reports[3], "0 \"media_player\" capability lines for device \"node.vienna\"") {
+		t.Errorf("reports = %v, want 3 frozen and node.vienna's media_player not found", reports)
+	}
+	got, _ := os.ReadFile(path)
+	want := "physical layer with:\n" +
+		"  integration local with:\n" +
+		"    device node.vienna with:\n" +
+		"      derived capability binary_sensor.node with condition sensor.cpu/load is available;\n" +
+		"      capability sensor.cpu/load as unique_id systemmonitor \"processor_use\";\n" +
+		"    end;\n" +
+		"    device appliance.tv with:\n" +
+		"      derived capability binary_sensor.node with condition media_player.media_player is available;\n" +
+		"      capability media_player.media_player as unique_id androidtv_remote \"84:3e:1d:74:6e:ba\" with icon: \"mdi:television\";\n" +
+		"    end;\n" +
+		"    device environment.weather with capability weather.weather as unique_id met \"48.25-16.45\";\n" +
+		"  end;\n" +
+		"end;"
+	if defStatements(string(got)) != defStatements(want) {
+		t.Errorf("file =\n%s\nwant\n%s", got, want)
+	}
+}

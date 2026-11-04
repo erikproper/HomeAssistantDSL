@@ -26,7 +26,7 @@
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 30.09.2026
+ * Version of: 04.11.2026
  *
  */
 
@@ -69,11 +69,17 @@ type TLocalCapability struct {
 	NoPlayInput           string
 	DerivedFromCapability string
 	DerivedViaTemplate    string
-	// NativeEntity (PROJECT.md 21, 2026-10-28): the entity_id the native integration gave this
-	// capability's entity ("capability sensor.cpu/load sensor.processor_use;"). The registry repair
-	// renames that entity to the capability's positioned id the first time (TRegistryManifestNative
-	// .Seed); afterwards the positioned id is its name, and this one only identifies it.
+	// NativeEntity (PROJECT.md 21, 2026-10-28; "as local" since PROJECT.md 30, 2026-11-04): the
+	// entity_id the capability's entity has in HA now ("capability sensor.cpu/load as local
+	// sensor.processor_use;"). The registry repair renames that entity to the capability's
+	// positioned id (TRegistryManifestNative.Seed), and writes its platform and unique_id back in
+	// place of the "as local" (NativePlatform, NativeUniqueID).
 	NativeEntity string
+	// NativePlatform and NativeUniqueID (PROJECT.md 30, 2026-11-04): the capability's frozen ID,
+	// the integration's own platform and unique_id ("capability media_player.media_player as
+	// unique_id apple_tv "C0:95:6D:A1:4B:50";") -- how the registry repair finds the entity.
+	NativePlatform string
+	NativeUniqueID string
 }
 
 // TLocalDevice is one "device <id> with: <domain>.<label>; ...; end;" declaration inside

@@ -19,14 +19,16 @@
  * entry this generator created on an earlier deploy but no longer generates: a YAML-platform entry
  * always, an MQTT one once nothing provides it anymore. It only touches entries it can prove are
  * the generator's own, never forces a rename onto a name held by anything else, and sets the
- * sensors' display options (PROJECT.md 24). The previous manifest stays on the instance,
+ * sensors' display options (PROJECT.md 24). A native integration's entity (PROJECT.md 30,
+ * 2026-11-04) is found by its frozen ID (platform and unique_id), or else its "as local" entity_id;
+ * then its ID is written into Physical.def (writeNativeIDs). The previous manifest stays on the instance,
  * /config/.generator_registry_manifest.json, saved after a successful run. This is the only
  * registry change the system makes by itself (Erik, 2026-10-26); see Architecture.md, "Home
  * Assistant's entity identities, and the registry repair at deploy".
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 03.11.2026
+ * Version of: 04.11.2026
  *
  */
 
@@ -41,6 +43,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -327,37 +330,18 @@ func planRegistryRepair(registry []registryEntry, manifest, previous tRegistryMa
 		}
 	}
 
-	// Native-integration entities (PROJECT.md 17j): identified by their source in the defs
-	// ("<device-id>!<capability>"); when the entity_id expected for a source changed since the
-	// previous deploy, the entry still holding the previous one is renamed -- the first time
-	// (PROJECT.md 21) the entity_id its integration gave it ("seed"). Never removed.
-	previousNative := map[string]string{}
-	for _, item := range previous.items("native") {
-		previousNative[item.Source] = item.EntityID
-	}
+	// Native-integration entities (PROJECT.md 17j, 30): found by their frozen ID (platform and
+	// unique_id), or else by their "as local" entity_id (seed), and renamed to their expected
+	// entity_id. Never removed.
+	nativeByID := byNativeID(registry)
 	for _, item := range manifest.items("native") {
-		if holder, held := byEntityID[item.EntityID]; held && !holder.isYAML() && holder.Platform != "mqtt" {
-			continue // already under its expected name
+		entry, found, report := nativeEntry(item, byEntityID, nativeByID)
+		if report != "" {
+			reports = append(reports, report)
 		}
-		old, known := previousNative[item.Source]
-		if !known || old == item.EntityID {
-			old = item.Seed
+		if found && entry.EntityID != item.EntityID {
+			renames = append(renames, registryRename{entry, item.EntityID})
 		}
-		if old == "" || old == item.EntityID {
-			continue
-		}
-		entry, found := byEntityID[old]
-		if !found {
-			if _, held := byEntityID[item.EntityID]; !held {
-				reports = append(reports, fmt.Sprintf("skip: native %s: neither %s nor its previous %s is registered", item.Source, item.EntityID, old))
-			}
-			continue
-		}
-		if entry.isYAML() || entry.Platform == "mqtt" {
-			reports = append(reports, fmt.Sprintf("skip: native %s: %s is a %s entry, not a native integration's", item.Source, old, entry.Platform))
-			continue
-		}
-		renames = append(renames, registryRename{entry, item.EntityID})
 	}
 
 	// A rename's target must be free, freed by a removal, or held by an entry that itself moves.
@@ -376,6 +360,78 @@ func planRegistryRepair(registry []registryEntry, manifest, previous tRegistryMa
 	}
 	return feasible, removals, reports
 }
+
+// isNative reports whether entry is a native integration's, neither generated YAML nor MQTT.
+func (e registryEntry) isNative() bool { return !e.isYAML() && e.Platform != "mqtt" }
+
+// nativeKey is how HA identifies a native entity: its domain, platform and unique_id.
+type nativeKey struct{ Domain, Platform, UniqueID string }
+
+// byNativeID indexes registry's native entries by their nativeKey.
+func byNativeID(registry []registryEntry) map[nativeKey]registryEntry {
+	index := map[nativeKey]registryEntry{}
+	for _, entry := range registry {
+		if entry.isNative() {
+			index[nativeKey{entry.domain(), entry.Platform, entry.UniqueID}] = entry
+		}
+	}
+	return index
+}
+
+// nativeEntry returns the registry entry of a native manifest item: by its frozen ID, else by its
+// "as local" entity_id (seed), else the native entry already holding its expected entity_id. The
+// report says why none was found, or why the one found isn't a native integration's.
+func nativeEntry(item registryItem, byEntityID map[string]registryEntry, byID map[nativeKey]registryEntry) (registryEntry, bool, string) {
+	if item.Platform != "" {
+		entry, found := byID[nativeKey{entityDomain(item.EntityID), item.Platform, item.UniqueID}]
+		if !found {
+			return entry, false, fmt.Sprintf("skip: native %s: %s %q isn't registered", item.Source, item.Platform, item.UniqueID)
+		}
+		return entry, true, ""
+	}
+	if item.Seed != "" {
+		if entry, found := byEntityID[item.Seed]; found {
+			if !entry.isNative() {
+				return entry, false, fmt.Sprintf("skip: native %s: %s is a %s entry, not a native integration's", item.Source, item.Seed, entry.Platform)
+			}
+			return entry, true, ""
+		}
+	}
+	if entry, found := byEntityID[item.EntityID]; found && entry.isNative() {
+		return entry, true, ""
+	}
+	if item.Seed != "" {
+		return registryEntry{}, false, fmt.Sprintf("skip: native %s: neither %s nor %s is registered", item.Source, item.Seed, item.EntityID)
+	}
+	return registryEntry{}, false, fmt.Sprintf("skip: native %s: %s isn't registered -- name its entity with \"as local <entity_id>\"", item.Source, item.EntityID)
+}
+
+// nativeIDs are the frozen IDs to write into Physical.def (PROJECT.md 30): for every native item
+// without one, its entry's platform and unique_id, keyed by its source.
+func nativeIDs(registry []registryEntry, manifest tRegistryManifest) (map[string]TNativeID, []string) {
+	byEntityID := map[string]registryEntry{}
+	for _, entry := range registry {
+		byEntityID[entry.EntityID] = entry
+	}
+	ids, reports := map[string]TNativeID{}, []string(nil)
+	for _, item := range manifest.items("native") {
+		if item.Platform != "" {
+			continue
+		}
+		entry, found, _ := nativeEntry(item, byEntityID, nil)
+		if !found {
+			continue // reported by planRegistryRepair
+		}
+		if entry.UniqueID == "" || strings.ContainsAny(entry.UniqueID, "\"\n") || !nativePlatformPattern.MatchString(entry.Platform) {
+			reports = append(reports, fmt.Sprintf("skip: native %s: %s's platform %q and unique_id %q can't be written as \"as unique_id <platform> \\\"<unique_id>\\\"\"", item.Source, entry.EntityID, entry.Platform, entry.UniqueID))
+			continue
+		}
+		ids[item.Source] = TNativeID{entry.Platform, entry.UniqueID}
+	}
+	return ids, reports
+}
+
+var nativePlatformPattern = regexp.MustCompile(`^[a-z0-9_]+$`)
 
 func sortRegistryKeys(keys []registryKey) {
 	sort.Slice(keys, func(i, j int) bool {
@@ -553,8 +609,21 @@ func (d *tDeployer) repairRegistry(instance TDeployInstance) {
 	}
 	displays := ha.displayUpdates(manifest, attributes)
 	fmt.Printf("display options: %d sensor(s)\n", len(displays))
+	ids, idReports := nativeIDs(registry, manifest)
+	for _, report := range idReports {
+		fmt.Println("  " + report)
+	}
 	if d.dryRun {
+		for _, source := range sortedKeys(ids) {
+			fmt.Printf("  would freeze native %s as %s %q in Physical.def\n", source, ids[source].Platform, ids[source].UniqueID)
+		}
 		return
+	}
+	if len(ids) > 0 {
+		for _, report := range writeNativeIDs(filepath.Join(d.houseDir, "Definitions", "Physical.def"), ids) {
+			fmt.Println("  " + report)
+		}
+		fmt.Println("  Physical.def has new frozen native IDs: generate before the next deploy")
 	}
 	errors, warnings := ha.applyRegistryRepair(renames, removals, displays)
 	for _, warning := range warnings {

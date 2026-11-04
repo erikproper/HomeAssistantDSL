@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -66,5 +67,38 @@ func TestPlanRegistryRepairTradesNames(t *testing.T) {
 	renames, _, reports := planRegistryRepair(registry, manifest, tRegistryManifest{}, nil)
 	if len(renames) != 2 || len(reports) != 0 {
 		t.Errorf("renames %v, reports %v", renames, reports)
+	}
+}
+
+// TestPlanRegistryRepairNativeIDs (PROJECT.md 30): a native entity with a frozen ID is found by it
+// and renamed; one with "as local", or already under its positioned id, gets its ID frozen; one
+// neither registered nor named is reported.
+func TestPlanRegistryRepairNativeIDs(t *testing.T) {
+	registry := []registryEntry{
+		{EntityID: "media_player.office", UniqueID: "C0:95:6D", Platform: "apple_tv", ConfigEntryID: "c1"},
+		{EntityID: "sensor.processor_use", UniqueID: "processor_use", Platform: "systemmonitor", ConfigEntryID: "c2"},
+		{EntityID: "weather.social_terrace", UniqueID: "48.25-16.45", Platform: "met", ConfigEntryID: "c3"},
+	}
+	manifest := testManifest(t, `{"native": [
+		{"source": "appliance.apple_tv!media_player", "entity_id": "media_player.social_office", "platform": "apple_tv", "unique_id": "C0:95:6D"},
+		{"source": "node.vienna!cpu/load", "entity_id": "sensor.vienna_cpu_load", "seed": "sensor.processor_use"},
+		{"source": "environment.weather!weather", "entity_id": "weather.social_terrace"},
+		{"source": "appliance.sonos!media_player", "entity_id": "media_player.social_sonos"}]}`)
+
+	renames, _, reports := planRegistryRepair(registry, manifest, tRegistryManifest{}, nil)
+	got := map[string]string{}
+	for _, r := range renames {
+		got[r.Entry.EntityID] = r.Target
+	}
+	if len(got) != 2 || got["media_player.office"] != "media_player.social_office" || got["sensor.processor_use"] != "sensor.vienna_cpu_load" {
+		t.Errorf("renames = %v", got)
+	}
+	if len(reports) != 1 || !strings.Contains(reports[0], "appliance.sonos!media_player") {
+		t.Errorf("reports = %v, want the unregistered sonos only", reports)
+	}
+	ids, idReports := nativeIDs(registry, manifest)
+	want := map[string]TNativeID{"node.vienna!cpu/load": {"systemmonitor", "processor_use"}, "environment.weather!weather": {"met", "48.25-16.45"}}
+	if len(idReports) != 0 || len(ids) != len(want) || ids["node.vienna!cpu/load"] != want["node.vienna!cpu/load"] || ids["environment.weather!weather"] != want["environment.weather!weather"] {
+		t.Errorf("ids = %v, reports = %v, want %v", ids, idReports, want)
 	}
 }

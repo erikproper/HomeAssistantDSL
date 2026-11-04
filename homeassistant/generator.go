@@ -302,6 +302,7 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 	}
 	admin.NativeCapabilities = map[string][]string{}
 	admin.NativeSeeds = map[string]string{}
+	admin.NativeIDs = map[string]TNativeID{}
 	mainGuards, guardProblems := localReloadGuards(localDevicesByID, admin)
 	admin.MainReloadGuards = mainGuards
 	for _, problem := range guardProblems {
@@ -315,6 +316,9 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 				admin.NativeCapabilities[id] = append(admin.NativeCapabilities[id], label)
 				if capability.NativeEntity != "" {
 					admin.NativeSeeds[id+"!"+label] = capability.NativeEntity
+				}
+				if capability.NativePlatform != "" {
+					admin.NativeIDs[id+"!"+label] = TNativeID{capability.NativePlatform, capability.NativeUniqueID}
 				}
 			}
 		}

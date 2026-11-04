@@ -31,6 +31,10 @@ type TPendingEntityCollection struct {
 	HasExternalRef bool
 }
 
+// TNativeID is a native entity's identity in HA's registry: its integration's platform and the
+// unique_id it gave the entity.
+type TNativeID struct{ Platform, UniqueID string }
+
 type TAdministrationState struct {
 	SpacePath                []string
 	OpenBlocks               []string
@@ -72,11 +76,15 @@ type TAdministrationState struct {
 	// NativeCapabilities lists, per Physical.def "integration local" device, the capabilities an
 	// HA integration of its own provides (the generator only refers to them, it never writes
 	// them), for the registry manifest's "native" part (PROJECT.md 17j).
-	NativeCapabilities      map[string][]string
+	NativeCapabilities map[string][]string
 	// NativeSeeds (PROJECT.md 21): "<device-id>!<capability>" -> the entity_id its integration
 	// gave it, for a local capability that names it ("capability sensor.cpu/load
 	// sensor.processor_use;"): where the registry repair finds it the first time.
 	NativeSeeds map[string]string
+	// NativeIDs (PROJECT.md 30, 2026-11-04): "<device-id>!<capability>" -> its frozen ID, the
+	// platform and unique_id its integration registered it under ("as unique_id <platform>
+	// "<unique_id>"").
+	NativeIDs map[string]TNativeID
 	// RawGatewayIDs (PROJECT.md 39): the "integration mqtt" devices, which ride on the discovery
 	// machinery but are left out of coordinator/discovery.yaml -- nothing to collect or relay.
 	RawGatewayIDs map[string]bool
@@ -89,7 +97,7 @@ type TAdministrationState struct {
 	// YAMLEntities (PROJECT.md 19c) maps every entity Home Assistant gets from the generator's own
 	// YAML "mqtt:" config to the exact discovery config the coordinator built for it
 	// (mqtt_yaml_entities.go) -- the coordinator no longer relays these.
-	YAMLEntities map[string]map[string]interface{}
+	YAMLEntities            map[string]map[string]interface{}
 	ExternalEntitiesBySpace map[string][]string
 	SpaceDepthByName        map[string]int
 	SpaceOffByName          map[string][]string // Entities/aggregations to turn off
@@ -1525,7 +1533,6 @@ func (state *TAdministrationState) DeriveImpliedHeatingEntities() {
 	state.deriveInputBoolean("root", "input_boolean.social/occupation/home", "mdi:home", "implied: occupation")
 	state.deriveInputBoolean("root", "input_boolean.social/occupation/around", "mdi:city", "implied: occupation")
 	state.deriveInputBoolean("root", "input_boolean.social/occupation/away", "mdi:airplane", "implied: occupation")
-
 
 	climateSpaces, switchSpaces := heatingCapableSpaces(state)
 	heatingSpaces := map[string]bool{}

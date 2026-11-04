@@ -15,7 +15,7 @@
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 21.10.2026
+ * Version of: 04.11.2026
  *
  */
 
@@ -31,8 +31,9 @@ import (
 
 // qualifiedAsWords are the words an "as" is followed by (PROJECT.md 30, 2026-11-03, Erik: "qualify
 // all 'as' occurrences"): "as unique_id <id>" (a frozen ID), "as leaf <leaf>", "as area", "as
-// source <entity>", "as cards" and "deploy as user <user>" (deploy_plan.go).
-var qualifiedAsWords = map[string]bool{"unique_id": true, "leaf": true, "area": true, "source": true, "cards": true, "user": true}
+// source <entity>", "as cards", "deploy as user <user>" (deploy_plan.go) and "as local <entity>" (a
+// native capability's current entity_id, integration_local_parser.go).
+var qualifiedAsWords = map[string]bool{"unique_id": true, "leaf": true, "area": true, "source": true, "cards": true, "user": true, "local": true}
 
 // unqualifiedAsPattern finds an "as" and the word after it.
 var unqualifiedAsPattern = regexp.MustCompile(`(?:^|\s)as\s+(\S+)`)
@@ -65,7 +66,7 @@ func checkQualifiedAs(definitionDir string) error {
 	if len(found) > 20 {
 		found = append(found[:20], fmt.Sprintf("  ... and %d more", len(found)-20))
 	}
-	return fmt.Errorf("an \"as\" without its qualifier (\"as unique_id <id>\", \"as leaf <leaf>\", \"as area\", \"as source <entity>\", \"as cards\", \"as user <user>\"):\n%s", strings.Join(found, "\n"))
+	return fmt.Errorf("an \"as\" without its qualifier (\"as unique_id <id>\", \"as leaf <leaf>\", \"as area\", \"as source <entity>\", \"as cards\", \"as user <user>\", \"as local <entity>\"):\n%s", strings.Join(found, "\n"))
 }
 
 // loadFrozenUniqueIDs fills admin.FrozenUniqueIDs from every derived capability's frozen "as <id>":
@@ -211,7 +212,7 @@ func enabledByLineOf(lines []string, deviceID string) (int, bool) {
 	return found, true
 }
 
-var frozenIDDeviceHeaderPattern =regexp.MustCompile(`^\s*device\s+([A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*)\b`)
+var frozenIDDeviceHeaderPattern = regexp.MustCompile(`^\s*device\s+([A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*)\b`)
 
 // assignedIDHeadPattern matches the part of a capability statement its frozen "as <id>" follows
 // (2026-10-22: always before the statement's "with"/"from" part): a derived capability's name, or a
@@ -320,6 +321,48 @@ func writeFrozenUniqueIDs(path string, assignments map[string]string) []string {
 	if changed {
 		if err := writeDefFormatted(path, lines); err != nil {
 			return []string{fmt.Sprintf("could not write %s with frozen unique_ids: %v", path, err)}
+		}
+	}
+	return reports
+}
+
+// writeNativeIDs writes each native capability's frozen ID (PROJECT.md 30, 2026-11-04; ids keyed
+// "<device-id>!<capability>", found by the deploy's registry repair) into path as "as unique_id
+// <platform> "<unique_id>"", right after the capability's name -- in place of its "as local
+// <entity>", if any. The statement is looked up within its own device's declaration, a one-line
+// device included; one that isn't found exactly once there is reported and left alone.
+func writeNativeIDs(path string, ids map[string]TNativeID) []string {
+	lines, err := readDefStatementLines(path)
+	if err != nil {
+		return []string{fmt.Sprintf("could not read %s to freeze native IDs: %v", path, err)}
+	}
+	var reports []string
+	changed := false
+	for _, source := range sortedKeys(ids) {
+		id := ids[source]
+		deviceID, label, _ := strings.Cut(source, "!")
+		statement := regexp.MustCompile(`((?:^\s*|\swith\s+)capability\s+[A-Za-z_][A-Za-z0-9_]*\.` + regexp.QuoteMeta(label) + `)(\s+as\s+local\s+[a-z_]+\.[a-z0-9_]+)?[\s;]`)
+		at, count, inDevice := -1, 0, false
+		for i, line := range lines {
+			if m := frozenIDDeviceHeaderPattern.FindStringSubmatch(line); m != nil {
+				inDevice = m[1] == deviceID
+			}
+			if inDevice && statement.MatchString(stripLineComment(line)) {
+				at, count = i, count+1
+			}
+		}
+		if count != 1 {
+			reports = append(reports, fmt.Sprintf("%s: %d %q capability lines for device %q (want exactly 1) -- its frozen ID %s %q not written", filepath.Base(path), count, label, deviceID, id.Platform, id.UniqueID))
+			continue
+		}
+		m := statement.FindStringSubmatchIndex(lines[at])
+		lines[at] = lines[at][:m[3]] + " as unique_id " + id.Platform + ` "` + id.UniqueID + `"` + lines[at][max(m[3], m[5]):]
+		changed = true
+		reports = append(reports, fmt.Sprintf("froze device %q's %q capability as %s %q (%s)", deviceID, label, id.Platform, id.UniqueID, filepath.Base(path)))
+	}
+	if changed {
+		if err := writeDefFormatted(path, lines); err != nil {
+			return []string{fmt.Sprintf("could not write %s with frozen native IDs: %v", path, err)}
 		}
 	}
 	return reports
