@@ -267,6 +267,14 @@ func BridgeEntityConfig(e BridgeEntity) map[string]interface{} {
 		body["payload_on"] = StateOn
 		body["payload_off"] = StateOff
 	}
+	// A switch's state_on/state_off default to its payload_on/payload_off: the "ON"/"OFF" command
+	// payloads (homeassistant/hassbridge_commands.go), or HA's own uppercase default without
+	// commands. Its proxied state is lowercase "on"/"off", so it stayed "unknown" (found live
+	// 2026-11-04, the Fritz!Box switches in both houses).
+	if strings.HasPrefix(e.LocalEntity, "switch.") {
+		body["state_on"] = StateOn
+		body["state_off"] = StateOff
+	}
 	body["availability"] = ProxiedAvailability(e.StateTopic, e.NodeAvailabilityTopics...)
 	body["availability_mode"] = "all"
 	return body
