@@ -1683,7 +1683,7 @@ coordinator asks, not rules on main. Live, non-retained traffic is a sign of lif
 (commands from main and the coordinator's own shadows, which the broker forwards without the retain
 flag; `#` may stand mid-filter there, as device names contain slashes). After the quiet period it
 asks; a healthy answer (`is "<payload>"`, or `has <field>`: a JSON field that is true) within the
-time is life; `misses` (default 2) unanswered questions in a row write `offline`, retained, on the
+time is life; two unanswered questions in a row write `offline`, retained, on the
 verdict topic; the next sign of life writes `online` (the gateway overwrites it itself anyway). In
 both houses: Zigbee2MQTT; in Junglinster also Z-Wave JS UI (`getInfo` on its MQTT API, `has
 success`, verdict on its client status, whose `value` field the entities read).

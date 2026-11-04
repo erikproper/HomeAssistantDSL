@@ -29,7 +29,6 @@ func TestLivenessBlock(t *testing.T) {
 		`ask "other/ping" with "ping";`,
 		`answer on "other/ping" is "pong" within 00:00:10;`,
 		`verdict on "other/status" online "online" offline "offline";`,
-		"misses 1;",
 		"end;",
 		"end;",
 		"device integration.incomplete with:",
@@ -48,7 +47,7 @@ func TestLivenessBlock(t *testing.T) {
 		t.Errorf("zigbee2mqtt liveness %+v", z)
 	}
 	o := gateways["integration.other"].Liveness
-	if o == nil || o.AnswerPayload != "pong" || o.AnswerField != "" || o.Misses != 1 {
+	if o == nil || o.AnswerPayload != "pong" || o.AnswerField != "" || o.Misses != 2 {
 		t.Errorf("other liveness %+v", o)
 	}
 	if gateways["integration.incomplete"].Liveness != nil || len(warnings) != 1 || !strings.Contains(warnings[0], "integration.incomplete") {

@@ -357,7 +357,7 @@ end;
 
 After `quiet for` without traffic (minus `ignore`, where `#` may also stand mid-filter), the
 coordinator asks; `answer ... is "<payload>"` takes an exact answer instead of `has <field>` (a
-JSON field that must be true). `misses <n>;` (default 2) unanswered questions in a row write the
+JSON field that must be true). Two unanswered questions in a row write the
 offline payload on the verdict topic, which the entities' availability reads. The generator writes
 the blocks to `coordinator/liveness.yaml`. See Architecture.md §6.16.
 

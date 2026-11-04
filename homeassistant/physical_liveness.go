@@ -21,7 +21,7 @@
  *   end;
  *
  * "answer ... is "<payload>"" for an exact answer instead of "has <field>" (a JSON field that must
- * be true); "misses <n>;" (default 2) is how many unanswered questions in a row make it offline.
+ * be true). Two unanswered questions in a row make the gateway offline.
  * The generator writes every declared block to coordinator/liveness.yaml; the coordinator
  * (house_event_bus_coordinator/liveness.go) has no gateway-specific code.
  *
@@ -47,8 +47,8 @@ import (
 // livenessBlockHeader opens the block inside a gateway device.
 const livenessBlockHeader = "liveness with:"
 
-// livenessDefaultMisses is how many unanswered questions make a gateway offline when the block
-// doesn't say: one lost answer must not make all its entities unavailable.
+// livenessDefaultMisses is how many unanswered questions make a gateway offline: one lost answer
+// must not make all its entities unavailable.
 const livenessDefaultMisses = 2
 
 // TLivenessDecl is one gateway's "liveness with:" block; also an entry of coordinator/liveness.yaml.
@@ -83,7 +83,6 @@ var (
 	livenessAskPattern     = regexp.MustCompile(`^ask\s+` + livenessQuoted + `\s+with\s+` + livenessQuoted + `\s*;$`)
 	livenessAnswerPattern  = regexp.MustCompile(`^answer\s+on\s+` + livenessQuoted + `\s+(?:is\s+` + livenessQuoted + `|has\s+([A-Za-z0-9_.]+))\s+within\s+` + livenessDuration + `\s*;$`)
 	livenessVerdictPattern = regexp.MustCompile(`^verdict\s+on\s+` + livenessQuoted + `\s+online\s+` + livenessQuoted + `\s+offline\s+` + livenessQuoted + `\s*;$`)
-	livenessMissesPattern  = regexp.MustCompile(`^misses\s+(\d+)\s*;$`)
 	livenessQuotedItem     = regexp.MustCompile(`^\s*` + livenessQuoted + `\s*$`)
 )
 
@@ -127,8 +126,6 @@ func parseLivenessBlock(cur *TLineCursor, deviceID string) (*TLivenessDecl, []st
 			}
 		} else if m := livenessVerdictPattern.FindStringSubmatch(line); m != nil {
 			decl.Verdict, decl.Online, decl.Offline = livenessUnquote(m[1]), livenessUnquote(m[2]), livenessUnquote(m[3])
-		} else if m := livenessMissesPattern.FindStringSubmatch(line); m != nil {
-			decl.Misses, _ = strconv.Atoi(m[1])
 		} else if m := livenessIgnorePattern.FindStringSubmatch(line); m != nil {
 			for _, item := range strings.Split(m[1], ",") {
 				if q := livenessQuotedItem.FindStringSubmatch(item); q != nil {
