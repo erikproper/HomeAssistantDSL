@@ -5,67 +5,6 @@ import (
 	"testing"
 )
 
-func TestExtractDeviceSourceEntityDeclaration(t *testing.T) {
-	decl, ok := extractDeviceSourceEntityDeclaration("entity binary_sensor.infrastructural:laserjet/status as source switch.yyy from hass.laserjet;")
-	if !ok {
-		t.Fatalf("expected the line to match")
-	}
-	if decl.LocalSpec != "binary_sensor.infrastructural:laserjet/status" || decl.Source != "switch.yyy" || decl.DeviceID != "hass.laserjet" {
-		t.Fatalf("got %+v", decl)
-	}
-}
-
-func TestExtractDeviceSourceEntityDeclarationDoesNotMatchDiscoveryShape(t *testing.T) {
-	// "entity <spec> from <gateway> with <leaf>;" (Conceptual_DiscoveryEntities.go) has no "as"
-	// clause -- must not be swallowed by this construct's pattern.
-	if _, ok := extractDeviceSourceEntityDeclaration("entity sensor.physical:garage_door/temperature from discovery.ems_esp with boiler_outdoortemp;"); ok {
-		t.Fatalf("expected no match for the discovery-gateway shape")
-	}
-}
-
-func TestDeviceSourceEntityRegistersAndFeedsHassBridgeFile(t *testing.T) {
-	const miniDSL = `device hass.laserjet with:
-end;
-entity binary_sensor.infrastructural:laserjet/jammed as source switch.laserjet_jam_sensor from hass.laserjet;`
-
-	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.laserjet": {DeviceID: "hass.laserjet", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{
-			"status": {Domain: "sensor", Source: "sensor.hewlett_packard_hp_laserjet_professional_p1102w"},
-		}},
-	}
-
-	var report strings.Builder
-	result, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-	admin := result.Administration
-
-	link, ok := admin.DeviceConceptualLinks["hass.laserjet"]
-	if !ok {
-		t.Fatalf("expected DeviceConceptualLinks[hass.laserjet] to be populated")
-	}
-
-	wantEntityID := "binary_sensor.infrastructural_laserjet_jammed"
-	attr, ok := link.AttributeEntityIDs[wantEntityID]
-	if !ok {
-		t.Fatalf("expected AttributeEntityIDs keyed by the local entity_id %q, got %v", wantEntityID, link.AttributeEntityIDs)
-	}
-	if attr.EntityID != wantEntityID {
-		t.Errorf("EntityID = %q, want %q", attr.EntityID, wantEntityID)
-	}
-
-	// device.Capabilities was mutated in place -- generateHassBridgeFile reads it directly, no
-	// changes needed there for this to feed through to coordinator/homeassistant_bridge.yaml.
-	cap, ok := hassBridgeDevicesByID["hass.laserjet"].Capabilities[wantEntityID]
-	if !ok || cap.Domain != "binary_sensor" || cap.Source != "switch.laserjet_jam_sensor" {
-		t.Errorf("Capabilities[%q] = (%+v, %v), want (Domain \"binary_sensor\", Sources[\"protocols-server-2\"] \"switch.laserjet_jam_sensor\", true) -- the coerced local domain, the source entity, and the original \"status\" capability preserved alongside it", wantEntityID, cap, ok)
-	}
-	if got := hassBridgeDevicesByID["hass.laserjet"].Capabilities["status"]; got.Source != "sensor.hewlett_packard_hp_laserjet_professional_p1102w" {
-		t.Errorf("original Physical.def-declared \"status\" capability was lost, got %+v", got)
-	}
-}
-
 // TestDeviceCapabilityEntityResolvesTypingDefaults is the regression test for a real bug caught
 // live 2026-08-29: registerDeviceSourceEntityLink (reached here via registerDeviceCapabilityEntityLink,
 // the "entity ... from <device-id> <capability>;" construct, including its "for <device-id>:
@@ -187,23 +126,14 @@ entity sensor.physical:netatmo/co2 from hass.davids_bedroom sensor.co2;`
 }
 
 func TestDeviceSourceEntityWarnsWithoutPriorDevicePositioning(t *testing.T) {
-	const miniDSL = `entity binary_sensor.infrastructural:laserjet/jammed as source switch.laserjet_jam_sensor from hass.laserjet;`
-
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.laserjet": {DeviceID: "hass.laserjet", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{}},
 	}
 
-	var report strings.Builder
-	_, err := ParseEntitiesAndFillAdministration(strings.Split(miniDSL, "\n"), nil, "test.def", nil, &report, nil, nil, hassBridgeDevicesByID, nil, nil, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-	// registerDeviceSourceEntityLink's warning goes to stderr via the parse loop, not returned
-	// here -- exercised directly instead for a deterministic assertion. finalAttempt=true: this
-	// device is never positioned anywhere in miniDSL, so it should warn even on a "final" check.
+	// finalAttempt=true: this device is never positioned, so it should warn on the final check.
 	admin := newAdministrationState()
-	decl := TDeviceSourceEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:laserjet/jammed", Source: "switch.laserjet_jam_sensor", DeviceID: "hass.laserjet"}
-	warnings, deferred := registerDeviceSourceEntityLink(admin, decl, hassBridgeDevicesByID, nil, "Spaces.def", 42, true, "", "")
+	decl := TDeviceSourceEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:laserjet/jammed", DeviceID: "hass.laserjet"}
+	warnings, deferred := registerDeviceSourceEntityLink(admin, decl, hassBridgeDevicesByID, nil, "Spaces.def", 42, true, "jammed", "")
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "no \"device.<spec> from hass.laserjet with: ...;\" positioning yet") {
 		t.Errorf("warnings = %v, want a single warning about missing device positioning", warnings)
 	}
@@ -219,8 +149,8 @@ func TestDeviceSourceEntityDefersRatherThanWarnsOnFirstAttempt(t *testing.T) {
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
 		"hass.laserjet": {DeviceID: "hass.laserjet", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{}},
 	}
-	decl := TDeviceSourceEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:laserjet/jammed", Source: "switch.laserjet_jam_sensor", DeviceID: "hass.laserjet"}
-	warnings, deferred := registerDeviceSourceEntityLink(admin, decl, hassBridgeDevicesByID, nil, "Spaces.def", 42, false, "", "")
+	decl := TDeviceSourceEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:laserjet/jammed", DeviceID: "hass.laserjet"}
+	warnings, deferred := registerDeviceSourceEntityLink(admin, decl, hassBridgeDevicesByID, nil, "Spaces.def", 42, false, "jammed", "")
 	if len(warnings) != 0 {
 		t.Errorf("warnings = %v, want none on a non-final attempt", warnings)
 	}
@@ -231,8 +161,8 @@ func TestDeviceSourceEntityDefersRatherThanWarnsOnFirstAttempt(t *testing.T) {
 
 func TestDeviceSourceEntityWarnsOnUnknownDevice(t *testing.T) {
 	admin := newAdministrationState()
-	decl := TDeviceSourceEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:laserjet/jammed", Source: "switch.laserjet_jam_sensor", DeviceID: "hass.unknown"}
-	warnings, deferred := registerDeviceSourceEntityLink(admin, decl, map[string]THassBridgeDevice{}, nil, "Spaces.def", 42, false, "", "")
+	decl := TDeviceSourceEntityDeclaration{LocalSpec: "binary_sensor.infrastructural:laserjet/jammed", DeviceID: "hass.unknown"}
+	warnings, deferred := registerDeviceSourceEntityLink(admin, decl, map[string]THassBridgeDevice{}, nil, "Spaces.def", 42, false, "jammed", "")
 	if len(warnings) != 1 || !strings.Contains(warnings[0], `device "hass.unknown" not found`) {
 		t.Errorf("warnings = %v, want a single \"device not found\" warning", warnings)
 	}

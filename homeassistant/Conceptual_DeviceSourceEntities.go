@@ -4,35 +4,16 @@
  * Package:   Main
  * Component: ConceptualDeviceSourceEntities
  *
- * Parses and registers the conceptual layer's "entity <local-spec> as <source> from <device-id>;"
- * construct: positions ONE specific entity a "home_assistant" bridge device exposes (its <source>
- * is the remote instance's own raw entity reference, e.g. "sensor.hewlett_packard_..." or
- * "switch.yyy!some_attribute" -- the same "entity!attribute" convention hosts/hassbridge
- * capability values already use) under a local name/type declared directly in Spaces.def --
- * without needing a matching Physical.def "device hass.X with: <capability>: <entity>; end;"
- * capability line at all. The local <type> may deliberately differ from <source>'s own domain
- * (e.g. "binary_sensor.xxx as switch.yyy from zzz") -- a type *coercion*, not a mismatch: the
- * coordinator's relay already keys its discovery topic/domain off the LOCAL entity_id
- * (hassBridgeDiscoveryTopic, house_event_bus_coordinator/discoveryhassbridge.go), so this needs no
- * extra machinery here; it's the DSL author's job to only coerce between genuinely
- * state-value-compatible domains (switch/binary_sensor's "on"/"off" being the obvious case).
+ * Registers one capability of a "home_assistant" bridge device (or of a "hassbridge"-form import)
+ * under the local name a Spaces.def line gives it: "entity <spec> from <device-id> <capability>;",
+ * its "for <device-id>:" and "device ... with:" shorthands, and the "node" capability device
+ * positioning registers (Conceptual_DeviceCapabilityEntities.go). The capability's label is the
+ * key tying its device.Capabilities entry (integration_hassbridge_storage.go's THassBridgeDevice)
+ * to its AttributeEntityIDs entry.
  *
- * Scope: "home_assistant" bridge devices only for now -- "hosts" devices don't have a comparable
- * "capability value is a raw foreign entity reference" story without also reaching back into
- * Physical.def-stage reporting-automation generation (which runs before Spaces.def is even parsed
- * today), a separate, not-yet-designed piece of work (see the plan's own build order).
- *
- * A device.<spec> from <device-id> with: attributes;/end; positioning (U2, Conceptual_DeviceEntities.go)
- * must already exist for <device-id> before this construct (U1) is used -- warned, not silently
- * auto-created, if missing; it doesn't have to be in the same space. The synthetic capability/
- * attribute-link key used to tie this declaration's Capabilities entry (integration_hassbridge_storage.go's
- * THassBridgeDevice, mutated in place here) to its AttributeEntityIDs entry is the resolved local
- * entity_id itself -- always unique, avoids colliding with a real Physical.def-declared capability
- * name. NOTE: if this construct's device.<spec> U2 positioning also uses plain "with: attributes;"
- * (not yet built: "unused attributes") and is declared AFTER this line in Spaces.def, its
- * blanket expansion will also pick up this synthetic capability and register a second, redundant
- * local entity for the same source -- acceptable today (the DSL author asked for "everything"),
- * to be resolved once "unused attributes" (out of scope here) lands.
+ * The device must already be positioned ("device <spec> from <device-id> with: ... end;",
+ * Conceptual_DevicePositioning.go), in any space; a reference reached before that is deferred,
+ * and warned about only if the positioning never comes.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
@@ -45,34 +26,14 @@ package main
 import (
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
-// TDeviceSourceEntityDeclaration is one parsed "entity <local-spec> as <source> from <device-id>;"
-// line.
+// TDeviceSourceEntityDeclaration is one capability to register under a local entity spec.
 type TDeviceSourceEntityDeclaration struct {
 	LocalSpec string // "binary_sensor.infrastructural:laserjet/status" -- an ordinary entity spec, resolved the same way any other entity's is
-	Source    string // "sensor.hewlett_packard_...!some_attribute" -- the remote instance's own raw entity reference, "!attribute" optional
 	DeviceID  string // "hass.laserjet" from "from hass.laserjet"
 	NoCollect bool   // "not aggregated": kept out of the space's aggregates
-}
-
-// deviceSourceEntityPattern requires an explicit " as " clause -- this is what distinguishes it
-// from "entity <spec> from <gateway-id>.<leaf>;" (Conceptual_DiscoveryEntities.go), which has no
-// "as" clause at all, so there's no ambiguity between the two shapes.
-var deviceSourceEntityPattern = regexp.MustCompile(`^entity\s+(\S+)\s+as\s+source\s+(\S+)\s+from\s+(\S+);$`)
-
-func extractDeviceSourceEntityDeclaration(line string) (*TDeviceSourceEntityDeclaration, bool) {
-	matches := deviceSourceEntityPattern.FindStringSubmatch(line)
-	if matches == nil {
-		return nil, false
-	}
-	return &TDeviceSourceEntityDeclaration{
-		LocalSpec: matches[1],
-		Source:    matches[2],
-		DeviceID:  matches[3],
-	}, true
 }
 
 // registerDeviceSourceEntityLink resolves decl.LocalSpec through the normal entity-naming
@@ -82,16 +43,11 @@ func extractDeviceSourceEntityDeclaration(line string) (*TDeviceSourceEntityDecl
 // mapping for generateHassBridgeFile (integration_hassbridge_generator.go) to pick up exactly as
 // it already does for Physical.def-declared capabilities -- no changes needed there.
 //
-// capabilityKey is the map key used for BOTH device.Capabilities and link.AttributeEntityIDs.
-// Empty means "use the resolved entity_id" -- this construct's own default, for the "as" form:
-// there's no pre-existing Physical.def capability name to reuse, so the always-unique entity_id is
-// the only sensible key (see this file's header comment). A caller that already resolved a real
-// Physical.def capability label (registerDeviceCapabilityEntityLink, for the
-// "entity ... from <device-id> <capability>;" construct, and registerDevicePositioning, for
-// the "node" capability it auto-registers) MUST pass that bare label instead -- device.Capabilities
-// already has an entry under that exact key (that's how the caller found capability.Source in the
-// first place), and AttributeEntityIDs has to match it. This was a real, live bug (2026-08-28):
-// passing "" from that path meant a "co2"-keyed device.Capabilities entry could never be found via
+// capabilityKey is the capability's Physical.def label, the map key used for BOTH
+// device.Capabilities and link.AttributeEntityIDs -- device.Capabilities already has an entry under
+// that exact key (that's how the caller found capability.Source in the first place), and
+// AttributeEntityIDs has to match it. This was a real, live bug (2026-08-28): keying by entity_id
+// from that path meant a "co2"-keyed device.Capabilities entry could never be found via
 // an entity_id-keyed AttributeEntityIDs, so generateHassBridgeFile silently skipped every
 // capability positioned via that construct -- confirmed against real Junglinster output
 // (hass.davids_bedroom's Netatmo capabilities were entirely absent from
@@ -121,7 +77,7 @@ func extractDeviceSourceEntityDeclaration(line string) (*TDeviceSourceEntityDecl
 // positioning line itself sits in, not to a synthetic "netatmo" pseudo-space that was never opened
 // via OpenSpace/EnsureSpaceRegistered.
 func registerDeviceSourceEntityLink(administration *TAdministrationState, decl TDeviceSourceEntityDeclaration, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, entitiesPath string, lineNum int, finalAttempt bool, capabilityKey string, deviceNamePath string) (warnings []string, deferred bool) {
-	provenance := fmt.Sprintf("%s:%d → %s as %s from %s", filepath.Base(entitiesPath), lineNum, decl.LocalSpec, decl.Source, decl.DeviceID)
+	provenance := fmt.Sprintf("%s:%d → %s from %s %s", filepath.Base(entitiesPath), lineNum, decl.LocalSpec, decl.DeviceID, capabilityKey)
 
 	if importedDevice, found := importedDevicesByID[decl.DeviceID]; found {
 		return registerImportedDeviceSourceEntityLink(administration, decl, importedDevice, entitiesPath, lineNum, finalAttempt, capabilityKey, provenance, deviceNamePath)
@@ -153,18 +109,7 @@ func registerDeviceSourceEntityLink(administration *TAdministrationState, decl T
 
 	spaceName := administration.CurrentSpaceName()
 	key := capabilityKey
-	if key == "" {
-		key = entityID
-	}
-	sourceCapability := capabilityKey
-	if sourceCapability == "" {
-		// Bare "entity <spec> as <source> from <device-id>;" form: decl.Source (the raw remote
-		// reference, e.g. "sensor.some_integration_entity") is the only stable capability identity
-		// available -- entityID would be tautologically unique per conceptual entity and could never
-		// detect reuse.
-		sourceCapability = decl.Source
-	}
-	administration.RegisterDiscoveryImpliedEntity(spaceName, fullName, provenance, decl.DeviceID+"!"+sourceCapability, decl.NoCollect)
+	administration.RegisterDiscoveryImpliedEntity(spaceName, fullName, provenance, decl.DeviceID+"!"+key, decl.NoCollect)
 	if device.Capabilities == nil {
 		device.Capabilities = map[string]THassBridgeCapability{}
 		hassBridgeDevicesByID[decl.DeviceID] = device
@@ -193,12 +138,6 @@ func registerDeviceSourceEntityLink(administration *TAdministrationState, decl T
 	if icon == "" {
 		icon = defaultIcon
 	}
-	source := existing.Source
-	if capabilityKey == "" {
-		// Bare "entity <spec> as <source> from <device-id>;" form -- decl.Source is DSL-author-
-		// supplied directly in Spaces.def.
-		source = decl.Source
-	}
 	// Start from existing (already read above for its own DeviceClass/Unit/StateClass/Icon) rather
 	// than a fresh struct literal -- real bug, found live 2026-09-10 while wiring the "derived"
 	// capability mechanism (plans/derived-capability-mechanism.md): a fresh literal here silently
@@ -209,7 +148,6 @@ func registerDeviceSourceEntityLink(administration *TAdministrationState, decl T
 	// added to THassBridgeCapability in the future -- passes through unchanged.
 	updated := existing
 	updated.Domain = identity.Domain
-	updated.Source = source
 	updated.DeviceClass, updated.Unit, updated.StateClass, updated.Icon = deviceClass, unit, stateClass, icon
 	device.Capabilities[key] = updated
 	// See TDeviceAttributeLink.DisplaySuffix's own doc comment: an empty trailing path in the DSL
@@ -284,18 +222,8 @@ func registerDeviceSourceEntityLink(administration *TAdministrationState, decl T
 // generateImportedDeviceFile (integration_import_hassbridge_generator.go) reads to tell the
 // coordinator which local entity id to publish each capability under, instead of the coordinator
 // inventing its own generic naming.
-//
-// The bare "entity <spec> as <source> from <device-id>;" form (capabilityKey == "", decl.Source
-// DSL-author-supplied) makes no sense for an import -- there's no "raw remote entity string" the
-// DSL author can meaningfully supply here, only an already-Physical.def-declared capability name
-// (via the "for <device-id>: entity <spec> from <capability>;" shorthand,
-// Conceptual_DeviceCapabilityEntities.go, which always passes a non-empty capabilityKey) -- so
-// that form is rejected with a clear message rather than silently accepted and never actually
-// wired to anything.
+
 func registerImportedDeviceSourceEntityLink(administration *TAdministrationState, decl TDeviceSourceEntityDeclaration, importedDevice TImportedDevice, entitiesPath string, lineNum int, finalAttempt bool, capabilityKey, provenance, deviceNamePath string) (warnings []string, deferred bool) {
-	if capabilityKey == "" {
-		return []string{fmt.Sprintf("%s: device %q is an import -- the \"entity ... as <source> from ...;\" form isn't supported for imports (there's no local raw entity reference to give); use \"for %s: entity <spec> from <capability>;\" referencing an already-declared Physical.def capability instead", provenance, decl.DeviceID, decl.DeviceID)}, false
-	}
 	if _, declared := importedDevice.Capabilities[capabilityKey]; !declared {
 		return []string{fmt.Sprintf("%s: imported device %q declares no %q capability; add a \"%s: <remote-local-entity>;\" line to its Physical.def import declaration", provenance, decl.DeviceID, capabilityKey, capabilityKey)}, false
 	}

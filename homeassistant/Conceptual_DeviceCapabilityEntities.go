@@ -6,8 +6,7 @@
  *
  * Parses and registers the conceptual layer's "entity <local-spec> from <device-id> <capability>;"
  * construct -- a unified alternative to the discovery integration's dot-joined "entity <spec> from
- * <gateway-id>.<leaf>;" (Conceptual_DiscoveryEntities.go) and the home_assistant bridge's "entity
- * <spec> as <source> from <device-id>;" (Conceptual_DeviceSourceEntities.go) forms, referencing a
+ * <gateway-id>.<leaf>;" (Conceptual_DiscoveryEntities.go) form, referencing a
  * device's own already-declared capability by its local label (the LHS of its "<type>.<label>:
  * <source>;" Physical.def line, e.g. "co2" from "sensor.co2: sensor.davids_bedroom_carbon_dioxide;")
  * regardless of which integration kind the device belongs to -- one syntax for "position this
@@ -578,8 +577,7 @@ func registerDeviceCapabilityEntityLinkAllowingHiddenCore(administration *TAdmin
 	}
 
 	if device, found := hassBridgeDevicesByID[decl.DeviceID]; found {
-		capability, capFound := device.Capabilities[bareName]
-		if !capFound {
+		if _, capFound := device.Capabilities[bareName]; !capFound {
 			// Fall through to this SAME device id's Logical.def overlay before erroring -- since
 			// the "absorb" operation (2026-09-18) a hassbridge device id can ALSO carry its own
 			// Logical.def entry (e.g. appliance.washing_machine's own absorbed "power"/"energy"/
@@ -600,20 +598,15 @@ func registerDeviceCapabilityEntityLinkAllowingHiddenCore(administration *TAdmin
 		}
 		warnings, deferred := registerDeviceSourceEntityLink(administration, TDeviceSourceEntityDeclaration{
 			LocalSpec: decl.LocalSpec,
-			// capabilityKey (bareName) is non-empty below, so registerDeviceSourceEntityLink keeps
-			// capability's own Source -- this one is display-only (the provenance string on a rare
-			// error path).
-			Source:    capability.Source,
 			DeviceID:  decl.DeviceID,
 			NoCollect: decl.NoCollect,
 		}, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, lineNum, finalAttempt, bareName, deviceNamePath)
 		// A capability with a slow-speed shadow ("slow speed ...;", 2026-10-23) brings it along:
 		// "<domain>.<sphere>:<path>" implies "<domain>.<sphere>:slow/<path>", no line of its own.
 		slowLabel := slowSpeedCapabilityLabel(bareName)
-		if slow, hasSlow := device.Capabilities[slowLabel]; hasSlow && !deferred && len(warnings) == 0 {
+		if _, hasSlow := device.Capabilities[slowLabel]; hasSlow && !deferred && len(warnings) == 0 {
 			warnings, deferred = registerDeviceSourceEntityLink(administration, TDeviceSourceEntityDeclaration{
 				LocalSpec: slowSpeedLocalSpec(decl.LocalSpec),
-				Source:    slow.Source,
 				DeviceID:  decl.DeviceID,
 				NoCollect: decl.NoCollect,
 			}, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, lineNum, finalAttempt, slowLabel, deviceNamePath)

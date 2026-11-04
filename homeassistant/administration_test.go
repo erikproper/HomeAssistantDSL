@@ -68,22 +68,25 @@ func captureStdout(t *testing.T, fn func()) string {
 
 // TestDeviceSourceEntityWarnsOnCrossSpaceConceptualReuse is the regression test for PROJECT.md item
 // 0b, "each entity (of a device) can only be used once at the conceptual layer": the same hassbridge
-// device capability, referenced via the bare "as <source>" form (registerDeviceSourceEntityLink,
-// capabilityKey == "") from two different spaces, must warn -- even though nothing else in the
+// device capability, referenced via "entity <spec> from <device-id> <capability>;" from two
+// different spaces, must warn -- even though nothing else in the
 // pipeline would otherwise notice, since each space's own EntityRecordSeenBySpace tracking is scoped
 // per-space and would see two entirely distinct entity names.
 func TestDeviceSourceEntityWarnsOnCrossSpaceConceptualReuse(t *testing.T) {
 	const miniDSL = `device hass.laserjet with:
 end;
 space social:living_room with:
-  entity sensor.social:living_room/battery as source sensor.laserjet_battery from hass.laserjet;
+  entity sensor.social:living_room/battery from hass.laserjet sensor.battery;
 end;
 space social:kitchen with:
-  entity sensor.social:kitchen/battery as source sensor.laserjet_battery from hass.laserjet;
+  entity sensor.social:kitchen/battery from hass.laserjet sensor.battery;
 end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.laserjet": {DeviceID: "hass.laserjet", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{}},
+		"hass.laserjet": {DeviceID: "hass.laserjet", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{
+			"battery": {Domain: "sensor", Source: "sensor.laserjet_battery"},
+			"status":  {Domain: "sensor", Source: "sensor.laserjet_status"},
+		}},
 	}
 
 	var report strings.Builder
@@ -97,7 +100,7 @@ end;`
 	}
 	_ = result
 
-	if !strings.Contains(output, "[WARNING]") || !strings.Contains(output, "hass.laserjet!sensor.laserjet_battery") {
+	if !strings.Contains(output, "[WARNING]") || !strings.Contains(output, "hass.laserjet!battery") {
 		t.Fatalf("expected a cross-space conceptual reuse warning naming the shared source, got: %q", output)
 	}
 }
@@ -109,14 +112,17 @@ func TestDeviceSourceEntityNoWarningForDistinctSources(t *testing.T) {
 	const miniDSL = `device hass.laserjet with:
 end;
 space social:living_room with:
-  entity sensor.social:living_room/battery as source sensor.laserjet_battery from hass.laserjet;
+  entity sensor.social:living_room/battery from hass.laserjet sensor.battery;
 end;
 space social:kitchen with:
-  entity sensor.social:kitchen/status as source sensor.laserjet_status from hass.laserjet;
+  entity sensor.social:kitchen/status from hass.laserjet sensor.status;
 end;`
 
 	hassBridgeDevicesByID := map[string]THassBridgeDevice{
-		"hass.laserjet": {DeviceID: "hass.laserjet", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{}},
+		"hass.laserjet": {DeviceID: "hass.laserjet", Instance: "protocols-server-2", Capabilities: map[string]THassBridgeCapability{
+			"battery": {Domain: "sensor", Source: "sensor.laserjet_battery"},
+			"status":  {Domain: "sensor", Source: "sensor.laserjet_status"},
+		}},
 	}
 
 	var report strings.Builder

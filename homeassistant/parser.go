@@ -64,10 +64,9 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 	validInvocations := 0
 	typeErrors := 0
 
-	// pendingCapabilityLink/pendingSourceLink hold "entity ... from <device-id> ...;" /
-	// "entity ... as ... from <device-id>;" declarations reached before their device's own
-	// "device <spec> from <device-id>;" (U2) positioning -- registerDeviceCapabilityEntityLink /
-	// registerDeviceSourceEntityLink report deferred=true rather than warning in that case (the
+	// pendingCapabilityLink holds "entity ... from <device-id> ...;" declarations reached before
+	// their device's own "device <spec> from <device-id>;" (U2) positioning --
+	// registerDeviceCapabilityEntityLink reports deferred=true rather than warning in that case (the
 	// positioning may still appear later in the same file), and the main loop below queues them
 	// here instead of registering immediately. Retried once, after the whole file has been read
 	// (below, past the main loop) -- an in-memory retry over already-parsed declarations, not a
@@ -81,10 +80,8 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 	// administration.SpacePath at the moment the line was first read -- real bug found live
 	// 2026-09-07, PROJECT.md item 6: without this, the retry below resolved a deferred line against
 	// whatever space administration.SpacePath happened to be at AFTER the whole file was read
-	// (typically back at "root"), not the space the line actually sits in. deviceNamePath
-	// (pendingCapabilityLink only -- pendingSourceLink's construct is never used inside a device-with
-	// block, see registerDeviceSourceEntityLink's doc comment) is the same per-line snapshot for
-	// PROJECT.md item 5's device-name-path sugar.
+	// (typically back at "root"), not the space the line actually sits in. deviceNamePath is the
+	// same per-line snapshot for PROJECT.md item 5's device-name-path sugar.
 	type pendingCapabilityLink struct {
 		decl           TDeviceCapabilityEntityDeclaration
 		lineNum        int
@@ -100,13 +97,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 		// longest-suffix-fallback note (2026-09-25) for why the distinction matters on retry too.
 		capabilityIsInferred bool
 	}
-	type pendingSourceLink struct {
-		decl      TDeviceSourceEntityDeclaration
-		lineNum   int
-		spacePath []string
-	}
 	var pendingCapabilityLinks []pendingCapabilityLink
-	var pendingSourceLinks []pendingSourceLink
 
 	// forDeviceID is "" outside a device-capability-shorthand block -- either the older standalone
 	// "for <device-id>: ... end;" form or the merged "device <spec> from <device-id> with: ...
@@ -354,23 +345,6 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
 			for _, w := range registerDiscoveryEntityLink(administration, *discoveryDecl, discoveryGatewaysByID, entitiesPath, sourceLine(i), forDeviceNamePath, false) {
 				fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
-			}
-			continue
-		}
-
-		if sourceDecl, ok := extractDeviceSourceEntityDeclaration(trimmed); ok {
-			administration.EnsureSpaceRegistered(administration.SpacePath, SpaceKindRegular)
-			warnings, deferred := registerDeviceSourceEntityLink(administration, *sourceDecl, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, sourceLine(i), false, "", "")
-			if deferred {
-				pendingSourceLinks = append(pendingSourceLinks, pendingSourceLink{
-					decl:      *sourceDecl,
-					lineNum:   sourceLine(i),
-					spacePath: append([]string{}, administration.SpacePath...),
-				})
-			} else {
-				for _, w := range warnings {
-					fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
-				}
 			}
 			continue
 		}
@@ -886,8 +860,8 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 	// into a real, reported warning this time.
 	//
 	// administration.SpacePath is swapped to each pending line's own captured snapshot for the
-	// duration of its retry call, then restored -- both registerDeviceCapabilityEntityLink and
-	// registerDeviceSourceEntityLink read administration.SpacePath directly (for entity-name
+	// duration of its retry call, then restored -- registerDeviceCapabilityEntityLink reads
+	// administration.SpacePath directly (for entity-name
 	// resolution and for the space a resolved entity gets filed under), so without this a deferred
 	// line would resolve against whatever space parsing happened to end up in, not the space it was
 	// actually declared in (PROJECT.md item 6's real bug, found live 2026-09-07).
@@ -898,13 +872,6 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 		// (Conceptual_DeviceCapabilityEntities.go's own top-of-function check) -- no separate
 		// "via override" retry routing needed any more.
 		warnings, _ := registerDeviceCapabilityEntityLinkAllowingHidden(administration, pending.decl, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, pending.lineNum, true, pending.deviceNamePath, pending.allowHidden, pending.capabilityIsInferred)
-		for _, w := range warnings {
-			fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
-		}
-	}
-	for _, pending := range pendingSourceLinks {
-		administration.SpacePath = pending.spacePath
-		warnings, _ := registerDeviceSourceEntityLink(administration, pending.decl, hassBridgeDevicesByID, importedDevicesByID, entitiesPath, pending.lineNum, true, "", "")
 		for _, w := range warnings {
 			fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
 		}

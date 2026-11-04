@@ -1255,7 +1255,7 @@ yet.
 
 Every `as` in the defs is qualified (PROJECT.md 30, 2026-11-03, Erik): `as unique_id <id>` for a
 frozen ID (until then a bare `as <id>`), `as leaf <leaf>` (a `device` block, `colocated`),
-`as area`, `as source <entity>`, `as cards`. Generation stops on an unqualified `as`
+`as area`, `as cards`, `as user <user>`, `as local <entity>`. Generation stops on an unqualified `as`
 (`checkQualifiedAs`): it would not be read as a frozen ID, and the generator would freeze a new one.
 
 **The problem this closes**: a discovery-kind (`discovery` integration — Zigbee2MQTT/Z-Wave-JS/

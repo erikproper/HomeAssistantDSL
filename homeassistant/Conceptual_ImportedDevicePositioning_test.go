@@ -229,23 +229,3 @@ func TestRegisterImportedDevicePositioningSucceedsWithoutNodeCapability(t *testi
 		t.Errorf("capWarnings = %v, want exactly one warning naming the missing \"node\" capability", capWarnings)
 	}
 }
-
-// TestRegisterDeviceSourceEntityLinkRejectsAsFormForImports confirms the bare "entity ... as
-// <source> from <device-id>;" form is explicitly rejected for an import (there's no meaningful
-// local "source" to give -- only an already-declared Physical.def capability makes sense).
-func TestRegisterDeviceSourceEntityLinkRejectsAsFormForImports(t *testing.T) {
-	administration := newAdministrationState()
-	administration.DeviceConceptualLinks["hass.vienna_shower_room"] = TDeviceConceptualLink{AttributeEntityIDs: map[string]TDeviceAttributeLink{}}
-	importedDevicesByID := map[string]TImportedDevice{
-		"hass.vienna_shower_room": {DeviceID: "hass.vienna_shower_room", Capabilities: map[string]TImportedCapability{}},
-	}
-	decl := TDeviceSourceEntityDeclaration{LocalSpec: "sensor.physical:netatmo/temperature", Source: "sensor.something", DeviceID: "hass.vienna_shower_room"}
-
-	warnings, deferred := registerDeviceSourceEntityLink(administration, decl, nil, importedDevicesByID, "test.def", 1, true, "", "")
-	if deferred {
-		t.Fatalf("expected deferred=false")
-	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "isn't supported for imports") {
-		t.Errorf("warnings = %v, want exactly one warning explaining the \"as\" form isn't supported for imports", warnings)
-	}
-}

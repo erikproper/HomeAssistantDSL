@@ -33,7 +33,7 @@ import (
 // all 'as' occurrences"): "as unique_id <id>" (a frozen ID), "as leaf <leaf>", "as area", "as
 // source <entity>", "as cards", "deploy as user <user>" (deploy_plan.go) and "as local <entity>" (a
 // native capability's current entity_id, integration_local_parser.go).
-var qualifiedAsWords = map[string]bool{"unique_id": true, "leaf": true, "area": true, "source": true, "cards": true, "user": true, "local": true}
+var qualifiedAsWords = map[string]bool{"unique_id": true, "leaf": true, "area": true, "cards": true, "user": true, "local": true}
 
 // unqualifiedAsPattern finds an "as" and the word after it.
 var unqualifiedAsPattern = regexp.MustCompile(`(?:^|\s)as\s+(\S+)`)
@@ -66,7 +66,7 @@ func checkQualifiedAs(definitionDir string) error {
 	if len(found) > 20 {
 		found = append(found[:20], fmt.Sprintf("  ... and %d more", len(found)-20))
 	}
-	return fmt.Errorf("an \"as\" without its qualifier (\"as unique_id <id>\", \"as leaf <leaf>\", \"as area\", \"as source <entity>\", \"as cards\", \"as user <user>\", \"as local <entity>\"):\n%s", strings.Join(found, "\n"))
+	return fmt.Errorf("an \"as\" without its qualifier (\"as unique_id <id>\", \"as leaf <leaf>\", \"as area\", \"as cards\", \"as user <user>\", \"as local <entity>\"):\n%s", strings.Join(found, "\n"))
 }
 
 // loadFrozenUniqueIDs fills admin.FrozenUniqueIDs from every derived capability's frozen "as <id>":
