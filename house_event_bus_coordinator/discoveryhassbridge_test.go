@@ -65,7 +65,7 @@ func TestSubscribeHassBridgePublishesViaDeviceWhenResolvable(t *testing.T) {
 	existenceTracker.Record("protocols-server-2", "sensor.module_battery", true, "80", "", "", "", "remote-module", "remote-base")
 	existenceTracker.Record("protocols-server-2", "sensor.base_connectivity", true, "on", "", "", "", "remote-base", "")
 
-	localTopic := "homeassistant_instances/protocols-server-2/bridge/sensor.physical_module_battery_level/state"
+	localTopic := "homeassistant.instances/protocols-server-2/bridge/sensor.physical_module_battery_level/state"
 	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte("80")}}}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
 	store := NewLiveDeviceInfoStore("", nil)
@@ -120,7 +120,7 @@ func TestSubscribeHassBridgePublishesDiscoveryAndState(t *testing.T) {
 		},
 	}}
 
-	localTopic := "homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_house_downward_hallway_laserjet_status/state"
+	localTopic := "homeassistant.instances/protocols-server-2/bridge/sensor.infrastructural_house_downward_hallway_laserjet_status/state"
 	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte("idle")}}}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
 	store := NewLiveDeviceInfoStore("", nil)
@@ -197,7 +197,7 @@ func TestSubscribeHassBridgePublishesNullNameWhenDisplaySuffixEmpty(t *testing.T
 		},
 	}}
 
-	localTopic := "homeassistant_instances/protocols-server-2/bridge/cover.social_house_kitchen/state"
+	localTopic := "homeassistant.instances/protocols-server-2/bridge/cover.social_house_kitchen/state"
 	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte("open")}}}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
 	store := NewLiveDeviceInfoStore("", nil)
@@ -261,7 +261,7 @@ func TestSubscribeHassBridgeFallsBackToLiveTypingWhenDeclaredEmpty(t *testing.T)
 	existenceTracker.Seed(bridgeFile)
 	existenceTracker.Record("protocols-server-2", "sensor.fritz_box_7490_gb_received", true, "1234", "GB", "data_size", "mdi:download-network", "", "")
 
-	localTopic := "homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_fritz_box_gb_received/state"
+	localTopic := "homeassistant.instances/protocols-server-2/bridge/sensor.infrastructural_fritz_box_gb_received/state"
 	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte("1234")}}}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
 	store := NewLiveDeviceInfoStore("", nil)
@@ -321,8 +321,8 @@ func TestSubscribeHassBridgePublishesTypingMetadata(t *testing.T) {
 	}}
 
 	client := &fakeClient{retained: []fakeMessage{
-		{topic: "homeassistant_instances/main/bridge/binary_sensor.infrastructural_junglinster_node/state", payload: []byte("ON")},
-		{topic: "homeassistant_instances/main/bridge/sensor.infrastructural_junglinster_cpu_load/state", payload: []byte("12.3")},
+		{topic: "homeassistant.instances/main/bridge/binary_sensor.infrastructural_junglinster_node/state", payload: []byte("ON")},
+		{topic: "homeassistant.instances/main/bridge/sensor.infrastructural_junglinster_cpu_load/state", payload: []byte("12.3")},
 	}}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
 	store := NewLiveDeviceInfoStore("", nil)
@@ -354,7 +354,7 @@ func TestSubscribeHassBridgePublishesTypingMetadata(t *testing.T) {
 	// Real gap found live 2026-08-31: the node entity must never gate its own availability on
 	// itself (a circular reference) -- only its own self-availability check applies, so the list
 	// has exactly one entry, on its own state topic.
-	nodeStateTopic := "homeassistant_instances/main/bridge/binary_sensor.infrastructural_junglinster_node/state"
+	nodeStateTopic := "homeassistant.instances/main/bridge/binary_sensor.infrastructural_junglinster_node/state"
 	if e := findAvailabilityEntry(nodeBody, nodeStateTopic); e == nil || e["payload_available"] != "available" {
 		t.Errorf("node's own availability = %v, want a self-check entry on %q", nodeBody["availability"], nodeStateTopic)
 	}
@@ -389,11 +389,11 @@ func TestSubscribeHassBridgePublishesTypingMetadata(t *testing.T) {
 	if loadBody["availability_mode"] != "all" {
 		t.Errorf("cpu/load's availability_mode = %v, want \"all\"", loadBody["availability_mode"])
 	}
-	wantNodeTopic := "homeassistant_instances/main/bridge/binary_sensor.infrastructural_junglinster_node/state"
+	wantNodeTopic := "homeassistant.instances/main/bridge/binary_sensor.infrastructural_junglinster_node/state"
 	if e := findAvailabilityEntry(loadBody, wantNodeTopic); e == nil || e["payload_available"] != "on" || e["payload_not_available"] != "off" {
 		t.Errorf("cpu/load's availability = %v, want a node-gate entry on %q (on/off)", loadBody["availability"], wantNodeTopic)
 	}
-	wantOwnTopic := "homeassistant_instances/main/bridge/sensor.infrastructural_junglinster_cpu_load/state"
+	wantOwnTopic := "homeassistant.instances/main/bridge/sensor.infrastructural_junglinster_cpu_load/state"
 	if e := findAvailabilityEntry(loadBody, wantOwnTopic); e == nil || e["payload_available"] != "available" {
 		t.Errorf("cpu/load's availability = %v, want a self-check entry on its own state topic %q", loadBody["availability"], wantOwnTopic)
 	}
@@ -423,7 +423,7 @@ func TestSubscribeHassBridgeDeviceInfoUpdatesStoreAndRepublishesCapabilities(t *
 		},
 	}}
 
-	deviceInfoTopic := "homeassistant_instances/main/bridge/device/host.junglinster/state"
+	deviceInfoTopic := "homeassistant.instances/main/bridge/device/host.junglinster/state"
 	deviceInfoPayload := []byte(`{"sw_version": "Home Assistant Operating System 2025.1.0"}`)
 	client := &fakeClient{retained: []fakeMessage{{topic: deviceInfoTopic, payload: deviceInfoPayload}}}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
@@ -481,7 +481,7 @@ func TestSubscribeHassBridgeExportCrossPostsToCloud(t *testing.T) {
 		},
 	}}
 
-	localTopic := "homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_vienna_terrace_temperature/state"
+	localTopic := "homeassistant.instances/protocols-server-2/bridge/sensor.infrastructural_vienna_terrace_temperature/state"
 	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte("21.4")}}}
 	cloudClient := &fakeClient{}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
@@ -563,7 +563,7 @@ func TestSubscribeHassBridgeExportCloudAvailabilityTopicIsInstallationQualified(
 		},
 	}}
 
-	localTemperatureTopic := "homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_vienna_terrace_temperature/state"
+	localTemperatureTopic := "homeassistant.instances/protocols-server-2/bridge/sensor.infrastructural_vienna_terrace_temperature/state"
 	client := &fakeClient{retained: []fakeMessage{{topic: localTemperatureTopic, payload: []byte("21.4")}}}
 	cloudClient := &fakeClient{}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
@@ -579,7 +579,7 @@ func TestSubscribeHassBridgeExportCloudAvailabilityTopicIsInstallationQualified(
 		t.Fatalf("hassBridgeCloudDiscoveryTopic returned ok=false")
 	}
 	wantCloudDiscoveryTopic := "junglinster/" + discoveryTopic
-	wantNodeTopic := "junglinster/homeassistant_instances/protocols-server-2/bridge/binary_sensor.infrastructural_vienna_terrace_node/state"
+	wantNodeTopic := "junglinster/homeassistant.instances/protocols-server-2/bridge/binary_sensor.infrastructural_vienna_terrace_node/state"
 	wantOwnTopic := "junglinster/" + localTemperatureTopic
 
 	found := false
@@ -624,7 +624,7 @@ func TestSubscribeHassBridgeExportStripsSuggestedAreaFromCloudOnly(t *testing.T)
 		},
 	}}
 
-	localTopic := "homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_vienna_terrace_temperature/state"
+	localTopic := "homeassistant.instances/protocols-server-2/bridge/sensor.infrastructural_vienna_terrace_temperature/state"
 	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte("21.4")}}}
 	cloudClient := &fakeClient{}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
@@ -690,7 +690,7 @@ func TestSubscribeHassBridgeNonExportDeviceNeverPublishesToCloud(t *testing.T) {
 		},
 	}}
 
-	localTopic := "homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_house_downward_hallway_laserjet_status/state"
+	localTopic := "homeassistant.instances/protocols-server-2/bridge/sensor.infrastructural_house_downward_hallway_laserjet_status/state"
 	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte("idle")}}}
 	cloudClient := &fakeClient{}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
@@ -827,7 +827,7 @@ func TestSubscribeHassBridgeSetsCommandTopicForCommandableCapability(t *testing.
 		},
 	}}
 
-	localTopic := "homeassistant_instances/protocols-server-2/bridge/vacuum.social_apartment_roomba/state"
+	localTopic := "homeassistant.instances/protocols-server-2/bridge/vacuum.social_apartment_roomba/state"
 	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte(`{"state": "docked"}`)}}}
 	cloudClient := &fakeClient{}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
@@ -841,7 +841,7 @@ func TestSubscribeHassBridgeSetsCommandTopicForCommandableCapability(t *testing.
 	if !ok {
 		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
 	}
-	wantCommandTopic := "homeassistant_instances/protocols-server-2/bridge/vacuum.social_apartment_roomba/command"
+	wantCommandTopic := "homeassistant.instances/protocols-server-2/bridge/vacuum.social_apartment_roomba/command"
 
 	localFound := false
 	for _, p := range localBridgeConfigs(bridgeFile, store, nil, "protocols-server-2|vacuum.social_apartment_roomba") {
@@ -892,7 +892,7 @@ func TestSubscribeHassBridgeSetsCommandTopicForCommandableCapability(t *testing.
 
 func TestHassBridgeEntityAttributesTopic(t *testing.T) {
 	got := hassBridgeEntityAttributesTopic("protocols-server-2", "vacuum.social_apartment_living_room")
-	want := "homeassistant_instances/protocols-server-2/bridge/vacuum.social_apartment_living_room/attributes"
+	want := "homeassistant.instances/protocols-server-2/bridge/vacuum.social_apartment_living_room/attributes"
 	if got != want {
 		t.Errorf("hassBridgeEntityAttributesTopic(...) = %q, want %q", got, want)
 	}
@@ -916,7 +916,7 @@ func TestSubscribeHassBridgeSetsJSONAttributesTopicWhenDeclared(t *testing.T) {
 		},
 	}}
 
-	localTopic := "homeassistant_instances/protocols-server-2/bridge/vacuum.social_apartment_living_room/state"
+	localTopic := "homeassistant.instances/protocols-server-2/bridge/vacuum.social_apartment_living_room/state"
 	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte(`{"state": "error"}`)}}}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
 	store := NewLiveDeviceInfoStore("", nil)
@@ -929,7 +929,7 @@ func TestSubscribeHassBridgeSetsJSONAttributesTopicWhenDeclared(t *testing.T) {
 	if !ok {
 		t.Fatalf("hassBridgeDiscoveryTopic returned ok=false")
 	}
-	wantAttributesTopic := "homeassistant_instances/protocols-server-2/bridge/vacuum.social_apartment_living_room/attributes"
+	wantAttributesTopic := "homeassistant.instances/protocols-server-2/bridge/vacuum.social_apartment_living_room/attributes"
 
 	found := false
 	for _, p := range localBridgeConfigs(bridgeFile, store, nil, "protocols-server-2|vacuum.social_apartment_living_room") {
@@ -967,7 +967,7 @@ func TestSubscribeHassBridgeOmitsJSONAttributesTopicWhenNotDeclared(t *testing.T
 		},
 	}}
 
-	localTopic := "homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_vienna_terrace_temperature/state"
+	localTopic := "homeassistant.instances/protocols-server-2/bridge/sensor.infrastructural_vienna_terrace_temperature/state"
 	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte("21.4")}}}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
 	store := NewLiveDeviceInfoStore("", nil)
@@ -1019,7 +1019,7 @@ func TestSubscribeHassBridgeExportCrossPostsAttributesTopicToCloud(t *testing.T)
 		},
 	}}
 
-	localTopic := "homeassistant_instances/protocols-server-2/bridge/vacuum.social_apartment_living_room/state"
+	localTopic := "homeassistant.instances/protocols-server-2/bridge/vacuum.social_apartment_living_room/state"
 	client := &fakeClient{retained: []fakeMessage{{topic: localTopic, payload: []byte(`{"state": "error"}`)}}}
 	cloudClient := &fakeClient{}
 	publisher := newDiscoveryPublisher(filepath.Join(t.TempDir(), "discovery_topics.json"))
@@ -1035,7 +1035,7 @@ func TestSubscribeHassBridgeExportCrossPostsAttributesTopicToCloud(t *testing.T)
 		t.Fatalf("hassBridgeCloudDiscoveryTopic returned ok=false")
 	}
 	wantCloudDiscoveryTopic := "vienna/" + discoveryTopic
-	wantAttributesTopic := "vienna/homeassistant_instances/protocols-server-2/bridge/vacuum.social_apartment_living_room/attributes"
+	wantAttributesTopic := "vienna/homeassistant.instances/protocols-server-2/bridge/vacuum.social_apartment_living_room/attributes"
 
 	found := false
 	for _, p := range cloudClient.published {
@@ -1093,7 +1093,7 @@ func TestBuildHassBridgeEntityDiscoveryBodyValueTriggerCommandOmitsPayloadKeys(t
 	}
 	body := buildHassBridgeEntityDiscoveryBody("stable-my-position", "number.front_my_position", found, "state-topic", "", TDiscoveryDevice{}, nil, "", "", "", "ha2mqtt", true, "install")
 
-	wantTopic := "homeassistant_instances/ha2mqtt/bridge/number.front_my_position/command/set_value"
+	wantTopic := "homeassistant.instances/ha2mqtt/bridge/number.front_my_position/command/set_value"
 	if body["command_topic"] != wantTopic {
 		t.Errorf("command_topic = %v, want its own dedicated topic %q (ValueTrigger commands never share the base topic)", body["command_topic"], wantTopic)
 	}
@@ -1125,7 +1125,7 @@ func TestBuildHassBridgeEntityDiscoveryBodyCoverMixesSharedAndDedicatedTopics(t 
 	}
 	body := buildHassBridgeEntityDiscoveryBody("stable-cover", "cover.social_house_living_room_front", found, "state-topic", "", TDiscoveryDevice{}, nil, "", "", "", "ha2mqtt", true, "install")
 
-	wantBaseTopic := "homeassistant_instances/ha2mqtt/bridge/cover.social_house_living_room_front/command"
+	wantBaseTopic := "homeassistant.instances/ha2mqtt/bridge/cover.social_house_living_room_front/command"
 	if body["command_topic"] != wantBaseTopic {
 		t.Errorf("command_topic = %v, want the shared base topic %q (open/close/stop all use it)", body["command_topic"], wantBaseTopic)
 	}

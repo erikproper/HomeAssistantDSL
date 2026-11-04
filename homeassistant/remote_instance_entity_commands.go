@@ -14,7 +14,7 @@
  * A capability whose domain (THassBridgeCapability.Domain) has an entry in domainCommands
  * (hassbridge_commands.go) gets one automation generated per command, deployed onto the remote
  * instance that actually owns the entity. All of one entity's commands share a single MQTT topic
- * (homeassistant_instances/<name>/bridge/<local_entity>/command) -- matching how HA's own MQTT
+ * (homeassistant.instances/<name>/bridge/<local_entity>/command) -- matching how HA's own MQTT
  * switch/vacuum schemas work: one command_topic per entity, each command discriminated purely by
  * matching the incoming payload against a configured literal (payload_on/payload_start/...), not
  * by separate topics per command. Each generated automation triggers on that shared topic with an
@@ -46,7 +46,7 @@ import (
 // discoveryhassbridge.go's own hassBridgeEntityCommandTopic (coordinator side), which sets a
 // discovery config's command_topic to this exact same string.
 func hassBridgeEntityCommandTopic(instance, localEntity string) string {
-	return "homeassistant_instances/" + instance + "/bridge/" + localEntity + "/command"
+	return "homeassistant.instances/" + instance + "/bridge/" + localEntity + "/command"
 }
 
 // hassBridgeEntityCommandTopicFor is the topic ONE specific command actually triggers on: the

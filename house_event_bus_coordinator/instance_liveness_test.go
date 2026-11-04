@@ -45,7 +45,7 @@ func TestInstanceLiveness(t *testing.T) {
 	if livenessPublished(client)[instanceStatusTopic("ha2mqtt")] != instanceOffline {
 		t.Fatalf("no pong: want offline, got %v", livenessPublished(client))
 	}
-	for _, topic := range []string{"homeassistant_instances/ha2mqtt/inquire", "homeassistant_instances/ha2mqtt/bridge/switch.x/command", instancePingTopic("ha2mqtt")} {
+	for _, topic := range []string{"homeassistant.instances/ha2mqtt/inquire", "homeassistant.instances/ha2mqtt/bridge/switch.x/command", instancePingTopic("ha2mqtt")} {
 		payload := "ping"
 		if topic != instancePingTopic("ha2mqtt") {
 			payload = "x"

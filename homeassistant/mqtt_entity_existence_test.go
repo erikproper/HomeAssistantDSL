@@ -487,7 +487,7 @@ func TestBuildUndeclaredAttributesSuggestionsEmptyWhenNothingToReport(t *testing
 
 func TestExistenceStatusTopic(t *testing.T) {
 	got := existenceStatusTopic("protocols-server-2")
-	want := "homeassistant_instances/protocols-server-2/existence/state"
+	want := "homeassistant.instances/protocols-server-2/existence/state"
 	if got != want {
 		t.Errorf("existenceStatusTopic() = %q, want %q", got, want)
 	}

@@ -27,7 +27,7 @@
  *     since every cloud-reporting host now has a globally unique hostname across the whole fleet,
  *     removing the need to disambiguate installations on the shared cloud broker at all.
  *     "home_assistant"-kind topics were always self-qualifying regardless
- *     ("homeassistant_instances/<instance>/bridge/<entity>/state" -- the instance name is baked in
+ *     ("homeassistant.instances/<instance>/bridge/<entity>/state" -- the instance name is baked in
  *     at generation time on the exporting side) and are unaffected by this change.
  *   - Does the raw payload need JSON-blob extraction? -- a "hosts"-kind attribute's discovery
  *     config carries a "value_template" field ("{{ value_json.<attr> }}", the one shape
@@ -399,7 +399,7 @@ func (idx *TImportedHostsRelayIndex) lookup(topic string) []TImportedHostsRelay 
 // State itself is relayed through two SEPARATE static wildcard subscribes registered once per
 // remote installation (never per capability -- see the concurrency note below): one for
 // "home_assistant"-kind's self-qualifying topic shape
-// ("<installation>/homeassistant_instances/+/bridge/+/state", mirroring
+// ("<installation>/homeassistant.instances/+/bridge/+/state", mirroring
 // crossPostHassBridgeToCloud's own shape in reverse), one for "hosts"-kind's bare, cross-house
 // qualified shape ("hosts/+/<installation>/+/state", resolved via TImportedHostsRelayIndex once
 // the matching capability's own discovery config has been seen). No-op if cloudClient is nil or
@@ -543,14 +543,14 @@ func subscribeImportedDevices(mainClient, cloudClient mqtt.Client, ownInstallati
 		}
 
 		stateHandler := func(_ mqtt.Client, msg mqtt.Message) {
-			// "<installation>/homeassistant_instances/<instance>/bridge/<remoteLocalEntity>/state"
+			// "<installation>/homeassistant.instances/<instance>/bridge/<remoteLocalEntity>/state"
 			// -- the exact shape crossPostHassBridgeToCloud qualifies hassBridgeEntityStateTopic
 			// with, six segments. Relay target is resolved from whatever configHandler's own
 			// lazy-learned index resolved this exact topic to (registered the moment that
 			// capability's discovery config was first seen) -- a topic nothing has registered yet
 			// (or ever will) is a safe no-op, same as hostsStateHandler's own lookup below.
 			parts := strings.Split(msg.Topic(), "/")
-			if len(parts) != 6 || parts[1] != "homeassistant_instances" || parts[3] != "bridge" || parts[5] != "state" {
+			if len(parts) != 6 || parts[1] != "homeassistant.instances" || parts[3] != "bridge" || parts[5] != "state" {
 				return
 			}
 			for _, relay := range hostsRelayIndex.lookup(msg.Topic()) {
@@ -564,7 +564,7 @@ func subscribeImportedDevices(mainClient, cloudClient mqtt.Client, ownInstallati
 			}
 		}
 
-		stateFilter := remoteInstallation + "/homeassistant_instances/+/bridge/+/state"
+		stateFilter := remoteInstallation + "/homeassistant.instances/+/bridge/+/state"
 		token = subscribe(cloudClient, stateFilter, 0, stateHandler)
 		if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
 			if err := token.Error(); err != nil {

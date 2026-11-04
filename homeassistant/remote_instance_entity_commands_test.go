@@ -10,7 +10,7 @@ import (
 func TestEntityCommandAutomationBody(t *testing.T) {
 	identity := TEntityIdentity{Domain: "vacuum", Sphere: "social", Path: "roomba"}
 	command := commandSpec{Name: "start", Service: "vacuum.start", Payload: "start", DiscoveryKey: "payload_start"}
-	body := entityCommandAutomationBody(identity, command, "vacuum.roomba", "homeassistant_instances/protocols-server-2/bridge/vacuum.social_roomba/command")
+	body := entityCommandAutomationBody(identity, command, "vacuum.roomba", "homeassistant.instances/protocols-server-2/bridge/vacuum.social_roomba/command")
 
 	if !strings.Contains(body, `alias: "social/roomba/vacuum/command/start"`) {
 		t.Errorf("body = %s, want the slash-joined alias with the command name appended", body)
@@ -18,7 +18,7 @@ func TestEntityCommandAutomationBody(t *testing.T) {
 	if !strings.Contains(body, "platform: mqtt") {
 		t.Errorf("body = %s, want an mqtt trigger", body)
 	}
-	if !strings.Contains(body, `topic: "homeassistant_instances/protocols-server-2/bridge/vacuum.social_roomba/command"`) {
+	if !strings.Contains(body, `topic: "homeassistant.instances/protocols-server-2/bridge/vacuum.social_roomba/command"`) {
 		t.Errorf("body = %s, want the given shared command topic", body)
 	}
 	if !strings.Contains(body, `payload: "start"`) {
@@ -40,7 +40,7 @@ func TestEntityCommandAutomationBody(t *testing.T) {
 func TestEntityCommandAutomationBodyValueTrigger(t *testing.T) {
 	identity := TEntityIdentity{Domain: "number", Sphere: "social", Path: "front/my_position"}
 	command := commandSpec{Name: "set_value", Service: "number.set_value", ValueTrigger: true}
-	body := entityCommandAutomationBody(identity, command, "number.living_room_front_my_position", "homeassistant_instances/protocols-server-2/bridge/number.social_front_my_position/command")
+	body := entityCommandAutomationBody(identity, command, "number.living_room_front_my_position", "homeassistant.instances/protocols-server-2/bridge/number.social_front_my_position/command")
 
 	if strings.Contains(body, "payload:") {
 		t.Errorf("body = %s, want no payload filter at all on a ValueTrigger command", body)
@@ -63,7 +63,7 @@ func TestEntityCommandAutomationBodyValueTrigger(t *testing.T) {
 func TestEntityCommandAutomationBodyCustomDataKey(t *testing.T) {
 	identity := TEntityIdentity{Domain: "cover", Sphere: "social", Path: "front"}
 	command := commandSpec{Name: "set_position", Service: "cover.set_cover_position", ValueTrigger: true, DataKey: "position", TopicKey: "set_position_topic"}
-	body := entityCommandAutomationBody(identity, command, "cover.living_room_front", "homeassistant_instances/ha2mqtt/bridge/cover.social_front/command/set_position")
+	body := entityCommandAutomationBody(identity, command, "cover.living_room_front", "homeassistant.instances/ha2mqtt/bridge/cover.social_front/command/set_position")
 
 	if !strings.Contains(body, `position: "{{ trigger.payload }}"`) {
 		t.Errorf("body = %s, want the triggered payload passed through as the command's own \"position\" data field", body)
@@ -80,12 +80,12 @@ func TestEntityCommandAutomationBodyCustomDataKey(t *testing.T) {
 // can never also match a ValueTrigger command's own "any payload" trigger on the same topic.
 func TestHassBridgeEntityCommandTopicFor(t *testing.T) {
 	fixed := commandSpec{Name: "open", Payload: "OPEN"}
-	if got, want := hassBridgeEntityCommandTopicFor("ha2mqtt", "cover.social_front", fixed), "homeassistant_instances/ha2mqtt/bridge/cover.social_front/command"; got != want {
+	if got, want := hassBridgeEntityCommandTopicFor("ha2mqtt", "cover.social_front", fixed), "homeassistant.instances/ha2mqtt/bridge/cover.social_front/command"; got != want {
 		t.Errorf("fixed-payload topic = %q, want the shared base topic %q", got, want)
 	}
 
 	valueTrigger := commandSpec{Name: "set_position", ValueTrigger: true}
-	if got, want := hassBridgeEntityCommandTopicFor("ha2mqtt", "cover.social_front", valueTrigger), "homeassistant_instances/ha2mqtt/bridge/cover.social_front/command/set_position"; got != want {
+	if got, want := hassBridgeEntityCommandTopicFor("ha2mqtt", "cover.social_front", valueTrigger), "homeassistant.instances/ha2mqtt/bridge/cover.social_front/command/set_position"; got != want {
 		t.Errorf("ValueTrigger topic = %q, want its own dedicated topic %q", got, want)
 	}
 }

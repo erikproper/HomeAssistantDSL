@@ -155,7 +155,7 @@ func TestAvailabilityFollowsViaDevice(t *testing.T) {
 		"node.protocols_server_1": {DeviceID: "node.protocols_server_1", HostName: "protocols-server-1", IntegrationType: "ping"},
 	}
 	nodeTopics, problems := rawNodeTopics(map[string]TDiscoveryGatewayDevice{
-		"integration.ha2mqtt": {Raw: true, RawTopics: map[string]TRawTopicCapability{"node": {Topic: "homeassistant_instances/ha2mqtt/status", On: "online"}}},
+		"integration.ha2mqtt": {Raw: true, RawTopics: map[string]TRawTopicCapability{"node": {Topic: "homeassistant.instances/ha2mqtt/status", On: "online"}}},
 		"integration.odd":     {Raw: true, RawTopics: map[string]TRawTopicCapability{"node": {Topic: "odd/status", On: "up"}}},
 	})
 	if len(problems) != 1 || !strings.Contains(problems[0], "integration.odd") {
@@ -166,7 +166,7 @@ func TestAvailabilityFollowsViaDevice(t *testing.T) {
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
-	want := map[string]bool{"hosts/connexoon/node/state": true, "homeassistant_instances/ha2mqtt/status": true, "hosts/protocols-server-1/node/state": true}
+	want := map[string]bool{"hosts/connexoon/node/state": true, "homeassistant.instances/ha2mqtt/status": true, "hosts/protocols-server-1/node/state": true}
 	if len(topics) != len(want) {
 		t.Fatalf("topics = %v, want %v", topics, want)
 	}

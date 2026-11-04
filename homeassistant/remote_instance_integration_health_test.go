@@ -15,7 +15,7 @@ func TestIntegrationHealth(t *testing.T) {
 		t.Errorf("notify service without the line = %q", got)
 	}
 	health := integrationHealthAutomationBody("ha2mqtt")
-	for _, want := range []string{"id: automation.coordinator_integration_health_ha2mqtt", "platform: time_pattern", `topic: "homeassistant_instances/ha2mqtt/integrations"`, "config_entry_attr(id, 'state')", "disabled_by", `topic: "homeassistant_instances/ha2mqtt/updates"`, "states.update", "!= 'mqtt'"} {
+	for _, want := range []string{"id: automation.coordinator_integration_health_ha2mqtt", "platform: time_pattern", `topic: "homeassistant.instances/ha2mqtt/integrations"`, "config_entry_attr(id, 'state')", "disabled_by", `topic: "homeassistant.instances/ha2mqtt/updates"`, "states.update", "!= 'mqtt'"} {
 		if !strings.Contains(health, want) {
 			t.Errorf("health automation lacks %q:\n%s", want, health)
 		}

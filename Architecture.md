@@ -876,15 +876,15 @@ few correctly recognized (`system_uptime` → `sensor.uptime`) — a useful scaf
 not a fully-automated result, same expectation kind-3's suggestions already set.
 
 **Cloud topic collision, found and fixed live 2026-09-05**: both `discovery_gateways/<gatewayID>/existence/state`
-and kind-3's `homeassistant_instances/<name>/existence/state` were published to the CLOUD broker
+and kind-3's `homeassistant.instances/<name>/existence/state` were published to the CLOUD broker
 under the same bare topic the local broker uses — fine for the local broker (each house only ever
 reads its own), but wrong for the shared cloud one: every house's own primary instance is
 conventionally named "main", and Junglinster's and Vienna's own retained status were confirmed live
-to be overwriting each other on `homeassistant_instances/main/existence/state`. Fixed by prefixing
+to be overwriting each other on `homeassistant.instances/main/existence/state`. Fixed by prefixing
 the CLOUD copy only with the owning installation's own name (`<installation>/discovery_gateways/...`,
-`<installation>/homeassistant_instances/...`), matching the whole-topic-prefix convention already
+`<installation>/homeassistant.instances/...`), matching the whole-topic-prefix convention already
 used everywhere else a topic crosses onto the shared cloud broker (`<installation>/homeassistant/...`
-discovery configs, `<qualifier>/homeassistant_instances/.../bridge/.../state` below) — not the
+discovery configs, `<qualifier>/homeassistant.instances/.../bridge/.../state` below) — not the
 `hosts`-kind's different "insert after first segment" convention, which is specifically driven by
 that kind's client-ID-scoped cloud ACL and doesn't apply here. The local copy stays bare (unchanged).
 Generator-side readers (`fetchEntityExistenceFromBroker`/`fetchDiscoveryExistenceFromBroker`,
@@ -1070,7 +1070,7 @@ rename — `THostDevice.Native`/`TDevice.Native` (was `.Local`), `devices.yaml`'
 
 **`export` gives a `home_assistant`-bridge device (kind-3) the same cross-broker reach a
 `cloud`+`native` hosts device already has**, but the mechanism differs because a bridged entity's
-reporting automation always publishes locally (`homeassistant_instances/<name>/bridge/<local
+reporting automation always publishes locally (`homeassistant.instances/<name>/bridge/<local
 entity>/state`, on this house's own main broker) — there is no equivalent of `cpu/report` choosing
 which broker to target, so the *coordinator itself* has to be the one relaying local→cloud, not
 the device's own report script. Declared as `device <id> export with: ...; end;`
@@ -1213,7 +1213,7 @@ coordinator only ever merges already-resolved data into a discovery config
 everywhere else already applies.
 
 **All of one entity's commands share a single MQTT topic**
-(`homeassistant_instances/<instance>/bridge/<local_entity>/command`), discriminated purely by
+(`homeassistant.instances/<instance>/bridge/<local_entity>/command`), discriminated purely by
 matching the incoming payload against a literal string — confirmed against the live MQTT
 switch/vacuum component source (not assumed from memory): both schemas take exactly one
 `command_topic`, with each command recognised via its own configured `payload_*` field (`payload_
@@ -1649,10 +1649,10 @@ Where the node's topic comes from depends on who controls it:
   `zwave/#`/`ems-esp/#` cover these two.
 - *Topics we control* -- a bridged Home Assistant instance, later fhem2mqtt -- declare the node in
   their own integration: `integration home_assistant ha2mqtt with: device integration.ha2mqtt
-  with: capability binary_sensor.node; end; ...`. Its topic is `homeassistant_instances/<instance>/
+  with: capability binary_sensor.node; end; ...`. Its topic is `homeassistant.instances/<instance>/
   status`, kept by the coordinator's ping-pong (`house_event_bus_coordinator/
   instance_liveness.go`, Erik's design): every message from the instance is a sign of life; only
-  after 5 minutes of quiet does the coordinator send `ping` on `homeassistant_instances/<instance>/
+  after 5 minutes of quiet does the coordinator send `ping` on `homeassistant.instances/<instance>/
   ping`, which a generated automation on the instance answers with `pong` on the same topic; no
   pong within 30 s is `offline`. The status is retained and the node's availability includes the
   coordinator's own (without it, nobody keeps the status). Since 2026-11-01 this is one case of the
@@ -1758,7 +1758,7 @@ helps when a reload does. An integration that needs re-authenticating (Overkiz, 
 its own "Reconfigure" in the UI showed it, and Erik found out hours later) or fails to set up needs
 Erik. Every instance reports, every five minutes and not retained, its config entries in a state
 that needs action -- `setup_error`, `migration_error`, `failed_unload`, `not_loaded`, a disabled
-entry excepted -- on `homeassistant_instances/<instance>/integrations` (`{"items": ["<title>
+entry excepted -- on `homeassistant.instances/<instance>/integrations` (`{"items": ["<title>
 (<domain>): <state>", ...]}`). Not `setup_retry`: that is a device or service Home Assistant can't
 reach and keeps retrying (Vienna's TV switched off; an outage, which the guards handle), Erik's
 choice. A template finds the config entries through their entities (`config_entry_id` over
@@ -1779,7 +1779,7 @@ list with `attributes.get('items', [])`: after a deploy the entity has no attrib
 
 Updates, the same day, dashboard only (updating stays Erik's): the same automation reports the
 instance's own software updates -- an `update.*` that is on, but not a device's firmware (an MQTT
-one; Zigbee2MQTT updates those) -- on `homeassistant_instances/<instance>/updates`, shown as
+one; Zigbee2MQTT updates those) -- on `homeassistant.instances/<instance>/updates`, shown as
 `binary_sensor.infrastructural_updates_<instance>`. An instance in a container has no update entity
 for itself; its host's `update.containers --check <installation>` (cron, every 6 hours) asks each
 image's registry for the tag's current digest (a HEAD request on the manifest), compares it with
@@ -2404,11 +2404,11 @@ Kept as history.
 
 Four bugs found and fixed live 2026-09-05, the first day this was exercised for a real device (`hass.eriks_iphone`, roaming across `main`/`protocols-server-2` at Junglinster and `main` at Vienna):
 
-- **Self-import feedback loop**: `subscribeHassBridgeSelfImport`'s relay republishes onto a *synthetic* local topic keyed by this house's own installation name (`homeassistant_instances/<installation>/bridge/...`) — never a real declared instance. Before the fix, `subscribeHassBridge`'s own local wildcard treated that synthetic topic as fresh genuine traffic and cross-posted it straight back to the cloud under `roaming`, which the self-import relay was itself subscribed to — an unbounded republish loop that flooded the shared cloud broker within seconds of first use. Fixed by gating cross-posting on the reporting topic's instance segment genuinely being one of the device's own declared `Instances` (`containsString`) — a synthetic echo never is, so it's relayed locally (the local broker copy still needs it) but never re-exported.
-- **Non-canonical roaming topic**: a roaming device's cloud-published bridge topics (entity-state, device-info, and the availability reference inside each discovery config) embedded whichever *real* local instance happened to report most recently (`homeassistant_instances/main/bridge/.../state` vs. `.../protocols-server-2/bridge/.../state`), forcing any importer to watch both topics, or wildcard, to see the device's current value. Fixed by `canonicalizeRoamingBridgeTopic`: for a roaming device only (`ExportAs != ""`), every cloud-bound topic's instance segment is rewritten to one fixed literal (`"main"`) regardless of which real instance actually published — so an importer only ever needs to know one topic per capability.
+- **Self-import feedback loop**: `subscribeHassBridgeSelfImport`'s relay republishes onto a *synthetic* local topic keyed by this house's own installation name (`homeassistant.instances/<installation>/bridge/...`) — never a real declared instance. Before the fix, `subscribeHassBridge`'s own local wildcard treated that synthetic topic as fresh genuine traffic and cross-posted it straight back to the cloud under `roaming`, which the self-import relay was itself subscribed to — an unbounded republish loop that flooded the shared cloud broker within seconds of first use. Fixed by gating cross-posting on the reporting topic's instance segment genuinely being one of the device's own declared `Instances` (`containsString`) — a synthetic echo never is, so it's relayed locally (the local broker copy still needs it) but never re-exported.
+- **Non-canonical roaming topic**: a roaming device's cloud-published bridge topics (entity-state, device-info, and the availability reference inside each discovery config) embedded whichever *real* local instance happened to report most recently (`homeassistant.instances/main/bridge/.../state` vs. `.../protocols-server-2/bridge/.../state`), forcing any importer to watch both topics, or wildcard, to see the device's current value. Fixed by `canonicalizeRoamingBridgeTopic`: for a roaming device only (`ExportAs != ""`), every cloud-bound topic's instance segment is rewritten to one fixed literal (`"main"`) regardless of which real instance actually published — so an importer only ever needs to know one topic per capability.
 - **Cross-house existence check false positive**: `checkKnownNotToExistErrors` (§6.9/§6.10, generator side) treats a capability as a real problem only when *every* declared instance confirms it not-to-exist — but `hassBridgeDevicesByID` is built from this house's own Physical.def alone, so a roaming device's `Instances` there is only ever this house's own local subset. Vienna's own `hass.eriks_iphone` declaration (`Instances: ["main"]`, Vienna's own main) failed generation outright the moment Vienna's own existence status became reliably fresh (see the immediate-publish fix below) — Vienna's own main instance genuinely has no local pairing for this capability, but the same roaming device is confirmed known-to-exist on Junglinster's own instances, information Vienna's generator has no way to see. A roaming device's existence can never be authoritatively judged from one house's own local instance(s) alone. Fixed by skipping the hard-fail check entirely for any device with `ExportAs != ""` — generated optimistically, same as an unresolved (`not-known-to-exist`) source.
 
-**Cloud existence-status topic collision, found and fixed live 2026-09-05**: `discovery_gateways/<gatewayID>/existence/state` and `homeassistant_instances/<name>/existence/state` (§6.10) are published to both the local and cloud broker unconditionally when a cloud broker is configured — but, before this fix, under the *same bare topic* on both. Harmless locally (each house only ever reads its own), but wrong on the shared cloud broker: every house's own primary instance is conventionally named "main", and Junglinster's and Vienna's own retained existence status were confirmed live to be silently overwriting each other. Fixed by qualifying the CLOUD copy only with the owning installation's own name (`<installation>/discovery_gateways/...`, `<installation>/homeassistant_instances/...`), the same whole-topic-prefix convention `export`'s own cloud cross-post already uses (§6.12) — not the `hosts` kind's different "insert after first segment" convention, which exists solely for that kind's client-ID-scoped cloud ACL and doesn't apply here. Generator-side readers construct the matching qualified topic (using `ctx.Installation`, this house's own name) only when reading via the cloud broker; the local-broker read path is untouched.
+**Cloud existence-status topic collision, found and fixed live 2026-09-05**: `discovery_gateways/<gatewayID>/existence/state` and `homeassistant.instances/<name>/existence/state` (§6.10) are published to both the local and cloud broker unconditionally when a cloud broker is configured — but, before this fix, under the *same bare topic* on both. Harmless locally (each house only ever reads its own), but wrong on the shared cloud broker: every house's own primary instance is conventionally named "main", and Junglinster's and Vienna's own retained existence status were confirmed live to be silently overwriting each other. Fixed by qualifying the CLOUD copy only with the owning installation's own name (`<installation>/discovery_gateways/...`, `<installation>/homeassistant.instances/...`), the same whole-topic-prefix convention `export`'s own cloud cross-post already uses (§6.12) — not the `hosts` kind's different "insert after first segment" convention, which exists solely for that kind's client-ID-scoped cloud ACL and doesn't apply here. Generator-side readers construct the matching qualified topic (using `ctx.Installation`, this house's own name) only when reading via the cloud broker; the local-broker read path is untouched.
 
 **Follow-up gap, same day**: `publishStatus` (both kind-2 and kind-3) only ever fires on an actual known/retracted transition — a coordinator restart re-seeds already-known status in memory (from persisted JSON) without re-publishing it, so a topic-naming migration like the qualification fix above left the newly-qualified cloud topic with *no* retained value at all until the next real transition, which a stable gateway or instance might not produce again for a long time; every `./generate` cloud fetch timed out in the meantime (confirmed live for Junglinster's discovery gateways). Fixed by publishing every declared instance's/gateway's current status immediately on startup — `TEntityExistenceTracker.StartEntityExistenceInquiries` and the new `TDiscoveryExistenceTracker.PublishAll`, both called right after `Seed`.
 

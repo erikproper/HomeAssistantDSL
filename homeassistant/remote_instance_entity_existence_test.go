@@ -10,10 +10,10 @@ import (
 func TestEntityExistenceInquiryAutomationBody(t *testing.T) {
 	body := entityExistenceInquiryAutomationBody("protocols-server-2")
 
-	if !strings.Contains(body, `topic: "homeassistant_instances/protocols-server-2/inquire"`) {
+	if !strings.Contains(body, `topic: "homeassistant.instances/protocols-server-2/inquire"`) {
 		t.Errorf("body = %s, want the inquiry command trigger topic", body)
 	}
-	if !strings.Contains(body, `topic: "homeassistant_instances/protocols-server-2/inquire/reply"`) {
+	if !strings.Contains(body, `topic: "homeassistant.instances/protocols-server-2/inquire/reply"`) {
 		t.Errorf("body = %s, want the reply topic", body)
 	}
 	if !strings.Contains(body, "trigger.payload") {
@@ -87,7 +87,7 @@ func TestGenerateInstanceAutomationTreesWritesInquiryAutomationForEveryInstance(
 	if err != nil {
 		t.Fatalf("reading main's inquiry automation: %v", err)
 	}
-	if !strings.Contains(string(body), "homeassistant_instances/main/inquire") {
+	if !strings.Contains(string(body), "homeassistant.instances/main/inquire") {
 		t.Errorf("main's inquiry automation = %q, want it scoped to main's own topic", body)
 	}
 

@@ -135,7 +135,7 @@ func hassBridgeReportingAutomationBody(name string, deviceInfoReports []THassBri
 		sort.Strings(fieldNames)
 		sb.WriteString("  - service: mqtt.publish\n")
 		sb.WriteString("    data:\n")
-		sb.WriteString("      topic: \"homeassistant_instances/" + name + "/bridge/device/" + report.DeviceID + "/state\"\n")
+		sb.WriteString("      topic: \"homeassistant.instances/" + name + "/bridge/device/" + report.DeviceID + "/state\"\n")
 		sb.WriteString("      retain: true\n")
 		sb.WriteString("      payload: \"{{ {")
 		for i, fieldName := range fieldNames {
@@ -261,7 +261,7 @@ func generateInstanceAutomationTrees(haOutputDir string, instances map[string]TH
 			// match resolveMainIncarnationName's own convention for "main" (hass/<home_assistant
 			// main's own right-hand value>/, e.g. hass/vienna/): the output directory names WHERE
 			// this instance is physically deployed/incarnated, while every OTHER use of `name`
-			// below (MQTT topic construction: homeassistant_instances/<name>/bridge/...,
+			// below (MQTT topic construction: homeassistant.instances/<name>/bridge/...,
 			// .../inquire, meta/reload/<name>/..., deviceInfoByInstance's own keys) correctly stays
 			// the qualifier, since that's what the coordinator and homeassistant_bridge.yaml key by.
 			// Real bug found live 2026-09-21 (Vienna's "frame"->"ha2mqtt" instance-identifier

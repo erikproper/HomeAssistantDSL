@@ -11,7 +11,7 @@
  * migration_error, failed_unload, not_loaded; a disabled one doesn't count) -- not setup_retry, a
  * device or service Home Assistant can't reach and keeps retrying (Vienna's TV switched off; an
  * outage, which the reload guards handle), Erik's choice: every few minutes, on
- * homeassistant_instances/<instance>/integrations, not retained. Main reads that as one problem
+ * homeassistant.instances/<instance>/integrations, not retained. Main reads that as one problem
  * binary_sensor per instance (coordinatorYAMLEntityBodies), which goes unavailable when its
  * instance stops reporting. A Physical.def line names where main tells Erik:
  *
@@ -24,7 +24,7 @@
  *
  * PROJECT.md 29 (2), the same day: the same automation reports the instance's own software updates
  * (an update.* entity that is on, but not a device's firmware -- an MQTT one, which Zigbee2MQTT
- * updates) on homeassistant_instances/<instance>/updates, and main shows them per instance. An
+ * updates) on homeassistant.instances/<instance>/updates, and main shows them per instance. An
  * instance in a container (ha2mqtt) has no update entity for itself: its host's
  * update.containers --check reports the containers with a newer image, retained, on
  * hosts/<host>/containers/updates, and main shows those per host. Dashboard only: updating stays
@@ -72,7 +72,7 @@ func collectProblemsNotifyService(physicalContent string) string {
 // instanceIntegrationsTopic is where an instance reports its config entries that aren't loaded:
 // {"items": ["<title> (<domain>): <state>", ...]}.
 func instanceIntegrationsTopic(name string) string {
-	return "homeassistant_instances/" + name + "/integrations"
+	return "homeassistant.instances/" + name + "/integrations"
 }
 
 // instanceIntegrationsEntityID is main's problem binary_sensor for instance's report.
@@ -83,7 +83,7 @@ func instanceIntegrationsEntityID(instance string) string {
 // instanceUpdatesTopic is where an instance reports its own software updates:
 // {"items": ["<name>: <installed> -> <latest>", ...]}; hostContainerUpdatesTopic is where
 // update.containers --check reports a host's containers with a newer image.
-func instanceUpdatesTopic(name string) string      { return "homeassistant_instances/" + name + "/updates" }
+func instanceUpdatesTopic(name string) string      { return "homeassistant.instances/" + name + "/updates" }
 func hostContainerUpdatesTopic(host string) string { return "hosts/" + host + "/containers/updates" }
 
 // entityIDPart is name as part of an entity_id.

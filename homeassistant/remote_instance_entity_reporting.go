@@ -87,7 +87,7 @@ func entityAliasBase(identity TEntityIdentity) string {
 // separate "automation_reloaded" event on the generic event bus instead, whenever automations.yaml
 // is reloaded (UI action or the automation.reload service). topic and payloadExpr carry over
 // unchanged from the shared-automation predecessor (hassBridgeReportingAutomationBody):
-// homeassistant_instances/<name>/bridge/<local_entity>/state, a Jinja expression built by
+// homeassistant.instances/<name>/bridge/<local_entity>/state, a Jinja expression built by
 // sourceToJinja2. aliasSuffix distinguishes this automation's own alias from any sibling reporting
 // on the SAME identity -- "" for the ordinary state automation (unchanged alias text from before
 // this parameter existed), "/attributes" for the sibling attributes automation (added 2026-09-21):
@@ -293,7 +293,7 @@ func generateHassBridgeEntityReportingAutomations(instanceHAOutputDir, name stri
 			if !resolved {
 				continue
 			}
-			topic := "homeassistant_instances/" + name + "/bridge/" + attr.EntityID + "/state"
+			topic := "homeassistant.instances/" + name + "/bridge/" + attr.EntityID + "/state"
 			payloadExpr, triggerEntities := buildHassBridgeStatePayload(cap, mappedExpr, triggerEntity)
 			body := entityReportingAutomationBody(attr.Identity, triggerEntities, topic, payloadExpr, "")
 			// "infrastructural" regardless of the reported entity's own conceptual sphere
@@ -314,7 +314,7 @@ func generateHassBridgeEntityReportingAutomations(instanceHAOutputDir, name stri
 			// json-attributes-topic work, 2026-09-21: vacuum.roomba's own "error"/"error_code"
 			// going unreported during a live fault was the motivating case.
 			if attrExprsByName, attrTriggerEntities, attrOk := resolveHassBridgeCapabilityAttributeExprs(device, capability); attrOk {
-				attrTopic := "homeassistant_instances/" + name + "/bridge/" + attr.EntityID + "/attributes"
+				attrTopic := "homeassistant.instances/" + name + "/bridge/" + attr.EntityID + "/attributes"
 				attrPayloadExpr := buildAttributesPayloadExpr(attrExprsByName)
 				attrBody := entityReportingAutomationBody(attr.Identity, attrTriggerEntities, attrTopic, attrPayloadExpr, "/attributes")
 				attrAutomationID := "reporting_attributes_" + fullyQualifiedEntityNameUnderscored(attr.Identity)

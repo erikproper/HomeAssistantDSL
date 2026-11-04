@@ -457,7 +457,7 @@ func TestSubscribeImportedDevicesPublishesLocalDiscoveryAndRelaysValue(t *testin
 		},
 	}}
 
-	remoteStateTopic := "junglinster/homeassistant_instances/protocols-server-2/bridge/sensor.vienna_livingroom_co2/state"
+	remoteStateTopic := "junglinster/homeassistant.instances/protocols-server-2/bridge/sensor.vienna_livingroom_co2/state"
 	discoveryPayload := map[string]interface{}{
 		// default_entity_id deliberately carries the REMOTE's own local name -- must be ignored by
 		// this resolution path entirely, since matching is purely stable-id based.
@@ -543,7 +543,7 @@ func TestSubscribeImportedDevicesRelaysManyCapabilitiesAfterConfigBurst(t *testi
 		}
 		payload, err := json.Marshal(map[string]interface{}{
 			"default_entity_id": remoteLocal,
-			"state_topic":       "junglinster/homeassistant_instances/protocols-server-2/bridge/" + remoteLocal + "/state",
+			"state_topic":       "junglinster/homeassistant.instances/protocols-server-2/bridge/" + remoteLocal + "/state",
 			"device":            map[string]interface{}{"identifiers": []string{deviceID}, "name": deviceID},
 		})
 		if err != nil {
@@ -572,7 +572,7 @@ func TestSubscribeImportedDevicesRelaysManyCapabilitiesAfterConfigBurst(t *testi
 	// not just the first (which the old bug's surviving subscription would still have caught).
 	for i := 0; i < n; i++ {
 		remoteLocal := fmt.Sprintf("sensor.infrastructural_device_%d_value", i)
-		remoteStateTopic := "junglinster/homeassistant_instances/protocols-server-2/bridge/" + remoteLocal + "/state"
+		remoteStateTopic := "junglinster/homeassistant.instances/protocols-server-2/bridge/" + remoteLocal + "/state"
 		for _, h := range handlers {
 			h(cloudClient, fakeMessage{topic: remoteStateTopic, payload: []byte(fmt.Sprintf("%d", i))})
 		}

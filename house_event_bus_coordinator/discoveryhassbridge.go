@@ -10,7 +10,7 @@
  * source instance -- generated content, homeassistant/remote_instance_automations.go, written to
  * that instance's own hass/<qualifier>/automation/ tree and copied onto it by hand, since this
  * generator has no deploy path to a remote instance -- publishes each declared capability's
- * already-computed value, retained, to "homeassistant_instances/<name>/bridge/<local_entity>/state"
+ * already-computed value, retained, to "homeassistant.instances/<name>/bridge/<local_entity>/state"
  * -- keyed by the LOCAL entity_id, not the (possibly compound, e.g. "sensor.x is available" or
  * "sensor.x!attr") source specification, since only the local entity_id is guaranteed to be a
  * clean, space-free MQTT topic segment. This file's only job is to point a normal sensor discovery
@@ -20,7 +20,7 @@
  * gateways. Every entity's discovery config also carries a "device:" block, built the same way
  * hosts devices' already is (resolveConstantAttribute/applyConstantAttribute, discovery.go):
  * static Physical.def-declared ConstantAttributes merged with whatever a device's dynamic
- * device-info fields report live, at "homeassistant_instances/<name>/bridge/device/<device-id>/state"
+ * device-info fields report live, at "homeassistant.instances/<name>/bridge/device/<device-id>/state"
  * (subscribeHassBridgeDeviceInfo) -- one JSON object per device, mirroring hosts' own
  * hosts/<host>/device/state convention, fed into the SAME TLiveDeviceInfoStore hosts devices use
  * (deviceID-keyed, kind-agnostic).
@@ -238,7 +238,7 @@ func buildHassBridgeDeviceBlock(deviceID string, device THassBridgeDevice, live 
 // subscribeHassBridgeDeviceInfo's republish-on-device-info-update path can reconstruct a
 // capability's own state_topic without having to have observed a message on it first.
 func hassBridgeEntityStateTopic(instance, localEntity string) string {
-	return "homeassistant_instances/" + instance + "/bridge/" + localEntity + "/state"
+	return "homeassistant.instances/" + instance + "/bridge/" + localEntity + "/state"
 }
 
 // hassBridgeEntityAttributesTopic is hassBridgeEntityStateTopic's sibling for the
@@ -246,7 +246,7 @@ func hassBridgeEntityStateTopic(instance, localEntity string) string {
 // "attributes" reporting automation (homeassistant/remote_instance_entity_reporting.go) publishes
 // to when a capability declares >=1 "attribute <name>: ...;".
 func hassBridgeEntityAttributesTopic(instance, localEntity string) string {
-	return "homeassistant_instances/" + instance + "/bridge/" + localEntity + "/attributes"
+	return "homeassistant.instances/" + instance + "/bridge/" + localEntity + "/attributes"
 }
 
 // exportStableID is the cloud-side stable identity for one exported capability --
@@ -488,7 +488,7 @@ func crossPostHassBridgeToCloud(cloudClient mqtt.Client, qualifier, bareTopic st
 	}
 }
 
-// subscribeHassBridge subscribes to "homeassistant_instances/+/bridge/+/state" and, for every
+// subscribeHassBridge subscribes to "homeassistant.instances/+/bridge/+/state" and, for every
 // message whose 4th topic segment (the local entity_id) matches a declared capability, publishes
 // (through publisher, content-aware/self-healing like everything else) a sensor discovery config
 // for that capability's local_entity -- including a "device:" block built from that capability's
@@ -496,7 +496,7 @@ func crossPostHassBridgeToCloud(cloudClient mqtt.Client, qualifier, bareTopic st
 // directly at the message's own topic -- no value republishing, the automation's own retained
 // publish already carries the current, already-computed value. No-op (returns nil immediately)
 // when bridgeFile has no devices declared. Six-segment device-info topics
-// ("homeassistant_instances/+/bridge/device/+/state") never match this filter's five segments,
+// ("homeassistant.instances/+/bridge/device/+/state") never match this filter's five segments,
 // so there's no risk of this handler misreading one as an entity-state message.
 //
 // An "export"-flagged device (THassBridgeDevice.Export, PROJECT.md 1.2a) additionally gets a
@@ -591,7 +591,7 @@ func subscribeHassBridge(client, cloudClient mqtt.Client, ownInstallation string
 		}
 	}
 
-	const filter = "homeassistant_instances/+/bridge/+/state"
+	const filter = "homeassistant.instances/+/bridge/+/state"
 	token := subscribe(client, filter, 0, handler)
 	if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
 		if err := token.Error(); err != nil {
@@ -603,7 +603,7 @@ func subscribeHassBridge(client, cloudClient mqtt.Client, ownInstallation string
 }
 
 // subscribeHassBridgeDeviceInfo subscribes to
-// "homeassistant_instances/+/bridge/device/+/state" (the 5th segment being the device id) and,
+// "homeassistant.instances/+/bridge/device/+/state" (the 5th segment being the device id) and,
 // for every message, updates store with that device's live-reported fields, then republishes
 // discovery for every one of that device's already-known capabilities so their "device:" blocks
 // pick up the fresh data -- mirrors subscribeDeviceInfo's own update-then-republish pattern
@@ -716,7 +716,7 @@ func subscribeHassBridgeDeviceInfo(client, cloudClient mqtt.Client, ownInstallat
 		}
 	}
 
-	const filter = "homeassistant_instances/+/bridge/device/+/state"
+	const filter = "homeassistant.instances/+/bridge/device/+/state"
 	token := subscribe(client, filter, 0, handler)
 	if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
 		if err := token.Error(); err != nil {

@@ -34,9 +34,9 @@ import "strings"
 
 // entityExistenceInquiryAutomationBody returns the "answer one entity-existence inquiry" automation
 // for a named instance -- triggered by an MQTT command on
-// "homeassistant_instances/<name>/inquire" whose *payload* is the entity_id to check (not part of
+// "homeassistant.instances/<name>/inquire" whose *payload* is the entity_id to check (not part of
 // the topic, so no per-entity automation/trigger is ever needed), replies on
-// "homeassistant_instances/<name>/inquire/reply" with
+// "homeassistant.instances/<name>/inquire/reply" with
 // {"entity_id", "exists", "state", "unit_of_measurement", "device_class", "icon", "device_id",
 // "device_name", "manufacturer", "model", "model_id", "sw_version", "hw_version",
 // "serial_number", "via_device_id", "sibling_entities", "attribute_keys"} as JSON.
@@ -104,11 +104,11 @@ func entityExistenceInquiryAutomationBody(name string) string {
 	sb.WriteString("  max: 50\n")
 	sb.WriteString("  trigger:\n")
 	sb.WriteString("  - platform: mqtt\n")
-	sb.WriteString("    topic: \"homeassistant_instances/" + name + "/inquire\"\n")
+	sb.WriteString("    topic: \"homeassistant.instances/" + name + "/inquire\"\n")
 	sb.WriteString("  action:\n")
 	sb.WriteString("  - service: mqtt.publish\n")
 	sb.WriteString("    data:\n")
-	sb.WriteString("      topic: \"homeassistant_instances/" + name + "/inquire/reply\"\n")
+	sb.WriteString("      topic: \"homeassistant.instances/" + name + "/inquire/reply\"\n")
 	sb.WriteString("      payload: >-\n")
 	sb.WriteString("        {% set s = states[trigger.payload] %}{% set did = device_id(trigger.payload) if s else none %}{{ {'entity_id': trigger.payload, 'exists': s is not none, 'state': (s.state if s else none), 'unit_of_measurement': (s.attributes.get('unit_of_measurement') if s else none), 'device_class': (s.attributes.get('device_class') if s else none), 'icon': (s.attributes.get('icon') if s else none), 'device_id': did, 'device_name': (device_attr(did, 'name') if did else none), 'manufacturer': (device_attr(did, 'manufacturer') if did else none), 'model': (device_attr(did, 'model') if did else none), 'model_id': (device_attr(did, 'model_id') if did else none), 'sw_version': (device_attr(did, 'sw_version') if did else none), 'hw_version': (device_attr(did, 'hw_version') if did else none), 'serial_number': (device_attr(did, 'serial_number') if did else none), 'via_device_id': (device_attr(did, 'via_device_id') if did else none), 'sibling_entities': (device_entities(did) if did else []), 'attribute_keys': (s.attributes.keys() | list if s else [])} | tojson }}\n")
 	return sb.String()

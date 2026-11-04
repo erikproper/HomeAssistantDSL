@@ -185,7 +185,7 @@ func generateMQTTIntegrationOutputs(bodyLines []string, ctx TPhysicalGenerationC
 // integration ("integration home_assistant <instance> with: device integration.<instance> with:
 // capability binary_sensor.node; end;"), not in "integration mqtt" (Erik, 2026-10-28).
 func instanceStatusTopic(instance string) string {
-	return "homeassistant_instances/" + instance + "/status"
+	return "homeassistant.instances/" + instance + "/status"
 }
 
 // impliedRawTopic marks a raw capability whose topic is implied by convention, not written in its

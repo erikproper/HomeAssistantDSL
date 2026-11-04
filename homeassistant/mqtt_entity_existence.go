@@ -6,7 +6,7 @@
  *
  * Reads the coordinator's own three-state entity-existence status
  * (house_event_bus_coordinator/entity_existence.go publishes it to
- * "homeassistant_instances/<name>/existence/state", retained, on both the local and cloud broker
+ * "homeassistant.instances/<name>/existence/state", retained, on both the local and cloud broker
  * unconditionally when a cloud one is configured) for two purposes:
  *
  *   1. checkKnownNotToExistErrors turns a known-not-to-exist verdict into a real generate-time
@@ -79,12 +79,12 @@ type TEntityExistenceStatusDevice struct {
 }
 
 // TEntityExistenceStatusPayload is the top-level shape published to
-// "homeassistant_instances/<name>/existence/state" -- keyed by device id ("" holds any entity with
+// "homeassistant.instances/<name>/existence/state" -- keyed by device id ("" holds any entity with
 // no owning device).
 type TEntityExistenceStatusPayload map[string]TEntityExistenceStatusDevice
 
 func existenceStatusTopic(instanceName string) string {
-	return "homeassistant_instances/" + instanceName + "/existence/state"
+	return "homeassistant.instances/" + instanceName + "/existence/state"
 }
 
 // coordinatorOnlyBrokerSecrets returns whichever "coordinator_only true;" broker profile is

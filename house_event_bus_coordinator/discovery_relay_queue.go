@@ -10,7 +10,7 @@
  * to a physical-prefix topic replays the ENTIRE currently-retained backlog at once; for a
  * mid-migration Zigbee2MQTT network that's easily 1000+ messages. Processing that burst
  * synchronously, one ack-wait after another, starved a LATER, entirely unrelated client.Subscribe
- * call (discoveryhassbridge.go's own "homeassistant_instances/+/bridge/+/state" subscription) of
+ * call (discoveryhassbridge.go's own "homeassistant.instances/+/bridge/+/state" subscription) of
  * its own ack within its own 10s timeout -- main() treats any subscribe failure as fatal, so this
  * crash-looped the whole coordinator on a ~20s cycle until the underlying retained backlog was
  * manually purged from the broker. Confirmed live: even a not-fatal fix that only stopped the

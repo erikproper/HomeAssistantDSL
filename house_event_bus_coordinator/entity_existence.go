@@ -1016,7 +1016,7 @@ func (reply existenceInquiryReply) deviceInfoFields() map[string]string {
 }
 
 // existenceStatusDevicePayload/publishStatus are the JSON shape published to
-// "homeassistant_instances/<name>/existence/state" -- grouped per device (device id "" holds any
+// "homeassistant.instances/<name>/existence/state" -- grouped per device (device id "" holds any
 // entity with no owning device), generator-friendly, mirroring the manifest topic's own
 // "transformer-friendly JSON, no unnecessary parsing" convention.
 type existenceStatusDevicePayload struct {
@@ -1040,7 +1040,7 @@ type existenceStatusEntityPayload struct {
 // (mqtt_entity_existence.go's fetchEntityExistencePreferringCloud, generator side).
 //
 // The CLOUD copy's topic is additionally prefixed with ownInstallation -- e.g.
-// "junglinster/homeassistant_instances/main/existence/state" -- unlike the local (bare) copy. Real
+// "junglinster/homeassistant.instances/main/existence/state" -- unlike the local (bare) copy. Real
 // collision found live 2026-09-05: every house's own primary HA instance is conventionally named
 // "main", so two houses sharing one cloud broker were overwriting each other's retained status
 // under the same bare topic before this qualification existed. Local topics never need this: each
@@ -1073,11 +1073,11 @@ func (t *TEntityExistenceTracker) publishStatus(mainClient, cloudClient mqtt.Cli
 }
 
 func existenceInquiryTopic(instance string) string {
-	return "homeassistant_instances/" + instance + "/inquire"
+	return "homeassistant.instances/" + instance + "/inquire"
 }
 func existenceReplyTopic(instance string) string { return existenceInquiryTopic(instance) + "/reply" }
 func existenceStatusTopic(instance string) string {
-	return "homeassistant_instances/" + instance + "/existence/state"
+	return "homeassistant.instances/" + instance + "/existence/state"
 }
 
 // subscribeExistenceReply subscribes to instance's own inquiry-reply topic (local broker only --

@@ -6,7 +6,7 @@
  *
  * A "home_assistant" bridge entity's conceptual config (PROJECT.md 19h.3, 2026-10-27): an entity of
  * another Home Assistant instance (ha2mqtt, or main itself), reported over MQTT by the generator's
- * reporting automations on homeassistant_instances/<instance>/bridge/<entity>/..., as the main
+ * reporting automations on homeassistant.instances/<instance>/bridge/<entity>/..., as the main
  * instance gets it. Shared by the coordinator's relay (its discovery, and its cloud copy for an
  * exported device) and the generator's YAML entities, so the two can never differ. The rules, and
  * the live bugs behind them, are documented at house_event_bus_coordinator/discoveryhassbridge.go's
@@ -41,15 +41,15 @@ const (
 // BridgeStateTopic and its siblings are a bridge entity's topics, as the reporting automations
 // publish them and the commands are received.
 func BridgeStateTopic(instance, localEntity string) string {
-	return "homeassistant_instances/" + instance + "/bridge/" + localEntity + "/state"
+	return "homeassistant.instances/" + instance + "/bridge/" + localEntity + "/state"
 }
 
 func BridgeAttributesTopic(instance, localEntity string) string {
-	return "homeassistant_instances/" + instance + "/bridge/" + localEntity + "/attributes"
+	return "homeassistant.instances/" + instance + "/bridge/" + localEntity + "/attributes"
 }
 
 func BridgeCommandTopic(instance, localEntity string) string {
-	return "homeassistant_instances/" + instance + "/bridge/" + localEntity + "/command"
+	return "homeassistant.instances/" + instance + "/bridge/" + localEntity + "/command"
 }
 
 // Command is one command a bridge entity accepts (homeassistant/hassbridge_commands.go).

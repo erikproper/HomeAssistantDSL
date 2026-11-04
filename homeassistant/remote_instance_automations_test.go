@@ -96,7 +96,7 @@ func TestGenerateInstanceAutomationTreesWritesMainAndRemoteTrees(t *testing.T) {
 	if !strings.Contains(string(remoteReporting), "sensor.hewlett_packard_hp_laserjet_professional_p1102w") {
 		t.Errorf("reporting automation = %q, want it to reference the laserjet's source entity", remoteReporting)
 	}
-	if !strings.Contains(string(remoteReporting), `topic: "homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_laserjet_status/state"`) {
+	if !strings.Contains(string(remoteReporting), `topic: "homeassistant.instances/protocols-server-2/bridge/sensor.infrastructural_laserjet_status/state"`) {
 		t.Errorf("reporting automation = %q, want a fixed topic keyed by the local entity_id", remoteReporting)
 	}
 	if !strings.Contains(string(remoteReporting), "event: start") {
@@ -145,7 +145,7 @@ func TestGenerateInstanceAutomationTreesUsesIncarnationValueForOutputDirNotQuali
 	if err != nil {
 		t.Fatalf("expected the output tree at hass/protocols-server-1/ (the qualifier's own incarnation value), not hass/ha2mqtt/: %v", err)
 	}
-	if !strings.Contains(string(reporting), `topic: "homeassistant_instances/ha2mqtt/bridge/sensor.infrastructural_laserjet_status/state"`) {
+	if !strings.Contains(string(reporting), `topic: "homeassistant.instances/ha2mqtt/bridge/sensor.infrastructural_laserjet_status/state"`) {
 		t.Errorf("reporting automation = %q, want the topic to still use the qualifier \"ha2mqtt\", not the incarnation value \"protocols-server-1\"", reporting)
 	}
 }
@@ -165,7 +165,7 @@ func TestHassBridgeReportingAutomationBodyDeviceInfo(t *testing.T) {
 	}
 	body := hassBridgeReportingAutomationBody("main", deviceInfoReports)
 
-	if !strings.Contains(body, `topic: "homeassistant_instances/main/bridge/device/host.junglinster/state"`) {
+	if !strings.Contains(body, `topic: "homeassistant.instances/main/bridge/device/host.junglinster/state"`) {
 		t.Errorf("missing the device-info topic, got: %s", body)
 	}
 	wantPayload := `payload: "{{ {'model': states('sensor.foo'), 'sw_version': 'Home Assistant Operating System ' ~ state_attr('update.home_assistant_operating_system_update', 'installed_version')} | tojson }}"`

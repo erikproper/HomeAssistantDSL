@@ -28,7 +28,7 @@ func TestCoordinatorYAMLEntityBodies(t *testing.T) {
 	if missing := byID["binary_sensor.missing_declared_entities"]; missing == nil || missing["state_topic"] != "coordinator/missing_declared_entities/state" || missing["json_attributes_topic"] != "coordinator/missing_declared_entities/attributes" || missing["payload_on"] != "true" {
 		t.Errorf("missing-declared-entities indicator = %v", missing)
 	}
-	if integrations := byID["binary_sensor.infrastructural_integrations_protocols_server_1"]; integrations == nil || integrations["state_topic"] != "homeassistant_instances/protocols-server-1/integrations" || integrations["json_attributes_topic"] != "homeassistant_instances/protocols-server-1/integrations" || integrations["device_class"] != "problem" || integrations["expire_after"] != 900 {
+	if integrations := byID["binary_sensor.infrastructural_integrations_protocols_server_1"]; integrations == nil || integrations["state_topic"] != "homeassistant.instances/protocols-server-1/integrations" || integrations["json_attributes_topic"] != "homeassistant.instances/protocols-server-1/integrations" || integrations["device_class"] != "problem" || integrations["expire_after"] != 900 {
 		t.Errorf("integrations indicator for protocols-server-1 = %v", integrations)
 	}
 	if containers := byID["binary_sensor.infrastructural_container_updates_protocols_server_1"]; containers == nil || containers["state_topic"] != "hosts/protocols-server-1/containers/updates" || containers["device_class"] != "update" {

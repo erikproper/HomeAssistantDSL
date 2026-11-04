@@ -91,7 +91,7 @@ func metaRestartAutomationBody(name string) string {
 // instancePingTopic is where the coordinator pings a bridged instance and the instance answers
 // (PROJECT.md 26, Erik's ping-pong, 2026-10-28): "ping" from the coordinator, "pong" back.
 func instancePingTopic(name string) string {
-	return "homeassistant_instances/" + name + "/ping"
+	return "homeassistant.instances/" + name + "/ping"
 }
 
 // pingPongAutomationBody returns the instance's answer to the coordinator's ping: "pong" on the same

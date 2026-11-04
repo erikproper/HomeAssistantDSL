@@ -47,7 +47,7 @@ func TestFullyQualifiedEntityNameSingleSegmentPath(t *testing.T) {
 
 func TestEntityReportingAutomationBody(t *testing.T) {
 	identity := TEntityIdentity{Domain: "sensor", Sphere: "infrastructural", Path: "netatmo/co2"}
-	body := entityReportingAutomationBody(identity, []string{"sensor.davids_bedroom_carbon_dioxide"}, "homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_netatmo_co2/state", "states('sensor.davids_bedroom_carbon_dioxide')", "")
+	body := entityReportingAutomationBody(identity, []string{"sensor.davids_bedroom_carbon_dioxide"}, "homeassistant.instances/protocols-server-2/bridge/sensor.infrastructural_netatmo_co2/state", "states('sensor.davids_bedroom_carbon_dioxide')", "")
 
 	if !strings.Contains(body, `alias: "infrastructural/netatmo/co2/sensor/reporting"`) {
 		t.Errorf("body = %s, want the slash-joined alias", body)
@@ -69,7 +69,7 @@ func TestEntityReportingAutomationBody(t *testing.T) {
 	if !strings.Contains(body, "platform: event") || !strings.Contains(body, "event_type: automation_reloaded") {
 		t.Errorf("body = %s, want an \"event: automation_reloaded\" trigger so a plain automations reload also republishes current state", body)
 	}
-	if !strings.Contains(body, `topic: "homeassistant_instances/protocols-server-2/bridge/sensor.infrastructural_netatmo_co2/state"`) {
+	if !strings.Contains(body, `topic: "homeassistant.instances/protocols-server-2/bridge/sensor.infrastructural_netatmo_co2/state"`) {
 		t.Errorf("body = %s, want the given topic", body)
 	}
 	if !strings.Contains(body, `payload: "{{ states('sensor.davids_bedroom_carbon_dioxide') }}"`) {
@@ -366,7 +366,7 @@ end;`
 	if err != nil {
 		t.Fatalf("expected the sibling attributes automation file to exist: %v", err)
 	}
-	if !strings.Contains(string(body), `topic: "homeassistant_instances/protocols-server-2/bridge/vacuum.physical_living_room/attributes"`) {
+	if !strings.Contains(string(body), `topic: "homeassistant.instances/protocols-server-2/bridge/vacuum.physical_living_room/attributes"`) {
 		t.Errorf("attributes automation = %q, want the sibling .../attributes topic", body)
 	}
 	if !strings.Contains(string(body), "state_attr('vacuum.roomba', 'error')") || !strings.Contains(string(body), "state_attr('vacuum.roomba', 'error_code')") {

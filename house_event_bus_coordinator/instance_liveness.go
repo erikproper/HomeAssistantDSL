@@ -5,11 +5,11 @@
  * Component: InstanceLiveness
  *
  * PROJECT.md 26 (Erik's ping-pong, 2026-10-28): whether a bridged Home Assistant instance (ha2mqtt,
- * later fhem2mqtt and the like) is up, kept retained on homeassistant_instances/<instance>/status
+ * later fhem2mqtt and the like) is up, kept retained on homeassistant.instances/<instance>/status
  * ("online"/"offline") -- the topic the instance's integration device's node reads
  * (homeassistant/integration_mqtt.go). Every message from the instance (anything under
- * homeassistant_instances/<instance>/) is a sign of life. Only after a quiet spell
- * (instanceQuietPeriod) does the coordinator ask: "ping" on homeassistant_instances/<instance>/ping,
+ * homeassistant.instances/<instance>/) is a sign of life. Only after a quiet spell
+ * (instanceQuietPeriod) does the coordinator ask: "ping" on homeassistant.instances/<instance>/ping,
  * which the instance's generated automation answers with "pong" on the same topic; no pong within
  * instancePongTimeout means it is down. So nothing is sent while the instance reports anyway, and
  * the answer proves its automations and MQTT work, end to end. At start the coordinator pings at
@@ -42,16 +42,16 @@ const (
 )
 
 func instanceStatusTopic(instance string) string {
-	return "homeassistant_instances/" + instance + "/status"
+	return "homeassistant.instances/" + instance + "/status"
 }
 
 func instancePingTopic(instance string) string {
-	return "homeassistant_instances/" + instance + "/ping"
+	return "homeassistant.instances/" + instance + "/ping"
 }
 
 // instanceLivenessSpec is a bridged instance's ping-pong as a liveness spec.
 func instanceLivenessSpec(instance string) TLivenessSpec {
-	base := "homeassistant_instances/" + instance
+	base := "homeassistant.instances/" + instance
 	return TLivenessSpec{
 		Name:          "instance " + instance,
 		Traffic:       base + "/#",
