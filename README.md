@@ -363,6 +363,32 @@ JSON field that must be true). Two unanswered questions in a row write the
 offline payload on the verdict topic, which the entities' availability reads. The generator writes
 the blocks to `coordinator/liveness.yaml`. See Architecture.md §6.16.
 
+### Battery level by days since replacement
+
+For rechargeable (Li-ion) batteries, which keep their voltage until almost empty, the level a
+device reports says little. A discovery device's `battery_level` can instead be estimated from the
+days since the batteries were replaced:
+
+```
+device thermostats.living_room_front_radiator_aqara_thermostat with:
+  ...
+  derived capability sensor.battery_level
+    as unique_id sensors_living_room_front_radiator_aqara_thermostat_0x54ef441000787201_battery_zigbee2mqtt
+    by charge lasting 90 days since 31.10.2026;
+  derived capability binary_sensor.battery_alert
+    as unique_id binary_sensor.infrastructural_house_living_room_front_radiator_aqara_thermostat_battery_alert
+    from sensor.battery_level via jinja ${int_less_than}(5);
+end;
+```
+
+The level is 100 * (X - D) / X percent (X the days a charge lasts, D the days since replacement,
+kept between 0 and 100), recalculated daily. Next to it, positioned with it, come
+`input_datetime.<...>_batteries_replaced` (the replacement date) and
+`button.<...>_batteries_replaced`, which sets that date to today: press it after replacing the
+batteries. Home Assistant starts a new date helper at the day it creates it, so set the date by hand
+once if the batteries went in earlier; the date in Physical.def only counts while the helper has no
+value. See `physical_charge_estimate.go` (PROJECT.md 31a).
+
 ### Devices (cross-house import)
 
 `Physical.def`'s `integration import with: ... end;` block pulls in a device another installation

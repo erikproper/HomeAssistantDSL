@@ -14,8 +14,10 @@
  *
  * is a template sensor at 100 * (X - D) / X percent (X the days a charge is assumed to last, D the
  * days since the batteries were replaced, kept between 0 and 100), next to two entities of its own:
- * an input_datetime holding the replacement date ("batteries_replaced", the date above until it is
- * first set) and a button setting it to today. A "derived ... from sensor.battery_level via ..."
+ * an input_datetime holding the replacement date ("batteries_replaced") and a button setting it to
+ * today. Home Assistant starts a new input_datetime at the day it creates it (seen 2026-11-06), so
+ * the date above only counts while the helper has no value; set the date by hand once if the
+ * batteries went in earlier. (An "initial" would reset it at every restart.) A "derived ... from sensor.battery_level via ..."
  * alert reads it like any other sibling.
  *
  * The line is parsed by a CDL1-style parser (GO_CONVENTIONS.md §8) on the rule grammar's
