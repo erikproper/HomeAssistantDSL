@@ -169,5 +169,7 @@ func extendNodeWithSwitchedOff(admin *TAdministrationState, deviceID, nodeEntity
 		own := buildConditionStateExpr(records[i].ConditionSources, records[i].ConditionExpr)
 		records[i].ConditionSources = nil
 		records[i].ConditionExpr = "((" + own + ") or " + strings.Join(switches, " or ") + ")"
+		// No longer just its device's availability: it stays a template (PROJECT.md 32).
+		records[i].AvailabilityOfEntityID = ""
 	}
 }
