@@ -86,12 +86,6 @@ type TDiscoveryCapability struct {
 	DerivedFromCapability string
 	DerivedViaTemplate    string
 
-	// ChargeDays/ChargeSince (PROJECT.md 31a, 2026-11-05): "derived capability <domain>.<label> by
-	// charge lasting <days> days since <date>;" -- a battery level estimated from the days since
-	// the batteries were replaced (physical_charge_estimate.go); ChargeSince is yyyy-mm-dd.
-	ChargeDays  int
-	ChargeSince string
-
 	// Hidden (2026-09-15), from an optional leading "internal " qualifier on the capability line
 	// ("hidden " until PROJECT.md 30, 2026-11-03),
 	// marks an internal-only intermediate value -- fully usable as another capability's own

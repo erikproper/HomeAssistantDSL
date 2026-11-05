@@ -30,10 +30,13 @@ package main
 
 import "sort"
 
-// validateLogicalBatteryLevelAlertBiconditional warns whenever a Logical.def device declares
-// exactly one of "battery_level"/"battery_alert" among its own Capabilities -- either side may be
-// absorbed or derived, only presence of the capability KEY matters here, not how it was declared.
-func validateLogicalBatteryLevelAlertBiconditional(logicalDevicesByID map[string]TLogicalDevice) []string {
+// validateLogicalBatteryLevelAlertBiconditional warns whenever a Logical.def device has exactly one
+// of "battery_level"/"battery_alert" -- either side may be absorbed or derived, only presence of
+// the capability KEY matters here, not how it was declared. Since a Logical.def capability can
+// override a physical one of the same device (PROJECT.md 31a, 2026-11-06), the device's physical
+// capabilities count too (physicalHas): overriding only the alert of a device that reports its own
+// level is complete.
+func validateLogicalBatteryLevelAlertBiconditional(logicalDevicesByID map[string]TLogicalDevice, physicalHas func(deviceID, label string) bool) []string {
 	var warnings []string
 
 	logicalIDs := make([]string, 0, len(logicalDevicesByID))
@@ -45,6 +48,8 @@ func validateLogicalBatteryLevelAlertBiconditional(logicalDevicesByID map[string
 		device := logicalDevicesByID[id]
 		_, hasLevel := device.Capabilities["battery_level"]
 		_, hasAlert := device.Capabilities["battery_alert"]
+		hasLevel = hasLevel || physicalHas(id, "battery_level")
+		hasAlert = hasAlert || physicalHas(id, "battery_alert")
 		if w := batteryBiconditionalWarning(id, hasLevel, hasAlert); w != "" {
 			warnings = append(warnings, w)
 		}

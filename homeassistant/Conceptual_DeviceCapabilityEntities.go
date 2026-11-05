@@ -487,11 +487,15 @@ func registerDeviceCapabilityEntityLinkAllowingHiddenCore(administration *TAdmin
 	// -- for the entire override use case, where the physical capability genuinely still exists --
 	// would always win on capFound alone and the override would never be reached (the exact bug this
 	// check's own predecessor, registerLogicalNodeOverride, was built to fix on 2026-09-24).
-	if bareName == "node" {
-		if logicalDevice, hasLogical := logicalDevicesByID[decl.DeviceID]; hasLogical {
-			if _, hasOverride := logicalDevice.Capabilities["node"]; hasOverride {
-				return dispatchLogicalCapability(administration, decl, logicalDevice, "node", deviceNamePath, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, provenance)
-			}
+	//
+	// Since 2026-11-06 (PROJECT.md 31a, Erik) for every label, not just "node": a Logical.def
+	// device can override any capability its physical device has -- e.g. a thermostat's
+	// "battery_level", estimated from the days since replacement instead of the reported one, and
+	// its "battery_alert" -- while the physical capability stays reachable as "<label> from physical
+	// <device-id>". (Until then "node" was the only label both layers declared, in both houses.)
+	if logicalDevice, hasLogical := logicalDevicesByID[decl.DeviceID]; hasLogical {
+		if _, hasOverride := logicalDevice.Capabilities[bareName]; hasOverride {
+			return dispatchLogicalCapability(administration, decl, logicalDevice, bareName, deviceNamePath, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, provenance)
 		}
 	}
 
@@ -551,9 +555,6 @@ func registerDeviceCapabilityEntityLinkAllowingHiddenCore(administration *TAdmin
 		// may not be positioned yet), not registerDiscoveryEntityLink's raw-leaf path. Unknown
 		// capability names fall through to registerDiscoveryEntityLink unchanged, which already
 		// reports the "declares no ... capability" warning itself.
-		if capability, capFound := gateway.Capabilities[bareName]; capFound && capability.ChargeDays > 0 {
-			return registerDiscoveryChargeEntityLink(administration, discoveryDecl, capability, deviceNamePath, entitiesPath, lineNum), false
-		}
 		if capability, capFound := gateway.Capabilities[bareName]; capFound && capability.AvailabilityOf != "" {
 			return registerDiscoveryAvailabilityEntityLink(administration, discoveryDecl, capability, discoveryGatewaysByID, deviceNamePath, entitiesPath, lineNum, finalAttempt)
 		}
@@ -692,6 +693,8 @@ func dispatchLogicalCapability(administration *TAdministrationState, decl TDevic
 		return registerLogicalDefinedInputNumberCapability(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum), false
 	case capability.IsDerivedCondition, capability.IsDerivedValue:
 		return registerLogicalDerivedConditionCapability(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum, finalAttempt, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, localDevicesByID, logicalDevicesByID)
+	case capability.ChargeDays > 0:
+		return registerLogicalChargeCapability(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum), false
 	default:
 		return []string{fmt.Sprintf("%s: logical device %q's %q capability isn't a supported shape yet (only absorbed capabilities, defined input_numbers, and derived conditions are built)", provenance, decl.DeviceID, bareName)}, false
 	}

@@ -366,18 +366,18 @@ the blocks to `coordinator/liveness.yaml`. See Architecture.md §6.16.
 ### Battery level by days since replacement
 
 For rechargeable (Li-ion) batteries, which keep their voltage until almost empty, the level a
-device reports says little. A discovery device's `battery_level` can instead be estimated from the
-days since the batteries were replaced:
+device reports says little. A Logical.def device can estimate it from the days since the
+batteries were replaced instead, overriding the device's own `battery_level` (a Logical.def
+capability overrides the physical one of the same name on the same device):
 
 ```
 device thermostats.living_room_front_radiator_aqara_thermostat with:
-  ...
   derived capability sensor.battery_level
     as unique_id sensors_living_room_front_radiator_aqara_thermostat_0x54ef441000787201_battery_zigbee2mqtt
     by charge lasting 90 days since 31.10.2026;
   derived capability binary_sensor.battery_alert
     as unique_id binary_sensor.infrastructural_house_living_room_front_radiator_aqara_thermostat_battery_alert
-    from sensor.battery_level via jinja ${int_less_than}(5);
+    with condition jinja (sensor.battery_level) ${int_less_than}(5);
 end;
 ```
 
@@ -386,8 +386,20 @@ kept between 0 and 100), recalculated daily. Next to it, positioned with it, com
 `input_datetime.<...>_batteries_replaced` (the replacement date) and
 `button.<...>_batteries_replaced`, which sets that date to today: press it after replacing the
 batteries. Home Assistant starts a new date helper at the day it creates it, so set the date by hand
-once if the batteries went in earlier; the date in Physical.def only counts while the helper has no
-value. See `physical_charge_estimate.go` (PROJECT.md 31a).
+once if the batteries went in earlier; the date in the definition only counts while the helper has
+no value.
+
+The device's own capabilities stay reachable from a condition with `from physical`, so an alert can
+also fire on what the device itself reports, e.g. for a device with its own low-battery flag:
+
+```
+    derived capability binary_sensor.battery_alert
+      as unique_id <id>
+      with condition jinja (sensor.battery_level) ${int_less_than}(5)
+        or battery_alert from physical sensors.laundry_kitchen_rear_frient;
+```
+
+See `logical_charge_estimate.go` (PROJECT.md 31a).
 
 ### Devices (cross-house import)
 

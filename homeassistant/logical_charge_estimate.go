@@ -2,30 +2,36 @@
  *
  * Module:    HomeAssistant
  * Package:   Main
- * Component: PhysicalChargeEstimate
+ * Component: LogicalChargeEstimate
  *
- * PROJECT.md 31a (2026-11-05, Erik): a battery level estimated from the days since the batteries
- * were replaced, for rechargeable (Li-ion) batteries, which keep their voltage until almost empty,
- * so that the level a device reports says little (Junglinster's dining Philips dimmer reported ~1 %
- * for six months while working fine). In Physical.def, a discovery device's capability
+ * PROJECT.md 31a (2026-11-05/06, Erik): a battery level estimated from the days since the
+ * batteries were replaced, for rechargeable (Li-ion) batteries, which keep their voltage until
+ * almost empty, so that the level a device reports says little (Junglinster's dining Philips dimmer
+ * reported ~1 % for six months while working fine). A simulation, not something the device
+ * reports, so it is a Logical.def capability (Erik, 2026-11-06), overriding the device's own
+ * reported "battery_level" -- which stays available to a condition as "battery_level from physical
+ * <device-id>", like the device's own "battery_alert":
  *
- *   derived capability sensor.battery_level as unique_id <id>
- *     by charge lasting 90 days since 31.10.2026;
+ *   device thermostats.living_room_front_radiator_aqara_thermostat with:
+ *     derived capability sensor.battery_level as unique_id <id>
+ *       by charge lasting 90 days since 31.10.2026;
+ *     derived capability binary_sensor.battery_alert as unique_id <id>
+ *       with condition jinja (sensor.battery_level) ${int_less_than}(5);
+ *   end;
  *
- * is a template sensor at 100 * (X - D) / X percent (X the days a charge is assumed to last, D the
- * days since the batteries were replaced, kept between 0 and 100), next to two entities of its own:
- * an input_datetime holding the replacement date ("batteries_replaced") and a button setting it to
- * today. Home Assistant starts a new input_datetime at the day it creates it (seen 2026-11-06), so
- * the date above only counts while the helper has no value; set the date by hand once if the
- * batteries went in earlier. (An "initial" would reset it at every restart.) A "derived ... from sensor.battery_level via ..."
- * alert reads it like any other sibling.
+ * The level is a template sensor at 100 * (X - D) / X percent (X the days a charge is assumed to
+ * last, D the days since the batteries were replaced, kept between 0 and 100), next to two entities
+ * of its own: an input_datetime holding the replacement date ("batteries_replaced") and a button
+ * setting it to today. Home Assistant starts a new input_datetime at the day it creates it (seen
+ * 2026-11-06), so the date above only counts while the helper has no value; set the date by hand
+ * once if the batteries went in earlier. (An "initial" would reset it at every restart.)
  *
  * The line is parsed by a CDL1-style parser (GO_CONVENTIONS.md §8) on the rule grammar's
  * tokeniser (rule_tokeniser.go).
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 05.11.2026
+ * Version of: 06.11.2026
  *
  */
 
@@ -34,7 +40,6 @@ package main
 import (
 	"fmt"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -42,13 +47,14 @@ import (
 
 // --- parser ---
 
-// TChargeEstimateDeclaration is one "derived capability <domain>.<label> by charge lasting <days>
-// days since <dd.mm.yyyy>;" line; Since is the date as yyyy-mm-dd.
+// TChargeEstimateDeclaration is one "derived capability <domain>.<label> [as unique_id <id>] by
+// charge lasting <days> days since <dd.mm.yyyy>;" statement; Since is the date as yyyy-mm-dd.
 type TChargeEstimateDeclaration struct {
-	Domain string
-	Label  string
-	Days   int
-	Since  string
+	Domain     string
+	Label      string
+	AssignedID string
+	Days       int
+	Since      string
 }
 
 // TChargeEstimateParser embeds TDefTokeniser (chaining the layers, GO_CONVENTIONS.md §7).
@@ -90,11 +96,11 @@ func (p *TChargeEstimateParser) ForcedThisPunctuationWas(ch byte) bool {
 		p.ReportParsingError("expected %q", string(ch)) && p.Fail()
 }
 
-// ChargeEstimateStatement := "derived" "capability" CapabilityName "by" ChargeEstimate.
-// Up to "by" it may be another derived form, which then isn't ours.
+// ChargeEstimateStatement := "derived" "capability" CapabilityName [AssignedID] "by"
+// ChargeEstimate. Up to "by" it may be another derived form, which then isn't ours.
 func (p *TChargeEstimateParser) ChargeEstimateStatement() bool {
 	return p.ThisWordWas("derived") && p.ThisWordWas("capability") && p.CapabilityName() &&
-		p.ThisWordWas("by") && p.ChargeEstimate()
+		p.AssignedID() && p.ThisWordWas("by") && p.ChargeEstimate()
 }
 
 // CapabilityName := Word "." Word { "/" Word }.
@@ -108,6 +114,24 @@ func (p *TChargeEstimateParser) CapabilityName() bool {
 			return false
 		}
 		p.Declaration.Label += "/" + segment
+	}
+	return true
+}
+
+// AssignedID := [ "as" "unique_id" Word { "." Word } ] -- the capability's frozen ID.
+func (p *TChargeEstimateParser) AssignedID() bool {
+	if !p.ThisWordWas("as") {
+		return true
+	}
+	if !p.ThisWordWas("unique_id") || !p.ThisWord(&p.Declaration.AssignedID) {
+		return false
+	}
+	var segment string
+	for p.ThisPunctuationWas('.') {
+		if !p.ThisWord(&segment) {
+			return false
+		}
+		p.Declaration.AssignedID += "." + segment
 	}
 	return true
 }
@@ -151,21 +175,22 @@ func (p *TChargeEstimateParser) Date() bool {
 // --- positioning ---
 
 // chargeReplacedSegment names the replacement date and its button, next to the level.
-// chargeButtonKeyPrefix roots the button's source key ("charge:<device-id>!<label>") in its level's.
+// chargeButtonKeyPrefix roots the button's source key ("charge:<device-id>!<label>") in its level's
+// ("logical:<device-id>!<label>").
 const (
 	chargeReplacedSegment = "batteries_replaced"
 	chargeButtonKeyPrefix = "charge:"
 )
 
-// registerDiscoveryChargeEntityLink positions a charge estimate (see the file comment): the level,
+// registerLogicalChargeCapability positions a charge estimate (see the file comment): the level,
 // the replacement date and the button setting it.
-func registerDiscoveryChargeEntityLink(administration *TAdministrationState, decl TDiscoveryEntityDeclaration, capability TDiscoveryCapability, deviceNamePath, entitiesPath string, lineNum int) []string {
-	provenance := fmt.Sprintf("%s:%d → %s from %s with %s", filepath.Base(entitiesPath), lineNum, decl.EntitySpec, decl.GatewayDeviceID, decl.Leaf)
-	fullName := resolveDeviceEntityFullName(decl.EntitySpec, administration.SpacePath, deviceNamePath)
+func registerLogicalChargeCapability(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, capability TLogicalCapability, label, deviceNamePath, entitiesPath string, lineNum int) []string {
+	provenance := fmt.Sprintf("%s:%d → %s from %s %s", filepath.Base(entitiesPath), lineNum, decl.LocalSpec, decl.DeviceID, decl.Capability)
+	fullName := resolveDeviceEntityFullName(decl.LocalSpec, administration.SpacePath, deviceNamePath)
 	identity := extractEntityIdentity(fullName)
 	entityID := toHomeAssistantEntityID(fullName)
 	if identity.Domain != "sensor" || entityID == "" {
-		return []string{fmt.Sprintf("%s: a charge estimate is a sensor, not %q", provenance, decl.EntitySpec)}
+		return []string{fmt.Sprintf("%s: a charge estimate is a sensor, not %q", provenance, decl.LocalSpec)}
 	}
 	path := chargeReplacedSegment
 	if parent := stripLastPathSegment(identity).Path; parent != "" {
@@ -176,36 +201,21 @@ func registerDiscoveryChargeEntityLink(administration *TAdministrationState, dec
 	dateID := toHomeAssistantEntityID(dateName)
 	spaceName := administration.CurrentSpaceName()
 	administration.AppendEntityRecord(spaceName, TEntityRecord{
-		Name: fullName, SourceKey: "physical:" + decl.GatewayDeviceID + "!" + decl.Leaf, Identity: identity,
+		Name: fullName, SourceKey: "logical:" + decl.DeviceID + "!" + label, Identity: identity,
 		Provenance: provenance, HasDefinitionOrImport: true,
 		ChargeDays: capability.ChargeDays, ChargeSince: capability.ChargeSince, ChargeDateEntityID: dateID,
 	})
+	administration.LogicalEntityLinks[entityID] = TLogicalEntityLink{DeviceID: decl.DeviceID, Label: label}
 	administration.AppendEntityRecord(spaceName, TEntityRecord{
 		Name: dateName, Identity: extractEntityIdentity(dateName), Provenance: provenance + " (its replacement date)",
 		HasDefinitionOrImport: true, InputDatetimeHasDate: true,
 	})
 	administration.AppendEntityRecord(spaceName, TEntityRecord{
-		Name: buttonName, SourceKey: chargeButtonKeyPrefix + decl.GatewayDeviceID + "!" + decl.Leaf, Identity: extractEntityIdentity(buttonName),
+		Name: buttonName, SourceKey: chargeButtonKeyPrefix + decl.DeviceID + "!" + label, Identity: extractEntityIdentity(buttonName),
 		Provenance: provenance + " (sets its replacement date to today)", HasDefinitionOrImport: true,
 		ChargeDateEntityID: dateID,
 	})
 	return nil
-}
-
-// generatedSiblingEntityID returns the entity a generated capability of deviceID ("<device-id>!
-// <label>") is positioned as -- for a sibling that is no raw discovery leaf (a charge estimate).
-func generatedSiblingEntityID(administration *TAdministrationState, deviceID, label string) string {
-	var candidates []string
-	for entityID, key := range administration.SourceKeyByEntityID {
-		if key == "physical:"+deviceID+"!"+label {
-			candidates = append(candidates, entityID)
-		}
-	}
-	sort.Strings(candidates)
-	if len(candidates) == 0 {
-		return ""
-	}
-	return candidates[0]
 }
 
 // --- generation ---
@@ -236,7 +246,7 @@ func generateChargeEstimates(outputDir string, admin *TAdministrationState) erro
 			case "button":
 				// Rooted in the level's frozen unique_id, so it survives renames as the level does
 				// (the frozen IDs are read after positioning, so only now).
-				levelKey := "physical:" + strings.TrimPrefix(rec.SourceKey, chargeButtonKeyPrefix)
+				levelKey := "logical:" + strings.TrimPrefix(rec.SourceKey, chargeButtonKeyPrefix)
 				if levelID, frozen := admin.FrozenUniqueIDs[levelKey]; frozen {
 					admin.FrozenUniqueIDs[rec.SourceKey] = levelID + "_" + chargeReplacedSegment
 				}

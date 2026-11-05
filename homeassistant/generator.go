@@ -175,7 +175,16 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 		fmt.Printf("[physical] %s\n", w)
 	}
 
-	for _, w := range validateLogicalBatteryLevelAlertBiconditional(logicalByID) {
+	physicalHas := func(deviceID, label string) bool {
+		_, host := hostDevicesByID[deviceID].Capabilities[label]
+		_, discovery := discoveryGatewaysByID[deviceID].Capabilities[label]
+		_, bridged := hassBridgeDevicesByID[deviceID].Capabilities[label]
+		_, imported := importedDevicesByID[deviceID].Capabilities[label]
+		_, commandline := commandlineDevicesByID[deviceID].Capabilities[label]
+		_, local := localDevicesByID[deviceID].Capabilities[label]
+		return host || discovery || bridged || imported || commandline || local
+	}
+	for _, w := range validateLogicalBatteryLevelAlertBiconditional(logicalByID, physicalHas) {
 		fmt.Printf("[logical] %s\n", w)
 	}
 

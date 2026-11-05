@@ -13,12 +13,17 @@ func TestParseChargeEstimateLine(t *testing.T) {
 	if decl.Domain != "sensor" || decl.Label != "battery_level" || decl.Days != 90 || decl.Since != "2026-10-31" {
 		t.Errorf("declaration %+v", decl)
 	}
+	decl, ok, warnings = parseChargeEstimateLine("derived capability sensor.battery_level as unique_id sensor.x_battery_level by charge lasting 90 days since 31.10.2026;")
+	if !ok || len(warnings) > 0 || decl.AssignedID != "sensor.x_battery_level" {
+		t.Errorf("with a frozen ID: %+v %v", decl, warnings)
+	}
 }
 
 func TestParseChargeEstimateLineLeavesOtherDerivedForms(t *testing.T) {
 	for _, line := range []string{
 		`derived capability binary_sensor.battery_alert from sensor.battery_level via "$ < 5";`,
 		"derived capability binary_sensor.node with condition climate.climate is available;",
+		"derived capability binary_sensor.battery_alert as unique_id binary_sensor.x with condition jinja (sensor.battery_level) ${int_less_than}(5);",
 		"capability sensor.battery_level 0x1_battery_zigbee2mqtt;",
 	} {
 		if _, ok, warnings := parseChargeEstimateLine(line); ok || len(warnings) > 0 {

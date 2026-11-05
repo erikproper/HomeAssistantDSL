@@ -79,15 +79,6 @@ JLI
  
 ## Migration & improvements
 
-31a. Batteries, the OR-ification: "a battery alert from the device itself OR from our level" --
-    to decide (Erik) where it lives: by Architecture.md §2 two base entities make it a Logical.def
-    capability ("with condition jinja (sensor.battery_level) ${int_less_than}(5) or
-    binary_sensor.reported_battery_alert"; works, tried 2026-11-05 on a copy), but Rule 2
-    (physical_rule_battery_alert_biconditional.go) wants battery_alert in Physical.def. The
-    reported one must then be an entity of its own (a template can't read an internal capability).
-    The date-based level itself is done (README "Battery level by days since replacement"; the two
-    Junglinster thermostats, 90 days from 31.10.2026, deployed 2026-11-06).
-
 33. Architectural review, code review and documenting
    - Note (2026-09-05): GO_CONVENTIONS.md §7/§8 specifies a three-layer parser architecture
      (character stream -> tokeniser -> recursive-descent, CDL1 bool-returning style, no `error`
