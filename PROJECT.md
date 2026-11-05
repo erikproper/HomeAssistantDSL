@@ -79,108 +79,13 @@ JLI
  
 ## Migration & improvements
 
-30. An "as local <domain>.<object>" option on a Physical.def native ("integration local")
-    capability, naming the entity's CURRENT HA entity_id, e.g. "capability
-    media_player.media_player as local media_player.office;" (Erik, 2026-10-26; then also an
-    allowed "as" qualifier, checkQualifiedAs). The deploy's registry repair
-    (home_assistant_registry.go) looks that entity_id up in HA's registry (read only), and writes
-    the integration's own platform and unique_id back into Physical.def as the capability's frozen
-    id, replacing the "local ..." -- from then on the native entity is identified by its real
-    unique_id, like the generator's own, and the registry repair renames it to its positioned
-    entity_id from the very first deploy (no matching by hand in the HA UI, no previous-manifest
-    comparison by source).
-
-50. Move to rsync and "cp -l" based backup of non-cloud parts of macs to p-s-1@jli.
-- rename /mnt/media on p-s-1@jli to /mnt/disk1 ... also for samba
-- use /mnt/disk1/snapshots as target for backups
-  => we already have /mnt/disk1/snapshots/pro1/00
-- Generic bash script in ~/bin (Nextcloud synced) that uses /mnt/disk1/snapshots/$hostname as its target
-- Allow for 10 snapshots (10 is a constant set in the bash script), rotated as follow: 
-  - version 09 is deleted
-  - versions 01 to 08 are "bumbed"
-  - version 00 is "cp -l"-ed to 01
-  - then an rsync of the selected sources to /mnt/disk1/snapshots/$hostname/01
-The selected sources may differ per mac, and will (manually) be set (avoiding e.g. clouds and associated symlinks)
-Name of the script: "snapshot"
-Note: there is already a basic version in place that I used to already make a snapshot of this laptop.
-Can we avoid having to enter the root Opassword? Wrap it in a setuid app?
-We also need a "wrapper" that can be positioned on the toolbar of the macs, to run the script from there, and leave the window open for inspection afterwards.
-Note: there is an issue with the Documents folder:
-rsync(93124): error: open Documents: Operation not permitted
-rsync(93124): error: froot_open
-
-
-31. Code cleaning (dead code, superseded generator logic, parser)
-==> Dead code found 2026-10-27 (go/ast analysis, not from item 19, left out of its cleanup): generator
-    firstNonEmptyEnv (defined.go), extractVariableName, findAggregateConstituents,
-    formatSpaceLabel, scanInputNumberBody (expander.go), bootstrapAutomationBody
-    (remote_instance_automations.go), and used only by tests: impliedAggregatesForSpace,
-    lookupIcon, lookupAggregatedDomain, homeAssistantCapabilityEntityIDs, ResetGlobalVariables;
-    coordinator, used only by tests: drainDiscoveryRelayQueue, loadTopicManifest,
-    deviceEventEndpoints. Cross-check them against the grammar first (Erik): a dead function may
-    belong to a DSL construct that should go too, or one that should still work.
-==> CHeck if node, temperature, etc, are acknowledged as axplicit "sub domains" in the code.
-==> Start by checking the dead DSL constructs, and clean the assocuated code.
-- Rename the `homeassistant_instances/...` MQTT topic tree (bootstrap/bridge protocol,
-  discoveryhassbridge.go) to `homeassistant.instances/...`, matching this project's own
-  dot-separated discovery-prefix convention (`homeassistant.physical`/`homeassistant.conceptual`)
-  -- purely a naming inconsistency introduced 2026-08-23, not yet fixed. Safe/mechanical now that
-  both the coordinator code and every instance's automations are generator-owned; just needs a
-  coordinated regenerate+redeploy across every instance at once.
-- `isCoordinatorOwnedTopic`'s legacy `host_`/`discovery_` topic-shape branch
-  (house_event_bus_coordinator/discoverycleanup.go) exists only to catch pre-migration discovery
-  topics during the one-time cutover to identity-based topic keys
-  (`.../coordinator/<stable-id>/config`). Once each deployed house's coordinator has run once and
-  its retirement log confirms the old topics are gone -- Junglinster first, Vienna once it's
-  actually deployed -- remove that branch; it'll be permanently dead code by then. Given how many
-  times both houses' coordinators have now run and been verified live (2026-09-08/09's MQTT broker
-  migration alone), this is very likely ready to action -- just needs someone to actually check
-  the retirement log and pull the branch.
-- The `roaming` / `import` (hassbridge) mechanism is unused since 2026-10-21: its only user, the
-  iPhone, dropped it in both houses (the Companion app already reports to both Home Assistants
-  directly; ~94% of updates reach both, gaps < ~70 min). Candidates: `export_as`/`self_import_from`
-  (THassBridgeDevice, generator emission + parser keywords), `subscribeHassBridgeSelfImport`,
-  `canonicalizeRoamingBridgeTopic`/`canonicalRoamingInstance`, `hassBridgeAcceptsInstance`'s
-  self-import branch, plus related doc comments. Check zero `.def` usage in both houses first.
-- General principle: once a platform has fully moved through its incremental integration steps
-  (items 4/5/6/7/8 above), retire the now-superseded generator logic for it outright rather than
-  carrying both paths indefinitely -- the dead-code entries above are concrete instances of this.
-
-Note (2026-10-05): a dead-code pass ran against this item plus item 11's own historical inventory
-(both confirmed zero live `.def` usage first, then removed, then verified byte-identical regenerate
-on both houses before and after each removal -- see git history for the exact commit):
-- The `condition`/`with adjustment` bare-entity mechanism this item used to describe (parser.go's
-  own " with adjustment "/" with condition " inline extraction, `generateTemplateSensors`'s
-  adjustment branch, `buildAdjustmentStateExpr`) -- DONE, removed. Also removed the SAME-shaped
-  bare "value <entity>!<attribute>;" directive (`TEntityRecord.ValueExpr`, `buildValueStateExpr`),
-  found zero-usage during the same audit, not previously tracked anywhere.
-- Item 11's own old Logical.def "is available"/enabler/switch-coercion capability shapes
-  (`TLogicalCapability.IsAvailable`/`.EnablerEntity`/capability-level `.DependsOn`/`.NoPlayInput`/
-  `.Entity`, `registerLogicalIsAvailableCapability`/`registerLogicalMediaSwitchCapability`/
-  `resolveLogicalDependencyNodeEntities`) -- DONE, removed.
-- The short-lived "flipped" Logical.def absorb qualifier (built, then superseded by "inverted,"
-  all same-day, 2026-09-05 -- never deployed) -- DONE, removed (`TLogicalCapability.Flipped`,
-  `registerLogicalFlippedAbsorbedCapability`, `generateFlippedSwitches`/`FlippedSourceEntityID`).
-- A pre-existing, independently-dead `TEntityRecord.NodeEnablerEntityID`/`.NodeDelayOff` pair
-  (`buildTemplateNodeWithRawYAML`/`buildTemplateNodeRawYAML`, generator.go) -- found during the
-  same audit (never actually set anywhere, a macro-era leftover missed when item 3's macro removal
-  landed) -- DONE, removed.
-- The flat-entity-form parser ban (memory: project_flat_entity_form_ban.md) is now unblocked too
-  (zero remaining usages confirmed the same day) but NOT yet implemented -- a real hard-error
-  addition, not a removal, left for a deliberate follow-up rather than folded into this pass.
-- Still open, unrelated to the above: the `homeassistant_instances/...` topic rename and the
-  `isCoordinatorOwnedTopic` legacy branch, both listed above.
-
 31a. Batteries: enable a date-based assumed charge percentage (plus a reset, e.g. when recharged or
     replaced), with its own low-battery warning -- works much better for rechargeable batteries
     than what the devices themselves report. Example: Junglinster's dining Philips dimmer has reported
     ~1 % for six months while working fine (2026-10-23).
 Also enable the optional "OR-ification" with a built in alert.
 
-31b. Maybe later: Sarah's bedroom cover rules (open/close from its door tap) "smart": slow speed
-    at night, normal speed otherwise.
-
-32. Architectural review, code review and documenting
+33. Architectural review, code review and documenting
    - Note (2026-09-05): GO_CONVENTIONS.md §7/§8 specifies a three-layer parser architecture
      (character stream -> tokeniser -> recursive-descent, CDL1 bool-returning style, no `error`
      returns from parse functions). The DSL frontend (Physical.def/Spaces.def parsing) does not
@@ -246,8 +151,10 @@ target:
 data:
   source: Zwift
 
+36. Maybe later: Sarah's bedroom cover rules (open/close from its door tap) "smart": slow speed
+    at night, normal speed otherwise.
 
-36. FHEM/FS20 integration
+37. FHEM/FS20 integration
 
     Note (2026-09-22, architectural decision, not yet designed in detail): some integrations
     (FHEM is the motivating case) bridge devices that accept on/off commands but never report
@@ -458,3 +365,13 @@ Test with shellys?
 49. Future refinement (moved from 26 on 2026-11-02; only when a real case comes up):
     "dependency on entity <id>;" and "dependency on availability of entity <id>;" for a raw
     entity on main (integration_logical_parser.go's header).
+
+50. (was 32b; to observe) Utilise Netatmo's new webhooks? Or wait for HA to pick this up?
+    Netatmo cuts polling rate limits from 1 March 2027 (developer email, per openHAB issue 22187);
+    HA's integration still polls exactly our weather stations and air-quality monitors. Plan: wait
+    for HA; re-check January 2027, else build a webhook receiver in the coordinator.
+https://dev.netatmo.com/apidocumentation/webhooks
+
+51. (was 32c; to observe) The deploy's reload check can't read Junglinster's log: system_log/list closes the websocket
+    (1006, unexpected EOF) on every deploy there (seen three times 2026-11-05), so a reload error
+    there goes unreported. Vienna's works. Likely the size of Junglinster's log in one message.
