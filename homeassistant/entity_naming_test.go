@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -121,5 +124,32 @@ func TestNameEntitySharedPositionNamedByDomain(t *testing.T) {
 	}
 	if body["name"] != "sensor" {
 		t.Errorf("name %v, want its domain", body["name"])
+	}
+}
+
+func TestDropFriendlyNamesKeepsIconsAndNatives(t *testing.T) {
+	dir := t.TempDir()
+	write := func(path, content string) {
+		if err := writeYAMLFile(filepath.Join(dir, path), content); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("entities/mqtt/sensor/sensor.own.yaml", "- sensor: {}\n")
+	write("entities/mqtt/sensor/sensor.own_icon.yaml", "- sensor: {}\n")
+	write("customization/sensor/social/sensor.own.yaml", "sensor.own:\n  friendly_name: a/b\n")
+	write("customization/sensor/social/sensor.own_icon.yaml", "sensor.own_icon:\n  icon: mdi:x\n  friendly_name: a/c\n")
+	write("customization/sensor/social/sensor.native.yaml", "sensor.native:\n  friendly_name: a/d\n")
+	dropped, err := dropFriendlyNames(dir)
+	if err != nil || dropped != 2 {
+		t.Fatalf("dropped %d, %v; want 2", dropped, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "customization/sensor/social/sensor.own.yaml")); !os.IsNotExist(err) {
+		t.Error("an emptied file is still there")
+	}
+	if data, _ := os.ReadFile(filepath.Join(dir, "customization/sensor/social/sensor.own_icon.yaml")); strings.Contains(string(data), "friendly_name") || !strings.Contains(string(data), "icon: mdi:x") {
+		t.Errorf("icon file: %s", data)
+	}
+	if data, _ := os.ReadFile(filepath.Join(dir, "customization/sensor/social/sensor.native.yaml")); !strings.Contains(string(data), "friendly_name: a/d") {
+		t.Errorf("a native entity lost its friendly_name: %s", data)
 	}
 }

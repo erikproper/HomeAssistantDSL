@@ -32,6 +32,7 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -231,4 +232,65 @@ func nameYAMLMQTTEntities(haOutputDir string, admin *TAdministrationState) []str
 		reports = append(reports, fmt.Sprintf("naming: %d entities kept their name, their device has no positioned node: %s", len(unnamed), strings.Join(unnamed, ", ")))
 	}
 	return reports
+}
+
+// noFriendlyNames (PROJECT.md 32, "-no_friendly_names"): Home Assistant plans to sunset the
+// customized friendly_name, and the naming above no longer needs it -- a test, Vienna first.
+var noFriendlyNames bool
+
+// dropFriendlyNames removes the friendly_name from every customization file under outputDir of an
+// entity the generator writes itself (entities/.../<entity_id>.yaml), and the files left with
+// nothing else (an icon stays), and returns how many it dropped. A native integration's entity
+// keeps its friendly_name: nothing else names it ours (found live 2026-11-05, Vienna's System
+// Monitor sensors reading "processor_use").
+func dropFriendlyNames(outputDir string) (int, error) {
+	files, err := filepath.Glob(filepath.Join(outputDir, "customization", "*", "*", "*.yaml"))
+	if err != nil {
+		return 0, err
+	}
+	own := map[string]bool{}
+	err = filepath.WalkDir(filepath.Join(outputDir, "entities"), func(path string, entry fs.DirEntry, err error) error {
+		if err == nil && !entry.IsDir() && strings.HasSuffix(path, ".yaml") {
+			own[strings.TrimSuffix(entry.Name(), ".yaml")] = true
+		}
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+	dropped := 0
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return dropped, err
+		}
+		var entries map[string]map[string]interface{}
+		if err := yaml.Unmarshal(data, &entries); err != nil {
+			return dropped, fmt.Errorf("%s: %v", file, err)
+		}
+		left := map[string]map[string]interface{}{}
+		for entityID, fields := range entries {
+			if _, has := fields["friendly_name"]; has && own[entityID] {
+				delete(fields, "friendly_name")
+				dropped++
+			}
+			if len(fields) > 0 {
+				left[entityID] = fields
+			}
+		}
+		if len(left) == 0 {
+			if err := os.Remove(file); err != nil {
+				return dropped, err
+			}
+			continue
+		}
+		out, err := yaml.Marshal(left)
+		if err == nil {
+			err = writeYAMLFile(file, generatorHeader+string(out))
+		}
+		if err != nil {
+			return dropped, err
+		}
+	}
+	return dropped, nil
 }
