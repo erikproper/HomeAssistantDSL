@@ -137,6 +137,7 @@ func registerDiscoveryEntityLink(administration *TAdministrationState, decl TDis
 		return []string{fmt.Sprintf("%s: could not resolve a Home Assistant entity id from %q; skipping", provenance, decl.EntitySpec)}
 	}
 
+	warnings := positionedDomainMismatch(provenance, capability.Domain, identity.Domain)
 	spaceName := administration.CurrentSpaceName()
 	administration.RegisterDiscoveryImpliedEntity(spaceName, fullName, provenance, decl.GatewayDeviceID+"!"+decl.Leaf, decl.NoCollect)
 	deviceClass, unit, stateClass, icon := resolveCapabilityDefaults(administration.CapabilityDefaults, identity.Domain, identity.Path)
@@ -155,7 +156,7 @@ func registerDiscoveryEntityLink(administration *TAdministrationState, decl TDis
 		Invert:          capability.Inverted,
 		StableID:        capability.AssignedID,
 	}
-	return nil
+	return warnings
 }
 
 // registerDiscoveryDerivedFromRawLeafEntityLink resolves a "derived DDD.NNN from EEE.MMM via
@@ -385,4 +386,15 @@ func registerDiscoveryDerivedEntityLink(administration *TAdministrationState, de
 		HasDefinitionOrImport: true,
 	})
 	return nil, false
+}
+
+// positionedDomainMismatch warns when an entity is positioned in another domain than its
+// capability declares, unless that is a coercion (coercedDomain: a switch as a light or fan) --
+// found 2026-11-05: Vienna's vacuum battery alert, declared a binary_sensor, positioned as a
+// sensor, lost its device class (and battery icon) without a word.
+func positionedDomainMismatch(provenance, declared, positioned string) []string {
+	if declared == "" || declared == positioned || coercedDomain(declared, positioned) == positioned {
+		return nil
+	}
+	return []string{fmt.Sprintf("%s: positioned as %s, but its capability is declared %s -- the entity is a %s now", provenance, positioned, declared, positioned)}
 }

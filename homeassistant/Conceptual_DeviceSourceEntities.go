@@ -124,6 +124,7 @@ func registerDeviceSourceEntityLink(administration *TAdministrationState, decl T
 	// shorthand) silently lost its unit/device_class/state_class/icon in HA, even though the
 	// sibling bulk-import path never had this gap.
 	existing := device.Capabilities[key]
+	warnings = positionedDomainMismatch(provenance, existing.Domain, identity.Domain)
 	deviceClass, unit, stateClass, icon := existing.DeviceClass, existing.Unit, existing.StateClass, existing.Icon
 	defaultDeviceClass, defaultUnit, defaultStateClass, defaultIcon := resolveCapabilityDefaults(administration.CapabilityDefaults, identity.Domain, key)
 	if deviceClass == "" {
@@ -207,7 +208,7 @@ func registerDeviceSourceEntityLink(administration *TAdministrationState, decl T
 	}
 	administration.DeviceConceptualLinks[decl.DeviceID] = link
 
-	return nil, false
+	return warnings, false
 }
 
 // registerImportedDeviceSourceEntityLink is registerDeviceSourceEntityLink's counterpart for a
