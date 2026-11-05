@@ -1000,6 +1000,7 @@ func buildTemplateNodeYAML(entityID, displayPath, representativeID string) strin
 	sb.WriteString("binary_sensor:\n")
 	sb.WriteString("- name: " + displayPath + "\n")
 	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
+	sb.WriteString("  default_entity_id: " + entityID + "\n")
 	sb.WriteString("  device_class: connectivity\n")
 	sb.WriteString("  state: \"{{ states('" + representativeID + "') != 'unavailable' }}\"\n")
 	return sb.String()
@@ -1011,6 +1012,7 @@ func buildTemplateBatteryAlertYAML(entityID, displayPath, batteryLevelEntityID s
 	sb.WriteString("binary_sensor:\n")
 	sb.WriteString("- name: " + displayPath + "\n")
 	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
+	sb.WriteString("  default_entity_id: " + entityID + "\n")
 	sb.WriteString("  device_class: battery\n")
 	sb.WriteString(fmt.Sprintf("  state: \"{{ (states('%s') | int(0)) < %d }}\"\n", batteryLevelEntityID, alertLevel))
 	return sb.String()
@@ -1355,6 +1357,7 @@ func buildConditionBinarySensorYAML(id, displayName, stateExpr, deviceClass, del
 	sb.WriteString("binary_sensor:\n")
 	sb.WriteString("- name: " + displayName + "\n")
 	sb.WriteString("  unique_id: " + generatedUniqueID(id) + "\n")
+	sb.WriteString("  default_entity_id: " + id + "\n")
 	if deviceClass != "" {
 		sb.WriteString("  device_class: " + deviceClass + "\n")
 	}
@@ -1375,6 +1378,7 @@ func buildTemplateSensorYAML(id, displayName, unit, deviceClass, stateClass, ico
 	sb.WriteString("sensor:\n")
 	sb.WriteString("- name: " + displayName + "\n")
 	sb.WriteString("  unique_id: " + generatedUniqueID(id) + "\n")
+	sb.WriteString("  default_entity_id: " + id + "\n")
 	if unit != "" {
 		sb.WriteString("  unit_of_measurement: \"" + unit + "\"\n")
 	}
@@ -2962,6 +2966,7 @@ func buildHeatingShouldBeOffYAML(entityID, displayName, leakageIdentifiedID, lea
 	sb.WriteString("binary_sensor:\n")
 	sb.WriteString("- name: " + displayName + "\n")
 	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
+	sb.WriteString("  default_entity_id: " + entityID + "\n")
 	if leakageIdentifiedID == "" {
 		sb.WriteString("  state: \"{{ is_state('" + heatingEnableID + "', 'off') }}\"\n")
 		return sb.String()
@@ -3888,6 +3893,7 @@ func buildBinarySensorBlockYAML(entityID, displayName, stateExpr string) string 
 	sb.WriteString("binary_sensor:\n")
 	sb.WriteString("- name: " + displayName + "\n")
 	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
+	sb.WriteString("  default_entity_id: " + entityID + "\n")
 	sb.WriteString("  state: >-\n")
 	sb.WriteString("    {{\n")
 	sb.WriteString("      " + stateExpr + "\n")
@@ -3903,6 +3909,7 @@ func buildBinarySensorORBlockYAML(entityID, displayName string, childIDs []strin
 	sb.WriteString("binary_sensor:\n")
 	sb.WriteString("- name: " + displayName + "\n")
 	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
+	sb.WriteString("  default_entity_id: " + entityID + "\n")
 	sb.WriteString("  state: >-\n")
 	sb.WriteString("    {{\n")
 	for i, id := range childIDs {
@@ -3924,6 +3931,7 @@ func buildTimeWindowBinarySensorYAML(entityID, displayName, workdaySensorID, wkd
 	sb.WriteString("binary_sensor:\n")
 	sb.WriteString("- name: " + displayName + "\n")
 	sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
+	sb.WriteString("  default_entity_id: " + entityID + "\n")
 	sb.WriteString("  state: >-\n")
 	sb.WriteString("    {{\n")
 	sb.WriteString("      (\n")
@@ -4363,6 +4371,7 @@ func generateNamedTriggerEvents(outputDir string, admin *TAdministrationState) e
 		sb.WriteString("event:\n")
 		sb.WriteString("- name: " + displayName + "\n")
 		sb.WriteString("  unique_id: " + generatedUniqueID(entityID) + "\n")
+		sb.WriteString("  default_entity_id: " + entityID + "\n")
 		sb.WriteString("  event_type: " + namedTriggerEventType + "\n")
 		sb.WriteString("  event_types: \"{{ ['" + namedTriggerEventType + "'] }}\"\n")
 

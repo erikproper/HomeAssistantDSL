@@ -122,6 +122,7 @@ func ImportedEntityConfig(e ImportedEntity) map[string]interface{} {
 			body["payload_on"], body["payload_off"] = StateOn, StateOff
 		}
 	}
+	UnknownAsNone(body, e.LocalEntity)
 	body["availability"] = ProxiedAvailability(stateTopic, e.NodeAvailabilityTopics...)
 	body["availability_mode"] = "all"
 	return body

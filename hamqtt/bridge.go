@@ -28,15 +28,27 @@ import (
 // Payloads of the bridge's topics: a node/liveness topic carries "true"/"false" (hosts,
 // commandline) or a proxied entity's own "on"/"off", an integration device's node "online"
 // (PROJECT.md 25: EMS-ESP's status, a bridged instance's status); a proxied entity's state may be
-// "unavailable".
+// "unavailable" or "unknown".
 const (
 	StateOn          = "on"
 	StateOff         = "off"
 	StateAvailable   = "available"
 	StateUnavailable = "unavailable"
+	StateUnknown     = "unknown"
 	BoolTrue         = "true"
 	StateOnline      = "online"
 )
+
+// UnknownAsNone gives a proxied sensor without a value_template of its own one that turns the
+// source's "unknown" into Home Assistant's "None" (no value): a sensor with a unit or device class
+// rejects the text as a state, logging an error on every update (found live 2026-11-05, a
+// switched-off washing machine's and printer's sensors in both houses, PROJECT.md 32).
+func UnknownAsNone(body map[string]interface{}, localEntity string) {
+	if _, has := body["value_template"]; has || !strings.HasPrefix(localEntity, "sensor.") {
+		return
+	}
+	body["value_template"] = fmt.Sprintf("{{ 'None' if value == '%s' else value }}", StateUnknown)
+}
 
 // BridgeStateTopic and its siblings are a bridge entity's topics, as the reporting automations
 // publish them and the commands are received.
@@ -275,6 +287,7 @@ func BridgeEntityConfig(e BridgeEntity) map[string]interface{} {
 		body["state_on"] = StateOn
 		body["state_off"] = StateOff
 	}
+	UnknownAsNone(body, e.LocalEntity)
 	body["availability"] = ProxiedAvailability(e.StateTopic, e.NodeAvailabilityTopics...)
 	body["availability_mode"] = "all"
 	return body

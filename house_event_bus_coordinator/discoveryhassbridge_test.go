@@ -1184,8 +1184,9 @@ func TestBuildHassBridgeEntityDiscoveryBodyNoPositionOmitsFields(t *testing.T) {
 	if _, present := body["position_template"]; present {
 		t.Errorf("body has a position_template key, want none -- HasPosition is false")
 	}
-	if _, present := body["value_template"]; present {
-		t.Errorf("body has a value_template key, want none -- HasPosition is false, state_topic's own payload is still a plain atomic value")
+	// A sensor's only value_template is hamqtt.UnknownAsNone's (PROJECT.md 32).
+	if template := body["value_template"]; template == "{{ value_json.state }}" {
+		t.Errorf("body has value_template %v, want no JSON extraction -- HasPosition is false, state_topic's own payload is still a plain atomic value", template)
 	}
 }
 

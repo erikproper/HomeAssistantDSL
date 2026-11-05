@@ -26,3 +26,14 @@ func TestBridgeEntityConfigSwitchStateIsLowercase(t *testing.T) {
 		t.Errorf("sensor got state_on %v", body["state_on"])
 	}
 }
+
+func TestBridgeEntityConfigSensorUnknownIsNone(t *testing.T) {
+	body := BridgeEntityConfig(BridgeEntity{UniqueID: "u", LocalEntity: "sensor.social_x_power", Unit: "W", StateTopic: "t"})
+	if body["value_template"] != "{{ 'None' if value == 'unknown' else value }}" {
+		t.Errorf("value_template %v", body["value_template"])
+	}
+	body = BridgeEntityConfig(BridgeEntity{UniqueID: "u", LocalEntity: "switch.social_x", StateTopic: "t"})
+	if _, has := body["value_template"]; has {
+		t.Errorf("a switch got a value_template: %v", body["value_template"])
+	}
+}
