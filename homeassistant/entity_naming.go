@@ -16,7 +16,8 @@
  *     device (via_device), named after its conceptual position ("social/apartment/hallway/humidity"),
  *     in the area of its space; the entity has no name of its own (null), so Home Assistant shows
  *     just the sub-device's name (tested on 2026.11.0: a short name under a device name ending in
- *     the same word shows it twice).
+ *     the same word shows it twice) -- unless another social entity is at the same position: then
+ *     each is named by its domain.
  *
  * Done as one pass over the written files, so no writer can be missed. An entity whose device has
  * no positioned node keeps the name its writer gave it, and is reported.
@@ -100,9 +101,10 @@ func devicePosition(admin *TAdministrationState, deviceID string) (TEntityIdenti
 }
 
 // nameEntity sets body's own name and device block (see the file comment); spaceArea gives every
-// positioned entity's area. The material device is in its node's area, where the hardware is. It
-// returns false when the entity's device has no positioned node, leaving body as it was.
-func nameEntity(admin *TAdministrationState, body map[string]interface{}, entityID, deviceID string, spaceArea map[string]string) bool {
+// positioned entity's area, shared the positions more than one social entity is at. The material
+// device is in its node's area, where the hardware is. It returns false when the entity's device
+// has no positioned node, leaving body as it was.
+func nameEntity(admin *TAdministrationState, body map[string]interface{}, entityID, deviceID string, spaceArea map[string]string, shared map[string]bool) bool {
 	device, hasDevice := body["device"].(map[string]interface{})
 	position, nodeEntityID, positioned := devicePosition(admin, deviceID)
 	if !hasDevice || !positioned {
@@ -141,7 +143,29 @@ func nameEntity(admin *TAdministrationState, body map[string]interface{}, entity
 	}
 	body["device"] = sub
 	body["name"] = nil
+	// Two entities at one position (a light and a cover, from two devices) are two sub-devices of
+	// the same name: their domain tells them apart ("social/house/wc light", Erik, 2026-11-05).
+	if shared[friendlyEntityName(identity)] {
+		body["name"] = identity.Domain
+	}
 	return true
+}
+
+// sharedPositions returns the positions more than one of entityIDs' social entities is at.
+func sharedPositions(admin *TAdministrationState, entityIDs []string) map[string]bool {
+	count := map[string]int{}
+	for _, entityID := range entityIDs {
+		if identity, found := entityIdentityByID(admin, entityID); found && identity.Sphere == socialSphere {
+			count[friendlyEntityName(identity)]++
+		}
+	}
+	shared := map[string]bool{}
+	for position, n := range count {
+		if n > 1 {
+			shared[position] = true
+		}
+	}
+	return shared
 }
 
 // nameYAMLMQTTEntities names every YAML "mqtt:" entity under haOutputDir (see the file comment)
@@ -158,6 +182,11 @@ func nameYAMLMQTTEntities(haOutputDir string, admin *TAdministrationState) []str
 		}
 	}
 	files, _ := filepath.Glob(filepath.Join(haOutputDir, "entities", "mqtt", "*", "*.yaml"))
+	entityIDs := make([]string, 0, len(files))
+	for _, file := range files {
+		entityIDs = append(entityIDs, strings.TrimSuffix(filepath.Base(file), ".yaml"))
+	}
+	shared := sharedPositions(admin, entityIDs)
 	var reports, unnamed []string
 	relative, subDevices := 0, 0
 	materials := map[string]bool{}
@@ -177,11 +206,11 @@ func nameYAMLMQTTEntities(haOutputDir string, admin *TAdministrationState) []str
 				continue
 			}
 			deviceID := entityDevice[entityID]
-			if !nameEntity(admin, body, entityID, deviceID, spaceArea) {
+			if !nameEntity(admin, body, entityID, deviceID, spaceArea, shared) {
 				unnamed = append(unnamed, entityID)
 				continue
 			}
-			if body["name"] == nil {
+			if name, _ := body["device"].(map[string]interface{})["name"].(string); strings.HasPrefix(name, socialSphere+"/") {
 				subDevices++
 			} else {
 				relative++

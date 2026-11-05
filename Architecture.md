@@ -118,7 +118,9 @@ name:
 - A **positioned capability** is a sub-device of its material device (`via_device`), named after
   its conceptual position, such as `social/apartment/hallway/humidity`. It sits in that space's
   area, which can differ from the hardware's, and its single entity has no name of its own
-  (`name: null`), so the card shows just the sub-device's name.
+  (`name: null`), so the card shows just the sub-device's name. Two entities at one position from
+  two devices (a light and a cover) are two sub-devices of the same name; each entity is then
+  named by its domain ("social/house/wc light", "social/house/wc fan").
 
 So the material sphere names devices, never entities. Entities stay in social/infrastructural.
 Every material device carries its node: a discovery device's "... is available" node is an MQTT

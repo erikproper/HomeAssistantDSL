@@ -39,7 +39,7 @@ func TestNameEntityRelativeToMaterialDevice(t *testing.T) {
 		"update.infrastructural_apartment_hallway_door_aqara":               "update",
 	} {
 		body := namingTestBody()
-		if !nameEntity(admin, body, entityID, "sensors.aqara", nil) {
+		if !nameEntity(admin, body, entityID, "sensors.aqara", nil, nil) {
 			t.Fatalf("%s: not named", entityID)
 		}
 		if body["name"] != want {
@@ -53,7 +53,7 @@ func TestNameEntityRelativeToMaterialDevice(t *testing.T) {
 
 func TestNameEntitySocialBecomesSubDevice(t *testing.T) {
 	body := namingTestBody()
-	if !nameEntity(namingTestAdmin(), body, "sensor.social_apartment_hallway_humidity", "sensors.aqara", map[string]string{"sensor.social_apartment_hallway_humidity": "apartment/hallway", "binary_sensor.infrastructural_apartment_hallway_door_aqara_node": "apartment/hallway/door"}) {
+	if !nameEntity(namingTestAdmin(), body, "sensor.social_apartment_hallway_humidity", "sensors.aqara", map[string]string{"sensor.social_apartment_hallway_humidity": "apartment/hallway", "binary_sensor.infrastructural_apartment_hallway_door_aqara_node": "apartment/hallway/door"}, nil) {
 		t.Fatal("not named")
 	}
 	if body["name"] != nil {
@@ -70,7 +70,7 @@ func TestNameEntitySocialBecomesSubDevice(t *testing.T) {
 
 func TestNameEntityWithoutPositionedNodeKeepsName(t *testing.T) {
 	body := namingTestBody()
-	if nameEntity(namingTestAdmin(), body, "sensor.social_apartment_hallway_humidity", "sensors.other", nil) {
+	if nameEntity(namingTestAdmin(), body, "sensor.social_apartment_hallway_humidity", "sensors.other", nil, nil) {
 		t.Fatal("named without a positioned node")
 	}
 	if body["name"] != "full/path" {
@@ -109,5 +109,17 @@ func TestYAMLNodeBodyReadsOwnAvailability(t *testing.T) {
 func TestYAMLNodeBodyWithoutAvailability(t *testing.T) {
 	if _, ok := yamlNodeBody(map[string]interface{}{}, "binary_sensor.x_node", "uid", "", nil); ok {
 		t.Error("a body without any availability to read")
+	}
+}
+
+func TestNameEntitySharedPositionNamedByDomain(t *testing.T) {
+	admin := namingTestAdmin()
+	shared := sharedPositions(admin, []string{"sensor.social_apartment_hallway_humidity", "sensor.social_apartment_hallway_humidity"})
+	body := namingTestBody()
+	if !nameEntity(admin, body, "sensor.social_apartment_hallway_humidity", "sensors.aqara", nil, shared) {
+		t.Fatal("not named")
+	}
+	if body["name"] != "sensor" {
+		t.Errorf("name %v, want its domain", body["name"])
 	}
 }
