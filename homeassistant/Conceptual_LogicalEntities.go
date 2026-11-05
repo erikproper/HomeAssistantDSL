@@ -750,6 +750,19 @@ func (r *logicalConditionResolver) resolveTargeted(targetDeviceID, label string,
 
 // render returns node's own fully-substituted Jinja2 text. ok=false means resolution failed --
 // check r.deferred (retry later) vs r.warnings (a real, final problem) to see which.
+// renderOperand renders node as an operand of "and"/"or"/"not": a jinja clause is made a real
+// boolean, "on" (a named template such as ${int_less_than}, written for a binary_sensor's state)
+// or true counting as true -- as an operand, the text "off" would count as true too (found
+// 2026-11-05 trying "jinja (sensor.battery_level) ${int_less_than}(5) or
+// binary_sensor.reported_battery_alert", PROJECT.md 31a).
+func (r *logicalConditionResolver) renderOperand(node *TConditionExpr) (string, bool) {
+	expr, ok := r.render(node)
+	if ok && node.Kind == CondJinja && !r.valueMode {
+		expr = "(" + expr + " | string | lower in ['on', 'true'])"
+	}
+	return expr, ok
+}
+
 func (r *logicalConditionResolver) render(node *TConditionExpr) (string, bool) {
 	if node == nil || r.deferred {
 		return "", false
@@ -815,27 +828,27 @@ func (r *logicalConditionResolver) render(node *TConditionExpr) (string, bool) {
 		}
 		return "(" + buildConditionStateExpr([]string{entityID}, node.JinjaExpr) + ")", true
 	case CondNot:
-		child, ok := r.render(node.Child)
+		child, ok := r.renderOperand(node.Child)
 		if !ok {
 			return "", false
 		}
 		return "(not " + child + ")", true
 	case CondAnd:
-		left, ok := r.render(node.Left)
+		left, ok := r.renderOperand(node.Left)
 		if !ok {
 			return "", false
 		}
-		right, ok := r.render(node.Right)
+		right, ok := r.renderOperand(node.Right)
 		if !ok {
 			return "", false
 		}
 		return "(" + left + " and " + right + ")", true
 	case CondOr:
-		left, ok := r.render(node.Left)
+		left, ok := r.renderOperand(node.Left)
 		if !ok {
 			return "", false
 		}
-		right, ok := r.render(node.Right)
+		right, ok := r.renderOperand(node.Right)
 		if !ok {
 			return "", false
 		}

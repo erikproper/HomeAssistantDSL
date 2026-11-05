@@ -220,6 +220,17 @@ func parseDiscoveryDeviceBody(cur *TLineCursor, deviceID, parentDeviceID string)
 			}
 		}
 
+		// A charge estimate (PROJECT.md 31a, physical_charge_estimate.go).
+		if decl, ok, w := parseChargeEstimateLine(capabilityLine); ok || len(w) > 0 {
+			for _, warning := range w {
+				warnings = append(warnings, fmt.Sprintf("Physical.def: device %q: %s", deviceID, warning))
+			}
+			if ok {
+				current.Capabilities[decl.Label] = TDiscoveryCapability{Domain: decl.Domain, ChargeDays: decl.Days, ChargeSince: decl.Since, Hidden: hidden, Icon: icon}
+			}
+			cur.Advance()
+			continue
+		}
 		// Checked first, before discoveryCapabilityPattern: "derived" is a distinct leading
 		// keyword, unambiguous against "<domain>.<path>: ...;" -- same ordering rationale as
 		// integration_hassbridge_parser.go's own dispatch (Physical_DerivedCapability.go).

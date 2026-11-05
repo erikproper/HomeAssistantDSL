@@ -766,8 +766,14 @@ type TEntityRecord struct {
 	// generateYAMLMQTTEntities writes it as an MQTT entity of that same device, in place of the
 	// template, so every material device carries its node.
 	AvailabilityOfEntityID string
-	ConditionDelayOn       string // delay_on for binary sensors
-	ConditionDelayOff      string // delay_off for binary sensors
+	// ChargeDays/ChargeSince/ChargeDateEntityID (PROJECT.md 31a): a charge estimate's level, and
+	// its button, refer to the input_datetime holding the replacement date
+	// (physical_charge_estimate.go).
+	ChargeDays         int
+	ChargeSince        string
+	ChargeDateEntityID string
+	ConditionDelayOn   string // delay_on for binary sensors
+	ConditionDelayOff  string // delay_off for binary sensors
 
 	// General entity icon from an inline "with icon" or body "icon" directive.
 	EntityIcon string

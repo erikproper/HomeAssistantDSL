@@ -348,6 +348,10 @@ func registerDiscoveryDerivedEntityLink(administration *TAdministrationState, de
 	if len(siblingEntityIDCandidates) > 0 {
 		siblingEntityID = siblingEntityIDCandidates[0]
 	}
+	// A sibling the generator computes itself (a charge estimate, PROJECT.md 31a) has no raw leaf.
+	if siblingCapability.ChargeDays > 0 {
+		siblingEntityID = generatedSiblingEntityID(administration, decl.GatewayDeviceID, capability.DerivedFromCapability)
+	}
 	if siblingEntityID == "" {
 		if !finalAttempt {
 			return nil, true

@@ -398,6 +398,7 @@ func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutput
 		{"input numbers", generateInputNumbers},
 		{"input booleans", generateInputBooleans},
 		{"input datetimes", generateInputDatetimes},
+		{"charge estimates", generateChargeEstimates},
 		{"template sensors", generateTemplateSensors},
 		{"condition entities", generateConditionEntities},
 		{"infrastructural binary sensor groups", generateInfrastructuralGroups},

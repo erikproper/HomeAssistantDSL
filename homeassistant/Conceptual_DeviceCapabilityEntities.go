@@ -551,6 +551,9 @@ func registerDeviceCapabilityEntityLinkAllowingHiddenCore(administration *TAdmin
 		// may not be positioned yet), not registerDiscoveryEntityLink's raw-leaf path. Unknown
 		// capability names fall through to registerDiscoveryEntityLink unchanged, which already
 		// reports the "declares no ... capability" warning itself.
+		if capability, capFound := gateway.Capabilities[bareName]; capFound && capability.ChargeDays > 0 {
+			return registerDiscoveryChargeEntityLink(administration, discoveryDecl, capability, deviceNamePath, entitiesPath, lineNum), false
+		}
 		if capability, capFound := gateway.Capabilities[bareName]; capFound && capability.AvailabilityOf != "" {
 			return registerDiscoveryAvailabilityEntityLink(administration, discoveryDecl, capability, discoveryGatewaysByID, deviceNamePath, entitiesPath, lineNum, finalAttempt)
 		}
