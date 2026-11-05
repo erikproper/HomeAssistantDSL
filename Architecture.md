@@ -126,7 +126,9 @@ So the material sphere names devices, never entities. Entities stay in social/in
 Every material device carries its node: a discovery device's "... is available" node is an MQTT
 entity of that device (on while the device's own availability entry says so, unavailable while
 its gateway is down), no longer a template, which can't belong to a device. The generator does
-the naming in one pass over all YAML "mqtt:" entities (`entity_naming.go`).
+the naming in one pass over all YAML "mqtt:" entities (`entity_naming.go`), and writes no
+customization friendly_name for its own entities: Home Assistant composes them from these names
+(it plans to sunset the customized friendly_name anyway).
 
 ---
 
@@ -561,7 +563,7 @@ itself:
 | unique_id | the entity's permanent identity, the registry's key (per platform and domain) | the integration: our frozen `as unique_id <id>` | never |
 | entity_id | the handle automations, templates and our generated YAML refer to | Home Assistant, once, when the unique_id first appears (from the suggested `default_entity_id`/name) | only by a registry rename |
 | name | the entity name the UI shows (registry name / original_name) | the integration (discovery/YAML `name`, PROJECT.md 17h), or the user | when the integration sends another one |
-| friendly_name | a state attribute | Home Assistant, or our customization | with the customization |
+| friendly_name | a state attribute | Home Assistant, composed from device and entity name (since 2026-11-05 no customization for entities whose YAML is ours; a native integration's entity keeps its customized one) | with the names |
 
 Once a unique_id is in the registry, Home Assistant keeps its entity_id: a template or discovery
 config suggesting another one is ignored. That is deliberate on Home Assistant's side (a user's
@@ -1383,7 +1385,9 @@ own anyway. The fix, applied uniformly: an entity's own friendly name is always
 device's own friendly name is its *positioned* `node` entity's identity with the trailing `/node`
 segment dropped (`resolveDeviceFriendlyName`) — e.g. a Z-Wave relay's own node positioned at
 `infrastructural:garage/fuse_cabinet/zwave/042` gives the device itself that same path, correctly
-describing the relay's real install location regardless of which room(s) it switches.
+describing the relay's real install location regardless of which room(s) it switches. (Since
+2026-11-05, PROJECT.md 32: the device is named `material/<that path>` and its entities relative to
+it, or as social sub-devices -- see §3, "material".)
 
 **Finding a device's own `node` entity needed one universal choke point, not per-kind lookups.**
 Four different internal shapes can back a device's "node" capability (a raw discovery leaf; a
@@ -1594,8 +1598,8 @@ gateway, or a schema change, and then the table and the code change together.
 **How the YAML entities are built (item 19, done 2026-10-27).** One file per entity,
 `entities/mqtt/<domain>/<entity_id>.yaml`, included with `!include_dir_merge_list`. Every entity
 keeps the unique_id (its frozen universal ID, §6.7) and entity_id it had under discovery, so
-registry entries, devices and history stay; its `name` is its full conceptual name ("sphere/path",
-the UI shows the registry name, not the friendly_name).
+registry entries, devices and history stay; its `name` is relative to its material device, or
+null for a social sub-device's (§3, "material"; until 2026-11-05 its full conceptual name).
 - *Discovered*: the coordinator collects every discovery config of every declared gateway, used or
   not, and publishes them retained per gateway (`discovery_raw_configs/<gateway>/state`, also
   under `<installation>/` on the cloud broker). Generate fetches them and caches them in

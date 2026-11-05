@@ -77,12 +77,9 @@ func runGenerationFromDefFile(cwd, defPath string) error {
 	if err := writeUnpositionedCapabilitiesReport(cwd, admin, admin.UnpositionedDevices); err != nil {
 		return err
 	}
-	if noFriendlyNames {
-		dropped, err := dropFriendlyNames(outputDir)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("[customization] no friendly_names (-no_friendly_names): %d dropped\n", dropped)
+	// Home Assistant composes the names of the entities whose YAML is ours (PROJECT.md 32).
+	if _, err := dropFriendlyNames(outputDir); err != nil {
+		return err
 	}
 	// Last: every YAML-writing step, the physical layer's included, has recorded its entities.
 	if err := generateRegistryManifest(outputDir, admin); err != nil {

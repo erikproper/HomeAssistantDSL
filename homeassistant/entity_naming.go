@@ -234,12 +234,10 @@ func nameYAMLMQTTEntities(haOutputDir string, admin *TAdministrationState) []str
 	return reports
 }
 
-// noFriendlyNames (PROJECT.md 32, "-no_friendly_names"): Home Assistant plans to sunset the
-// customized friendly_name, and the naming above no longer needs it -- a test, Vienna first.
-var noFriendlyNames bool
-
 // dropFriendlyNames removes the friendly_name from every customization file under outputDir of an
-// entity the generator writes itself (entities/.../<entity_id>.yaml), and the files left with
+// entity the generator writes itself -- Home Assistant plans to sunset the customized
+// friendly_name, and the naming above no longer needs it (PROJECT.md 32, tested in both houses
+// 2026-11-05) (entities/.../<entity_id>.yaml), and the files left with
 // nothing else (an icon stays), and returns how many it dropped. A native integration's entity
 // keeps its friendly_name: nothing else names it ours (found live 2026-11-05, Vienna's System
 // Monitor sensors reading "processor_use").

@@ -42,12 +42,11 @@ func main() {
 	deploy := flag.Bool("deploy", false, "PROJECT.md 30: carry out the house's deploy.yaml (deploy_run.go), written by the last generate")
 	dryRun := flag.Bool("n", false, "with -deploy: print every command instead of running it")
 	only := flag.String("only", "", "with -deploy: just these parts, comma-separated (coordinator, main, ha2mqtt, home_assistant, hosts, containers, commandline)")
-	flag.BoolVar(&noFriendlyNames, "no_friendly_names", false, "PROJECT.md 32: write no customization friendly_names, so Home Assistant composes every name itself (a test, Vienna first)")
 	flag.Parse()
 
 	args := flag.Args()
 	if len(args) != 1 || !strings.HasSuffix(args[0], ".def") {
-		fmt.Fprintf(os.Stderr, "usage: homeassistant [-format | -deploy [-n] [-only <parts>]] [-no_friendly_names] [-would_define <entity_id>] [-derived_migration_candidates] [-bootstrap_stable_ids <mapping.json>] <path/to/Main.def>\n")
+		fmt.Fprintf(os.Stderr, "usage: homeassistant [-format | -deploy [-n] [-only <parts>]] [-would_define <entity_id>] [-derived_migration_candidates] [-bootstrap_stable_ids <mapping.json>] <path/to/Main.def>\n")
 		os.Exit(1)
 	}
 
