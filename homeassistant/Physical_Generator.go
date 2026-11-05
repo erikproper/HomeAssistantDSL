@@ -317,7 +317,9 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 			return err
 		}
 	}
-	// Every YAML "mqtt:" entity is written by now: one field Home Assistant doesn't know would
+	// Every YAML "mqtt:" entity is written by now: named from its device's node (PROJECT.md 32).
+	printYAMLReports("[physical]", nameYAMLMQTTEntities(haOutputDir, ctx.Admin))
+	// One field Home Assistant doesn't know would
 	// make its whole MQTT reload fail, so that stops generate (PROJECT.md 19h.3).
 	if problems := validateYAMLMQTTEntities(haOutputDir); len(problems) > 0 {
 		for _, problem := range problems {

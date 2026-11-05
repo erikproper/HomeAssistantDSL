@@ -295,6 +295,8 @@ func registerDiscoveryAvailabilityEntityLink(administration *TAdministrationStat
 		ConditionExpr:     expr,
 		ConditionDevClass: deviceClass,
 		EntityIcon:        icon,
+		// Written as an MQTT entity of the device itself when its sibling is (PROJECT.md 32).
+		AvailabilityOfEntityID: siblingEntityID,
 		// This is a generator-authored condition entity, never something assumed to already exist
 		// on "main" -- without this, collectMainEntityIDs (main_entities.go) wrongly sweeps it into
 		// kind-5's "assumed to exist" list, and the coordinator's existence check fails it the

@@ -182,6 +182,18 @@ func generateYAMLMQTTEntities(definitionDir string, gateways map[string]TDiscove
 	}
 	seenStateTopics := map[string]bool{}
 	shadowedTopics := map[string]bool{}
+	// PROJECT.md 32: every "... is available" node, by its device, written below as an entity of it.
+	nodesByGateway := map[string][]TEntityRecord{}
+	for _, spaceName := range admin.SpaceOrder {
+		for _, rec := range admin.EntityRecordsBySpace[spaceName] {
+			if rec.AvailabilityOfEntityID != "" {
+				gatewayID := admin.DiscoveryEntityLinks[rec.AvailabilityOfEntityID].GatewayDeviceID
+				nodesByGateway[gatewayID] = append(nodesByGateway[gatewayID], rec)
+			}
+		}
+	}
+	nodeShared := sharedAvailabilityTopics(configs)
+	admin.YAMLNodeUniqueIDs = map[string]string{}
 	for _, gatewayID := range marked {
 		var gatewaySeen []string
 		ownDropped := map[string]bool{}
@@ -281,6 +293,35 @@ func generateYAMLMQTTEntities(definitionDir string, gateways map[string]TDiscove
 			admin.YAMLEntities[entityID] = body
 			written++
 		}
+		for _, rec := range nodesByGateway[gatewayID] {
+			sibling, found := admin.YAMLEntities[rec.AvailabilityOfEntityID]
+			nodeID := toHomeAssistantEntityID(rec.Name)
+			if !found {
+				continue // its sibling has no YAML: the template stays
+			}
+			body, ok := yamlNodeBody(sibling, nodeID, admin.UniqueIDFor(nodeID), rec.ConditionDevClass, nodeShared)
+			if !ok {
+				reports = append(reports, fmt.Sprintf("%s: no availability entry to read its state from -- left a template", nodeID))
+				continue
+			}
+			data, err := yaml.Marshal([]map[string]interface{}{{"binary_sensor": body}})
+			if err == nil {
+				err = writeYAMLFile(filepath.Join(dir, "binary_sensor", nodeID+".yaml"), generatorHeader+string(data))
+			}
+			if err != nil {
+				reports = append(reports, fmt.Sprintf("%s: %v", nodeID, err))
+				continue
+			}
+			// It replaces the template generateConditionEntities wrote before.
+			template := filepath.Join(ctx.HAOutputDir, "entities", "template", rec.Identity.Domain, rec.Identity.Sphere, nodeID+".yaml")
+			if err := os.Remove(template); err != nil && !os.IsNotExist(err) {
+				reports = append(reports, fmt.Sprintf("%s: %v", nodeID, err))
+			}
+			delete(generatedUniqueIDs, nodeID)
+			admin.YAMLNodeUniqueIDs[nodeID] = fmt.Sprint(body["unique_id"])
+			admin.YAMLEntities[nodeID] = body
+			written++
+		}
 		report := fmt.Sprintf("%s: %d entities via YAML", gatewayID, written) + droppedFieldsNote(noted)
 		if len(ownDropped) > 0 {
 			topics := make([]string, 0, len(ownDropped))
@@ -363,6 +404,80 @@ func yamlEntityBody(relayed map[string]interface{}, domain string, gateway TDisc
 	}
 	body["device"] = copied
 	return body
+}
+
+// yamlNodeBody builds a device's "... is available" node (PROJECT.md 32) as a YAML "mqtt:"
+// binary_sensor of the same device as sibling, the entity whose availability it reports: on while
+// the device's own availability entry (the one no other device carries) says available, off when
+// it doesn't, and unavailable while its gateway (the shared entries) is down -- the template it
+// replaces read "off" then too. Without an entry of its own, the first one is read. false when
+// sibling has no availability, or an entry's value_template isn't one expression.
+func yamlNodeBody(sibling map[string]interface{}, nodeID, uniqueID, deviceClass string, shared map[string]bool) (map[string]interface{}, bool) {
+	var entries []map[string]interface{}
+	if list, isList := sibling["availability"].([]interface{}); isList {
+		for _, item := range list {
+			if entry, isMap := item.(map[string]interface{}); isMap {
+				entries = append(entries, entry)
+			}
+		}
+	} else if topic, single := sibling["availability_topic"].(string); single && topic != "" {
+		entry := map[string]interface{}{"topic": topic}
+		for _, key := range []string{"payload_available", "payload_not_available"} {
+			if value, has := sibling[key]; has {
+				entry[key] = value
+			}
+		}
+		entries = append(entries, entry)
+	}
+	if len(entries) == 0 {
+		return nil, false
+	}
+	own := 0
+	for i, entry := range entries {
+		if topic, _ := entry["topic"].(string); !shared[topic] {
+			own = i
+			break
+		}
+	}
+	state := entries[own]
+	available := "online"
+	if value, has := state["payload_available"]; has {
+		available = fmt.Sprint(value)
+	}
+	value := "value"
+	if template, has := state["value_template"].(string); has {
+		expression, isExpression := strings.CutPrefix(strings.TrimSpace(template), "{{")
+		expression, closed := strings.CutSuffix(expression, "}}")
+		if !isExpression || !closed || strings.Contains(expression, "{{") || strings.Contains(expression, "{%") {
+			return nil, false
+		}
+		value = "(" + strings.TrimSpace(expression) + ")"
+	}
+	if deviceClass == "" {
+		deviceClass = "connectivity"
+	}
+	body := map[string]interface{}{
+		"unique_id":         uniqueID,
+		"default_entity_id": nodeID,
+		"name":              nil,
+		"device":            sibling["device"],
+		"device_class":      deviceClass,
+		"state_topic":       state["topic"],
+		"value_template":    fmt.Sprintf("{{ '%s' if %s == '%s' else '%s' }}", hamqtt.StateOn, value, available, hamqtt.StateOff),
+		"payload_on":        hamqtt.StateOn,
+		"payload_off":       hamqtt.StateOff,
+	}
+	var rest []interface{}
+	for i, entry := range entries {
+		if i != own {
+			rest = append(rest, entry)
+		}
+	}
+	if len(rest) > 0 {
+		body["availability"] = rest
+		body["availability_mode"] = "all"
+	}
+	return body, true
 }
 
 // validateYAMLMQTTEntities checks every YAML "mqtt:" entity under haOutputDir against Home

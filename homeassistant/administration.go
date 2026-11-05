@@ -97,7 +97,10 @@ type TAdministrationState struct {
 	// YAMLEntities (PROJECT.md 19c) maps every entity Home Assistant gets from the generator's own
 	// YAML "mqtt:" config to the exact discovery config the coordinator built for it
 	// (mqtt_yaml_entities.go) -- the coordinator no longer relays these.
-	YAMLEntities            map[string]map[string]interface{}
+	YAMLEntities map[string]map[string]interface{}
+	// YAMLNodeUniqueIDs (PROJECT.md 32): the nodes written as YAML "mqtt:" entities in place of a
+	// template (TEntityRecord.AvailabilityOfEntityID), entity_id -> unique_id, for the manifest.
+	YAMLNodeUniqueIDs       map[string]string
 	ExternalEntitiesBySpace map[string][]string
 	SpaceDepthByName        map[string]int
 	SpaceOffByName          map[string][]string // Entities/aggregations to turn off
@@ -758,8 +761,13 @@ type TEntityRecord struct {
 	ConditionSources  []string // normalised HA entity IDs for $/$1/$2/... in the condition expression
 	ConditionExpr     string   // Jinja2 template expression with $/$1/$2 as placeholders
 	ConditionDevClass string   // device_class for the generated template entity
-	ConditionDelayOn  string   // delay_on for binary sensors
-	ConditionDelayOff string   // delay_off for binary sensors
+	// AvailabilityOfEntityID (PROJECT.md 32, 2026-11-05) is set for a discovery device's
+	// "... is available" capability (its node): the sibling entity whose availability it reports.
+	// generateYAMLMQTTEntities writes it as an MQTT entity of that same device, in place of the
+	// template, so every material device carries its node.
+	AvailabilityOfEntityID string
+	ConditionDelayOn       string // delay_on for binary sensors
+	ConditionDelayOff      string // delay_off for binary sensors
 
 	// General entity icon from an inline "with icon" or body "icon" directive.
 	EntityIcon string

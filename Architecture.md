@@ -98,6 +98,34 @@ description at the time was "implementation detail... not normally exposed as a 
 entity" — close enough in spirit to infrastructural that folding it there is the likely eventual
 target, whenever that migration is actually undertaken.
 
+**"material": physical in the real-world sense** (2026-11-05, Erik; PROJECT.md 32). The word
+"physical" is used twice, with two different meanings, and the two must not be confused:
+
+- **digital.physical**: the bottom of the three modelling layers of §2 (conceptual/logical/physical).
+  This is the classic database terminology (ISO: external/conceptual/logical/physical), and it is
+  about the *digital* realisation: integrations, MQTT topics, Z-Wave nodes, Physical.def.
+- **real.physical**: the hardware as an object in the world, standing at a place in the house.
+
+To keep the two apart, the real-world sense is called **material**. "physical" would have been the
+more natural word, but it is already taken by the layer (and, for now, by the legacy sphere above).
+
+The HA naming follows from this, since 2026.11 composes a card's name from device name plus entity
+name:
+
+- A **material device** is the hardware, named after where it actually is, the position of its
+  node: `material/apartment/hallway/door/aqara_multi`. Its own (infrastructural) entities carry
+  names relative to it, such as `battery_level` and `node`.
+- A **positioned capability** is a sub-device of its material device (`via_device`), named after
+  its conceptual position, such as `social/apartment/hallway/humidity`. It sits in that space's
+  area, which can differ from the hardware's, and its single entity has no name of its own
+  (`name: null`), so the card shows just the sub-device's name.
+
+So the material sphere names devices, never entities. Entities stay in social/infrastructural.
+Every material device carries its node: a discovery device's "... is available" node is an MQTT
+entity of that device (on while the device's own availability entry says so, unavailable while
+its gateway is down), no longer a template, which can't belong to a device. The generator does
+the naming in one pass over all YAML "mqtt:" entities (`entity_naming.go`).
+
 ---
 
 ## 4. Three identities of a device
