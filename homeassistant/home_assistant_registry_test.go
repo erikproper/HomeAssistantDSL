@@ -102,3 +102,17 @@ func TestPlanRegistryRepairNativeIDs(t *testing.T) {
 		t.Errorf("ids = %v, reports = %v, want %v", ids, idReports, want)
 	}
 }
+
+func TestDeviceNameResetsOnlyOwnDevices(t *testing.T) {
+	manifest := tRegistryManifest{"devices": json.RawMessage(`["zigbee2mqtt_0x1"]`)}
+	devices := []registryDevice{
+		{ID: "a", Name: "material/x", NameByUser: "x by hand", Identifiers: [][]string{{"mqtt", "zigbee2mqtt_0x1"}}},
+		{ID: "b", Name: "material/y", Identifiers: [][]string{{"mqtt", "zigbee2mqtt_0x1"}}},
+		{ID: "c", Name: "Living Room", NameByUser: "apartment/living_room/sonos", Identifiers: [][]string{{"sonos", "RINCON"}}},
+		{ID: "d", Name: "other", NameByUser: "z", Identifiers: [][]string{{"mqtt", "zigbee2mqtt_0x2"}}},
+	}
+	resets := deviceNameResets(devices, manifest)
+	if len(resets) != 1 || resets[0].ID != "a" {
+		t.Errorf("resets %v, want only our device a", resets)
+	}
+}

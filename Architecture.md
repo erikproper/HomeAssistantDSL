@@ -579,7 +579,11 @@ can prove are the generator's own (a YAML-platform entry whose unique_id is in t
 previous manifest, or an MQTT entry whose unique_id is a frozen stable_id), and skips and reports a
 rename whose target entity_id is held by anything else. A unique_id that disappears from the
 table goes from Home Assistant too (Erik, 2026-10-26): the repair removes the generator-owned
-entries the generator no longer produces (e.g. replaced wrapper switches). Entities a native
+entries the generator no longer produces (e.g. replaced wrapper switches). A device name set by
+hand in Home Assistant overrides the generator's, so the repair clears it on the generator's own
+devices (the manifest's `devices`: every identifier the YAML "mqtt:" entities declare; PROJECT.md
+32, Erik, 2026-11-05); a native integration's device keeps its hand-set name, which is how it gets
+its position. Entities a native
 integration provides (Ring, Sonos, Apple TV, ...: Physical.def "integration local" capabilities
 the generator only refers to) are in the table too, as "native" (PROJECT.md 17j, 30): each is
 found by its frozen ID -- the integration's own platform and unique_id, `capability

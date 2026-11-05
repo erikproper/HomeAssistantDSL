@@ -469,6 +469,43 @@ func jsonEqual(a, b any) bool {
 	return string(ja) == string(jb)
 }
 
+// registryDevice is one entry of HA's device registry, as config/device_registry/list gives it.
+type registryDevice struct {
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	NameByUser  string     `json:"name_by_user"`
+	Identifiers [][]string `json:"identifiers"`
+}
+
+// deviceNameResets are the generator's own devices (an MQTT identifier the manifest's "devices"
+// lists) with a name set by hand in Home Assistant, which overrides the generator's (PROJECT.md
+// 32, Erik, 2026-11-05). A native integration's device keeps its hand-set name: that is how it
+// gets its position.
+func deviceNameResets(devices []registryDevice, manifest tRegistryManifest) []registryDevice {
+	var ours []string
+	if raw, ok := manifest["devices"]; ok {
+		json.Unmarshal(raw, &ours)
+	}
+	own := map[string]bool{}
+	for _, identifier := range ours {
+		own[identifier] = true
+	}
+	var resets []registryDevice
+	for _, device := range devices {
+		if device.NameByUser == "" {
+			continue
+		}
+		for _, identifier := range device.Identifiers {
+			if len(identifier) == 2 && identifier[0] == "mqtt" && own[identifier[1]] {
+				resets = append(resets, device)
+				break
+			}
+		}
+	}
+	sort.Slice(resets, func(i, j int) bool { return resets[i].Name < resets[j].Name })
+	return resets
+}
+
 // applyRegistryRepair removes and renames -- the renames in two phases, so a set of renames that
 // trade names (a -> b, b -> a) never collides -- and sets the display options (a failure there is
 // a warning, never a failed deploy).
@@ -563,6 +600,15 @@ func (d *tDeployer) repairRegistry(instance TDeployInstance) {
 		}
 	}
 
+	devicesReply, err := ha.call(map[string]any{"type": "config/device_registry/list"})
+	if err != nil {
+		fmt.Printf("  ERROR: reading the device registry: %v\n", err)
+		d.stepFailed = true
+		return
+	}
+	var devices []registryDevice
+	remarshal(devicesReply["result"], &devices)
+
 	renames, removals, reports := planRegistryRepair(registry, manifest, previous, live)
 	note := ""
 	if len(previous) == 0 {
@@ -581,6 +627,10 @@ func (d *tDeployer) repairRegistry(instance TDeployInstance) {
 	}
 	for _, report := range reports {
 		fmt.Println("  " + report)
+	}
+	resets := deviceNameResets(devices, manifest)
+	for _, device := range resets {
+		fmt.Printf("  device name %q set by hand -> the generator's %q\n", device.NameByUser, device.Name)
 	}
 	displays := ha.displayUpdates(manifest, attributes)
 	fmt.Printf("display options: %d sensor(s)\n", len(displays))
@@ -601,6 +651,11 @@ func (d *tDeployer) repairRegistry(instance TDeployInstance) {
 		fmt.Println("  Physical.def has new frozen native IDs: generate before the next deploy")
 	}
 	errors, warnings := ha.applyRegistryRepair(renames, removals, displays)
+	for _, device := range resets {
+		if reply, err := ha.call(map[string]any{"type": "config/device_registry/update", "device_id": device.ID, "name_by_user": nil}); err != nil || reply["success"] != true {
+			errors = append(errors, fmt.Sprintf("device name of %s: %v", device.Name, replyError(reply, err)))
+		}
+	}
 	for _, warning := range warnings {
 		fmt.Println("  WARNING " + warning)
 	}

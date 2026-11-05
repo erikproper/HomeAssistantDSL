@@ -31,12 +31,15 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // TRegistryManifestEntry is one generated entity: the unique_id HA registers it under, and the
@@ -85,6 +88,10 @@ type TRegistryManifest struct {
 	// precision" and "Unit of measurement"), which the repair sets: rounding only for display, a
 	// unit change converted by Home Assistant itself, history and statistics unaffected.
 	Display []TRegistryManifestDisplay `json:"display"`
+	// Devices (PROJECT.md 32, 2026-11-05): the identifiers of every device the YAML "mqtt:"
+	// entities declare -- the generator's own devices, whose name a hand-set one in Home Assistant
+	// would override; the repair clears that.
+	Devices []string `json:"devices"`
 }
 
 // TRegistryManifestDisplay is one sensor's display options; Precision nil for none, Unit "" for
@@ -194,6 +201,11 @@ func generateRegistryManifest(outputDir string, admin *TAdministrationState) err
 	}
 	manifest.Other = other
 	manifest.Areas = entityAreas(admin, manifest)
+	devices, err := generatedDeviceIdentifiers(outputDir)
+	if err != nil {
+		return err
+	}
+	manifest.Devices = devices
 	for _, list := range [][]TRegistryManifestEntry{manifest.YAML, manifest.MQTT, manifest.Imported, manifest.Bridged} {
 		sort.Slice(list, func(i, j int) bool { return list[i].EntityID < list[j].EntityID })
 	}
@@ -506,4 +518,34 @@ func registryDisplayOptions(admin *TAdministrationState) []TRegistryManifestDisp
 	}
 	sort.Slice(display, func(i, j int) bool { return display[i].EntityID < display[j].EntityID })
 	return display
+}
+
+// generatedDeviceIdentifiers returns, sorted, every identifier of the devices the YAML "mqtt:"
+// entities under outputDir declare.
+func generatedDeviceIdentifiers(outputDir string) ([]string, error) {
+	files, err := filepath.Glob(filepath.Join(outputDir, "entities", "mqtt", "*", "*.yaml"))
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return nil, err
+		}
+		var parsed []map[string]map[string]interface{}
+		if yaml.Unmarshal(data, &parsed) != nil {
+			continue // validateYAMLMQTTEntities reports it
+		}
+		for _, entry := range parsed {
+			for _, body := range entry {
+				device, _ := body["device"].(map[string]interface{})
+				identifiers, _ := device["identifiers"].([]interface{})
+				for _, identifier := range identifiers {
+					seen[fmt.Sprint(identifier)] = true
+				}
+			}
+		}
+	}
+	return sortedMapKeys(seen), nil
 }
