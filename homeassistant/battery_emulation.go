@@ -464,7 +464,8 @@ func copyDeviceBlock(device map[string]interface{}) map[string]interface{} {
 var batteryEmulationInstanceDomains = []string{"input_boolean", "input_datetime", "input_number", "template"}
 
 // batteryEmulationBackingID is the entity on the emulating instance behind mainEntityID -- its own
-// id, so that main can run the emulation itself too; its unique_id is main's with "_source".
+// id, so that main can run the emulation itself too; its unique_id is main's with "_emulation" (as
+// first deployed: ha2mqtt's registry holds these).
 func batteryEmulationBackingID(domain, mainEntityID string) string {
 	return domain + "." + mainEntityID[strings.Index(mainEntityID, ".")+1:] + "_emulation"
 }
@@ -495,12 +496,12 @@ func writeBatteryEmulationInstanceFiles(instanceOutputDir, instance string, admi
 			filepath.Join("input_number", "infrastructural", duration+".yaml"): object(duration) + ":\n  name: " + name(entities.Duration) +
 				"\n  min: 1\n  max: 3650\n  step: 1\n  mode: box\n  unit_of_measurement: d\n",
 			filepath.Join("input_boolean", "infrastructural", seeded+".yaml"):     object(seeded) + ":\n  name: " + name(entities.Level) + " seeded\n",
-			filepath.Join("template", "sensor", "infrastructural", level+".yaml"): batteryEmulationLevelYAML(level, name(entities.Level), uniqueIDs[entities.Level]+"_source", date, duration),
+			filepath.Join("template", "sensor", "infrastructural", level+".yaml"): batteryEmulationLevelYAML(level, name(entities.Level), uniqueIDs[entities.Level]+"_emulation", date, duration),
 		}
 		alert := ""
 		if entities.Alert != "" {
 			alert = batteryEmulationBackingID("binary_sensor", entities.Alert)
-			files[filepath.Join("template", "binary_sensor", "infrastructural", alert+".yaml")] = batteryEmulationAlertYAML(alert, name(entities.Alert), uniqueIDs[entities.Alert]+"_source", level, emulation.AlertPercent)
+			files[filepath.Join("template", "binary_sensor", "infrastructural", alert+".yaml")] = batteryEmulationAlertYAML(alert, name(entities.Alert), uniqueIDs[entities.Alert]+"_emulation", level, emulation.AlertPercent)
 		}
 		for path, content := range files {
 			if err := writeYAMLFile(filepath.Join(instanceOutputDir, "entities", path), generatorHeader+content); err != nil {
@@ -518,8 +519,11 @@ func writeBatteryEmulationInstanceFiles(instanceOutputDir, instance string, admi
 		if alert != "" {
 			reports = append(reports, struct{ entityID, source, suffix string }{entities.Alert, alert, "/battery_alert"})
 		}
+		// queued: on a reload the seed changes the date while its report is still running for
+		// automation_reloaded, and HA's default (single) would drop that change's report.
 		for _, report := range reports {
 			sb.WriteString(entityReportingAutomationBody(levelIdentity, []string{report.source}, hamqtt.BridgeStateTopic(instance, report.entityID), "states('"+report.source+"')", report.suffix))
+			sb.WriteString("  mode: queued\n")
 		}
 		setValue := hamqtt.Command{ValueTrigger: true}
 		dateIdentity, _ := entityIdentityByID(admin, entities.Date)
