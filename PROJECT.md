@@ -79,6 +79,22 @@ JLI
  
 ## Migration & improvements
 
+31b. Battery level emulation as a physical capability (Erik, 2026-11-06; to think through first).
+    Today (2026-11-06) the date-based level and its alert are Logical.def capabilities
+    (logical_charge_estimate.go, README "Battery level by days since replacement") -- template
+    entities, which can't belong to a device, so they don't show under the thermostat's material
+    device. Instead: "battery level emulation on <HA instance>" in Physical.def (normally ha2mqtt,
+    in principle main), and "battery level emulation;" on any device (any integration): the
+    simulation runs on that instance (level and alert templates, date and duration helpers, a
+    reset), bridged to main as MQTT entities on the device's material device -- sensor
+    battery_level, binary_sensor battery_alert, date batteries_replaced (MQTT has "date" since
+    2026.x), number battery_duration, button batteries_replaced. Needs the bridge's command routing
+    (today switch/vacuum) for date/number/button. Naming as for adjustments: the device's own
+    reading becomes internal battery_level_raw (and battery_alert_raw), the emulation takes the plain
+    names. Open: the OR with battery_alert_raw reads two values, so the raw alert must exist on the
+    emulating instance as an entity without showing on main. Then: drop the Logical.def blocks of
+    the two Junglinster thermostats; a retained start date solves "HA creates the helper at today".
+
 33. Architectural review, code review and documenting
    - Note (2026-09-05): GO_CONVENTIONS.md §7/§8 specifies a three-layer parser architecture
      (character stream -> tokeniser -> recursive-descent, CDL1 bool-returning style, no `error`
