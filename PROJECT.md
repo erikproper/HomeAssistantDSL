@@ -80,6 +80,7 @@ JLI
 ## Migration & improvements
 
 33. Architectural review, code review and documenting
+   - Review progress per Go file: REVIEW.md (not ready / ready / re-review / reviewed).
    - Note (2026-09-05): GO_CONVENTIONS.md §7/§8 specifies a three-layer parser architecture
      (character stream -> tokeniser -> recursive-descent, CDL1 bool-returning style, no `error`
      returns from parse functions). The DSL frontend (Physical.def/Spaces.def parsing) does not
