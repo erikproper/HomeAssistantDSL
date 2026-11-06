@@ -125,7 +125,7 @@ func (d *tDeployer) deployInstance(instance TDeployInstance) (string, int64) {
 	user := d.plan.Machines[instance.Machine].User
 	switch instance.Kind {
 	case "ha_os":
-		meta := d.metaAction(instance, instance.Config+"/"+metaReloadAutomation)
+		meta := d.metaAction(instance)
 		d.run("", "", "rsync", "-rltv", "--delete", "-e", shell, instance.Files+"/", target+instance.Machine)
 		for _, entry := range deployConfigEntries {
 			d.remote(instance.Machine, "sudo rsync -arv --delete /home/"+user+"/"+instance.Machine+"/"+entry+" /root/config")
@@ -143,7 +143,7 @@ func (d *tDeployer) deployInstance(instance TDeployInstance) (string, int64) {
 		}
 		return meta, at
 	case "container":
-		meta := d.metaAction(instance, instance.Config+"/"+metaReloadAutomation)
+		meta := d.metaAction(instance)
 		for _, entry := range deployConfigEntries {
 			if _, err := os.Stat(filepath.Join(d.houseDir, instance.Files, entry)); err == nil {
 				d.run("", "", "rsync", "-rltv", "-e", shell, "--rsync-path=sudo rsync", "--delete", instance.Files+"/"+entry, target+instance.Config)
@@ -162,23 +162,27 @@ func (d *tDeployer) deployInstance(instance TDeployInstance) (string, int64) {
 
 // metaAction is the reload or restart an instance gets once its configuration is in place:
 // "restart" when its reload automation itself changes (reloading would remove the automation
-// waiting for that very reload, found live 2026-10-26), else "reload"; "none" when the machine
-// can't be reached. -n decides nothing.
-func (d *tDeployer) metaAction(instance TDeployInstance, remotePath string) string {
-	local, err := os.ReadFile(filepath.Join(d.houseDir, instance.Files, metaReloadAutomation))
-	command := append(d.ssh(instance.Machine), "sudo cat "+remotePath+" 2> /dev/null; true")
-	fmt.Println("+ " + shellJoin(append([]string{"ssh"}, command...)) + "   (reload or restart)")
-	if d.dryRun {
-		return "reload"
+// waiting for that very reload, found live 2026-10-26) or its configuration.yaml does (a reload
+// never sets up an integration that is new there, found live 2026-11-06 with ha2mqtt's
+// template:), else "reload"; "none" when the machine can't be reached. -n decides nothing.
+func (d *tDeployer) metaAction(instance TDeployInstance) string {
+	action := "reload"
+	for _, file := range []string{metaReloadAutomation, "configuration.yaml"} {
+		local, err := os.ReadFile(filepath.Join(d.houseDir, instance.Files, file))
+		command := append(d.ssh(instance.Machine), "sudo cat "+instance.Config+"/"+file+" 2> /dev/null; true")
+		fmt.Println("+ " + shellJoin(append([]string{"ssh"}, command...)) + "   (reload or restart)")
+		if d.dryRun {
+			continue
+		}
+		remote, sshErr := exec.Command("ssh", command...).Output()
+		switch {
+		case sshErr != nil:
+			return "none"
+		case err != nil || !bytes.Equal(local, remote):
+			action = "restart"
+		}
 	}
-	remote, sshErr := exec.Command("ssh", command...).Output()
-	switch {
-	case sshErr != nil:
-		return "none"
-	case err == nil && bytes.Equal(local, remote):
-		return "reload"
-	}
-	return "restart"
+	return action
 }
 
 // publishMeta asks instance's reload or restart automation to run, through the cloud broker

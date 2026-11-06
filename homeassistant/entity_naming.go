@@ -72,7 +72,7 @@ func entityDeviceIDs(admin *TAdministrationState) map[string]string {
 		entityDevice[entityID] = link.GatewayDeviceID
 	}
 	for deviceID, entities := range admin.BatteryEmulationEntities {
-		for _, entityID := range []string{entities.Level, entities.Alert, entities.Date, entities.Duration, entities.Reset} {
+		for _, entityID := range []string{entities.Level, entities.Alert, entities.Date, entities.Reset} {
 			if entityID != "" {
 				entityDevice[entityID] = deviceID
 			}

@@ -18,17 +18,17 @@
  *   battery level emulation as unique_id <root> lasting 90 days since 31.10.2026 with alert at 5%;
  *
  * which gives the device its battery_level and battery_alert (positioned in Conceptual.def as
- * usual), plus three entities next to the level: the replacement date ("batteries_replaced"), the
- * duration a charge is assumed to last ("battery_duration") and a button setting the date to today
- * ("batteries_replaced_today"). "lasting" and "since" are the starting values, set once by the
- * emulating instance (a hidden "seeded" flag); after that the date and duration are edited on main.
- * The level is 100 * (X - D) / X percent (X the duration, D the days since replacement, kept between
+ * usual), plus two entities next to the level: the replacement date ("batteries_replaced") and a
+ * button setting it to today ("batteries_replaced_today"). "since" is the date's starting value, set
+ * once by the emulating instance (a hidden "seeded" flag); after that the date is edited on main.
+ * "lasting" is a constant of the definitions, written into the level's template. The level is
+ * 100 * (X - D) / X percent (X the days a charge lasts, D the days since replacement, kept between
  * 0 and 100), the alert on below the given percentage. The device's own reading, wherever it comes
  * from, is only declared when wanted -- as battery_level_raw / battery_alert_raw; an OR with it is a
  * Logical.def battery_alert.
  *
  * On the emulating instance: the helpers, the level and alert templates, and automations seeding
- * the helpers, reporting the five states on the bridge's topics (homeassistant.instances/<instance>/
+ * the helpers, reporting the four states on the bridge's topics (homeassistant.instances/<instance>/
  * bridge/<entity>/state) and carrying out main's commands. On main: MQTT entities of the device,
  * built as every bridged entity is (hamqtt.BridgeEntityConfig). The unique_ids are rooted in the
  * statement's frozen root.
@@ -60,8 +60,8 @@ import (
 )
 
 // TBatteryEmulation is one device's "battery level emulation ...;": RootID roots its entities'
-// unique_ids, Days and Since (yyyy-mm-dd, "" for the day it is first seeded) are the starting
-// values, AlertPercent the level below which the alert is on.
+// unique_ids, Days is how long a charge lasts, Since (yyyy-mm-dd, "" for the day it is first
+// seeded) the date's starting value, AlertPercent the level below which the alert is on.
 type TBatteryEmulation struct {
 	DeviceID     string
 	RootID       string
@@ -72,7 +72,7 @@ type TBatteryEmulation struct {
 
 // TBatteryEmulationEntities are an emulation's entities on main, as positioned ("" until then).
 type TBatteryEmulationEntities struct {
-	Level, Alert, Date, Duration, Reset string
+	Level, Alert, Date, Reset string
 }
 
 // batteryEmulationDefaultDays is the duration a charge is assumed to last without "lasting";
@@ -85,7 +85,6 @@ const (
 // The segments of the entities next to the level.
 const (
 	batteryReplacedSegment = "batteries_replaced"
-	batteryDurationSegment = "battery_duration"
 	batteryResetSegment    = "batteries_replaced_today"
 )
 
@@ -303,7 +302,7 @@ func (state *TAdministrationState) batteryEmulationEntitiesOf(deviceID string) *
 }
 
 // registerBatteryEmulationEntity positions an emulation's level or alert; the level brings the
-// date, duration and button, next to it.
+// date and button, next to it.
 func registerBatteryEmulationEntity(administration *TAdministrationState, decl TDeviceCapabilityEntityDeclaration, label, deviceNamePath, entitiesPath string, lineNum int) []string {
 	provenance := fmt.Sprintf("%s:%d → %s from %s %s", filepath.Base(entitiesPath), lineNum, decl.LocalSpec, decl.DeviceID, decl.Capability)
 	fullName := resolveDeviceEntityFullName(decl.LocalSpec, administration.SpacePath, deviceNamePath)
@@ -334,7 +333,6 @@ func registerBatteryEmulationEntity(administration *TAdministrationState, decl T
 		return domain + "." + identity.Sphere + "/" + parent + "/" + segment
 	}
 	entities.Date = record(sibling("date", batteryReplacedSegment), " (its replacement date)")
-	entities.Duration = record(sibling("number", batteryDurationSegment), " (the days a charge lasts)")
 	entities.Reset = record(sibling("button", batteryResetSegment), " (sets its replacement date to today)")
 	return nil
 }
@@ -348,7 +346,7 @@ func batteryEmulationUniqueIDs(emulation TBatteryEmulation, entities *TBatteryEm
 		root = strings.ReplaceAll(emulation.DeviceID, ".", "_") + "_battery_emulation"
 	}
 	ids := map[string]string{}
-	for entityID, suffix := range map[string]string{entities.Level: "", entities.Alert: "_alert", entities.Date: "_replaced", entities.Duration: "_duration", entities.Reset: "_reset"} {
+	for entityID, suffix := range map[string]string{entities.Level: "", entities.Alert: "_alert", entities.Date: "_replaced", entities.Reset: "_reset"} {
 		if entityID != "" {
 			ids[entityID] = root + suffix
 		}
@@ -386,9 +384,6 @@ func writeBatteryEmulationMainEntities(haOutputDir string, admin *TAdministratio
 			entities.Level: {Capability: "battery_level"},
 			entities.Date: {Capability: batteryReplacedSegment, CommandsEnabled: true,
 				Commands: map[string]hamqtt.Command{"set_value": {ValueTrigger: true}}},
-			entities.Duration: {Capability: batteryDurationSegment, DeviceClass: "duration", Unit: "d", CommandsEnabled: true,
-				Commands:       map[string]hamqtt.Command{"set_value": {ValueTrigger: true}},
-				DiscoveryExtra: map[string]interface{}{"min": 1, "max": 3650, "step": 1, "mode": "box"}},
 			entities.Reset: {Capability: batteryResetSegment, Icon: "mdi:battery-sync", CommandsEnabled: true,
 				Commands: map[string]hamqtt.Command{"press": {Payload: batteryResetPayload, DiscoveryKey: "payload_press"}}},
 		}
@@ -461,7 +456,7 @@ func copyDeviceBlock(device map[string]interface{}) map[string]interface{} {
 
 // batteryEmulationInstanceDomains are the integrations the emulating instance's configuration
 // includes for it.
-var batteryEmulationInstanceDomains = []string{"input_boolean", "input_datetime", "input_number", "template"}
+var batteryEmulationInstanceDomains = []string{"input_boolean", "input_datetime", "template"}
 
 // batteryEmulationBackingID is the entity on the emulating instance behind mainEntityID -- its own
 // id, so that main can run the emulation itself too; its unique_id is main's with "_emulation" (as
@@ -482,7 +477,6 @@ func writeBatteryEmulationInstanceFiles(instanceOutputDir, instance string, admi
 		uniqueIDs := batteryEmulationUniqueIDs(emulation, entities)
 		level := batteryEmulationBackingID("sensor", entities.Level)
 		date := batteryEmulationBackingID("input_datetime", entities.Date)
-		duration := batteryEmulationBackingID("input_number", entities.Duration)
 		seeded := batteryEmulationBackingID("input_boolean", entities.Level) + "_seeded"
 		levelIdentity, _ := entityIdentityByID(admin, entities.Level)
 		name := func(entityID string) string {
@@ -492,11 +486,9 @@ func writeBatteryEmulationInstanceFiles(instanceOutputDir, instance string, admi
 		object := func(entityID string) string { return entityID[strings.Index(entityID, ".")+1:] }
 
 		files := map[string]string{
-			filepath.Join("input_datetime", "infrastructural", date+".yaml"): object(date) + ":\n  name: " + name(entities.Date) + "\n  has_date: true\n  has_time: false\n",
-			filepath.Join("input_number", "infrastructural", duration+".yaml"): object(duration) + ":\n  name: " + name(entities.Duration) +
-				"\n  min: 1\n  max: 3650\n  step: 1\n  mode: box\n  unit_of_measurement: d\n",
+			filepath.Join("input_datetime", "infrastructural", date+".yaml"):      object(date) + ":\n  name: " + name(entities.Date) + "\n  has_date: true\n  has_time: false\n",
 			filepath.Join("input_boolean", "infrastructural", seeded+".yaml"):     object(seeded) + ":\n  name: " + name(entities.Level) + " seeded\n",
-			filepath.Join("template", "sensor", "infrastructural", level+".yaml"): batteryEmulationLevelYAML(level, name(entities.Level), uniqueIDs[entities.Level]+"_emulation", date, duration),
+			filepath.Join("template", "sensor", "infrastructural", level+".yaml"): batteryEmulationLevelYAML(level, name(entities.Level), uniqueIDs[entities.Level]+"_emulation", date, emulation.Days),
 		}
 		alert := ""
 		if entities.Alert != "" {
@@ -511,10 +503,10 @@ func writeBatteryEmulationInstanceFiles(instanceOutputDir, instance string, admi
 
 		var sb strings.Builder
 		sb.WriteString(generatorHeader)
-		sb.WriteString(batteryEmulationSeedAutomation(levelIdentity, emulation, seeded, date, duration))
+		sb.WriteString(batteryEmulationSeedAutomation(levelIdentity, emulation, seeded, date))
 		reports := []struct{ entityID, source, suffix string }{
 			{entities.Level, level, "/battery_level"}, {entities.Date, date, "/" + batteryReplacedSegment},
-			{entities.Duration, duration, "/" + batteryDurationSegment}, {entities.Reset, date, "/" + batteryResetSegment},
+			{entities.Reset, date, "/" + batteryResetSegment},
 		}
 		if alert != "" {
 			reports = append(reports, struct{ entityID, source, suffix string }{entities.Alert, alert, "/battery_alert"})
@@ -527,9 +519,7 @@ func writeBatteryEmulationInstanceFiles(instanceOutputDir, instance string, admi
 		}
 		setValue := hamqtt.Command{ValueTrigger: true}
 		dateIdentity, _ := entityIdentityByID(admin, entities.Date)
-		durationIdentity, _ := entityIdentityByID(admin, entities.Duration)
 		sb.WriteString(entityCommandAutomationBody(dateIdentity, commandSpec{Name: "set_value", Service: "input_datetime.set_datetime", ValueTrigger: true, DataKey: "date"}, date, hamqtt.BridgeCommandTopicFor(instance, entities.Date, "set_value", setValue)))
-		sb.WriteString(entityCommandAutomationBody(durationIdentity, commandSpec{Name: "set_value", Service: "input_number.set_value", ValueTrigger: true}, duration, hamqtt.BridgeCommandTopicFor(instance, entities.Duration, "set_value", setValue)))
 		sb.WriteString(batteryEmulationResetAutomation(levelIdentity, date, hamqtt.BridgeCommandTopic(instance, entities.Reset)))
 		path := filepath.Join(instanceOutputDir, "automation", "infrastructural", "automation.battery_emulation_"+object(entities.Level)+".yaml")
 		if err := writeYAMLFile(path, sb.String()); err != nil {
@@ -539,17 +529,18 @@ func writeBatteryEmulationInstanceFiles(instanceOutputDir, instance string, admi
 	return nil
 }
 
-// batteryEmulationLevelExpression is the level: 100 * (X - D) / X percent, X duration's days (at
-// least 1), D the days since date's date, kept between 0 and 100.
-func batteryEmulationLevelExpression(date, duration string) string {
-	days := fmt.Sprintf("([states('%s') | int(0), 1] | max)", duration)
+// batteryEmulationLevelExpression is the level: 100 * (X - D) / X percent, X days (at least 1), D
+// the days since date's date, kept between 0 and 100.
+func batteryEmulationLevelExpression(date string, days int) string {
+	if days < 1 {
+		days = 1
+	}
 	elapsed := fmt.Sprintf("(now().date() - strptime(states('%s'), '%%Y-%%m-%%d').date()).days", date)
-	return fmt.Sprintf("[100, [0, (100 * (%s - %s) / %s) | round(0) | int] | max] | min", days, elapsed, days)
+	return fmt.Sprintf("[100, [0, (100 * (%d - %s) / %d) | round(0) | int] | max] | min", days, elapsed, days)
 }
 
-// batteryEmulationLevelYAML is the level's template sensor, unavailable until date and duration
-// have a value.
-func batteryEmulationLevelYAML(id, name, uniqueID, date, duration string) string {
+// batteryEmulationLevelYAML is the level's template sensor, unavailable until date has a value.
+func batteryEmulationLevelYAML(id, name, uniqueID, date string, days int) string {
 	return "sensor:\n" +
 		"- name: " + name + "\n" +
 		"  unique_id: " + uniqueID + "\n" +
@@ -557,8 +548,8 @@ func batteryEmulationLevelYAML(id, name, uniqueID, date, duration string) string
 		"  unit_of_measurement: \"%\"\n" +
 		"  device_class: battery\n" +
 		"  state_class: measurement\n" +
-		"  availability: \"{{ has_value('" + date + "') and has_value('" + duration + "') }}\"\n" +
-		"  state: \"{{ " + batteryEmulationLevelExpression(date, duration) + " }}\"\n"
+		"  availability: \"{{ has_value('" + date + "') }}\"\n" +
+		"  state: \"{{ " + batteryEmulationLevelExpression(date, days) + " }}\"\n"
 }
 
 // batteryEmulationAlertYAML is the alert's template binary_sensor: on below percent.
@@ -572,9 +563,9 @@ func batteryEmulationAlertYAML(id, name, uniqueID, level string, percent int) st
 		fmt.Sprintf("  state: \"{{ (states('%s') | int(0)) < %d }}\"\n", level, percent)
 }
 
-// batteryEmulationSeedAutomation sets the date and duration to their starting values once, when
-// the helpers are new (seeded off): the date in Physical.def, else today.
-func batteryEmulationSeedAutomation(identity TEntityIdentity, emulation TBatteryEmulation, seeded, date, duration string) string {
+// batteryEmulationSeedAutomation sets the date to its starting value once, when the helpers are new
+// (seeded off): the date in Physical.def, else today.
+func batteryEmulationSeedAutomation(identity TEntityIdentity, emulation TBatteryEmulation, seeded, date string) string {
 	since := "{{ now().date() }}"
 	if emulation.Since != "" {
 		since = emulation.Since
@@ -596,11 +587,6 @@ func batteryEmulationSeedAutomation(identity TEntityIdentity, emulation TBattery
 	sb.WriteString("      entity_id: " + date + "\n")
 	sb.WriteString("    data:\n")
 	sb.WriteString("      date: \"" + since + "\"\n")
-	sb.WriteString("  - service: input_number.set_value\n")
-	sb.WriteString("    target:\n")
-	sb.WriteString("      entity_id: " + duration + "\n")
-	sb.WriteString("    data:\n")
-	sb.WriteString(fmt.Sprintf("      value: %d\n", emulation.Days))
 	sb.WriteString("  - service: input_boolean.turn_on\n")
 	sb.WriteString("    target:\n")
 	sb.WriteString("      entity_id: " + seeded + "\n")

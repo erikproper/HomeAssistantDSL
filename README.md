@@ -383,13 +383,13 @@ end;
 The statement gives the device (any integration) its `battery_level` and `battery_alert`,
 positioned in Conceptual.def as usual; the device's own reading, if declared at all, is
 `battery_level_raw` (and `battery_alert_raw`). Next to the level come the replacement date
-(`date.<...>_batteries_replaced`), the days a charge lasts (`number.<...>_battery_duration`) and a
-button setting the date to today (`button.<...>_batteries_replaced_today`): press it after
-replacing the batteries. All five are MQTT entities of the device itself on main; the date and
-duration can be edited there. The level is 100 * (X - D) / X percent (X the duration, D the days
-since replacement, kept between 0 and 100), the alert on below the given percentage. `lasting`
-(default 90 days) and `since` (default: the day it starts) are starting values, set once by the
-emulating instance; the unique_ids are rooted in `as unique_id`.
+(`date.<...>_batteries_replaced`) and a button setting it to today
+(`button.<...>_batteries_replaced_today`): press it after replacing the batteries. All four are MQTT
+entities of the device itself on main; the date can be edited there. The level is
+100 * (X - D) / X percent (X the days a charge lasts, D the days since replacement, kept between 0
+and 100), the alert on below the given percentage. `lasting` (default 90 days) is a constant of the
+definitions, written into the level's template; `since` (default: the day it starts) is the date's
+starting value, set once by the emulating instance. The unique_ids are rooted in `as unique_id`.
 
 The emulating instance gets the helpers, templates and automations (seeding, reporting on the
 bridge's topics, and carrying out main's commands); see `battery_emulation.go` (PROJECT.md 31b). An
