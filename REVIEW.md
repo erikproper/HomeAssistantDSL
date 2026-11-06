@@ -1,7 +1,7 @@
 # Code review: Go files
 
-Erik's review of the Go code (PROJECT.md item 33). Files are listed in four states; Claude keeps
-the list up to date in the same commit as each change.
+Erik's review of the Go code (PROJECT.md item 33), following ../GO_REVIEWING.md. Files are listed
+in four states; Claude keeps the list up to date in the same commit as each change.
 
 - **Not ready**: still to be refactored; the step (PROJECT.md 33's order) that makes it ready is
   given per group.
@@ -10,7 +10,8 @@ the list up to date in the same commit as each change.
 - **Reviewed**: done, with the date.
 
 A change to a reviewed file -- also one caused by work on another file -- moves it back to
-Re-review, with the reason. A file's test file is reviewed together with it.
+Re-review, with the reason. A file's test file is reviewed together with it. Erik's findings on a
+file are noted under its entry; once they are dealt with, it goes to Re-review.
 
 ## Re-review
 
