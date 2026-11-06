@@ -79,13 +79,6 @@ JLI
  
 ## Migration & improvements
 
-31b. Battery level emulation (built 2026-11-06, battery_emulation.go, README "Battery level
-    emulation"): deployed on Junglinster 2026-11-06; the duration then became a constant of the
-    definitions (no number entity, no input_number) -- deploy that (ha2mqtt restarts, its
-    configuration changes; main's repair removes the number).
-    Check: both thermostats 93 % on 06.11 (seeded 31.10, 90 days), all four entities under the
-    material device, the button resets the date.
-
 33. Architectural review, code review and documenting
    - Note (2026-09-05): GO_CONVENTIONS.md §7/§8 specifies a three-layer parser architecture
      (character stream -> tokeniser -> recursive-descent, CDL1 bool-returning style, no `error`
