@@ -91,8 +91,12 @@ JLI
     2026.x), number battery_duration, button batteries_replaced. Needs the bridge's command routing
     (today switch/vacuum) for date/number/button. Naming as for adjustments: the device's own
     reading becomes internal battery_level_raw (and battery_alert_raw), the emulation takes the plain
-    names. Open: the OR with battery_alert_raw reads two values, so the raw alert must exist on the
-    emulating instance as an entity without showing on main. Then: drop the Logical.def blocks of
+    names. Design (Erik, 2026-11-06): on a device in Physical.def, "battery level emulation with
+    alert at 5%;" -- implies its battery_level and battery_alert, both from the emulation. The
+    device's own reading, wherever it comes from (Zigbee2MQTT, Z-Wave, ...), is only declared when
+    wanted, as an ordinary capability battery_alert_raw / battery_level_raw of its integration; an
+    OR is then a Logical.def battery_alert ("battery_alert from physical <device> or
+    battery_alert_raw" -- a template, so not under the device). Then: drop the Logical.def blocks of
     the two Junglinster thermostats; a retained start date solves "HA creates the helper at today".
 
 33. Architectural review, code review and documenting
