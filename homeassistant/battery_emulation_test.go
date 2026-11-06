@@ -27,7 +27,7 @@ func TestParseBatteryEmulationLine(t *testing.T) {
 
 func TestParseBatteryEmulationLineReportsErrors(t *testing.T) {
 	for line, want := range map[string]string{
-		"battery level emulation lasting ninety days with alert at 5%;": "no valid the number of days",
+		"battery level emulation lasting ninety days with alert at 5%;": "is not the number of days",
 		"battery level emulation since 31.13.2026 with alert at 5%;":    "no date",
 		"battery level emulation with alert at 5;":                      `expected "%"`,
 		"battery level emulation with alert at 100%;":                   "no alert level",

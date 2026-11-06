@@ -223,7 +223,7 @@ func (p *TBatteryEmulationParser) Number(target *int, minimum int, what string) 
 	}
 	number, err := strconv.Atoi(word)
 	if err != nil || number < minimum {
-		return p.ReportParsingError("%q is no valid %s", word, what) && p.Fail()
+		return p.ReportParsingError("%q is not %s", word, what) && p.Fail()
 	}
 	*target = number
 	return true
