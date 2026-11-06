@@ -165,6 +165,9 @@ func generateRegistryManifest(outputDir string, admin *TAdministrationState) err
 			manifest.MQTT = append(manifest.MQTT, TRegistryManifestEntry{UniqueID: link.StableID, EntityID: entityID})
 		}
 	}
+	for entityID, uniqueID := range admin.BatteryEmulationUniqueIDs {
+		manifest.MQTT = append(manifest.MQTT, TRegistryManifestEntry{UniqueID: uniqueID, EntityID: entityID})
+	}
 	for entityID, uniqueID := range admin.YAMLNodeUniqueIDs {
 		manifest.MQTT = append(manifest.MQTT, TRegistryManifestEntry{UniqueID: uniqueID, EntityID: entityID})
 	}

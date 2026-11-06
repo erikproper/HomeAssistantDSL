@@ -74,10 +74,9 @@ many base entities it might otherwise reference.
 on 2026-11-06, PROJECT.md 31a, Erik): what the physical layer declares is what the device reports;
 a Logical.def capability of the same name on the same device id replaces it in the conceptual
 model, while the reported one stays reachable to a condition as `<label> from physical
-<device-id>`. The first case beyond `node` is a simulation: a battery level estimated from the days
-since the batteries were replaced (README, "Battery level by days since replacement"), whose alert
-can also OR in the device's own reported alert -- by the rule above both are logical-layer work, as
-they read more than one base entity (or none).
+<device-id>` -- e.g. an alert ORing in a device's own reported one. (A battery level emulated from
+the days since replacement, by contrast, is a physical capability an HA instance provides, so that
+it can be an MQTT entity of the device itself -- README, "Battery level emulation", PROJECT.md 31b.)
 
 The relationship between the conceptual and logical/physical layers is a mapping, not a 1:1 correspondence — one conceptual light can be realized by several physical devices plus an automation stitching them together, and inhabitants never need to know that.
 

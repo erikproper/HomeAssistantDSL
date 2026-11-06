@@ -36,6 +36,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -224,13 +225,24 @@ const remoteInstanceConfigurationYAMLPreamble = "assist_pipeline:\ncloud:\nconve
 // integrationDefs' own doc comment (generator.go): packages are never reprocessed by any reload
 // service, which would silently defeat this project's whole meta-reload mechanism for remote
 // instances too.
-func writeRemoteInstanceSkeleton(instanceOutputDir string) error {
+//
+// extraDomains are further integrations from integrationDefs the instance gets content for (a
+// battery level emulation's helpers and templates, PROJECT.md 31b).
+func writeRemoteInstanceSkeleton(instanceOutputDir string, extraDomains ...string) error {
 	file, domain, content := automationIntegrationDef()
 	body := generatorHeader + remoteInstanceConfigurationYAMLPreamble + "\n" + domain + ": !include integrations/" + file + "\n"
-	if err := writeYAMLFile(filepath.Join(instanceOutputDir, "configuration.yaml"), body); err != nil {
+	if err := writeYAMLFile(filepath.Join(instanceOutputDir, "integrations", file), generatorHeader+content+"\n"); err != nil {
 		return err
 	}
-	return writeYAMLFile(filepath.Join(instanceOutputDir, "integrations", file), generatorHeader+content+"\n")
+	for _, def := range integrationDefs {
+		if slices.Contains(extraDomains, def.domain) {
+			body += def.domain + ": !include integrations/" + def.file + "\n"
+			if err := writeYAMLFile(filepath.Join(instanceOutputDir, "integrations", def.file), generatorHeader+def.content+"\n"); err != nil {
+				return err
+			}
+		}
+	}
+	return writeYAMLFile(filepath.Join(instanceOutputDir, "configuration.yaml"), body)
 }
 
 // generateInstanceAutomationTrees writes every declared instance's coordinator-bootstrap
@@ -274,7 +286,11 @@ func generateInstanceAutomationTrees(haOutputDir string, instances map[string]TH
 			if err := os.RemoveAll(instanceHAOutputDir); err != nil {
 				return err
 			}
-			if err := writeRemoteInstanceSkeleton(instanceHAOutputDir); err != nil {
+			var extraDomains []string
+			if name == declaredBatteryEmulationInstance && len(admin.BatteryEmulationEntities) > 0 {
+				extraDomains = batteryEmulationInstanceDomains
+			}
+			if err := writeRemoteInstanceSkeleton(instanceHAOutputDir, extraDomains...); err != nil {
 				return err
 			}
 		}
@@ -289,6 +305,12 @@ func generateInstanceAutomationTrees(haOutputDir string, instances map[string]TH
 		}
 		if err := generateHassBridgeEntityCommandAutomations(instanceHAOutputDir, name, hassBridgeDevicesByID, admin); err != nil {
 			return err
+		}
+		// The battery level emulations it runs (PROJECT.md 31b).
+		if name == declaredBatteryEmulationInstance {
+			if err := writeBatteryEmulationInstanceFiles(instanceHAOutputDir, name, admin); err != nil {
+				return err
+			}
 		}
 		if deviceInfoReports, hasDeviceInfo := deviceInfoByInstance[name]; hasDeviceInfo {
 			if err := writeAutomationFile(instanceHAOutputDir, "infrastructural", "coordinator_bridge_report", generatorHeader+hassBridgeReportingAutomationBody(name, deviceInfoReports)); err != nil {

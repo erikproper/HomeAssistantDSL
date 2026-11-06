@@ -210,7 +210,8 @@ var derivedConditionOneLinerPattern = regexp.MustCompile(`^derived\s+capability\
 // doc comment for why it's safe to always unwrap unconditionally (no ambiguity, no failure mode
 // that needs a warning the way an undeclared jinja template name does).
 func resolveDerivedConditionOneLiners(content string) string {
-	lines := foldDerivedConditionBlocks(strings.Split(stripDerivedAssignedIDs(content), "\n"))
+	// A battery level emulation (PROJECT.md 31b) is read separately (collectBatteryEmulations).
+	lines := foldDerivedConditionBlocks(strings.Split(stripBatteryEmulationStatements(stripDerivedAssignedIDs(content)), "\n"))
 	for i, rawLine := range lines {
 		line := strings.TrimSpace(rawLine)
 		m := derivedConditionOneLinerPattern.FindStringSubmatch(line)

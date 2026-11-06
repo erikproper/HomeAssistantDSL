@@ -215,6 +215,9 @@ func resolveLongestSuffixCapability(name string, exists func(string) bool) strin
 // which kind deviceID is; checking all of them is harmless since a device-id only ever belongs to
 // one.
 func deviceHasCapability(capName, deviceID string, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice, hassBridgeDevicesByID map[string]THassBridgeDevice, importedDevicesByID map[string]TImportedDevice, hostDevicesByID map[string]THostDevice, commandlineDevicesByID map[string]TCommandlineDevice, localDevicesByID map[string]TLocalDevice, logicalDevicesByID map[string]TLogicalDevice) bool {
+	if hasBatteryEmulationCapability(deviceID, capName) {
+		return true
+	}
 	if gateway, ok := discoveryGatewaysByID[deviceID]; ok {
 		if _, ok := gateway.Capabilities[capName]; ok {
 			return true
@@ -498,6 +501,10 @@ func registerDeviceCapabilityEntityLinkAllowingHiddenCore(administration *TAdmin
 			return dispatchLogicalCapability(administration, decl, logicalDevice, bareName, deviceNamePath, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, commandlineDevicesByID, localDevicesByID, logicalDevicesByID, entitiesPath, lineNum, finalAttempt, provenance)
 		}
 	}
+	// A battery level emulation's capabilities, whatever kind the device is (PROJECT.md 31b).
+	if hasBatteryEmulationCapability(decl.DeviceID, bareName) {
+		return registerBatteryEmulationEntity(administration, decl, bareName, deviceNamePath, entitiesPath, lineNum), false
+	}
 
 	// Checked first, but only actually claims the declaration when this SPECIFIC capability name is
 	// one of this device's own commandline capabilities -- a commandline device commonly shares its
@@ -693,8 +700,6 @@ func dispatchLogicalCapability(administration *TAdministrationState, decl TDevic
 		return registerLogicalDefinedInputNumberCapability(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum), false
 	case capability.IsDerivedCondition, capability.IsDerivedValue:
 		return registerLogicalDerivedConditionCapability(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum, finalAttempt, discoveryGatewaysByID, hassBridgeDevicesByID, importedDevicesByID, hostDevicesByID, localDevicesByID, logicalDevicesByID)
-	case capability.ChargeDays > 0:
-		return registerLogicalChargeCapability(administration, decl, capability, bareName, deviceNamePath, entitiesPath, lineNum), false
 	default:
 		return []string{fmt.Sprintf("%s: logical device %q's %q capability isn't a supported shape yet (only absorbed capabilities, defined input_numbers, and derived conditions are built)", provenance, decl.DeviceID, bareName)}, false
 	}

@@ -100,12 +100,17 @@ type TAdministrationState struct {
 	YAMLEntities map[string]map[string]interface{}
 	// YAMLNodeUniqueIDs (PROJECT.md 32): the nodes written as YAML "mqtt:" entities in place of a
 	// template (TEntityRecord.AvailabilityOfEntityID), entity_id -> unique_id, for the manifest.
-	YAMLNodeUniqueIDs       map[string]string
-	ExternalEntitiesBySpace map[string][]string
-	SpaceDepthByName        map[string]int
-	SpaceOffByName          map[string][]string // Entities/aggregations to turn off
-	SpaceOnByName           map[string][]string // Full accumulated lights-on list (explicit + propagated from children)
-	SpaceOnExplicitByName   map[string][]string // Lights named in an explicit "light on:" directive only
+	YAMLNodeUniqueIDs map[string]string
+	// BatteryEmulationEntities/BatteryEmulationUniqueIDs (PROJECT.md 31b): every emulated device's
+	// entities on main, as positioned, and their unique_ids by entity_id, for the manifest
+	// (battery_emulation.go).
+	BatteryEmulationEntities  map[string]*TBatteryEmulationEntities
+	BatteryEmulationUniqueIDs map[string]string
+	ExternalEntitiesBySpace   map[string][]string
+	SpaceDepthByName          map[string]int
+	SpaceOffByName            map[string][]string // Entities/aggregations to turn off
+	SpaceOnByName             map[string][]string // Full accumulated lights-on list (explicit + propagated from children)
+	SpaceOnExplicitByName     map[string][]string // Lights named in an explicit "light on:" directive only
 
 	// Domain-specific collections, auto-populated on entity registration (no_collect excluded).
 	// Used for expanding @light / @media / @all tokens and for default on/off derivation.
@@ -766,14 +771,8 @@ type TEntityRecord struct {
 	// generateYAMLMQTTEntities writes it as an MQTT entity of that same device, in place of the
 	// template, so every material device carries its node.
 	AvailabilityOfEntityID string
-	// ChargeDays/ChargeSince/ChargeDateEntityID (PROJECT.md 31a): a charge estimate's level, and
-	// its button, refer to the input_datetime holding the replacement date
-	// (physical_charge_estimate.go).
-	ChargeDays         int
-	ChargeSince        string
-	ChargeDateEntityID string
-	ConditionDelayOn   string // delay_on for binary sensors
-	ConditionDelayOff  string // delay_off for binary sensors
+	ConditionDelayOn       string // delay_on for binary sensors
+	ConditionDelayOff      string // delay_off for binary sensors
 
 	// General entity icon from an inline "with icon" or body "icon" directive.
 	EntityIcon string

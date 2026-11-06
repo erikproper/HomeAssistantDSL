@@ -184,6 +184,14 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 		_, local := localDevicesByID[deviceID].Capabilities[label]
 		return host || discovery || bridged || imported || commandline || local
 	}
+	// An emulated device's battery_level/battery_alert come from its emulation (PROJECT.md 31b).
+	for _, deviceID := range sortedMapKeys(declaredBatteryEmulations) {
+		for _, label := range []string{"battery_level", "battery_alert"} {
+			if physicalHas(deviceID, label) {
+				fmt.Printf("[physical] device %q has a battery level emulation, which gives its %q -- rename its own one %q (\"internal\" unless positioned)\n", deviceID, label, label+"_raw")
+			}
+		}
+	}
 	for _, w := range validateLogicalBatteryLevelAlertBiconditional(logicalByID, physicalHas) {
 		fmt.Printf("[logical] %s\n", w)
 	}
@@ -198,6 +206,13 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 
 	capabilityDefaults, capabilityDefaultsWarnings := collectCapabilityDefaults(definitionDir, sharedDefinitionDir)
 	for _, w := range capabilityDefaultsWarnings {
+		fmt.Printf("[physical] %s\n", w)
+	}
+
+	// Before positioning: an emulated device's battery_level/battery_alert (PROJECT.md 31b).
+	var emulationWarnings []string
+	declaredBatteryEmulationInstance, declaredBatteryEmulations, emulationWarnings = collectBatteryEmulations(definitionDir)
+	for _, w := range emulationWarnings {
 		fmt.Printf("[physical] %s\n", w)
 	}
 
@@ -407,7 +422,6 @@ func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutput
 		{"input numbers", generateInputNumbers},
 		{"input booleans", generateInputBooleans},
 		{"input datetimes", generateInputDatetimes},
-		{"charge estimates", generateChargeEstimates},
 		{"template sensors", generateTemplateSensors},
 		{"condition entities", generateConditionEntities},
 		{"infrastructural binary sensor groups", generateInfrastructuralGroups},

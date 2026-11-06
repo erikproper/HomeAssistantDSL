@@ -523,16 +523,6 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 				warnings = append(warnings, fmt.Sprintf("Logical.def: device %q's %q defined capability one-line \"with %s\" body isn't a recognised single-statement form -- only \"minimum <val>;\", \"maximum <val>;\", \"step <val>;\", \"icon <val>;\", or \"units <val>;\" may be shortened this way (body line %d)", current.DeviceID, matches[2], body, lineIdx+1))
 				continue
 			}
-			// A charge estimate (PROJECT.md 31a, logical_charge_estimate.go).
-			if decl, ok, w := parseChargeEstimateLine(line); ok || len(w) > 0 {
-				for _, warning := range w {
-					warnings = append(warnings, fmt.Sprintf("Logical.def: device %q: %s (body line %d)", current.DeviceID, warning, lineIdx+1))
-				}
-				if ok {
-					current.Capabilities[decl.Label] = TLogicalCapability{Domain: decl.Domain, AssignedID: decl.AssignedID, ChargeDays: decl.Days, ChargeSince: decl.Since}
-				}
-				continue
-			}
 			if matches := logicalDerivedBlockPattern.FindStringSubmatch(line); matches != nil {
 				currentDerivedDomain = matches[1]
 				currentDerivedLabel = matches[2]

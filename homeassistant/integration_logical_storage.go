@@ -127,12 +127,6 @@ type TLogicalCapability struct {
 	// AssignedID is a derived capability's frozen "as <id>" (PROJECT.md item 48) -- its universal
 	// ID, the unique_id its generated template entity is registered under. "" until assigned.
 	AssignedID string
-	// ChargeDays/ChargeSince (PROJECT.md 31a, 2026-11-06): "derived capability sensor.battery_level
-	// [as unique_id <id>] by charge lasting <days> days since <date>;" -- a battery level
-	// estimated from the days since the batteries were replaced (logical_charge_estimate.go);
-	// ChargeSince is yyyy-mm-dd.
-	ChargeDays  int
-	ChargeSince string
 }
 
 // TLogicalSwitchedByFact is one "<domain>.<label> is switched by <domain>.<label> from

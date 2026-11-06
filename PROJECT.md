@@ -79,25 +79,13 @@ JLI
  
 ## Migration & improvements
 
-31b. Battery level emulation as a physical capability (Erik, 2026-11-06; to think through first).
-    Today (2026-11-06) the date-based level and its alert are Logical.def capabilities
-    (logical_charge_estimate.go, README "Battery level by days since replacement") -- template
-    entities, which can't belong to a device, so they don't show under the thermostat's material
-    device. Instead: "battery level emulation on <HA instance>" in Physical.def (normally ha2mqtt,
-    in principle main), and "battery level emulation;" on any device (any integration): the
-    simulation runs on that instance (level and alert templates, date and duration helpers, a
-    reset), bridged to main as MQTT entities on the device's material device -- sensor
-    battery_level, binary_sensor battery_alert, date batteries_replaced (MQTT has "date" since
-    2026.x), number battery_duration, button batteries_replaced. Needs the bridge's command routing
-    (today switch/vacuum) for date/number/button. Naming as for adjustments: the device's own
-    reading becomes internal battery_level_raw (and battery_alert_raw), the emulation takes the plain
-    names. Design (Erik, 2026-11-06): on a device in Physical.def, "battery level emulation with
-    alert at 5%;" -- implies its battery_level and battery_alert, both from the emulation. The
-    device's own reading, wherever it comes from (Zigbee2MQTT, Z-Wave, ...), is only declared when
-    wanted, as an ordinary capability battery_alert_raw / battery_level_raw of its integration; an
-    OR is then a Logical.def battery_alert ("battery_alert from physical <device> or
-    battery_alert_raw" -- a template, so not under the device). Then: drop the Logical.def blocks of
-    the two Junglinster thermostats; a retained start date solves "HA creates the helper at today".
+31b. Battery level emulation (built 2026-11-06, battery_emulation.go, README "Battery level
+    emulation"): deploy Junglinster -- ha2mqtt first (its new helpers, templates, automations and
+    the configuration's includes) and main (its repair removes the 8 old template/helper entries
+    before the reload, so the MQTT entities should take their IDs at once; a second pass if a _2
+    shows up).
+    Check: both thermostats 93 % on 06.11 (seeded 31.10, 90 days), all five entities under the
+    material device, the button resets the date.
 
 33. Architectural review, code review and documenting
    - Note (2026-09-05): GO_CONVENTIONS.md §7/§8 specifies a three-layer parser architecture
