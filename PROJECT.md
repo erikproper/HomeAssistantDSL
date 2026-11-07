@@ -190,9 +190,18 @@ JLI
     Shelly firmware (Erik, 2026-11-07: there will be more Shellies to update): the Shelly layer
     (claude-notes/plans/shelly-layer.md) could give each device an "update" entity -- installed
     and latest version from "info"'s "update" field (needs the value template for JSON), installing
-    with "update_fw" on shellies/<id>/command. First case: the test plug, v1.11.8, offers v1.14.0;
-    its web page fails ("Could not get the timezone list"), and an update started over HTTP
-    (/ota?update=true) went from "updating" back to "pending" for 5 minutes, without a reboot.
+    with "update_fw" on shellies/<id>/command. First case, the test plug (SHPLG2-1), v1.11.8 to
+    v1.14.0: its web page fails ("Could not get the timezone list"), and both /ota?update=true and
+    /ota?url=<Shelly's own file URL> went from "updating" back to "pending" without a reboot -- the
+    old firmware can't fetch from Shelly's download host itself (cause unknown). What worked
+    (2026-11-07): serve the file on the house's network and point the plug at it. The file per
+    model is in https://api.shelly.cloud/files/firmware ("data" -> model code -> "url", e.g.
+    http://firmware.shelly.cloud/gen1/SHPLG2-1.zip); on p-s-1 (192.168.178.85, firewall off):
+    download it into a temporary directory, run "timeout 600 python3 -m http.server 8000 --bind
+    192.168.178.85" there, and call http://<plug>/ota?url=http://192.168.178.85:8000/<file>.zip.
+    The plug fetched it at once and was on v1.14.0 within 40 s; its settings (MQTT, retain,
+    update period, id) and its topic tree stayed the same. An "update" entity should do it this
+    way when the plain update_fw stalls.
 
 40. https://github.com/kaiplaketti/matter2mqtt
 
