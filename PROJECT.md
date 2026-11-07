@@ -187,6 +187,12 @@ JLI
     known: maybe the liveness "#" subscription overlapping the shadow's own); and switching a device to "is retained;" clears its shadows when the coordinator restarts, before
     main reloads: its node read "off" for those 2 minutes (seen 2026-11-07); the deploy could reload
     main before restarting the coordinator in that case.
+    Shelly firmware (Erik, 2026-11-07: there will be more Shellies to update): the Shelly layer
+    (claude-notes/plans/shelly-layer.md) could give each device an "update" entity -- installed
+    and latest version from "info"'s "update" field (needs the value template for JSON), installing
+    with "update_fw" on shellies/<id>/command. First case: the test plug, v1.11.8, offers v1.14.0;
+    its web page fails ("Could not get the timezone list"), and an update started over HTTP
+    (/ota?update=true) went from "updating" back to "pending" for 5 minutes, without a reboot.
 
 40. https://github.com/kaiplaketti/matter2mqtt
 
