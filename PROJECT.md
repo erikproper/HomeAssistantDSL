@@ -176,7 +176,8 @@ JLI
     "is retained;" when its topics are retained; without it its state entities read the
     coordinator's shadow, as for discovered devices. Each raw definition also needs its own
     availability -- "we also need to detect if they are really down" (Erik).
-Test with shellys?
+    Test device (2026-11-07, Junglinster): shellies/shellyplug-6CC3D8, to be positioned as "test"
+    at the top house level once the integration can do it (Erik).
 
 40. https://github.com/kaiplaketti/matter2mqtt
 
