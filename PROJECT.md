@@ -179,13 +179,15 @@ JLI
     availability -- "we also need to detect if they are really down" (Erik).
     Test device (2026-11-07, Junglinster): shellies/shellyplug-6CC3D8, declared as
     switches.test_shelly_plug, positioned as "test" at the top house level; deployed 2026-11-07,
-    with the plug's own retain off, so it reads shadows. Switching, power, consumes, energy, down
-    detection by Last Will, and values right after a reload (from the shadows) all seen live. Not yet
-    seen: the coordinator's liveness verdict (needs over 2.5 minutes of silence). It reports
+    first with the plug's own retain off (reading shadows), now with it on and "is retained;". Switching, power, consumes, energy, down
+    detection by Last Will, and values right after a reload (from the shadows) all seen live. The
+    coordinator's liveness verdict too (a test with an unanswered question). It reports
     every 30 s; liveness asks "announce", answered on "info".
     To look at: its shadow messages arrive twice (seen 2026-11-07; harmless, same value; cause not
     known: maybe the liveness "#" subscription overlapping the shadow's own); and after a Last Will
-    the retained "online" stays "true" until the liveness verdict.
+    switching a device to "is retained;" clears its shadows when the coordinator restarts, before
+    main reloads: its node read "off" for those 2 minutes (seen 2026-11-07); the deploy could reload
+    main before restarting the coordinator in that case.
 
 40. https://github.com/kaiplaketti/matter2mqtt
 
