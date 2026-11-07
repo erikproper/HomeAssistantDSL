@@ -4,6 +4,8 @@ Agreed 2026-11-07 (Erik): this shape ("A"), a statement inside a device of `inte
 separate `integration mqtt shelly with:` block -- a Shelly stays a raw device with a shortcut, and
 can be mixed with hand-written capabilities. FHEM (PROJECT.md 37) gets a layer of the same shape.
 An update entity only signals an update; updating stays manual (PROJECT.md 39).
+Built 2026-11-07; Junglinster's test plug rewritten in this form, byte-identical output. Generate
+writes the implied manufacturer and model into the device as captured metadata, as for others.
 
 ## Aim
 

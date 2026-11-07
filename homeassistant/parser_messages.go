@@ -20,6 +20,7 @@ const (
 	OriginBatteryEmulation = "battery level emulation"
 	OriginMQTTCapability   = "mqtt capability"
 	OriginRule             = "rule %q"
+	OriginShelly           = "shelly statement"
 )
 
 // Errors.
@@ -64,6 +65,7 @@ const (
 	MessagePathSegment       = "a path segment"
 	MessageQuotedValue       = "a quoted value"
 	MessageReference         = "a reference (a capability label or an entity_id) or \"jinja\""
+	MessageShellyID          = "the Shelly's quoted id, e.g. \"shellyplug-6CC3D8\""
 	MessageSphere            = "an entity's sphere"
 	MessageState             = "a state"
 	MessageStateValues       = "\"available\", a quoted value or \"in [...]\""

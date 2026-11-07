@@ -112,8 +112,17 @@ func parseMQTTIntegrationBodyLines(bodyLines []string) ([]TDiscoveryGatewayDevic
 		}
 		switch {
 		case line == "end;":
+			warnings = append(warnings, completeRawDevice(current)...)
 			devices = append(devices, *current)
 			current = nil
+		case strings.HasPrefix(line, "shelly "):
+			p, ok := parseShellyLine(line)
+			for _, w := range p.Warnings {
+				warnings = append(warnings, fmt.Sprintf("Physical.def: mqtt device %q: %s", current.DeviceID, w))
+			}
+			if ok {
+				current.RawShelly = p.ShellyID
+			}
 		case line == "is retained;":
 			current.Retain = retainDeclared
 		case line == "is not retained;":
@@ -159,9 +168,27 @@ func parseMQTTIntegrationBodyLines(bodyLines []string) ([]TDiscoveryGatewayDevic
 	}
 	if current != nil {
 		warnings = append(warnings, fmt.Sprintf("Physical.def: mqtt device %q is missing its closing \"end;\"", current.DeviceID))
+		warnings = append(warnings, completeRawDevice(current)...)
 		devices = append(devices, *current)
 	}
 	return devices, warnings
+}
+
+// completeRawDevice fills in what device's layer implies (a Shelly's), and reports a capability
+// whose topic nothing implies.
+func completeRawDevice(device *TDiscoveryGatewayDevice) []string {
+	var warnings []string
+	if device.RawShelly != "" {
+		warnings = append(warnings, completeShellyDevice(device)...)
+	}
+	for label, raw := range device.RawTopics {
+		if raw.Implied && raw.Topic == "" {
+			warnings = append(warnings, fmt.Sprintf("Physical.def: mqtt device %q: capability %q has no topic, and no \"shelly ...;\" implies one", device.DeviceID, label))
+			delete(device.RawTopics, label)
+			delete(device.Capabilities, label)
+		}
+	}
+	return warnings
 }
 
 // rawMQTTConfigs returns the "raw discovery configs" the generator writes itself for every raw
@@ -218,6 +245,9 @@ func addRawSensorFields(config map[string]interface{}, raw TRawTopicCapability) 
 	case "Wh", "kWh":
 		config["device_class"] = "energy"
 		config["state_class"] = "total_increasing"
+	case "°C":
+		config["device_class"] = "temperature"
+		config["state_class"] = "measurement"
 	}
 	if raw.DividedBy > 0 {
 		config["value_template"] = fmt.Sprintf("{{ (value | float / %d) | round(3) }}", raw.DividedBy)

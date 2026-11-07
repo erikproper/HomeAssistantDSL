@@ -176,6 +176,9 @@ type TDiscoveryGatewayDevice struct {
 	// RawMetadata (PROJECT.md 22d): where the coordinator reads this raw device's metadata
 	// ("metadata <field> from topic ..."); what it reads comes back as Metadata, captured by generate.
 	RawMetadata []TRawMetadataTopic
+	// RawShelly: the device's Shelly id ("shelly "<id>";"), whose family implies its topics,
+	// metadata and liveness (integration_mqtt_shelly.go).
+	RawShelly string
 }
 
 // inferredDiscoveryIdentifier derives a device's default HA device identifier from its own DSL

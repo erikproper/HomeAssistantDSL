@@ -4,10 +4,12 @@
  * Package:   Main
  * Component: ParserMQTTCapability
  *
- * The grammar of a capability statement in Physical.def's "integration mqtt" block
- * (integration_mqtt.go):
+ * The grammar of the capability and "shelly" statements in Physical.def's "integration mqtt" block
+ * (integration_mqtt.go, integration_mqtt_shelly.go):
  *
- *   MQTTCapability: "capability" Word "." Labelled "topic" String DomainDetails AssignedIDety ";"
+ *   MQTTCapability: "capability" Word "." Labelled Topicety AssignedIDety ";"
+ *   ShellyStatement: "shelly" String ";"
+ *   Topicety:       ( "topic" String DomainDetails )?  -- without: implied by the device's layer
  *   Labelled:       Word ( "/" Word )*
  *   DomainDetails:  "on" String                   -- binary_sensor
  *                   | "command" String            -- switch
@@ -33,6 +35,7 @@ type TMQTTCapabilityParser struct {
 	Label      string
 	AssignedID string
 	Topic      TRawTopicCapability
+	ShellyID   string
 }
 
 // --- top level ---
@@ -45,20 +48,45 @@ func parseMQTTCapabilityLine(line string) (p *TMQTTCapabilityParser, ok bool) {
 	return p, p.MQTTCapability()
 }
 
+// parseShellyLine parses line as a "shelly" statement; ok is false when it isn't a correct one.
+func parseShellyLine(line string) (p *TMQTTCapabilityParser, ok bool) {
+	p = &TMQTTCapabilityParser{}
+	p.Initialise(line, OriginShelly)
+	return p, p.ShellyStatement()
+}
+
 // --- grammar ---
 
-// MQTTCapability: "capability" Word "." Labelled "topic" String DomainDetails AssignedIDety ";"
+// MQTTCapability: "capability" Word "." Labelled Topicety AssignedIDety ";"
 func (p *TMQTTCapabilityParser) MQTTCapability() bool {
 	return p.ForcedThisWordWas("capability") &&
 		/**/ p.ForcedThisWord(&p.Domain, MessageDomain) &&
 		/**/ p.ForcedThisPunctuationWas('.') &&
 		/**/ p.Labelled() &&
-		/**/ p.ForcedThisWordWas("topic") &&
-		/**/ p.ForcedThisString(&p.Topic.Topic, MessageMQTTTopic) &&
-		/**/ p.DomainDetails() &&
+		/**/ p.Topicety() &&
 		/**/ p.AssignedIDety() &&
 		/**/ p.ForcedThisPunctuationWas(';') &&
 		/**/ p.ForcedEndOfStatement()
+}
+
+// ShellyStatement: "shelly" String ";"
+func (p *TMQTTCapabilityParser) ShellyStatement() bool {
+	return p.ForcedThisWordWas("shelly") &&
+		/**/ p.ForcedThisString(&p.ShellyID, MessageShellyID) &&
+		/**/ p.ForcedThisPunctuationWas(';') &&
+		/**/ p.ForcedEndOfStatement()
+}
+
+// Topicety: ( "topic" String DomainDetails )?; without it, the topic is implied (Topic.Implied).
+func (p *TMQTTCapabilityParser) Topicety() bool {
+	switch {
+	case p.ThisWordWas("topic"):
+		return p.ForcedThisString(&p.Topic.Topic, MessageMQTTTopic) &&
+			/**/ p.DomainDetails()
+	default:
+		p.Topic.Implied = true
+		return true
+	}
 }
 
 // Labelled: Word ( "/" Word )*

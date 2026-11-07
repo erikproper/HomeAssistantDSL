@@ -1691,7 +1691,11 @@ Where the node's topic comes from depends on who controls it:
   "<topic>";` and `capability sensor.<label> topic "<topic>" [unit "<unit>"] [divided by <n>];` (W
   gives power, Wh or kWh energy), and `derived capability`. A device's node is the availability of
   its other capabilities; `liveness with:` works here too, so the coordinator sets a silent device
-  offline (Junglinster's test Shelly plug). Such a device rides on the discovery machinery: the generator writes
+  offline. A Shelly says `shelly "<id>";` instead (`integration_mqtt_shelly.go`): its family (the
+  id without its last part, e.g. `shellyplug`) implies the topics of its capabilities -- listed by
+  label only, `capability switch.switch;` -- its manufacturer and model, where `model_id` and
+  `sw_version` are read (`announce`) and its liveness; what the device writes itself comes first.
+  Junglinster's test plug is declared this way. Such a device rides on the discovery machinery: the generator writes
   its "raw config" itself (`homeassistant/integration_mqtt.go`), so positioning, frozen IDs, YAML
   entity and retain decision are a discovered device's; the coordinator gets nothing. Retain: the
   same default as for discovery (not retained, so a shadow), the installation's `retained topics`

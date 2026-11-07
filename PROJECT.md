@@ -176,8 +176,9 @@ JLI
     Started 2026-10-28 as "integration mqtt" (Architecture.md §6.16). A capability reads a topic:
     binary_sensor ("on"), switch ("command") and sensor ("unit", "divided by"), and a device's node
     gives the others their availability. To come: other domains, a value template for JSON and the
-    vacuum's state from several topics. Next: the Shelly layer, shape A agreed (Erik, 2026-11-07):
-    "shelly "<id>";" inside a device of "integration mqtt" (claude-notes/plans/shelly-layer.md).
+    vacuum's state from several topics. The Shelly layer is built (2026-11-07,
+    shape A, claude-notes/plans/shelly-layer.md): "shelly "<id>";" inside a device of "integration
+    mqtt"; families so far shellyplug and shellyplug-s. To come: the update signal (below).
     Retain (from item 20, 2026-10-28; Architecture.md §6.16): a raw device's declaration says
     "is retained;" when its topics are retained; without it its state entities read the
     coordinator's shadow, as for discovered devices. Each raw definition also needs its own

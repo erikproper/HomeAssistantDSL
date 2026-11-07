@@ -28,6 +28,7 @@ grammars on top show the style the other grammars will follow.
 - `homeassistant/parser_base.go` (+ parser_base_test.go)
 - `homeassistant/parser_messages.go`
 - `homeassistant/parser_battery_emulation.go` (tests in battery_emulation_test.go)
+- `homeassistant/integration_mqtt_shelly.go` (+ integration_mqtt_shelly_test.go)
 - `homeassistant/parser_mqtt_capability.go` (tests in integration_mqtt_test.go)
 - `homeassistant/parser_rule.go` (+ parser_rule_test.go; its comments are cleaned in step 6)
 - `homeassistant/parser_condition.go` (+ parser_condition_test.go; its comments are cleaned in
