@@ -626,7 +626,7 @@ type TRuleAction struct {
 
 // TRule records a "rule <spec> with: <when-statement>; <then-statement>; end;" space-level
 // directive (PROJECT.md item 13, 2026-10-12), parsed via a real three-layer CDL1-style parser
-// (rule_character_stream.go/rule_tokeniser.go/rule_parser.go) -- replacing the earlier
+// (parser_rule.go) -- replacing the earlier
 // 2026-09-29 one-liner TWhenRule, which supported exactly the same single-trigger/single-action
 // shape but via ad hoc line/strings.Fields matching (`feedback_no_new_regexp_parsers`'s own
 // flagged debt). Phase 1 of item 13 is a pure engine swap at this exact scope; Phase 2 extends

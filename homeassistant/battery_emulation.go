@@ -33,9 +33,9 @@
  * built as every bridged entity is (hamqtt.BridgeEntityConfig). The unique_ids are rooted in the
  * statement's frozen root.
  *
- * The statements are parsed by a CDL1-style parser (GO_CONVENTIONS.md §8) on the rule grammar's
- * tokeniser (rule_tokeniser.go), and removed from Physical.def's content before its integration
- * parsers see it (resolveDerivedConditionOneLiners), as the frozen IDs are.
+ * The statements' grammar is in parser_battery_emulation.go. They are removed from Physical.def's
+ * content before its integration parsers see it (resolveDerivedConditionOneLiners), as the frozen
+ * IDs are.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
@@ -50,9 +50,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
-	"time"
 
 	"homeassistant/hamqtt"
 
@@ -95,138 +93,6 @@ var (
 	declaredBatteryEmulationInstance string
 	declaredBatteryEmulations        = map[string]TBatteryEmulation{}
 )
-
-// --- parser ---
-
-// TBatteryEmulationParser embeds TDefTokeniser (chaining the layers, GO_CONVENTIONS.md §7).
-type TBatteryEmulationParser struct {
-	TDefTokeniser
-	Instance  string
-	Emulation TBatteryEmulation
-	Warnings  []string
-}
-
-// parseBatteryEmulationLine parses line as an emulation statement: instance is set for "... on
-// <instance>;", else emulation. ok is false when it isn't one; warnings say what is wrong with one
-// that is.
-func parseBatteryEmulationLine(line string) (instance string, emulation TBatteryEmulation, ok bool, warnings []string) {
-	p := &TBatteryEmulationParser{Emulation: TBatteryEmulation{Days: batteryEmulationDefaultDays}}
-	p.Initialise(line)
-	ok = p.EmulationStatement()
-	return p.Instance, p.Emulation, ok, p.Warnings
-}
-
-// ReportParsingError records a warning and returns true, for the right of a "||" chain.
-func (p *TBatteryEmulationParser) ReportParsingError(format string, args ...any) bool {
-	p.Warnings = append(p.Warnings, "battery level emulation: "+fmt.Sprintf(format, args...))
-	return true
-}
-
-// Fail always returns false: the end of a "||" error chain.
-func (p *TBatteryEmulationParser) Fail() bool {
-	return false
-}
-
-// ForcedThisWordWas requires the current token to be exactly word, consuming it.
-func (p *TBatteryEmulationParser) ForcedThisWordWas(word string) bool {
-	return p.ThisWordWas(word) ||
-		p.ReportParsingError("expected %q", word) && p.Fail()
-}
-
-// ForcedThisPunctuationWas requires the current token to be exactly ch, consuming it.
-func (p *TBatteryEmulationParser) ForcedThisPunctuationWas(ch byte) bool {
-	return p.ThisPunctuationWas(ch) ||
-		p.ReportParsingError("expected %q", string(ch)) && p.Fail()
-}
-
-// ForcedEnd requires ";" and nothing after it.
-func (p *TBatteryEmulationParser) ForcedEnd() bool {
-	return p.ForcedThisPunctuationWas(';') &&
-		(p.AtEndOfTokens() || p.ReportParsingError("unexpected text after \";\"") && p.Fail())
-}
-
-// EmulationStatement := "battery" "level" "emulation" ( "on" Word ";" | Details ).
-func (p *TBatteryEmulationParser) EmulationStatement() bool {
-	if !(p.ThisWordWas("battery") && p.ThisWordWas("level") && p.ThisWordWas("emulation")) {
-		return false
-	}
-	if p.ThisWordWas("on") {
-		return (p.ThisWord(&p.Instance) || p.ReportParsingError("expected the emulating Home Assistant instance") && p.Fail()) &&
-			p.ForcedEnd()
-	}
-	return p.Details()
-}
-
-// Details := [ "as" "unique_id" Id ] [ "lasting" Days "days" ] [ "since" Date ] "with" "alert" "at"
-// Percent "%" ";".
-func (p *TBatteryEmulationParser) Details() bool {
-	return p.AssignedID() && p.Lasting() && p.Since() &&
-		p.ForcedThisWordWas("with") && p.ForcedThisWordWas("alert") && p.ForcedThisWordWas("at") &&
-		p.Percent() && p.ForcedThisPunctuationWas('%') && p.ForcedEnd()
-}
-
-// AssignedID := [ "as" "unique_id" Word { "." Word } ].
-func (p *TBatteryEmulationParser) AssignedID() bool {
-	if !p.ThisWordWas("as") {
-		return true
-	}
-	if !p.ForcedThisWordWas("unique_id") || !(p.ThisWord(&p.Emulation.RootID) || p.ReportParsingError("expected the frozen unique_id root") && p.Fail()) {
-		return false
-	}
-	var segment string
-	for p.ThisPunctuationWas('.') {
-		if !p.ThisWord(&segment) {
-			return p.ReportParsingError("expected the rest of the unique_id") && p.Fail()
-		}
-		p.Emulation.RootID += "." + segment
-	}
-	return true
-}
-
-// Lasting := [ "lasting" Number "days" ].
-func (p *TBatteryEmulationParser) Lasting() bool {
-	if !p.ThisWordWas("lasting") {
-		return true
-	}
-	return p.Number(&p.Emulation.Days, 1, "the number of days a charge lasts") && p.ForcedThisWordWas("days")
-}
-
-// Since := [ "since" Day "." Month "." Year ], a date that exists.
-func (p *TBatteryEmulationParser) Since() bool {
-	if !p.ThisWordWas("since") {
-		return true
-	}
-	var day, month, year string
-	if !(p.ThisWord(&day) && p.ForcedThisPunctuationWas('.') && p.ThisWord(&month) && p.ForcedThisPunctuationWas('.') && p.ThisWord(&year)) {
-		return p.ReportParsingError("expected a date, dd.mm.yyyy") && p.Fail()
-	}
-	date, err := time.Parse("2.1.2006", day+"."+month+"."+year)
-	if err != nil {
-		return p.ReportParsingError("%s.%s.%s is no date", day, month, year) && p.Fail()
-	}
-	p.Emulation.Since = date.Format("2006-01-02")
-	return true
-}
-
-// Percent := a whole number from 1 to 99.
-func (p *TBatteryEmulationParser) Percent() bool {
-	return p.Number(&p.Emulation.AlertPercent, 1, "the alert's percentage") &&
-		(p.Emulation.AlertPercent < 100 || p.ReportParsingError("%d%% is no alert level", p.Emulation.AlertPercent) && p.Fail())
-}
-
-// Number reads a whole number of at least minimum into *target; what names it in an error.
-func (p *TBatteryEmulationParser) Number(target *int, minimum int, what string) bool {
-	var word string
-	if !p.ThisWord(&word) {
-		return p.ReportParsingError("expected %s", what) && p.Fail()
-	}
-	number, err := strconv.Atoi(word)
-	if err != nil || number < minimum {
-		return p.ReportParsingError("%q is not %s", word, what) && p.Fail()
-	}
-	*target = number
-	return true
-}
 
 // --- Physical.def ---
 

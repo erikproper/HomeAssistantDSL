@@ -30,7 +30,7 @@ func TestParseBatteryEmulationLineReportsErrors(t *testing.T) {
 		"battery level emulation lasting ninety days with alert at 5%;": "is not the number of days",
 		"battery level emulation since 31.13.2026 with alert at 5%;":    "no date",
 		"battery level emulation with alert at 5;":                      `expected "%"`,
-		"battery level emulation with alert at 100%;":                   "no alert level",
+		"battery level emulation with alert at 100%;":                   "is not the alert's percentage",
 		"battery level emulation lasting 90 days;":                      `expected "with"`,
 	} {
 		_, _, ok, warnings := parseBatteryEmulationLine(line)

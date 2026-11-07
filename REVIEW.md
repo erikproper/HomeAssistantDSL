@@ -19,7 +19,18 @@ file are noted under its entry; once they are dealt with, it goes to Re-review.
 
 ## Ready for review
 
-(none)
+Step 2, the shared parser stack (Architecture.md §9.4). The stack's lower layers will change again
+in step 3, when the definition files are read whole (positions in the file, comments); the
+grammars on top show the style the other grammars will follow.
+
+- `homeassistant/parser_character_stream.go`
+- `homeassistant/parser_tokeniser.go`
+- `homeassistant/parser_base.go` (+ parser_base_test.go)
+- `homeassistant/parser_messages.go`
+- `homeassistant/parser_battery_emulation.go` (tests in battery_emulation_test.go)
+- `homeassistant/parser_rule.go` (+ parser_rule_test.go; its comments are cleaned in step 6)
+- `homeassistant/parser_condition.go` (+ parser_condition_test.go; its comments are cleaned in
+  step 6)
 
 ## Reviewed
 
@@ -52,13 +63,9 @@ file are noted under its entry; once they are dealt with, it goes to Re-review.
 - `homeassistant/integration_logical_storage.go` (+ integration_logical_storage_test.go)
 - `homeassistant/integration_mqtt.go` (+ integration_mqtt_test.go)
 - `homeassistant/layers.go` (+ layers_test.go)
-- `homeassistant/logical_condition_expr.go` (+ logical_condition_expr_test.go)
 - `homeassistant/parser.go`
 - `homeassistant/physical_liveness.go` (+ physical_liveness_test.go)
 - `homeassistant/presence.go`
-- `homeassistant/rule_character_stream.go`
-- `homeassistant/rule_parser.go`
-- `homeassistant/rule_tokeniser.go`
 - `homeassistant/with_clause.go`
 
 ### Everything else (step 5: mechanical fixes, generator.go split; step 6: comments)

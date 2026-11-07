@@ -123,7 +123,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 	// currentRule is nil outside a "rule <spec> with: ...; end;" body -- a flat state flag, same
 	// convention as forDeviceID immediately above (no nesting support, no use case for it). Each
 	// "when"/"then" statement line inside is parsed by the real three-layer CDL1-style parser
-	// (rule_character_stream.go/rule_tokeniser.go/rule_parser.go, PROJECT.md item 13) rather than
+	// (parser_rule.go, PROJECT.md item 13) rather than
 	// more ad hoc line matching -- see TRule's own doc comment for why. currentRuleClauses tracks
 	// how many of each top-level clause currentRule has seen so far, reset every time a new rule
 	// opens -- see ruleClauseTracker's own doc comment for the exactly-one/at-most-one/exactly-one
@@ -195,7 +195,7 @@ func ParseEntitiesAndFillAdministration(entityLines []string, lineNos []int, ent
 			// Phase 2) -- the outer scanner's own job is only to find its own matching "end;"
 			// (same convention as every other "... with:"/"end;" block boundary in this
 			// function), not to parse its content; the real grammar work happens in
-			// rule_parser.go via TRuleParser.ActionStatement, called once per line inside.
+			// parser_rule.go via TRuleParser.ActionStatement, called once per line inside.
 			if strings.HasPrefix(trimmed, "then if ") && strings.HasSuffix(trimmed, ":") {
 				action, newI := parseIfActionBlock(administration, currentRule, entityLines, i, trimmed)
 				i = newI
@@ -943,8 +943,8 @@ func ruleBodyLineNeedsContinuation(trimmed string) bool {
 }
 
 // parseRuleStatementLine parses one line of a "rule <spec> with: ...; end;" body (a "when
-// <entity-ref> turns on|off;" trigger or a "then turn <entity-ref> on|off;" action) via the real
-// three-layer CDL1-style parser (rule_character_stream.go/rule_tokeniser.go/rule_parser.go) and
+// <entity-ref> turns on|off;" trigger or a "then turn <entity-ref> on|off;" action) via
+// parser_rule.go and
 // appends the result to rule. EntitySpec is resolved to a fully-qualified entity name here
 // (normalizeEntityFullName), exactly like every other Conceptual.def relation construct resolves
 // its own entity references at parse time (FollowsRelations/TimerLimitsRelations/
@@ -988,10 +988,18 @@ func parseRuleStatementLine(administration *TAdministrationState, rule *TRule, l
 		return
 	}
 
+	reportRuleStatementWarnings(p, rule, line)
+}
+
+// reportRuleStatementWarnings prints p's messages about line, or, when it has none, that line is
+// no statement of a rule.
+func reportRuleStatementWarnings(p *TRuleParser, rule *TRule, line string) {
 	for _, w := range p.Warnings {
 		fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: %s\n", w)
 	}
-	fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: rule %q: unrecognised statement %q\n", rule.Name, line)
+	if len(p.Warnings) == 0 {
+		fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: rule %q: unrecognised statement %q\n", rule.Name, line)
+	}
 }
 
 // resolveConditionEntitySpecs resolves every "state"-kind leaf's EntitySpec in a TRuleCondition
@@ -1113,10 +1121,7 @@ func parseIfActionBlock(administration *TAdministrationState, rule *TRule, entit
 			}
 			continue
 		}
-		for _, w := range branchParser.Warnings {
-			fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: %s\n", w)
-		}
-		fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: rule %q: unrecognised statement %q\n", rule.Name, line)
+		reportRuleStatementWarnings(branchParser, rule, line)
 	}
 
 	if !headerOK {
@@ -1148,10 +1153,7 @@ func parseThenBlock(administration *TAdministrationState, rule *TRule, entityLin
 			actions = append(actions, action)
 			continue
 		}
-		for _, w := range actionParser.Warnings {
-			fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: %s\n", w)
-		}
-		fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: rule %q: unrecognised statement %q\n", rule.Name, line)
+		reportRuleStatementWarnings(actionParser, rule, line)
 	}
 	return actions, i
 }

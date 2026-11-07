@@ -189,7 +189,7 @@ func readOptionalFile(path string) (string, error) {
 // does NOT touch whitespace inside quoted strings differently -- a tab or stray CR inside a quoted
 // jinja template/icon string is exactly as unlikely to be semantically meaningful as one outside
 // it, and treating quotes specially here would need the same quote-tracking machinery
-// logical_condition_expr.go's own tokenizer already has, for no realistic benefit.
+// parser_condition.go's own tokenizer already has, for no realistic benefit.
 //
 // joinWrappedStatementContinuations (2026-09-29) is the GENERAL fix for the user's own repeated
 // complaint ("we still don't treat tabs... and returns as 'just another space' -- all over the
@@ -198,7 +198,7 @@ func readOptionalFile(path string) (string, error) {
 // from actual wrapped .def content, and both were the wrong FIX SHAPE, not just an incomplete one:
 // patching one wrapped-keyword shape at a time can never converge, because there's no reason a
 // newline is special versus a tab anywhere in this grammar. The correct model (the one
-// logical_condition_expr.go's own character-stream tokenizer already uses for condition/value
+// parser_condition.go's own character-stream tokenizer already uses for condition/value
 // expressions) is: a newline is just another whitespace character UNLESS it's the one genuinely
 // ending an incomplete statement is checked against, not a hardcoded keyword. This function applies
 // that model at the one true entry point every .def-family file already flows through
@@ -715,7 +715,7 @@ func forcedElementsGroup(cur *TLineCursor, hadColon bool, element func(*TLineCur
 // early, without an explicit depth counter: the recursion IS the depth tracking.
 //
 // "else:" is special-cased to NOT open its own nested group: a rule body's own "then if
-// <entity-ref> is <state>: ...; else: ...; end;" branching action (rule_parser.go,
+// <entity-ref> is <state>: ...; else: ...; end;" branching action (parser_rule.go,
 // parser.go's parseIfActionBlock) is a single flat construct sharing ONE closing "end;"
 // between its "then if ...:" header and "else:" marker, not two independently-nested
 // blocks -- real bug found live 2026-10-13, migrating Junglinster's sarah_bedroom cover

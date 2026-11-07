@@ -20,7 +20,7 @@ import (
 // TestLocalDeviceNodeOverrideEndToEnd is the Ring doorbell's own shape, end to end: a "local"
 // device (a camera entity native to HA main, plus a "node" capability tracking that camera's own
 // availability) whose "node" is OVERRIDDEN by a Logical.def device sharing its id, via the new
-// "physical <device-id>" condition shorthand (logical_condition_expr.go). Exercises, together, the
+// "physical <device-id>" condition shorthand (parser_condition.go). Exercises, together, the
 // full wiring this session's "local" integration kind touched: the explicit "entity
 // binary_sensor.infrastructural:node from binary_sensor.node;" body line's dispatch hits the generic "node"
 // override check at the top of registerDeviceCapabilityEntityLinkAllowingHidden (2026-09-24 --

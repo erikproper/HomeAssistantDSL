@@ -253,7 +253,7 @@ func TestParseValueExprJinjaClause(t *testing.T) {
 }
 
 // TestParseValueExprRejectsBooleanComposition confirms "value" never accepts and/or/not/parens --
-// a sensor value isn't boolean-composable, so ParseAtom (not ParseOrExpr) is the entry point.
+// a sensor value isn't boolean-composable, so Atom (not OrExpression) is the entry point.
 func TestParseValueExprRejectsBooleanComposition(t *testing.T) {
 	_, warnings := parseValueExpr("binary_sensor.x and binary_sensor.y", nil, "test")
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "unexpected trailing input") {

@@ -81,6 +81,11 @@ JLI
 
 33. Architectural review, code review and documenting
    - Review progress per Go file: REVIEW.md (not ready / ready / re-review / reviewed).
+   - Order: (1) GO_* conventions, (2) shared parser stack, (3) Physical.def as one grammar,
+     (4) the other .def files, (5) mechanical fixes and splitting generator.go, (6) comments and
+     docs. Steps 1 and 2 are done; next is 3. Open from step 2: parse errors are still warnings
+     (exit 0, output written); the conventions want no output from input that failed to parse --
+     part of step 3, where each file gets one parser result.
    - Note (2026-09-05): GO_CONVENTIONS.md §7/§8 specifies a three-layer parser architecture
      (character stream -> tokeniser -> recursive-descent, CDL1 bool-returning style, no `error`
      returns from parse functions). The DSL frontend (Physical.def/Spaces.def parsing) does not
@@ -97,7 +102,7 @@ JLI
      after "with", then (found live, same day) an "is switched by" one-liner wrapped mid-expression
      -- because the line-based matching this item describes has no real notion of "whitespace"
      the way a proper character-stream tokeniser (already built once, correctly, for condition/value
-     expressions in `logical_condition_expr.go`) does. Patched pragmatically for now
+     expressions in `parser_condition.go`) does. Patched pragmatically for now
      (`normalizeDefinitionWhitespace`/`joinWrappedStatementContinuations`, `defined.go`: any
      physical line not ending in a real terminator `;`/`:`, quote-aware, comment/blank-exempt, gets
      joined into the next) rather than waiting for this item -- but the real, durable fix is this

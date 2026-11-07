@@ -253,7 +253,7 @@ var logicalDerivedIconPattern = regexp.MustCompile(`^icon:\s*"([^"]*)"\s*;\s*$`)
 // a "derived" block's own "condition"/"value" expression across possibly-several physical lines
 // (the user's own preferred layout breaks a long boolean expression across lines, e.g. a line
 // ending in "and") before handing the complete raw text to parseConditionExpr/parseValueExpr
-// (logical_condition_expr.go), which do the real tokenising/recursive-descent parsing -- this is
+// (parser_condition.go), which do the real tokenising/recursive-descent parsing -- this is
 // plain depth counting to find where to CUT the accumulated text, not a grammar of its own, so it
 // doesn't run against memory/feedback_no_new_regexp_parsers.md's own concern.
 func findTopLevelSemicolon(s string) int {
@@ -328,7 +328,7 @@ func parseLogicalLayerBody(bodyLines []string, jinjaTemplates map[string]TJinjaT
 
 	// tryCloseDerivedExpr checks whether derivedExprBuffer now contains a complete, balanced
 	// "condition"/"value" expression (a top-level ";") -- if so, hands the raw text to
-	// parseConditionExpr/parseValueExpr (logical_condition_expr.go) and leaves inDerivedExpr.
+	// parseConditionExpr/parseValueExpr (parser_condition.go) and leaves inDerivedExpr.
 	// Called both right after the head line ("condition "/"value " prefix, possibly already
 	// complete on one line) and after each further accumulated line, so a multi-line expression
 	// (the user's own preferred layout, breaking a long boolean expression across lines) closes
@@ -625,7 +625,7 @@ func collectLogicalDevicesByID(definitionDir string, settings map[string]string)
 	// fields, 2026-09-18) is substituted here, once, over the whole raw body, before parsing. A
 	// jinja template call's own "${name}" (e.g. "jinja ${int_less_than}(10)") is a DIFFERENT
 	// namespace (parseJinjaTemplateDefinitions, not parseDefinitionAssignments) and is resolved
-	// later, inside parseConditionExpr/parseValueExpr itself (logical_condition_expr.go) -- safe to
+	// later, inside parseConditionExpr/parseValueExpr itself (parser_condition.go) -- safe to
 	// run this pass first regardless, since resolveSettingsVar leaves an unknown "${name}" (never a
 	// real Settings.def variable) untouched rather than erroring (its own doc comment).
 	logicalContent = substituteSettingsVariables(logicalContent, settings)

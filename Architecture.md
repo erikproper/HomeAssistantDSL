@@ -2090,13 +2090,8 @@ trigger/action rule, built with the same ad hoc line/`strings.Fields` matching G
 construct's own matching with more special cases for every new trigger/condition/action shape the
 85 real automations needed would have piled more of exactly that debt on top of itself.
 
-**Decision**: build a real three-layer CDL1-style parser from scratch for the rule grammar —
-`rule_character_stream.go` (`TDefCharacterStream`, byte-level, line/column tracked),
-`rule_tokeniser.go` (`TDefTokeniser`, keyword/identifier/number/string/punctuation
-classification), `rule_parser.go` (`TRuleParser`, CDL1 bool-returning recursive-descent grammar
-functions) — the same architecture pattern `../bibtex/bibtex_check` already exemplifies, adapted
-to this codebase's own warnings-slice error convention rather than importing a second reporting
-mechanism. `TWhenRule` was replaced outright, not kept alongside the new construct; Junglinster's
+**Decision**: build a real CDL1-style grammar for rules (`parser_rule.go`, `TRuleParser`) on
+the shared parser stack of §9.4 — the architecture `../bibtex/bibtex_check` exemplifies. `TWhenRule` was replaced outright, not kept alongside the new construct; Junglinster's
 one real pre-existing usage (`done_removing_smells`) migrated to the new block syntax in the same
 pass, with both houses regenerating byte-identical.
 
@@ -2136,7 +2131,7 @@ always positioning at the action's own leaf space.
 - `EntityRef` couldn't tell `<sphere>:<path>` (path continues right after the colon) apart from
   `<sphere>:` (empty path, e.g. `vacuum.social:` immediately before a predicate keyword) followed
   by an ordinary word — it silently swallowed the next keyword as if it were the path. Fixed via a
-  new `TRuleToken.PrecededByWhitespace` field (`rule_tokeniser.go`): a path only continues when the
+  new `TToken.PrecededByWhitespace` field (`parser_tokeniser.go`): a path only continues when the
   next token touches the colon with no whitespace in between.
 - `genericBodyElement` (`defined.go`, the generic top-level block-boundary scanner
   `scanGroupClauseBlocks`/`layers.go` use to find each `"<layer> layer with: ... end;"` block's own
@@ -2174,6 +2169,31 @@ from this migration after registry surgery (the same stop-core/edit-registry/res
 §6.14 already established) resolved the ones found.
 
 ---
+
+### 9.4 The parser stack
+
+The grammars of the definition files share one stack of layers (GO_CONVENTIONS.md §7/§8), each
+embedding the one below:
+
+| File | Type | Role |
+|---|---|---|
+| `parser_character_stream.go` | `TCharacterStream` | characters, line and column; `TByteSet` character classes |
+| `parser_tokeniser.go` | `TTokeniser` | words, strings, punctuation; whether whitespace preceded a token |
+| `parser_base.go` | `TDefParser` | error reporting and recovery, Forced variants, numbers |
+| `parser_messages.go` | | the messages |
+
+On top of `TDefParser`: the rule grammar (`parser_rule.go`), the conditions and values of
+derived capabilities (`parser_condition.go`) and the battery level emulation statements
+(`parser_battery_emulation.go`).
+
+A word is a run of letters, digits, `_` and `-`; names with dots, such as `sensor.wind_speed`,
+are joined by the grammar from tokens written without whitespace between them. An error is
+reported once, at the token where it is found, as `<origin>: <message> (L:<line>, C:<column>)`;
+the parser then skips to the end of the statement and stays silent.
+
+The grammars are still given one statement at a time by the line-based readers of `parser.go`
+and the integration parsers, so a position is within that statement. Reading each definition file
+whole, as one grammar, is the next step (PROJECT.md item 33).
 
 ## 10. Platform-specific integration notes
 

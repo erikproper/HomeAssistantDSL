@@ -424,7 +424,7 @@ func TestSubstituteSettingsVariablesLeavesUnknownNameUnchanged(t *testing.T) {
 
 // TestParseLogicalLayerBodyDerivedConditionJinjaNamedTemplateCall covers the "condition jinja
 // ${name}(args) { ... };" alternative head (2026-09-19, appliance.sonos_roam's own battery_alert;
-// folded into logical_condition_expr.go's own grammar 2026-09-24) -- reuses the SAME Settings.def
+// folded into parser_condition.go's own grammar 2026-09-24) -- reuses the SAME Settings.def
 // named jinja templates Physical.def's own "derived ... via jinja ${name}(args);" already uses,
 // rewriting the template's own "$" placeholder to "$1" (this form's "{ ... }" list is always
 // exactly one entry).

@@ -488,7 +488,7 @@ func resolveLogicalSiblingSourceEntityID(administration *TAdministrationState, d
 	return "", false, false
 }
 
-// logicalConditionResolver walks a TConditionExpr tree (logical_condition_expr.go), resolving each
+// logicalConditionResolver walks a TConditionExpr tree (parser_condition.go), resolving each
 // leaf's raw token via resolveLogicalSiblingSourceEntityID and rendering the whole tree into ONE
 // final, fully-substituted Jinja2 expression string -- deferred/warnings mirror the pre-2026-09-24
 // flat "over:"-list resolution exactly (defer with no warning while !finalAttempt, one clear
@@ -819,7 +819,7 @@ func (r *logicalConditionResolver) render(node *TConditionExpr) (string, bool) {
 			}
 			return "(" + expr + ")", true
 		}
-		// Named-template-call head: a single, already-parenthesized source (ParseJinjaClause only
+		// Named-template-call head: a single, already-parenthesized source (JinjaClause only
 		// ever populates exactly one), substituted positionally into JinjaExpr's own bare "$"/"$1"
 		// (that template's text lives in Settings.def, so it can't embed a placeholder of its own).
 		entityID, ok := r.resolveJinjaToken(node.JinjaSources[0])
@@ -860,7 +860,7 @@ func (r *logicalConditionResolver) render(node *TConditionExpr) (string, bool) {
 // registerLogicalDerivedConditionCapability resolves a "derived <domain>.<label> with:
 // condition <bool-expr>; ... end;" (binary_sensor domain) or "value <atom>; ... end;" (any other
 // domain) capability (2026-09-18, boolean+jinja grammar redesigned 2026-09-24 -- see
-// logical_condition_expr.go's header comment for the full grammar and rationale) into ONE fully-
+// parser_condition.go's header comment for the full grammar and rationale) into ONE fully-
 // resolved Jinja2 expression, stored straight into TEntityRecord.ConditionExpr with
 // ConditionSources left nil -- buildConditionStateExpr (generator.go) is a verified no-op when
 // sources is empty, so generateConditionEntities' existing binary_sensor/sensor domain dispatch

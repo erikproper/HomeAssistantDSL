@@ -97,7 +97,7 @@ type TLogicalCapability struct {
 	// shape since 2026-09-24) are set together, from a "derived capability <domain>.<label> with: condition
 	// <bool-expr>; device_class <val>; delay_on <time>; delay_off <time>; end;" block -- a
 	// MULTI-SOURCE boolean condition (and/or/not/parens over bare sibling refs and "jinja ... {
-	// ... }" sub-clauses, logical_condition_expr.go). DerivedCondition's leaves are unresolved raw
+	// ... }" sub-clauses, parser_condition.go). DerivedCondition's leaves are unresolved raw
 	// tokens (sibling capability labels, or literal "domain.path[!attribute]" entity references);
 	// each is resolved by resolveLogicalSiblingSourceEntityID (Conceptual_LogicalEntities.go) --
 	// deliberately kind-agnostic: a sibling may be an ordinary "defined" capability, or one absorbed
@@ -111,7 +111,7 @@ type TLogicalCapability struct {
 	// Macros.def's own "windy" macro's "condition ${entity} ${windy_threshold} ...;" verbatim.
 	//
 	// IsDerivedValue/DerivedValue (2026-09-24) is the SAME tree type, restricted at parse time
-	// (logical_condition_expr.go's parseValueExpr) to a single non-boolean-composable atom (a bare
+	// (parser_condition.go's parseValueExpr) to a single non-boolean-composable atom (a bare
 	// ref or one "jinja ... { ... }" clause, never and/or/not/parens) -- the correct keyword for a
 	// non-"binary_sensor" derivation (e.g. sensor.pressure), replacing the pre-2026-09-24 misuse of
 	// "condition" for a value that was never actually a boolean (registerLogicalDerivedConditionCapability
