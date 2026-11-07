@@ -216,9 +216,9 @@ JLI
     codes per Shelly's docs: "S" short, "L" long, "SS" double, "SSS" triple, "SL", "LS"; an event
     is cleared to "" after 5 s, event_cnt counts them), temperature_status ("Normal", "High",
     "Very High"). Events only come from an input set to "momentary": the test i3's inputs 1 and 2
-    are "toggle", input 3 "momentary" (2026-11-07). Its events would be an event capability
-    (input_event/<n>, event types from the list above, "" ignored) -- needs the value template
-    for JSON.
+    are "toggle", input 3 "momentary" (2026-11-07). Built 2026-11-07, not deployed: an event
+    capability ("capability event.<label> topic ... field "event" types "S", ...;", or event_1..3
+    in the i3's family), its type read from the JSON field, "" ignored; the test i3 has event_3.
 
 40. https://github.com/kaiplaketti/matter2mqtt
 

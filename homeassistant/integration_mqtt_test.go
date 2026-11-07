@@ -43,6 +43,7 @@ func TestRawMQTTShellyPlug(t *testing.T) {
 		`capability sensor.power topic "plug/relay/0/power" unit "W";`,
 		`capability sensor.energy topic "plug/relay/0/energy" unit "Wh" divided by 60;`,
 		`capability sensor.rssi/level topic "plug/rssi";`,
+		`capability event.press topic "plug/event" field "event" types "S", "L";`,
 		`end;`,
 	})
 	if len(warnings) != 0 || len(devices) != 1 {
@@ -70,6 +71,7 @@ func TestRawMQTTShellyPlug(t *testing.T) {
 	for line, topic := range map[string]string{
 		`capability sensor.energy topic "plug/relay/0/energy" unit "Wh" divided by 60;`: "plug/relay/0/energy",
 		`capability switch.switch topic "plug/relay/0" command "plug/relay/0/command";`: "plug/relay/0",
+		`capability event.press topic "plug/event" field "event" types "S", "L";`:       "plug/event",
 	} {
 		domain, label, _ := strings.Cut(strings.Fields(line)[1], ".")
 		if !discoveryCapabilityLinePattern(domain, label, "", "", topic).MatchString(line) {

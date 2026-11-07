@@ -67,6 +67,9 @@ type TRawTopicCapability struct {
 	// Unit and DividedBy: a sensor's unit, and what its value is divided by to get there (0: as it is).
 	Unit      string
 	DividedBy int
+	// Field and Types: the JSON field an event's type is in, and the types there are (event only).
+	Field string
+	Types []string
 	// Implied: the topic isn't written in the capability's line (an instance's node).
 	Implied bool
 }
@@ -220,6 +223,15 @@ func rawMQTTConfigs(gateway TDiscoveryGatewayDevice) map[string]map[string]inter
 		// The value, with what its unit says about it.
 		case "sensor":
 			addRawSensorFields(config, raw)
+
+		// The type from its JSON field; an empty one (a cleared event) is no event.
+		case "event":
+			var types []interface{}
+			for _, eventType := range raw.Types {
+				types = append(types, eventType)
+			}
+			config["event_types"] = types
+			config["value_template"] = fmt.Sprintf(`{%% if value_json.%[1]s %%}{{ {"event_type": value_json.%[1]s} | to_json }}{%% else %%}{}{%% endif %%}`, raw.Field)
 		}
 		if label == "node" {
 			config["device_class"] = "connectivity"

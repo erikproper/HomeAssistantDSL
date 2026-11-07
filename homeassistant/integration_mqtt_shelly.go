@@ -50,14 +50,21 @@ var shellyFamilies = map[string]map[string]shellyCapability{
 		"temperature": {"sensor", TRawTopicCapability{Topic: "temperature", Unit: "°C"}},
 		"overheated":  {"binary_sensor", TRawTopicCapability{Topic: "overtemperature", On: "1"}},
 	}),
-	// The i3's three inputs; their events (input_event/<n>, JSON) once their codes have been seen.
+	// The i3's three inputs, and their events -- sent only by an input set to "momentary".
 	"shellyix3": {
 		"node":    {"binary_sensor", TRawTopicCapability{Topic: "online", On: "true"}},
 		"input_1": {"binary_sensor", TRawTopicCapability{Topic: "input/0", On: "1"}},
 		"input_2": {"binary_sensor", TRawTopicCapability{Topic: "input/1", On: "1"}},
 		"input_3": {"binary_sensor", TRawTopicCapability{Topic: "input/2", On: "1"}},
+		"event_1": {"event", TRawTopicCapability{Topic: "input_event/0", Field: "event", Types: shellyInputEvents}},
+		"event_2": {"event", TRawTopicCapability{Topic: "input_event/1", Field: "event", Types: shellyInputEvents}},
+		"event_3": {"event", TRawTopicCapability{Topic: "input_event/2", Field: "event", Types: shellyInputEvents}},
 	},
 }
+
+// shellyInputEvents are a Gen1 input's events: short, long, double and triple short, short then
+// long, long then short.
+var shellyInputEvents = []string{"S", "L", "SS", "SSS", "SL", "LS"}
 
 // shellyModels are the product names of the model codes a Shelly announces ("model").
 var shellyModels = map[string]string{

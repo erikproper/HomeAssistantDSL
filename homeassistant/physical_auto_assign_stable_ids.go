@@ -167,7 +167,7 @@ func discoveryCapabilityLinePattern(domain, label, sourceDomain, leaf, rawTopic 
 		return regexp.MustCompile(`^\s*capability\s+` + regexp.QuoteMeta(domain) + `\.` + regexp.QuoteMeta(label) + `\s*;\s*$`)
 	}
 	if rawTopic != "" {
-		source = `topic\s+"` + regexp.QuoteMeta(rawTopic) + `"(?:\s+(?:on|command|unit)\s+"[^"]*"|\s+divided\s+by\s+\d+)*`
+		source = `topic\s+"` + regexp.QuoteMeta(rawTopic) + `"(?:\s+(?:on|command|unit|field)\s+"[^"]*"|\s+divided\s+by\s+\d+|\s+types\s+"[^"]*"(?:\s*,\s*"[^"]*")*)*`
 	}
 	return regexp.MustCompile(`^\s*(?:internal\s+|inverted\s+){0,2}capability\s+` + regexp.QuoteMeta(domain) + `\.` + regexp.QuoteMeta(label) + `\s+` + source + `\s*;\s*$`)
 }

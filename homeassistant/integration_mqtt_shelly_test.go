@@ -72,3 +72,21 @@ func TestShellyI3(t *testing.T) {
 		t.Errorf("devices %+v, warnings %v", devices, warnings)
 	}
 }
+
+// TestShellyI3Event: an input's event reads the "event" field of input_event/<n>.
+func TestShellyI3Event(t *testing.T) {
+	devices, warnings := parseMQTTIntegrationBody([]string{
+		`device buttons.x with:`,
+		`shelly "shellyix3-68C63AFA9851";`,
+		`capability event.event_3;`,
+		`end;`,
+	})
+	if len(warnings) != 0 {
+		t.Fatalf("warnings %v", warnings)
+	}
+	c := rawMQTTConfigs(devices[0])["event/buttons_x_event_3"]
+	if c["state_topic"] != "shellies/shellyix3-68C63AFA9851/input_event/2" || len(c["event_types"].([]interface{})) != 6 ||
+		c["value_template"] != `{% if value_json.event %}{{ {"event_type": value_json.event} | to_json }}{% else %}{}{% endif %}` {
+		t.Errorf("config %v", c)
+	}
+}

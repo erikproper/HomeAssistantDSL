@@ -14,6 +14,7 @@
  *   DomainDetails:  "on" String                   -- binary_sensor
  *                   | "command" String            -- switch
  *                   | Unitety Divisorety          -- sensor
+ *                   | "field" String "types" String ( "," String )*  -- event, from a JSON field
  *   Unitety:        ( "unit" String )?
  *   Divisorety:     ( "divided" "by" Number )?
  *   AssignedIDety:  ( "as" "unique_id" Word ( "." Word )* )?
@@ -122,9 +123,32 @@ func (p *TMQTTCapabilityParser) DomainDetails() bool {
 		return p.Unitety() &&
 			/**/ p.Divisorety()
 
+	// The JSON field naming the event, and the events there are.
+	case "event":
+		return p.ForcedThisWordWas("field") &&
+			/**/ p.ForcedThisString(&p.Topic.Field, MessageJSONField) &&
+			/**/ p.ForcedThisWordWas("types") &&
+			/**/ p.EventTypes()
+
 	default:
 		return p.Failed(ErrorNotA, p.Domain, MessageMQTTDomain)
 	}
+}
+
+// EventTypes: String ( "," String )*
+func (p *TMQTTCapabilityParser) EventTypes() bool {
+	var eventType string
+	if !p.ForcedThisString(&eventType, MessageEventType) {
+		return false
+	}
+	p.Topic.Types = append(p.Topic.Types, eventType)
+	for p.ThisPunctuationWas(',') {
+		if !p.ForcedThisString(&eventType, MessageEventType) {
+			return false
+		}
+		p.Topic.Types = append(p.Topic.Types, eventType)
+	}
+	return true
 }
 
 // Unitety: ( "unit" String )?
