@@ -50,6 +50,13 @@ var shellyFamilies = map[string]map[string]shellyCapability{
 		"temperature": {"sensor", TRawTopicCapability{Topic: "temperature", Unit: "°C"}},
 		"overheated":  {"binary_sensor", TRawTopicCapability{Topic: "overtemperature", On: "1"}},
 	}),
+	// The i3's three inputs; their events (input_event/<n>, JSON) once their codes have been seen.
+	"shellyix3": {
+		"node":    {"binary_sensor", TRawTopicCapability{Topic: "online", On: "true"}},
+		"input_1": {"binary_sensor", TRawTopicCapability{Topic: "input/0", On: "1"}},
+		"input_2": {"binary_sensor", TRawTopicCapability{Topic: "input/1", On: "1"}},
+		"input_3": {"binary_sensor", TRawTopicCapability{Topic: "input/2", On: "1"}},
+	},
 }
 
 // shellyModels are the product names of the model codes a Shelly announces ("model").
@@ -58,6 +65,7 @@ var shellyModels = map[string]string{
 	"SHPLG2-1": "Plug E",
 	"SHPLG-S":  "Plug S",
 	"SHPLG-U1": "Plug US",
+	"SHIX3-1":  "i3",
 }
 
 // The liveness every Shelly gets unless its device has a block of its own: after three missed

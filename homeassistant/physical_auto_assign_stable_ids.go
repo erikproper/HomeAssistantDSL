@@ -193,11 +193,12 @@ func rewritePhysicalDefWithAssignedIDs(definitionDir string, assignments []tStab
 	var pending []pendingEdit
 	for _, a := range assignments {
 		pattern := discoveryCapabilityLinePattern(a.domain, a.label, a.sourceDomain, a.leaf, a.rawTopic)
-		matchIdx, matchCount := -1, 0
-		for i, line := range lines {
-			if pattern.MatchString(line) {
-				matchCount++
-				matchIdx = i
+		matchIdx, matchCount := matchingLine(lines, pattern, 0, len(lines))
+		if matchCount > 1 {
+			// The same line on several devices (e.g. a Shelly's implied "capability
+			// binary_sensor.node;"): the one inside this device's own block.
+			if start, end, found := deviceBlockLines(lines, a.gatewayID); found {
+				matchIdx, matchCount = matchingLine(lines, pattern, start, end)
 			}
 		}
 		if matchCount != 1 {
@@ -216,6 +217,44 @@ func rewritePhysicalDefWithAssignedIDs(definitionDir string, assignments []tStab
 		return nil, []string{fmt.Sprintf("could not write %s with assigned stable ids: %v", path, err)}
 	}
 	return assigned, warnings
+}
+
+// matchingLine returns the last of lines[start:end] that pattern matches, and how many do.
+func matchingLine(lines []string, pattern *regexp.Regexp, start, end int) (index, count int) {
+	index = -1
+	for i := start; i < end; i++ {
+		if pattern.MatchString(lines[i]) {
+			count++
+			index = i
+		}
+	}
+	return index, count
+}
+
+// deviceBlockLines returns the lines of device deviceID's "device <id> with: ... end;" block: from
+// its header up to its own "end;", past any nested block.
+func deviceBlockLines(lines []string, deviceID string) (start, end int, found bool) {
+	header := regexp.MustCompile(`^\s*device\s+` + regexp.QuoteMeta(deviceID) + `\s+with:\s*$`)
+	for i, line := range lines {
+		if !header.MatchString(line) {
+			continue
+		}
+		depth := 0
+		for j := i; j < len(lines); j++ {
+			code := strings.TrimSpace(stripLineComment(lines[j]))
+			switch {
+			case strings.HasPrefix(code, "end;"):
+				depth--
+			case strings.HasSuffix(code, ":") && !isElseClause(code):
+				depth++
+			}
+			if depth == 0 {
+				return i, j + 1, true
+			}
+		}
+		return i, len(lines), true
+	}
+	return 0, 0, false
 }
 
 // bootstrapDiscoveryStableIDs (PROJECT.md item 7's ONE-TIME full bootstrap, run once per house via

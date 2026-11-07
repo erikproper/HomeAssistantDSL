@@ -64,6 +64,8 @@ a multi-channel one `_1`, `_2`, ... (channel `<n>` is `_<n+1>`), as Zigbee devic
 | | `energy` | sensor | `relay/0/energy` | unit Wh, divided by 60 (watt-minutes) |
 | `shellyplug-s` only | `temperature` | sensor | `temperature` | unit °C |
 | | `overheated` | binary_sensor | `overtemperature` | on `"1"` |
+| `shellyix3` | `node` | binary_sensor | `online` | on `"true"` |
+| | `input_1` .. `input_3` | binary_sensor | `input/0` .. `input/2` | on `"1"` |
 
 Other Gen1 families (`shellyswitch25`, `shelly1pm`, `shellydimmer`, ...: `relay/<n>`,
 `roller/<n>`, `light/<n>`, `input/<n>`) are added when such a device is in a house and its tree

@@ -604,7 +604,7 @@ type TRuleDataField struct {
 //   - "set":    "then set <entity-ref> to <value>|jinja \"...\";"
 //   - "delay":  "then delay <duration>;"
 //   - "if":     "then if <condition>: <action>...; [else if <condition>: <action>...;]*
-//               [else: <action>...;] end;"
+//     [else: <action>...;] end;"
 //
 // EntitySpec is already fully resolved for every kind except "delay" (which targets no entity)
 // and "if" (whose own Condition is resolved instead).

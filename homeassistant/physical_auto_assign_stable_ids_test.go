@@ -283,3 +283,20 @@ func TestAutoAssignDiscoveryStableIDsRefusesAmbiguousMatch(t *testing.T) {
 		t.Errorf("Physical.def should be untouched when a match can't be found, got:\n%s", got)
 	}
 }
+
+// TestDeviceBlockLines: a device's block runs to its own "end;", past a nested block, so the same
+// implied capability line on two devices is told apart.
+func TestDeviceBlockLines(t *testing.T) {
+	lines := []string{
+		`device a with:`, `capability binary_sensor.node;`, `end;`,
+		`device b with:`, `liveness with:`, `end;`, `capability binary_sensor.node;`, `end;`,
+	}
+	start, end, found := deviceBlockLines(lines, "b")
+	if !found || start != 3 || end != 8 {
+		t.Fatalf("block of b = %d..%d, %v", start, end, found)
+	}
+	pattern := discoveryCapabilityLinePattern("binary_sensor", "node", "", "", impliedRawTopic)
+	if index, count := matchingLine(lines, pattern, start, end); index != 6 || count != 1 {
+		t.Errorf("match = %d (%d)", index, count)
+	}
+}

@@ -178,7 +178,8 @@ JLI
     gives the others their availability. To come: other domains, a value template for JSON and the
     vacuum's state from several topics. The Shelly layer is built (2026-11-07,
     shape A, claude-notes/plans/shelly-layer.md): "shelly "<id>";" inside a device of "integration
-    mqtt"; families so far shellyplug and shellyplug-s. To come: the update signal (below).
+    mqtt"; families so far shellyplug,
+    shellyplug-s and shellyix3 (inputs only). To come: the update signal (below).
     Retain (from item 20, 2026-10-28; Architecture.md §6.16): a raw device's declaration says
     "is retained;" when its topics are retained; without it its state entities read the
     coordinator's shadow, as for discovered devices. Each raw definition also needs its own
@@ -208,8 +209,9 @@ JLI
     The plug fetched it at once and was on v1.14.0 within 40 s; its settings (MQTT, retain,
     update period, id) and its topic tree stayed the same. The same worked at once for a second plug
     (shellyplug-6CC43B, 2026-11-07, 20 s).
-    More test devices (Erik, 2026-11-07, not declared yet): that second plug, and an i3
-    (shellyix3-68C63AFA9851, SHIX3-1, already on v1.14.0). The i3's tree, for a future family:
+    More test devices (Erik, 2026-11-07): that second plug, and an i3 (shellyix3-68C63AFA9851,
+    SHIX3-1, already on v1.14.0), positioned as test_plug_2 and test_ix3 (the first plug: test_plug_1,
+    was test). The i3's tree; its family has the inputs, the events wait for their codes:
     input/<0..2> ("0"/"1"), input_event/<0..2> as JSON ({"event":"","event_cnt":0}; the event
     codes are still to be seen, e.g. by pressing), temperature_status ("Normal").
 

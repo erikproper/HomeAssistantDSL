@@ -59,3 +59,16 @@ func TestShellyLayerErrors(t *testing.T) {
 		}
 	}
 }
+
+// TestShellyI3: a multi-channel family's labels count from 1, its topics from 0.
+func TestShellyI3(t *testing.T) {
+	devices, warnings := parseMQTTIntegrationBody([]string{
+		`device buttons.x with:`,
+		`shelly "shellyix3-68C63AFA9851";`,
+		`capability binary_sensor.input_3;`,
+		`end;`,
+	})
+	if len(warnings) != 0 || devices[0].RawTopics["input_3"].Topic != "shellies/shellyix3-68C63AFA9851/input/2" || devices[0].RawTopics["input_3"].On != "1" {
+		t.Errorf("devices %+v, warnings %v", devices, warnings)
+	}
+}
