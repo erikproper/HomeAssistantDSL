@@ -177,7 +177,8 @@ JLI
     coordinator's shadow, as for discovered devices. Each raw definition also needs its own
     availability -- "we also need to detect if they are really down" (Erik).
     Test device (2026-11-07, Junglinster): shellies/shellyplug-6CC3D8, to be positioned as "test"
-    at the top house level once the integration can do it (Erik).
+    at the top house level once the integration can do it (Erik). Its retain is a setting of the
+    plug itself, so it can test the integration both with and without "is retained;".
 
 40. https://github.com/kaiplaketti/matter2mqtt
 
