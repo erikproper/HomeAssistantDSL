@@ -133,13 +133,6 @@ JLI
      its entity's last path segment, or after its domain), but it stays for the cases where the
      capability's name and the entity's path legitimately differ.
 
-36. Sarah's bedroom cover rules (open/close from its door tap) "smart": slow speed at night,
-    normal speed otherwise. Deployed 2026-11-07: "then if" takes a full condition and "else if"
-    branches; the rules open/close at normal speed when binary_sensor.social:/is_coverage_time
-    is on (the coverage day/night times for workdays and the other days), else at slow speed.
-    Left: Erik tries the tap outside coverage time: does it open slowly, and does a second press
-    stop it (the cover must report opening/closing while it moves at slow speed)?
-
 37. FHEM/FS20 integration
 
     Note (2026-09-22, architectural decision, not yet designed in detail): some integrations
