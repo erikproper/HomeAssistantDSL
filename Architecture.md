@@ -2192,8 +2192,9 @@ embedding the one below:
 | `parser_messages.go` | | the messages |
 
 On top of `TDefParser`: the rule grammar (`parser_rule.go`), the conditions and values of
-derived capabilities (`parser_condition.go`) and the battery level emulation statements
-(`parser_battery_emulation.go`).
+derived capabilities (`parser_condition.go`), the battery level emulation statements
+(`parser_battery_emulation.go`), the capability and `shelly` statements of `integration mqtt`
+(`parser_mqtt_capability.go`) and External.def's lists (`parser_external.go`).
 
 A word is a run of letters, digits, `_` and `-`; names with dots, such as `sensor.wind_speed`,
 are joined by the grammar from tokens written without whitespace between them. An error is
