@@ -133,33 +133,12 @@ JLI
      its entity's last path segment, or after its domain), but it stays for the cases where the
      capability's name and the entity's path legitimately differ.
 
-35. Media player actions integration.
-
-action: media_player.play_media
-target:
-  entity_id: media_player.social_house_living_room_tv
-data:
-  media_content_id: "Netflix"
-  media_content_type: app
-
-action: media_player.select_source
-target:
-  entity_id: media_player.social_house_living_room_apple_tv
-data:
-  source: Plex
-
-action: media_player.select_source
-target:
-  entity_id: media_player.social_house_living_room_apple_tv
-data:
-  source: Zwift
-
 36. Sarah's bedroom cover rules (open/close from its door tap) "smart": slow speed at night,
-    normal speed otherwise. Built 2026-11-07, not deployed: "then if" takes a full condition and
-    "else if" branches; the rules open/close at normal speed when
-    binary_sensor.social:/is_coverage_time is on (the coverage day/night times for workdays and
-    the other days), else at slow speed. Left: deploy, and check live that the cover reports
-    opening/closing while it moves at slow speed (so the tap still stops it).
+    normal speed otherwise. Deployed 2026-11-07: "then if" takes a full condition and "else if"
+    branches; the rules open/close at normal speed when binary_sensor.social:/is_coverage_time
+    is on (the coverage day/night times for workdays and the other days), else at slow speed.
+    Left: Erik tries the tap outside coverage time: does it open slowly, and does a second press
+    stop it (the cover must report opening/closing while it moves at slow speed)?
 
 37. FHEM/FS20 integration
 
