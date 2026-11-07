@@ -1685,9 +1685,13 @@ node that says whether it is up (Erik): `integration.zigbee2mqtt` (renamed from
 node's availability -- the discovery YAML writer now applies dependencies like every other kind's.
 Where the node's topic comes from depends on who controls it:
 - *Topics we don't control, without discovery* -- Z-Wave JS UI's `zwave/driver/status`, EMS-ESP's
-  `ems-esp/status` -- are declared in `integration mqtt`, the start of the raw MQTT integration:
+  `ems-esp/status` -- are declared in `integration mqtt`, the raw MQTT integration:
   `capability binary_sensor.node topic "zwave/driver/status" on "true" [as unique_id <id>];` ("on" for that
-  value, "off" for any other). Such a device rides on the discovery machinery: the generator writes
+  value, "off" for any other). It also takes `capability switch.<label> topic "<topic>" command
+  "<topic>";` and `capability sensor.<label> topic "<topic>" [unit "<unit>"] [divided by <n>];` (W
+  gives power, Wh or kWh energy), and `derived capability`. A device's node is the availability of
+  its other capabilities; `liveness with:` works here too, so the coordinator sets a silent device
+  offline (Junglinster's test Shelly plug). Such a device rides on the discovery machinery: the generator writes
   its "raw config" itself (`homeassistant/integration_mqtt.go`), so positioning, frozen IDs, YAML
   entity and retain decision are a discovered device's; the coordinator gets nothing. Retain: the
   same default as for discovery (not retained, so a shadow), the installation's `retained topics`

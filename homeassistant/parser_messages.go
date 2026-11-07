@@ -18,6 +18,7 @@ package main
 // What is parsed.
 const (
 	OriginBatteryEmulation = "battery level emulation"
+	OriginMQTTCapability   = "mqtt capability"
 	OriginRule             = "rule %q"
 )
 
@@ -40,11 +41,13 @@ const (
 	MessageAlertPercentage   = "the alert's percentage (1 to 99)"
 	MessageArgument          = "an argument"
 	MessageBrightnessStep    = "the step in brightness (0 to 100)"
+	MessageCapabilityLabel   = "a capability label"
 	MessageCondition         = "a condition"
 	MessageDataField         = "the name of a data field"
 	MessageDate              = "a date, dd.mm.yyyy"
 	MessageDaysACharge       = "the number of days a charge lasts"
 	MessageDeviceID          = "a device id"
+	MessageDivisor           = "the number to divide by"
 	MessageDomain            = "an entity's domain"
 	MessageDuration          = "a duration, HH:MM:SS"
 	MessageEmulatingInstance = "the emulating Home Assistant instance"
@@ -53,7 +56,10 @@ const (
 	MessageJinjaClause       = "a quoted Jinja expression or \"(\""
 	MessageJinjaSource       = "the source of the template"
 	MessageJinjaTemplate     = "a quoted Jinja template"
+	MessageMQTTDomain        = "a domain that can read a topic (binary_sensor, switch or sensor)"
+	MessageMQTTTopic         = "a quoted MQTT topic"
 	MessageNameRest          = "the rest of the name"
+	MessageOnValue           = "the quoted value that means on"
 	MessageOnOrOff           = "\"on\" or \"off\""
 	MessagePathSegment       = "a path segment"
 	MessageQuotedValue       = "a quoted value"
@@ -66,6 +72,7 @@ const (
 	MessageTimeOfDay         = "a time of day, HH:MM[:SS]"
 	MessageTriggerAttribute  = "an attribute of the trigger"
 	MessageTriggerPredicate  = "\"turns\", \"changes\" or \"is\""
+	MessageUnit              = "a quoted unit"
 	MessageValue             = "a value"
 	MessageWeekday           = "a weekday"
 )

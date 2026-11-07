@@ -6,24 +6,33 @@
  *
  * PROJECT.md 39 (raw MQTT), first step (2026-10-28): Physical.def's "integration mqtt with: ...
  * end;" block declares devices whose MQTT topics we don't control and for which nothing publishes
- * discovery -- the start being the gateways' own status topics, as integration devices (PROJECT.md
- * 26): Z-Wave JS UI's zwave/driver/status, EMS-ESP's ems-esp/status. A capability names its topic:
+ * discovery -- the gateways' own status topics, as integration devices (PROJECT.md 26), and
+ * devices such as Shelly's. A capability names its topic (parser_mqtt_capability.go):
  *
- *   device integration.zwave2mqtt with:
- *     capability binary_sensor.node topic "zwave/driver/status" on "true";
+ *   device switches.test_shelly_plug with:
+ *     is retained;
+ *     capability binary_sensor.node topic "shellies/shellyplug-6CC3D8/online" on "true";
+ *     capability switch.switch topic "shellies/shellyplug-6CC3D8/relay/0"
+ *       command "shellies/shellyplug-6CC3D8/relay/0/command";
+ *     capability sensor.power topic "shellies/shellyplug-6CC3D8/relay/0/power" unit "W";
+ *     capability sensor.energy topic "shellies/shellyplug-6CC3D8/relay/0/energy" unit "Wh" divided by 60;
  *   end;
  *
- * -- a binary_sensor, "on" for that value and "off" for any other. Such a device rides on the
- * discovery machinery: it is a gateway device (Raw) whose "raw discovery config" the generator
- * writes itself (rawMQTTConfigs) instead of the coordinator collecting one, so its positioning,
- * frozen IDs, YAML entity and retain decision are exactly a discovered device's. Retain follows the
- * same default (Architecture.md §6.16): not retained, so a shadow, unless "is retained;" or one of
- * the installation's "retained topics" filters (which may be written in this block too) says so.
- * The coordinator gets nothing about it: there is nothing to collect or relay.
+ * A device's node says whether it is up, and the availability of its other capabilities. A
+ * "liveness with:" block makes the coordinator keep that node's topic honest when the device goes
+ * silent (physical_liveness.go).
+ *
+ * Such a device rides on the discovery machinery: it is a gateway device (Raw) whose "raw discovery
+ * config" the generator writes itself (rawMQTTConfigs) instead of the coordinator collecting one,
+ * so its positioning, frozen IDs, YAML entity and retain decision are exactly a discovered device's.
+ * Retain follows the same default (Architecture.md §6.16): not retained, so a shadow, unless "is
+ * retained;" or one of the installation's "retained topics" filters (which may be written in this
+ * block too) says so. The coordinator gets nothing about its entities: there is nothing to collect
+ * or relay.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 28.10.2026
+ * Version of: 07.11.2026
  *
  */
 
@@ -33,9 +42,9 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-)
 
-var mqttTopicCapabilityPattern = regexp.MustCompile(`^capability\s+(binary_sensor)\.([A-Za-z_][A-Za-z0-9_/]*)\s+topic\s+"([^"]+)"\s+on\s+"([^"]*)"(?:\s+as\s+unique_id\s+([A-Za-z_][A-Za-z0-9_.]*))?\s*;\s*$`)
+	"homeassistant/hamqtt"
+)
 
 // mqttMetadataTopicPattern matches 'metadata <field> from topic "<topic>"[ value "<key>"];' (PROJECT.md
 // 22d, Erik, 2026-10-28): where the coordinator reads a raw device's metadata field -- <key> the
@@ -49,11 +58,15 @@ type TRawMetadataTopic struct {
 	Key   string `yaml:"value,omitempty"`
 }
 
-// TRawTopicCapability is one "capability ... topic "<topic>" on "<value>";" of an integration mqtt
-// device.
+// TRawTopicCapability is one capability statement of an integration mqtt device.
 type TRawTopicCapability struct {
 	Topic string
-	On    string
+	On    string // binary_sensor only
+	// Command is the topic a switch takes "on" and "off" on.
+	Command string
+	// Unit and DividedBy: a sensor's unit, and what its value is divided by to get there (0: as it is).
+	Unit      string
+	DividedBy int
 	// Implied: the topic isn't written in the capability's line (an instance's node).
 	Implied bool
 }
@@ -128,13 +141,20 @@ func parseMQTTIntegrationBodyLines(bodyLines []string) ([]TDiscoveryGatewayDevic
 			}
 			current.Metadata[m[1]] = THostConstantAttribute{Value: m[2], Forced: m[3] != ""}
 		default:
-			m := mqttTopicCapabilityPattern.FindStringSubmatch(line)
-			if m == nil {
-				warnings = append(warnings, fmt.Sprintf("Physical.def: unrecognised line inside mqtt device %q (body line %d): %q -- a capability here is \"capability binary_sensor.<label> topic \\\"<topic>\\\" on \\\"<value>\\\";\"", current.DeviceID, cur.ThisLineNumber(), line))
+			// "derived capability ...": from a sibling, as on a discovered device.
+			if decl, isDerived := parseDerivedCapabilityLine(line); isDerived {
+				current.Capabilities[decl.Label] = TDiscoveryCapability{Domain: decl.Domain, DerivedFromCapability: decl.FromLabel, DerivedViaTemplate: decl.Template}
 				continue
 			}
-			current.Capabilities[m[2]] = TDiscoveryCapability{Domain: m[1], Leaf: rawMQTTLeaf(current.DeviceID, m[2]), AssignedID: m[5]}
-			current.RawTopics[m[2]] = TRawTopicCapability{Topic: m[3], On: m[4]}
+			p, ok := parseMQTTCapabilityLine(line)
+			for _, w := range p.Warnings {
+				warnings = append(warnings, fmt.Sprintf("Physical.def: mqtt device %q: %s", current.DeviceID, w))
+			}
+			if !ok {
+				continue
+			}
+			current.Capabilities[p.Label] = TDiscoveryCapability{Domain: p.Domain, Leaf: rawMQTTLeaf(current.DeviceID, p.Label), AssignedID: p.AssignedID}
+			current.RawTopics[p.Label] = p.Topic
 		}
 	}
 	if current != nil {
@@ -149,23 +169,68 @@ func parseMQTTIntegrationBodyLines(bodyLines []string) ([]TDiscoveryGatewayDevic
 // writer builds their entities as it does a discovered one's.
 func rawMQTTConfigs(gateway TDiscoveryGatewayDevice) map[string]map[string]interface{} {
 	configs := map[string]map[string]interface{}{}
+	node, hasNode := gateway.RawTopics["node"]
 	for label, raw := range gateway.RawTopics {
 		capability := gateway.Capabilities[label]
 		config := map[string]interface{}{
-			"unique_id":      capability.Leaf,
-			"state_topic":    raw.Topic,
-			"value_template": fmt.Sprintf("{{ 'ON' if value == %q else 'OFF' }}", raw.On),
-			"payload_on":     "ON",
-			"payload_off":    "OFF",
-			"device":         map[string]interface{}{"identifiers": []interface{}{gateway.DeviceID}, "name": gateway.DeviceID},
+			"unique_id":   capability.Leaf,
+			"state_topic": raw.Topic,
+			"device":      map[string]interface{}{"identifiers": []interface{}{gateway.DeviceID}, "name": gateway.DeviceID},
+		}
+		switch capability.Domain {
+		// "ON" for its value, "OFF" for any other.
+		case "binary_sensor":
+			config["value_template"] = fmt.Sprintf("{{ 'ON' if value == %q else 'OFF' }}", raw.On)
+			config["payload_on"] = "ON"
+			config["payload_off"] = "OFF"
+
+		// The device's own "on" and "off", as state and as command.
+		case "switch":
+			config["command_topic"] = raw.Command
+			config["payload_on"] = hamqtt.StateOn
+			config["payload_off"] = hamqtt.StateOff
+
+		// The value, with what its unit says about it.
+		case "sensor":
+			addRawSensorFields(config, raw)
 		}
 		if label == "node" {
 			config["device_class"] = "connectivity"
 			config["entity_category"] = "diagnostic"
+		} else if hasNode && node.Topic != "" {
+			config["availability"] = rawNodeAvailability(node.Topic)
 		}
 		configs[capability.Domain+"/"+capability.Leaf] = config
 	}
 	return configs
+}
+
+// addRawSensorFields gives a sensor's config its unit, the device and state class that unit
+// implies, and the template converting its value.
+func addRawSensorFields(config map[string]interface{}, raw TRawTopicCapability) {
+	if raw.Unit != "" {
+		config["unit_of_measurement"] = raw.Unit
+	}
+	switch raw.Unit {
+	case "W":
+		config["device_class"] = "power"
+		config["state_class"] = "measurement"
+	case "Wh", "kWh":
+		config["device_class"] = "energy"
+		config["state_class"] = "total_increasing"
+	}
+	if raw.DividedBy > 0 {
+		config["value_template"] = fmt.Sprintf("{{ (value | float / %d) | round(3) }}", raw.DividedBy)
+	}
+}
+
+// rawNodeAvailability is the availability of a raw device's capabilities: its node.
+func rawNodeAvailability(nodeTopic string) []interface{} {
+	var entries []interface{}
+	for _, entry := range hamqtt.NodeAvailabilityEntries(nodeTopic) {
+		entries = append(entries, entry)
+	}
+	return entries
 }
 
 // generateMQTTIntegrationOutputs is "integration mqtt"'s entry in integrationBodyParsers: it only

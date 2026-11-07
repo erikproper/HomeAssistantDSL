@@ -168,17 +168,19 @@ JLI
     on running radios via ESPHome (Erik), which may change how FHEM/FS20 is reached at all.
 
 39. RAW mqtt as integration; also see notes below on MQTT/JSON structures. So, a situation in which we have MQTT topics, but no discovery data. Then this integration needs to combine this into a discovery compliant topic structure. Sometimes easy to do based on topic and payload. But take the vacuum. If the composed state is represented as a different topics these need to be joint by the coordinator.
-    Started 2026-10-28 as "integration mqtt" (Architecture.md §6.16): so far only binary_sensor
-    capabilities from a topic ("capability binary_sensor.<label> topic "<topic>" on "<value>";"),
-    used for the gateways' status nodes. To come: other domains, a value template for JSON, the
-    vacuum's state from several topics, and availability per raw device.
+    Started 2026-10-28 as "integration mqtt" (Architecture.md §6.16). A capability reads a topic:
+    binary_sensor ("on"), switch ("command") and sensor ("unit", "divided by"), and a device's node
+    gives the others their availability. To come: other domains, a value template for JSON and the
+    vacuum's state from several topics. Worth considering: a Shelly layer that writes all this from
+    the plug's id and its family (relay/<n>, light/<n>, roller/<n>; Gen2 has another tree).
     Retain (from item 20, 2026-10-28; Architecture.md §6.16): a raw device's declaration says
     "is retained;" when its topics are retained; without it its state entities read the
     coordinator's shadow, as for discovered devices. Each raw definition also needs its own
     availability -- "we also need to detect if they are really down" (Erik).
-    Test device (2026-11-07, Junglinster): shellies/shellyplug-6CC3D8, to be positioned as "test"
-    at the top house level once the integration can do it (Erik). Its retain is a setting of the
-    plug itself, so it can test the integration both with and without "is retained;".
+    Test device (2026-11-07, Junglinster): shellies/shellyplug-6CC3D8, declared as
+    switches.test_shelly_plug, positioned as "test" at the top house level; built, not deployed. Its
+    retain is a setting of the plug itself, so it can test the integration both with and without
+    "is retained;". Reports every 30 s; the coordinator's liveness asks "announce", answered on "info".
 
 40. https://github.com/kaiplaketti/matter2mqtt
 
