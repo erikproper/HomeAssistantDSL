@@ -125,8 +125,8 @@ end;`
 		t.Fatalf("Actions = %+v, want one \"if\" action", rule.Actions)
 	}
 	ifAction := rule.Actions[0]
-	if ifAction.CondState != "closing" {
-		t.Errorf("CondState = %q, want \"closing\"", ifAction.CondState)
+	if ifAction.Condition.Kind != "state" || ifAction.Condition.State != "closing" {
+		t.Errorf("Condition = %+v, want state \"closing\"", ifAction.Condition)
 	}
 	if len(ifAction.ThenActions) != 1 || ifAction.ThenActions[0].Verb != "stop" {
 		t.Fatalf("ThenActions = %+v, want one \"stop\" action", ifAction.ThenActions)
@@ -167,6 +167,47 @@ end;`
 		if !strings.Contains(got, want) {
 			t.Errorf("generated automation missing %q, got:\n%s", want, got)
 		}
+	}
+}
+
+// TestParseRuleIfElseIfAction checks the "else if" branches of a "then if" block (PROJECT.md 36):
+// each becomes the one "if" action of the else branch before it, and a branch's condition is a
+// full condition, as in a rule's "if" clause.
+func TestParseRuleIfElseIfAction(t *testing.T) {
+	const dsl = `space social:house/sarah_bedroom as area with:
+  rule social:cover/open with:
+    when event.social:cover/open is raised
+    then if cover.social: is opening or cover.social:slow is opening:
+      stop cover.social:;
+    else if binary_sensor.social:/is_coverage_time is on:
+      open cover.social:;
+    else open cover.social:slow;
+    end;
+  end;
+end;`
+
+	var report strings.Builder
+	result, err := ParseEntitiesAndFillAdministration(strings.Split(dsl, "\n"), nil, "test.def", nil, &report, nil, nil, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if len(result.Administration.Rules) != 1 || len(result.Administration.Rules[0].Actions) != 1 {
+		t.Fatalf("Rules = %+v, want one rule with one action", result.Administration.Rules)
+	}
+	ifAction := result.Administration.Rules[0].Actions[0]
+	if ifAction.Condition.Kind != "or" || len(ifAction.ThenActions) != 1 || ifAction.ThenActions[0].Verb != "stop" {
+		t.Fatalf("if = %+v, want an \"or\" condition and one \"stop\"", ifAction)
+	}
+	if len(ifAction.ElseActions) != 1 || ifAction.ElseActions[0].Verb != "if" {
+		t.Fatalf("ElseActions = %+v, want one \"if\" action", ifAction.ElseActions)
+	}
+	elseIf := ifAction.ElseActions[0]
+	if elseIf.Condition.EntitySpec != "binary_sensor.social/is_coverage_time" || elseIf.Condition.State != "on" {
+		t.Errorf("else if condition = %+v", elseIf.Condition)
+	}
+	if len(elseIf.ThenActions) != 1 || elseIf.ThenActions[0].EntitySpec != "cover.social/house/sarah_bedroom" ||
+		len(elseIf.ElseActions) != 1 || elseIf.ElseActions[0].EntitySpec != "cover.social/house/sarah_bedroom/slow" {
+		t.Errorf("else if actions = %+v / %+v", elseIf.ThenActions, elseIf.ElseActions)
 	}
 }
 

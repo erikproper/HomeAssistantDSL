@@ -4686,11 +4686,8 @@ func boundedBrightnessTemplate(entityID, step string) string {
 
 func renderRuleActionYAML(sb *strings.Builder, indent string, action TRuleAction) {
 	if action.Verb == "if" {
-		condEntityID := toHomeAssistantEntityID(action.CondEntitySpec)
 		sb.WriteString(indent + "- if:\n")
-		sb.WriteString(indent + "  - condition: state\n")
-		sb.WriteString(indent + "    entity_id: " + condEntityID + "\n")
-		sb.WriteString(indent + "    state: '" + action.CondState + "'\n")
+		renderRuleConditionYAML(sb, indent+"  ", action.Condition)
 		sb.WriteString(indent + "  then:\n")
 		for _, sub := range action.ThenActions {
 			renderRuleActionYAML(sb, indent+"  ", sub)

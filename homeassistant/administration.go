@@ -603,10 +603,11 @@ type TRuleDataField struct {
 //   - "stop":   "then stop <entity-ref>;"
 //   - "set":    "then set <entity-ref> to <value>|jinja \"...\";"
 //   - "delay":  "then delay <duration>;"
-//   - "if":     "then if <entity-ref> is <state>: <action>...; else: <action>...; end;"
+//   - "if":     "then if <condition>: <action>...; [else if <condition>: <action>...;]*
+//               [else: <action>...;] end;"
 //
 // EntitySpec is already fully resolved for every kind except "delay" (which targets no entity)
-// and "if" (whose own CondEntitySpec is resolved instead).
+// and "if" (whose own Condition is resolved instead).
 type TRuleAction struct {
 	Verb       string
 	EntitySpec string
@@ -618,10 +619,9 @@ type TRuleAction struct {
 
 	Duration string // "delay" only
 
-	CondEntitySpec string        // "if" only
-	CondState      string        // "if" only
-	ThenActions    []TRuleAction // "if" only
-	ElseActions    []TRuleAction // "if" only
+	Condition   TRuleCondition // "if" only
+	ThenActions []TRuleAction  // "if" only
+	ElseActions []TRuleAction  // "if" only: an "else if" branch is one "if" action here
 }
 
 // TRule records a "rule <spec> with: <when-statement>; <then-statement>; end;" space-level

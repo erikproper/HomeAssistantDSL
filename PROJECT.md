@@ -85,7 +85,10 @@ JLI
      (4) the other .def files, (5) mechanical fixes and splitting generator.go, (6) comments and
      docs. Steps 1 and 2 are done; next is 3. Open from step 2: parse errors are still warnings
      (exit 0, output written); the conventions want no output from input that failed to parse --
-     part of step 3, where each file gets one parser result.
+     part of step 3, where each file gets one parser result. Also open from step 2, for step 3:
+     positions count from the statement, not the file (the line-based readers hand over one
+     statement at a time); a keyword such as "or" can still be taken as a name in a condition
+     ("a and or b"); the new parser_*.go headers say "Vienna, Austria" (check with Erik).
    - Note (2026-09-05): GO_CONVENTIONS.md §7/§8 specifies a three-layer parser architecture
      (character stream -> tokeniser -> recursive-descent, CDL1 bool-returning style, no `error`
      returns from parse functions). The DSL frontend (Physical.def/Spaces.def parsing) does not
@@ -151,8 +154,12 @@ target:
 data:
   source: Zwift
 
-36. Maybe later: Sarah's bedroom cover rules (open/close from its door tap) "smart": slow speed
-    at night, normal speed otherwise.
+36. Sarah's bedroom cover rules (open/close from its door tap) "smart": slow speed at night,
+    normal speed otherwise. Built 2026-11-07, not deployed: "then if" takes a full condition and
+    "else if" branches; the rules open/close at normal speed when
+    binary_sensor.social:/is_coverage_time is on (the coverage day/night times for workdays and
+    the other days), else at slow speed. Left: deploy, and check live that the cover reports
+    opening/closing while it moves at slow speed (so the tap still stops it).
 
 37. FHEM/FS20 integration
 

@@ -6,8 +6,9 @@
  *
  * The grammar of the statements in a Conceptual.def "rule <name> with: ... end;" block. parser.go
  * hands it one statement at a time: a "when" clause, an "if" clause, a "then" action, an action
- * inside a "then: ... end;" block, or the header of a "then if ...:" block. A clause ends where
- * the next one begins, so "when" and "if" have no ";"; an action does.
+ * inside a "then: ... end;" block, or the header of a "then if ...:" block or of one of its
+ * "else if ...:" branches. A clause ends where the next one begins, so "when" and "if" have no
+ * ";"; an action does.
  *
  *   WhenStatement:     "when" TriggerClause ( "or" TriggerClause )*
  *   TriggerClause:     "time" "is" TimeOfDay | "every" "minute"
@@ -26,7 +27,8 @@
  *                      | ( "press" | "stop" | "close" | "open" | "start" | "pause"
  *                        | "return_to_base" ) EntityRef ";"
  *                      | "set" EntityRef "to" Value ";" | "delay" Duration ";"
- *   IfActionHeader:    "then" "if" EntityRef "is" Word
+ *   IfActionHeader:    "then" "if" ConditionOrExpr
+ *   ElseIfHeader:      "else" "if" ConditionOrExpr
  *   EntityRef:         Word "." Word ( ":" ( "/"? Word ( "/" Word )* )? )?
  *   DataFieldsety:     ( "with" DataField ( "," DataField )* )?
  *   DataField:         "default"? Word Value "%"?
@@ -535,13 +537,22 @@ func (p *TRuleParser) ActionStatement(action *TRuleAction) bool {
 	}
 }
 
-// IfActionHeader: "then" "if" EntityRef "is" Word, of a "then if ...:" block (the ":" removed by
-// the caller).
+// IfActionHeader: "then" "if" ConditionOrExpr, of a "then if ...:" block (the ":" removed by the
+// caller).
 func (p *TRuleParser) IfActionHeader(action *TRuleAction) bool {
 	return p.SetVerb(action, "if") &&
 		/**/ p.ThisWordWas("then") &&
 		/**/ p.ThisWordWas("if") &&
-		/**/ p.EntityRef(&action.CondEntitySpec) &&
-		/**/ p.ForcedThisWordWas("is") &&
-		/**/ p.ForcedThisWord(&action.CondState, MessageState)
+		/**/ p.ConditionOrExpr(&action.Condition) &&
+		/**/ p.ForcedEndOfStatement()
+}
+
+// ElseIfHeader: "else" "if" ConditionOrExpr, of an "else if ...:" branch of a "then if ...:" block
+// (the ":" removed by the caller).
+func (p *TRuleParser) ElseIfHeader(action *TRuleAction) bool {
+	return p.SetVerb(action, "if") &&
+		/**/ p.ThisWordWas("else") &&
+		/**/ p.ThisWordWas("if") &&
+		/**/ p.ConditionOrExpr(&action.Condition) &&
+		/**/ p.ForcedEndOfStatement()
 }

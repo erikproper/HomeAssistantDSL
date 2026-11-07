@@ -509,6 +509,19 @@ else:
 end;
 ```
 
+The condition after `then if` is written as in an `if` clause, and `else if <condition>:` adds a
+branch, tried when the ones before it failed. All branches share one `end;`. Sarah's cover opens
+at slow speed outside the coverage times:
+
+```
+then if cover.social: is opening or cover.social:slow is opening:
+  stop cover.social:;
+else if binary_sensor.social:/is_coverage_time is on:
+  open cover.social:;
+else open cover.social:slow;
+end;
+```
+
 **Requests** keep a device's raw event codes out of the rules. A request raised by several buttons
 is a logical device in Logical.def with one derived `event` capability -- its condition lists every
 button event that raises it:

@@ -1893,7 +1893,8 @@ Logical.def) as it writes them. The layout, uniform for all files:
   device holding one block of its own stays a block (its one-liner would need a second `with`), and
   a comment on any of the three lines keeps the block. The writers that edit a hosts device or an
   absorb block read its one-liner back as the block (`readDefStatementLines`);
-- `else:`/`else <action>;` is written at its `then if ...:`'s level: the two share one `end;`.
+- `else:`/`else if ...:`/`else <action>;` is written at its `then if ...:`'s level: they share one
+  `end;`.
 
 The DSL already reads a broken statement as one (`joinWrappedStatementContinuations`), so
 formatting changes no meaning: both houses generate byte-identical output before and after, and a

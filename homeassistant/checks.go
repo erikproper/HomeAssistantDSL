@@ -198,7 +198,7 @@ func checkRuleConditionEntityRef(spaceName string, cond TRuleCondition, declared
 }
 
 // checkRuleActionEntityRef checks a TRuleAction's own entity reference -- "delay" names no
-// entity at all, and "if" names its condition's entity instead (CondEntitySpec) and recurses
+// entity at all, and "if" names its condition's entities instead (Condition) and recurses
 // into its own ThenActions/ElseActions, same as this function's own top-level caller does for a
 // rule's flat Actions list.
 func checkRuleActionEntityRef(spaceName string, action TRuleAction, declared map[string]bool) {
@@ -206,7 +206,7 @@ func checkRuleActionEntityRef(spaceName string, action TRuleAction, declared map
 	case "delay":
 		return
 	case "if":
-		checkRelationEntityRef("rule (then if)", spaceName, action.CondEntitySpec, declared)
+		checkRuleConditionEntityRef(spaceName, action.Condition, declared)
 		for _, sub := range action.ThenActions {
 			checkRuleActionEntityRef(spaceName, sub, declared)
 		}

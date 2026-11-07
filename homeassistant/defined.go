@@ -714,8 +714,8 @@ func forcedElementsGroup(cur *TLineCursor, hadColon bool, element func(*TLineCur
 // capability block inside an "integration hosts with:" block) not close the outer group
 // early, without an explicit depth counter: the recursion IS the depth tracking.
 //
-// "else:" is special-cased to NOT open its own nested group: a rule body's own "then if
-// <entity-ref> is <state>: ...; else: ...; end;" branching action (parser_rule.go,
+// "else:" and "else if ...:" are special-cased to NOT open their own nested group: a rule body's
+// own "then if <condition>: ...; else if <condition>: ...; else: ...; end;" branching action (parser_rule.go,
 // parser.go's parseIfActionBlock) is a single flat construct sharing ONE closing "end;"
 // between its "then if ...:" header and "else:" marker, not two independently-nested
 // blocks -- real bug found live 2026-10-13, migrating Junglinster's sarah_bedroom cover
@@ -733,7 +733,7 @@ func genericBodyElement(body *[]string, lineNos *[]int) func(cur *TLineCursor) b
 		lineNo := cur.ThisLineNumber()
 		*body = append(*body, cur.Advance())
 		*lineNos = append(*lineNos, lineNo)
-		if line != "else:" && strings.HasSuffix(line, ":") {
+		if !isElseClause(line) && strings.HasSuffix(line, ":") {
 			return forceElementsSequence(cur, element, body, lineNos)
 		}
 		return true

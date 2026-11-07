@@ -1074,12 +1074,14 @@ func resolveActionEntitySpec(administration *TAdministrationState, action *TRule
 	action.EntitySpec = normalizeEntityFullName(action.EntitySpec, administration.SpacePath)
 }
 
-// parseIfActionBlock parses a "then if <entity-ref> is <state>: <action>...; [else:
-// <action>...; | else <action>;] end;" multi-line action block (PROJECT.md item 13 Phase 2's "if" action verb),
-// starting at entityLines[headerIdx] == header (already confirmed by the caller to start with
-// "then if " and end with ":"). Returns the parsed action (nil if the header itself failed to
-// parse) and the index of the block's own "end;" line, so the caller's own loop index naturally
-// advances past it on its next i++.
+// parseIfActionBlock parses a "then if <condition>: <action>...; [else if <condition>:
+// <action>...;]* [else: <action>...; | else <action>;] end;" multi-line action block (PROJECT.md
+// item 13 Phase 2's "if" action verb; "else if" since PROJECT.md 36), starting at
+// entityLines[headerIdx] == header (already confirmed by the caller to start with "then if " and
+// end with ":"). An "else if" branch becomes an "if" action, the only one in the else actions of
+// the branch before it. Returns the parsed action (nil if the header itself failed to parse) and
+// the index of the block's own "end;" line, so the caller's own loop index naturally advances
+// past it on its next i++.
 func parseIfActionBlock(administration *TAdministrationState, rule *TRule, entityLines []string, headerIdx int, header string) (*TRuleAction, int) {
 	headerParser := newRuleParser(strings.TrimSuffix(header, ":"), rule.Name)
 	var action TRuleAction
@@ -1087,9 +1089,8 @@ func parseIfActionBlock(administration *TAdministrationState, rule *TRule, entit
 	for _, w := range headerParser.Warnings {
 		fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: %s\n", w)
 	}
-	if headerOK {
-		action.CondEntitySpec = normalizeEntityFullName(action.CondEntitySpec, administration.SpacePath)
-	}
+	resolveConditionEntitySpecs(administration, &action.Condition)
+	branches := []*TRuleAction{&action}
 
 	inElse := false
 	i := headerIdx + 1
@@ -1105,6 +1106,21 @@ func parseIfActionBlock(administration *TAdministrationState, rule *TRule, entit
 			inElse = true
 			continue
 		}
+		// "else if <condition>:": a further branch, tried when the ones before it failed.
+		if strings.HasPrefix(line, "else if ") && strings.HasSuffix(line, ":") {
+			branchParser := newRuleParser(strings.TrimSuffix(line, ":"), rule.Name)
+			var branch TRuleAction
+			switch {
+			case inElse:
+				fmt.Fprintf(os.Stderr, "[WARNING] Conceptual.def: rule %q: %q after the \"else\" branch\n", rule.Name, line)
+			case branchParser.ElseIfHeader(&branch):
+				resolveConditionEntitySpecs(administration, &branch.Condition)
+				branches = append(branches, &branch)
+			default:
+				reportRuleStatementWarnings(branchParser, rule, line)
+			}
+			continue
+		}
 		// "else <action>;": the else branch's one-line form (PROJECT.md 30).
 		if rest, ok := strings.CutPrefix(line, "else "); ok {
 			inElse = true
@@ -1114,16 +1130,20 @@ func parseIfActionBlock(administration *TAdministrationState, rule *TRule, entit
 		var branchAction TRuleAction
 		if branchParser.ActionStatement(&branchAction) {
 			resolveActionEntitySpec(administration, &branchAction)
+			current := branches[len(branches)-1]
 			if inElse {
-				action.ElseActions = append(action.ElseActions, branchAction)
+				current.ElseActions = append(current.ElseActions, branchAction)
 			} else {
-				action.ThenActions = append(action.ThenActions, branchAction)
+				current.ThenActions = append(current.ThenActions, branchAction)
 			}
 			continue
 		}
 		reportRuleStatementWarnings(branchParser, rule, line)
 	}
 
+	for k := len(branches) - 1; k > 0; k-- {
+		branches[k-1].ElseActions = []TRuleAction{*branches[k]}
+	}
 	if !headerOK {
 		return nil, i
 	}
