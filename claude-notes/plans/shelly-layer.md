@@ -1,6 +1,9 @@
 # The Shelly layer of "integration mqtt" (PROJECT.md 39)
 
-Proposal, 2026-11-07; not agreed yet.
+Agreed 2026-11-07 (Erik): this shape ("A"), a statement inside a device of `integration mqtt`, not a
+separate `integration mqtt shelly with:` block -- a Shelly stays a raw device with a shortcut, and
+can be mixed with hand-written capabilities. FHEM (PROJECT.md 37) gets a layer of the same shape.
+An update entity only signals an update; updating stays manual (PROJECT.md 39).
 
 ## Aim
 

@@ -167,12 +167,17 @@ JLI
     Before designing: by then the Home Assistant community will likely have settled its stance
     on running radios via ESPHome (Erik), which may change how FHEM/FS20 is reached at all.
 
+    Decided 2026-11-07 (Erik, from item 39's Shelly layer): FHEM gets a layer of the same shape -- a
+    statement inside the device ("fhem ...;", like "shelly "<id>";") that implies the topics,
+    metadata and liveness from a family table, with the capabilities still listed by label
+    (claude-notes/plans/shelly-layer.md). FHEM's own topics are ours (controlled), unlike Shelly's.
+
 39. RAW mqtt as integration; also see notes below on MQTT/JSON structures. So, a situation in which we have MQTT topics, but no discovery data. Then this integration needs to combine this into a discovery compliant topic structure. Sometimes easy to do based on topic and payload. But take the vacuum. If the composed state is represented as a different topics these need to be joint by the coordinator.
     Started 2026-10-28 as "integration mqtt" (Architecture.md §6.16). A capability reads a topic:
     binary_sensor ("on"), switch ("command") and sensor ("unit", "divided by"), and a device's node
     gives the others their availability. To come: other domains, a value template for JSON and the
-    vacuum's state from several topics. Worth considering: a Shelly layer that writes all this from
-    the plug's id and its family (relay/<n>, light/<n>, roller/<n>; Gen2 has another tree).
+    vacuum's state from several topics. Next: the Shelly layer, shape A agreed (Erik, 2026-11-07):
+    "shelly "<id>";" inside a device of "integration mqtt" (claude-notes/plans/shelly-layer.md).
     Retain (from item 20, 2026-10-28; Architecture.md §6.16): a raw device's declaration says
     "is retained;" when its topics are retained; without it its state entities read the
     coordinator's shadow, as for discovered devices. Each raw definition also needs its own
