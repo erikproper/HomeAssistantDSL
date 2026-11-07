@@ -206,7 +206,12 @@ JLI
     download it into a temporary directory, run "timeout 600 python3 -m http.server 8000 --bind
     192.168.178.85" there, and call http://<plug>/ota?url=http://192.168.178.85:8000/<file>.zip.
     The plug fetched it at once and was on v1.14.0 within 40 s; its settings (MQTT, retain,
-    update period, id) and its topic tree stayed the same.
+    update period, id) and its topic tree stayed the same. The same worked at once for a second plug
+    (shellyplug-6CC43B, 2026-11-07, 20 s).
+    More test devices (Erik, 2026-11-07, not declared yet): that second plug, and an i3
+    (shellyix3-68C63AFA9851, SHIX3-1, already on v1.14.0). The i3's tree, for a future family:
+    input/<0..2> ("0"/"1"), input_event/<0..2> as JSON ({"event":"","event_cnt":0}; the event
+    codes are still to be seen, e.g. by pressing), temperature_status ("Normal").
 
 40. https://github.com/kaiplaketti/matter2mqtt
 
