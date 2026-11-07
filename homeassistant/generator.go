@@ -5375,6 +5375,7 @@ type TListPattern struct {
 	sphere       string // empty = match any sphere; otherwise only entities in this sphere match
 	pathSuffix   string // empty = match all; otherwise path must end with (wildcardLeaf: contain, one more segment past) this segment sequence
 	wildcardLeaf bool   // true for a trailing "/*" pattern segment -- see parseListPatterns
+	under        string // empty = anywhere; otherwise a segment of the path must match it ("test_*")
 }
 
 type TListCleanOp struct {
@@ -5397,7 +5398,10 @@ type TListDeclaration struct {
 
 // generateListFiles parses External.def content and writes a list.* file for each declaration.
 func generateListFiles(outputDir string, content []byte, admin *TAdministrationState) error {
-	declarations := parseListDeclarations(string(content))
+	declarations, warnings := parseExternalDefinition(string(content))
+	for _, w := range warnings {
+		fmt.Fprintf(os.Stderr, "[WARNING] %s\n", w)
+	}
 	for _, decl := range declarations {
 		entries := resolveListEntries(decl, admin)
 		if len(entries) == 0 {
@@ -5417,97 +5421,10 @@ func generateListFiles(outputDir string, content []byte, admin *TAdministrationS
 	return nil
 }
 
-// parseListDeclarations extracts all list declarations from External.def source.
-func parseListDeclarations(src string) []TListDeclaration {
-	var declarations []TListDeclaration
-	lines := strings.Split(src, "\n")
-	i := 0
-	for i < len(lines) {
-		line := strings.TrimSpace(lines[i])
-		if line == "" || strings.HasPrefix(line, "#") {
-			i++
-			continue
-		}
-		if !strings.HasPrefix(line, "list ") {
-			i++
-			continue
-		}
-		// Parse: list "Title" pattern... [with: cleanOps end;]
-		rest := strings.TrimSpace(line[len("list "):])
-
-		// Extract quoted title.
-		if !strings.HasPrefix(rest, `"`) {
-			i++
-			continue
-		}
-		closeQuote := strings.Index(rest[1:], `"`)
-		if closeQuote < 0 {
-			i++
-			continue
-		}
-		title := rest[1 : closeQuote+1]
-		rest = strings.TrimSpace(rest[closeQuote+2:])
-
-		// Extract patterns (before optional "with:" or end of line).
-		patternsPart := rest
-		withIdx := strings.Index(rest, " with:")
-		if withIdx >= 0 {
-			patternsPart = rest[:withIdx]
-		} else {
-			// Patterns may end with ";" if no with block.
-			patternsPart = strings.TrimSuffix(strings.TrimSpace(patternsPart), ";")
-		}
-
-		// An "as cards" marker trails the patterns, before "with:" -- same convention as
-		// "space <spec> as area with:".
-		asCards := false
-		patternsPart = strings.TrimSpace(patternsPart)
-		if trimmed := strings.TrimSuffix(patternsPart, " as cards"); trimmed != patternsPart {
-			asCards = true
-			patternsPart = trimmed
-		}
-		patterns := parseListPatterns(patternsPart)
-
-		var cleanOps []TListCleanOp
-		detailLevel := 2
-		if withIdx >= 0 {
-			// Read clean_prefix / clean_postfix / detail_level lines until "end;".
-			i++
-			for i < len(lines) {
-				cline := strings.TrimSpace(lines[i])
-				if cline == "end;" || cline == "end" {
-					break
-				}
-				cline = strings.TrimSuffix(cline, ";")
-				fields := strings.Fields(cline)
-				if len(fields) == 2 {
-					switch fields[0] {
-					case "clean_prefix":
-						cleanOps = append(cleanOps, TListCleanOp{"prefix", fields[1]})
-					case "clean_postfix":
-						cleanOps = append(cleanOps, TListCleanOp{"postfix", fields[1]})
-					case "detail_level":
-						if n, err := strconv.Atoi(fields[1]); err == nil {
-							detailLevel = n
-						}
-					}
-				}
-				i++
-			}
-		}
-
-		declarations = append(declarations, TListDeclaration{
-			title: title, patterns: patterns, cleanOps: cleanOps,
-			asCards: asCards, detailLevel: detailLevel,
-		})
-		i++
-	}
-	return declarations
-}
-
 // parseListPatterns parses one or more space-separated entity patterns.
 // Pattern forms:
 //
+//	"*.*"                      — match all entities of any domain, any sphere
 //	"domain.*"                 — match all entities with domain, any sphere
 //	"domain.*/suffix"          — match by path tail, any sphere
 //	"domain.sphere/*/suffix"   — match by path tail, specific sphere only
@@ -5516,7 +5433,8 @@ func parseListDeclarations(src string) []TListDeclaration {
 //	                              -- e.g. "sensor.*/cpu/*" matches "…/cpu/load", "…/cpu/temperature",
 //	                              any current or future cpu-suffix attribute, but not bare "…/cpu".
 //
-// The keyword "all" and any other token without a '.' are silently ignored.
+// The keyword "all" and any other token without a '.' are silently ignored. A pattern's
+// "under <segment>" is External.def's grammar's (parser_external.go).
 func parseListPatterns(src string) []TListPattern {
 	var patterns []TListPattern
 	for _, token := range strings.Fields(src) {
@@ -5643,10 +5561,13 @@ func isLeafDerivedAggregate(rec TEntityRecord, spaceName string, patterns []TLis
 
 func matchesAnyListPattern(rec TEntityRecord, patterns []TListPattern) bool {
 	for _, p := range patterns {
-		if rec.Identity.Domain != p.domain {
+		if p.domain != "*" && rec.Identity.Domain != p.domain {
 			continue
 		}
 		if p.sphere != "" && rec.Identity.Sphere != p.sphere {
+			continue
+		}
+		if p.under != "" && !pathHasSegment(rec.Identity.Path, p.under) {
 			continue
 		}
 		if p.pathSuffix == "" {
@@ -5663,6 +5584,16 @@ func matchesAnyListPattern(rec TEntityRecord, patterns []TListPattern) bool {
 			continue
 		}
 		if path == p.pathSuffix || strings.HasSuffix(path, "/"+p.pathSuffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// pathHasSegment reports whether a segment of path matches glob ("*" for any run of characters).
+func pathHasSegment(path, glob string) bool {
+	for _, segment := range strings.Split(path, "/") {
+		if matched, err := filepath.Match(glob, segment); err == nil && matched {
 			return true
 		}
 	}

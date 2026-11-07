@@ -624,8 +624,20 @@ Each pattern selects a subset of declared entities:
 | `domain.*/suffix` | Entities whose path ends with `/suffix` |
 | `domain.sphere/*/suffix` | Entities in a specific sphere whose path ends with `/suffix` |
 | `domain.*/prefix/*` | Entities whose path has `prefix` as the second-to-last segment, with any one trailing leaf segment (e.g. `sensor.*/cpu/*` matches `.../cpu/load`, `.../cpu/temperature`, or any future `cpu`-suffix attribute — but not bare `.../cpu`) |
+| `*.*` | All entities, of any domain |
+| `<pattern> under <segment>` | Those of the pattern's entities with a path segment matching `<segment>`, which may contain `*` -- the entity at that position and everything below it |
 
-The `all` keyword is optional and silently ignored.
+The `all` keyword is optional. A mistake is reported at the word, and that list is skipped
+(`parser_external.go`). Junglinster's test devices, with all their entities in one card (a new
+test device positioned under a `test_...` name joins it by itself):
+
+```
+list "Tests" all *.* under test_* with:
+  clean_prefix social;
+  clean_prefix infrastructural;
+  clean_prefix house;
+end;
+```
 
 When a sphere is specified (e.g. `binary_sensor.social/*/door`), the pattern matches only entities
 in that sphere. It also promotes derived sphere-level group entities for spaces where the
