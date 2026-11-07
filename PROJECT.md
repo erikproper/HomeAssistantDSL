@@ -213,7 +213,12 @@ JLI
     SHIX3-1, already on v1.14.0), positioned as test_plug_2 and test_ix3 (the first plug: test_plug_1,
     was test). The i3's tree; its family has the inputs, the events wait for their codes:
     input/<0..2> ("0"/"1"), input_event/<0..2> as JSON ({"event":"","event_cnt":0}; the event
-    codes are still to be seen, e.g. by pressing), temperature_status ("Normal").
+    codes per Shelly's docs: "S" short, "L" long, "SS" double, "SSS" triple, "SL", "LS"; an event
+    is cleared to "" after 5 s, event_cnt counts them), temperature_status ("Normal", "High",
+    "Very High"). Events only come from an input set to "momentary": the test i3's inputs 1 and 2
+    are "toggle", input 3 "momentary" (2026-11-07). Its events would be an event capability
+    (input_event/<n>, event types from the list above, "" ignored) -- needs the value template
+    for JSON.
 
 40. https://github.com/kaiplaketti/matter2mqtt
 
