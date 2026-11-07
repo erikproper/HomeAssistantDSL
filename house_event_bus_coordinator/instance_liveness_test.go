@@ -96,9 +96,9 @@ func TestGatewayLiveness(t *testing.T) {
 	if livenessPublished(client)[verdict] != online {
 		t.Fatalf("healthy answer: want online, got %v", livenessPublished(client))
 	}
-	l.observe(verdict, offline, false) // the Last Will
+	l.observe(verdict, offline, false) // the Last Will, which we then keep retained
 	l.observe("zigbee2mqtt/house/kitchen/light", `{"state":"OFF"}`, false)
-	if livenessPublished(client)[verdict] != online || livenessCount(client, verdict) != 3 {
+	if livenessPublished(client)[verdict] != online || livenessCount(client, verdict) != 4 {
 		t.Errorf("after the Last Will, a sign of life should republish online: %v", client.publishedSnapshot())
 	}
 }

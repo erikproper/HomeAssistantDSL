@@ -25,8 +25,10 @@
  * (connected, but not working): it writes Offline to that same topic, retained like the Last Will,
  * and Online on the next sign of life -- which a recovering gateway overwrites itself anyway. Not
  * signs of life: retained messages (they say nothing about now), the coordinator's own question,
- * Ignore, the verdict topic (also written by us and by the Last Will -- whose live "offline" we
- * note, so the next sign of life republishes Online), and an unhealthy answer. Ignore matters: an
+ * Ignore, the verdict topic (also written by us, by the Last Will and by the gateway when it
+ * connects -- whose live Online or Offline we publish retained ourselves, as a gateway that
+ * doesn't retain would otherwise leave our earlier verdict there, found 2026-11-07 on a Shelly
+ * plug), and an unhealthy answer. Ignore matters: an
  * HA command on zigbee2mqtt/<device>/set would otherwise count as life while Zigbee2MQTT hangs --
  * and ha2mqtt's original ping-pong counted the coordinator's own inquiry every minute, so it never
  * got quiet and a hang there went unnoticed (found 2026-11-01). At start
@@ -37,7 +39,7 @@
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 01.11.2026
+ * Version of: 07.11.2026
  *
  */
 
@@ -116,7 +118,13 @@ func (l *TLiveness) observe(topic, payload string, retained bool) {
 	}
 	if topic == l.spec.Verdict {
 		l.mu.Lock()
-		l.status = payload // ours, or the Last Will's
+		if payload == l.spec.Online || payload == l.spec.Offline {
+			// The gateway's own word (its connect message, or its Last Will), kept retained: a
+			// client subscribing later must read the same, also when the gateway doesn't retain.
+			l.setStatus(payload)
+		} else {
+			l.status = payload // the next sign of life republishes Online
+		}
 		l.mu.Unlock()
 		return
 	}
