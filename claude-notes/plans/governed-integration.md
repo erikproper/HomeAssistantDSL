@@ -62,6 +62,10 @@ governed device, inside FHEM:
   | chosen below | 150 | 166 | 182 | 199 | 214 | 230 | 246 | (the rest) |
 
   A brightness below 23 still gives `dim06%`; only "off" switches it off.
+- **Older still** (`OldDefs/Definitions.3.fhem.fhz`, `.duofern`): a bridge per radio stick
+  (`bridge_fhz <name> <serial>`), and a device imported by house code and device code
+  (`import_fhz fhz <device> <house code> <device code>`); DuoFern had a bridge of its own in the
+  same shape -- a second radio for the governed integration.
 - **Every FHZ host sent it** (`for host in ${fhz_hosts}`): each FHEM installation with a radio
   defined the device and sent -- what PROJECT.md 37 calls "all known FHEM installations" (open
   question 7: throttling and duplicates across them).
