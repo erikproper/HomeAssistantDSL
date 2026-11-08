@@ -204,5 +204,12 @@ application's -- not the buttons.
    configuration has no refresh timer (Erik, 2026-11-08): resending is the governed
    application's, which presses the button again; FHEM only sends what it is asked to. Still open: the ESPHome question in item 37 (radios
    on ESPHome may change how FS20 is reached at all).
-7. What "known FHEM installations" means: several FHEM instances (houses, sticks) listening on one
-   topic, each sending -- and so how throttle groups and duplicates work across them.
+7. (decided, Erik 2026-11-08: as before) Every FHEM installation with a radio for the device's
+   system defines the device, listens on its button topics and sends: the range of all sticks, at
+   the price of duplicate frames. What follows:
+   - Duplicates are harmless only for absolute commands (`on`, `off`, `dim37%`); the FS20 layer
+     never sends relative ones (`dimup`, `dimdown`).
+   - Every press costs radio time on every stick, so one throttle budget covers them all: the
+     governed application throttles a radio system by its tightest stick.
+   - Still open: a transmitter heard by two sticks reaches MQTT twice (two FHEMs, one press) --
+     duplicate events to be merged, e.g. within a short window.
