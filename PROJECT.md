@@ -244,10 +244,11 @@ So, not offering local devices from HA to matter.
     nightly backup-home-automation (generic over that folder, off-box to mqtt.erikproper.eu) takes
     them; update.containers covers every quadlet. Vienna also has an Apple Thread border router
     (Living-Room-2, 192.168.178.44) with a network of its own.
-    Still to do (Erik): in ha2mqtt, add "Open Thread Border Router" (http://127.0.0.1:8081), then
-    Thread (make its network preferred) and Matter (ws://127.0.0.1:5580/ws); remove the OTBR
-    add-on from Vienna's Green (it still advertises a Thread network without its radio).
-    Then: the same for Junglinster.
+    ha2mqtt has the Open Thread Border Router (http://127.0.0.1:8081), Thread and Matter
+    (ws://127.0.0.1:5580/ws) integrations (Erik, 2026-11-08): the border router is leader of
+    Vienna's own Thread network, ha2mqtt is connected to the Matter Server; the Green's OTBR
+    add-on is gone. Next: a first Matter device in Vienna (commissioned through ha2mqtt, its
+    entities onto the bus); the same setup for Junglinster.
 
 41. Publish -- Architecture.md should be ready for others to read, alongside an up-to-date
     README.md, on GitHub.
