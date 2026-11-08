@@ -164,6 +164,23 @@ end;
 Home Assistant then sees one ordinary switch, `switch.<position>`, whose state is the governed
 application's -- not the buttons.
 
+## Installed (2026-11-08)
+
+FHEM 6.5 from FHEM's Debian repository (`https://debian.fhem.de/nightly/`, key 3D2E6A12...
+"betateilchen", in `/usr/share/keyrings/debianfhemde-archive-keyring.gpg`) on Junglinster's
+protocols-server-2 (Ubuntu 26.04, aarch64, port 1971) and protocols-server-3 (Raspbian 13,
+armv6l, 426 MB, port 1972), as the `fhem` user, systemd `fhem` (the package's init script, which
+also `apt-mark hold`s fhem). `/opt/fhem/fhem.cfg` is a minimal hand-written one until the deploy
+writes it: log, `telnet 7072` and `FHEMWEB 8083` on localhost only, `autosave 0`, and the stick:
+
+- p-s-2: `CUL_0 CUL /dev/serial/by-id/usb-busware.de_CUL868-if00@9600 1034` (busware CUL868)
+- p-s-3: `FHZ_0 FHZ /dev/serial/by-id/usb-ELV_AG_ELV_FHZ_1000_PC_ELTLYOUK-if00-port0` (ELV FHZ 1000 PC)
+
+The package's own configuration is kept as `fhem.cfg.package`. The broker (p-s-1's mosquitto) has
+one login, `carvalhoproper`; FHEM's `MQTT2_CLIENT` keeps its password outside fhem.cfg
+(`set <client> password`), which the deploy can deliver as it does the coordinator's secrets.
+Testing this week: sending only; whether frames reach real FS20 devices, next weekend (Erik).
+
 ## Syntax proposal (2026-11-08, for Erik to judge)
 
 Built on the decisions below (questions 1-7). Three parts, all in Physical.def.
