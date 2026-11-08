@@ -201,6 +201,9 @@ JLI
       the indirect application sends to a radio.
 
 40. https://github.com/kaiplaketti/matter2mqtt
+I think this one wraps the HA one. Check if it is up-to-date
+The idea is to offer matter integration into HA via MQTT.
+So, not offering local devices from HA to matter.
 
 41. Publish -- Architecture.md should be ready for others to read, alongside an up-to-date
     README.md, on GitHub.

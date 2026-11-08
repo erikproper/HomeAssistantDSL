@@ -352,6 +352,28 @@ receives on `fhem/fs20/<device>`. Each installation's liveness is `fhem/installa
 generator writes each installation's whole FHEM configuration (`fhem/<host>/fhem.cfg`); the
 installation's host needs a `deploy via ssh` line. `Architecture.md` §6.19 has the details.
 
+### Devices (the `governed` integration)
+
+Devices that don't report their state, such as FS20 actuators, kept by the governor (PROJECT.md
+37). A governed capability says which radio button reaches it, how often its state is sent again,
+and its state when the broker has lost it:
+
+```
+integration governed with:
+  device switches.test_fs20_switch with:
+    capability binary_sensor.node;                     # the governor's liveness
+    capability switch.switch
+      by doing button.set from radio.test_fs20_switch  # a device of "integration fhem"
+      enforced every 00:05:00
+      default off;
+  end;
+end;
+```
+
+Home Assistant gets an ordinary switch whose state is the governor's; it is positioned in
+Conceptual.def like any device. The governor runs next to the coordinator (`bash ./deploy -only
+governor`). `Architecture.md` §6.20 has the details.
+
 ### Covers with a slow speed
 
 A cover that can also run at slow speed (the Somfy covers in Junglinster) declares the slow
