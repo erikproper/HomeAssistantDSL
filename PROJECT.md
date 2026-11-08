@@ -2,12 +2,6 @@
 
 ## Purchases
 
-31.10.2026 Inserted LiION batteries
-
-https://www.shelly.com/products/ecowitt-ws90-7-in-1-weather-station
-
-https://www.thirdreality.com/products/smart-air-quality-sensor
-
 Using an ESP32-CAM variant with an extended ribbon cable (flat cable) is a phenomenal idea. In fact, it completely solves your space restriction and is highly recommended for tight setups.
 By separating the actual camera lens from the main motherboard, you gain three major advantages for your 8 cm gap:
 
@@ -424,3 +418,9 @@ https://dev.netatmo.com/apidocumentation/webhooks
     retained;" clears its shadows when the coordinator restarts, before main reloads, so its node
     read "off" for those 2 minutes -- the deploy could reload main before restarting the
     coordinator in that case.
+
+54. The deploy's reload check (deploy_run.go, checkReload) fails reading HA main's errors: twice
+    on 2026-11-08 (Junglinster) "system_log/list: websocket: close 1006 (abnormal closure):
+    unexpected EOF", right after a reload that itself went fine (the new entities were there, the
+    error log clean). Find out why HA drops the connection there (message size, timing after the
+    reload?) and make the check report a failed read as such, not as "reload reported errors".
