@@ -23,12 +23,12 @@
  * Each integration plans its own part, in its own file: coordinator_deploy.go,
  * home_assistant_deploy.go (an instance with its own "via ssh" runs on HA OS, one without as a
  * container on its hosts device), integration_hosts_deploy.go (the machines, the cpu report
- * script, ping), containers_deploy.go, integration_commandline_deploy.go. This file holds what
+ * script, ping), containers_deploy.go, integration_commandline_deploy.go, integration_fhem_deploy.go. This file holds what
  * they share: the machines, the settings, and the order the parts are planned in.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 04.11.2026
+ * Version of: 08.11.2026
  *
  */
 
@@ -73,6 +73,7 @@ type TDeployPlan struct {
 	Instances    []TDeployInstance       `yaml:"instances,omitempty"`
 	Containers   []string                `yaml:"containers,omitempty"`
 	Commandline  []TDeployCommandline    `yaml:"commandline,omitempty"`
+	FHEM         []TDeployFHEM           `yaml:"fhem,omitempty"`
 	CPU          TDeployCPU              `yaml:"cpu"`
 	Ping         string                  `yaml:"ping,omitempty"`
 }
@@ -115,6 +116,7 @@ func buildDeployPlan(outputRoot, physicalContent string, settings map[string]str
 	p.planInstancesDeploy(instances)
 	p.planContainersDeploy()
 	p.planCommandlineDeploy(commandline)
+	p.planFHEMDeploy(physicalContent)
 	p.planHostsDeploy(hosts)
 	return p.plan, p.warnings
 }

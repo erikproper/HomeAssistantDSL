@@ -89,6 +89,7 @@ var integrationBodyParsers = map[string]func(bodyLines []string, ctx TPhysicalGe
 	"hosts":       generateHostsIntegrationOutputs,
 	"discovery":   generateDiscoveryIntegrationOutputs,
 	"mqtt":        generateMQTTIntegrationOutputs, // PROJECT.md 39: raw MQTT, integration_mqtt.go
+	"fhem":        generateFHEMIntegrationOutputs, // PROJECT.md 37: FHEM installations and FS20, integration_fhem.go
 	"commandline": generateCommandlineIntegrationOutputs,
 	// "import" is a no-op here deliberately -- generatePhysicalIntegrationOutputs pre-collects
 	// every "import" block into ctx.ImportedDevices before this generic dispatch loop runs (see

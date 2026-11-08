@@ -51,7 +51,9 @@ end;
 files come from. The cpu report script goes to every `cpu` host with a `deploy` line (a Mac has
 none: its `~/cpu` is the Nextcloud folder). Each integration's part of the deploy lives with it
 (`coordinator_deploy.go`, `home_assistant_deploy.go`, `integration_hosts_deploy.go`,
-`containers_deploy.go`, `integration_commandline_deploy.go`); `Architecture.md` §6.18 has the details.
+`containers_deploy.go`, `integration_commandline_deploy.go`, `integration_fhem_deploy.go`);
+`Architecture.md` §6.18 has the details. `bash ./deploy -only fhem` deploys just the FHEM
+installations.
 
 ## Repository layout
 
@@ -320,6 +322,35 @@ straight from the UI, no coordinator-side relay needed.
 ```
 entity switch.social:picture_frame from host.frame entity slideshow;
 ```
+
+### Devices (the `fhem` integration)
+
+FHEM installations, named by their host, and the FS20 devices they serve (PROJECT.md 37). Each
+installation lists its serial devices -- `cul` or `fhz`, with the full path FHEM opens:
+
+```
+integration fhem with:
+  installation protocols-server-2 with:
+    cul "/dev/serial/by-id/usb-busware.de_CUL868-if00";
+  end;
+  installation protocols-server-3 with:
+    fhz "/dev/serial/by-id/usb-ELV_AG_ELV_FHZ_1000_PC_ELTLYOUK-if00-port0";
+  end;
+
+  device radio.test_fs20_dimmer with:
+    fs20 dimmer "44444444" "4412" heard by protocols-server-2, protocols-server-3;
+    capability button.set;
+  end;
+end;
+```
+
+An FS20 device is a `switch` or `dimmer` (capability `button.set`), a `transmitter`
+(`event.button`) or a `sensor` (one `binary_sensor`); its house code is 4 hex digits or 8 digits
+1-4, its address 2 or 4. Every installation it is `heard by` sends its commands -- on
+`fhem/fs20/<device>/set`: `on`, `off`, or for a dimmer 0..100 -- and publishes what its radio
+receives on `fhem/fs20/<device>`. Each installation's liveness is `fhem/installation/<host>`. The
+generator writes each installation's whole FHEM configuration (`fhem/<host>/fhem.cfg`); the
+installation's host needs a `deploy via ssh` line. `Architecture.md` §6.19 has the details.
 
 ### Covers with a slow speed
 

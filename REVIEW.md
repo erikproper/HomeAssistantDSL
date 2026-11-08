@@ -34,6 +34,9 @@ grammars on top show the style the other grammars will follow.
 - `homeassistant/parser_rule.go` (+ parser_rule_test.go; its comments are cleaned in step 6)
 - `homeassistant/parser_condition.go` (+ parser_condition_test.go; its comments are cleaned in
   step 6)
+- `homeassistant/parser_fhem.go` (tests in integration_fhem_test.go)
+- `homeassistant/integration_fhem.go` (+ integration_fhem_test.go)
+- `homeassistant/integration_fhem_deploy.go` (tests in integration_fhem_test.go)
 
 ## Reviewed
 

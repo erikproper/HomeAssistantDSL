@@ -1942,7 +1942,8 @@ LAN host, directly for a `via cloud` one; a Mac has none, its `~/cpu` being the 
 A machine nothing says how to reach, and a LAN cpu host without a `deploy` line, are reported.
 Each integration plans and carries out its own part, in its own file -- `coordinator_deploy.go`,
 `home_assistant_deploy.go`, `integration_hosts_deploy.go` (also the machines from the hosts
-devices' `deploy` lines), `containers_deploy.go`, `integration_commandline_deploy.go`;
+devices' `deploy` lines), `containers_deploy.go`, `integration_commandline_deploy.go`,
+`integration_fhem_deploy.go` (§6.19);
 `deploy_plan.go` and `deploy_run.go` hold what they share (the machines, the settings, running a
 command, the dry run) and the order of the parts.
 
@@ -1961,11 +1962,43 @@ errors. A failed command fails its step, whose instance is then neither reloaded
 `-n` prints every command instead (the broker password never). `-only <parts>` deploys just the
 parts named, comma-separated, like sourcing one deploy.d/ step used to: `coordinator`, an
 instance (`main`, `ha2mqtt`, ...; `home_assistant` for all), `hosts`, `containers`,
-`commandline` -- the reload check runs when `main` is among them. The registry repair and the
+`commandline`, `fhem` -- the reload check runs when `main` is among them. The registry repair and the
 reload check talk to HA's websocket and REST API at the instance's URL (`home_assistant_registry.go`),
 the access token from the defs; the deploy has no Python left. (At first through an SSH tunnel
 over the add-on, 2026-11-03; Junglinster's add-on doesn't allow port forwarding, and the public URL
 needs no tunnel at all.)
+
+### 6.19 FHEM installations and FS20 (PROJECT.md 37, 2026-11-08)
+
+The radio side of the governed integration (claude-notes/plans/governed-integration.md). Physical.def's
+`integration fhem` block (grammar: `parser_fhem.go`) names each FHEM installation by its host, with
+a line per serial device -- its kind (`cul`, `fhz`; `fhemSerialKinds`, which also says which radio
+channels a kind serves) and its full path as FHEM takes it -- and the FS20 devices they serve:
+`fs20 <kind> "<house code>" "<address>" heard by <host>, ...;`, the kinds `switch`, `dimmer`,
+`transmitter` and `sensor` of Erik's old FS20.Create, codes hexadecimal or in ELV's notation.
+`heard by` is checked against the installations and their FS20 radios.
+
+As Erik's old setup did (the plan's approach A), FHEM is reached through its own MQTT, the
+generator writing each installation's whole configuration, `fhem/<host>/fhem.cfg`
+(`integration_fhem.go`): FHEM's log, telnet (7072) and FHEMWEB (8083) on localhost only,
+`autosave 0`, the serial devices, an `MQTT2_CLIENT` to the main broker -- MQTT2 needs no Perl module
+beyond FHEM's own, unlike the older `MQTT` -- subscribed to exactly the command topics of the
+devices the installation hears, and per device its `FS20` definition, an `MQTT2_DEVICE` whose
+`readingList` turns a message on `fhem/fs20/<device>/set` into `set <device> ...` (on/off; for a
+dimmer 0..100 as the nearest of the 16 dim levels, "off" below 3), and a `notify` publishing every
+event of the device on `fhem/fs20/<device>` (retained for a sensor). Every installation that
+hears a device sends its commands and publishes what it receives -- the governed application
+de-doubles. Resending is the governed application's: no refresh timer in FHEM. The installation's
+liveness is `fhem/installation/<host>`: `online` retained after each connect, `offline` as its
+last will.
+
+The broker password is not in fhem.cfg: the generator writes it to `fhem/<host>/secrets`, and the
+deploy (`integration_fhem_deploy.go`, part `fhem`) sends it on stdin to the shared
+`Integrations/fhem/deploy`, which installs fhem.cfg into `/opt/fhem`, restarts FHEM and gives
+`MQTT2_CLIENT` the password over the local telnet port (`set mqtt password`, which FHEM keeps
+outside its configuration). An installation runs on the hosts device of its name, reached by its
+`deploy via ssh` line. FHEM itself is installed from FHEM's Debian repository (the plan's
+"Installed").
 
 ## 7. Home Assistant's two roles
 

@@ -16,11 +16,12 @@
  *      and directly to a "via cloud" one; ping to the hub;
  *   4. update.containers to every container host;
  *   5. each commandline machine: the source it builds from, and its commandline/;
- *   6. waiting for HA main's reload, and reporting its errors.
+ *   6. each FHEM installation: its fhem.cfg, FHEM restarted, the broker password (PROJECT.md 37);
+ *   7. waiting for HA main's reload, and reporting its errors.
  *
  * "-only" deploys just the parts named, comma-separated, like sourcing one deploy.d/ step used to:
  * coordinator, an instance (main, ha2mqtt, ...; home_assistant for all), hosts, containers,
- * commandline -- the reload check runs when main is among them.
+ * commandline, fhem -- the reload check runs when main is among them.
  *
  * "-n" prints every command instead of running it (and decides no reload/restart); the registry
  * repair then reads the registry and reports what it would do, changing nothing. A failed
@@ -32,7 +33,7 @@
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 04.11.2026
+ * Version of: 08.11.2026
  *
  */
 
@@ -64,7 +65,7 @@ type tDeployer struct {
 }
 
 // deployParts are the parts "-only" may name, besides the instances' own names.
-var deployParts = []string{"coordinator", "home_assistant", "hosts", "containers", "commandline"}
+var deployParts = []string{"coordinator", "home_assistant", "hosts", "containers", "commandline", "fhem"}
 
 // runDeploy carries out houseDir's deploy.yaml, only the parts named in only when it isn't empty.
 func runDeploy(houseDir string, dryRun bool, only []string) error {
@@ -103,6 +104,9 @@ func runDeploy(houseDir string, dryRun bool, only []string) error {
 	}
 	if d.selected("commandline") {
 		d.deployCommandline()
+	}
+	if d.selected("fhem") {
+		d.deployFHEM()
 	}
 	if d.selected("main") || d.selected("home_assistant") {
 		d.checkReload(d.mainMeta, d.mainMetaTime)

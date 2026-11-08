@@ -182,6 +182,13 @@ one login, `carvalhoproper`; FHEM's `MQTT2_CLIENT` keeps its password outside fh
 (`set <client> password`), which the deploy can deliver as it does the coordinator's secrets.
 Testing this week: sending only; whether frames reach real FS20 devices, next weekend (Erik).
 
+Since 2026-11-08 the deploy writes fhem.cfg (`integration fhem`, Architecture.md §6.19; `bash ./deploy
+-only fhem`). Tested the same day with Junglinster's test pair: `on`/`off` to the switch and `40`/`75`
+to the dimmer on their `/set` topics are sent by both installations (`dim37%`, `dim75%` in FHEM's
+log) and echoed twice on `fhem/fs20/<device>`. Once, in the very first test right after the
+client's reconnect, the dimmer's echoes were missing although FHEM sent -- not seen again; to
+observe. Next: the governed application.
+
 ## Syntax proposal (2026-11-08, for Erik to judge)
 
 Built on the decisions below (questions 1-7). Two integrations, both in Physical.def.
@@ -252,7 +259,8 @@ integration governed with:
     capability light.light
       by doing button.set from radio.living_room_lamp
       enforced every 00:05:00
-      default off;
+      default off
+      on at 60 %;
   end;
   device lights.hallway_lamp with:
     capability switch.switch
@@ -275,6 +283,11 @@ end;
   `on by doing ... off by doing ...`: a button per state, for radios that have them.
 - `enforced every <time>`: resend the desired state, inside the radio channel's budget.
 - `default <state>`: overrides the hard-wired default when the broker lost the state (question 5).
+- `on at <n> %`: the level a light goes to when it is switched on without one (a dimmer's "on"
+  sent as that level, not as FS20's own "on" -- its last level).
+- Junglinster's test pair (Erik, 2026-11-08): `radio.test_fs20_switch` and `radio.test_fs20_dimmer`
+  (house code 44444444, 4411 and 4412, heard by both installations); their governed entities get
+  `default off`, and the dimmer `on at 60 %`.
 - `confirmed by <sensor> from <device> above <n>` / `confirmed by <event> from <device> on
   "<type>", off "<type>"`: the source of the shadow state (question 4).
 - A received state change on the radio device's topic is taken as radio-requested (question 7):
