@@ -7,8 +7,8 @@ discussion); sending a signal is written "on by doing <button>", so it reads as 
 ## The distinction
 
 Both FHEM radios are in scope (Erik, 2026-11-08): FS20 and DuoFern. FS20 is one-way (below), so
-it is case 2. DuoFern (Rademacher) is believed to be two-way, which would make it case 1 -- to be
-verified before designing it.
+it is case 2. DuoFern (Rademacher) acknowledges commands (FHEM2MQTT brief, below), so it is case
+1: no enforcing needed.
 
 1. **Devices with a reliable two-way connection** (a real light or switch that reports its own
    state). FHEM's syntax for these differs per platform behind it, so FHEM gets sub-integrations,
@@ -73,6 +73,35 @@ governed device, inside FHEM:
 - **Every FHZ host sent it** (`for host in ${fhz_hosts}`): each FHEM installation with a radio
   defined the device and sent -- what PROJECT.md 37 calls "all known FHEM installations" (open
   question 7: throttling and duplicates across them).
+
+## The earlier FHEM2MQTT brief
+
+$NEXTCLOUD/Systems/go/src/FHEM2MQTT/FHEM2MQTT-project-brief.md (Erik's, before this project took
+FHEM up) designed the same thing as a separate project. What carries over, and where it differs:
+
+| Brief | Here |
+|---|---|
+| Coordinator (generic: routing, re-assertion, HA exposure) | the governed application (re-assertion, the governed entities); routing is MQTT itself |
+| Radio Talker, one per FHEM installation, the only platform-specific runtime | FHEM's sub-integration and its relay -- open question 6 |
+| Configurator (spec -> deployed talkers, SSH, ACLs) | the generator and the deploy, as for every integration |
+| HA MQTT Discovery | the generator's YAML `mqtt:` entities (Architecture.md §6.16, since PROJECT.md 19) |
+| `requires_periodic_reassert` flag per device | a device of the governed integration, "enforced every X" |
+
+Kept from the brief, as design points for the governed application:
+
+- **Why enforce**: FS20 "silently defaults to off on power loss" -- no event for that ever
+  reaches anyone, so only a timer helps.
+- **No crossing signals**: per device one *pending command* slot instead of a queue (a newer
+  command replaces an untransmitted older one), and a sequence number so a stale command -- or a
+  retry of one -- is dropped. Enforcing goes through the same slot, so a real command always
+  pre-empts an enforcement tick.
+- **Stagger** enforcement across devices (FS20 has no collision detection), and keep it inside the
+  radio's duty cycle -- the throttle groups.
+- **One command topic per device**, the state as payload (MQTT keeps order only per topic);
+  command topics not retained (a retained command replays to every new subscriber); state topics
+  retained.
+- **Interval**: the brief starts at about 60 s; the old FHEM generator used 5 minutes.
+- **Optimistic** in Home Assistant for an entity whose state is assumed, not observed.
 
 ## The governed integration
 
