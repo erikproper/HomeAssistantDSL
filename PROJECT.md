@@ -135,6 +135,21 @@ JLI
 
 37. FHEM/FS20 integration
 
+    Status (2026-11-08): FHEM is installed on Junglinster's protocols-server-2 (CUL) and -3 (FHZ),
+    reached by "integration fhem" (Architecture.md §6.19); the governor runs next to the
+    coordinator, with "integration governed" (§6.20); the FS20 test switch works end to end from
+    Home Assistant up to the radio (sending only). Plan, decisions and next steps:
+    claude-notes/plans/governed-integration.md.
+
+    Next weekend (Erik, on site, 2026-11-14/15):
+    - Test the FS20 switch and dimmer on real devices (teach them house code 44444444, 4411/4412).
+    - See whether there are FHZ/FHM sensors or controls around (transmitters, sensors: the
+      de-doubled events and states of the plan's step 4).
+    - Insert the DuoFern stick into one of the two Pis (then: its serial kind, and DuoFern covers).
+
+    To build (the plan's step 4): the dimmer as a light (brightness, "on at 60 %", default off),
+    confirmations (the shadow state), the de-doubled transmitters and sensors, DuoFern.
+
     Note (2026-09-22, architectural decision, not yet designed in detail): some integrations
     (FHEM is the motivating case) bridge devices that accept on/off commands but never report
     their own state back. Relaying the command alone (FHEM2MQTT's job) isn't enough -- something
@@ -146,8 +161,9 @@ JLI
     job is COORDINATIVE ("what is available", discovery/existence bookkeeping) -- this new
     responsibility is OPERATIONAL (actually exchanging state/command messages, materially part of
     keeping devices in their expected state). Consequences:
-    - It should be its own separate "role" on the Event Bus, in its OWN container -- not folded
-      into the existing coordinator process.
+    - It should be its own separate "role" on the Event Bus, a program and service of its own
+      (the governor, next to the coordinator on its machine, Erik 2026-11-08) -- not folded into
+      the existing coordinator process.
     - It needs to be held to a materially HIGHER reliability bar than the coordinator: an
       operational-role crash means devices can silently drift from their expected state (a real
       user-facing failure), whereas a coordinator crash (like the Junglinster incident this same
@@ -155,10 +171,6 @@ JLI
       live state/command exchange at all -- FHEM2MQTT-style relays keep working regardless of
       whether the coordinator is up. This is the reasoning for why the coordinator, as currently
       built, is allowed to be less bulletproof than a component like this one would need to be.
-
-    Not yet designed: how this new role subscribes/publishes relative to the existing coordinator
-    and per-integration relays, how "expected state" is declared (DSL-level?), re-enforcement
-    cadence, and how this interacts with FHEM/FS20's own protocol specifics.
 
     Decided 2026-11-02 (from item 26, Erik): of the four kinds of logical-layer work -- clustering
     capabilities, timing, derivation from other devices, abstracted entities covering a device's
