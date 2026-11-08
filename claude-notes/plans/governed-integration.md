@@ -57,7 +57,7 @@ integration governed with:
 end;
 ```
 
-Home Assistant then sees one ordinary switch, `switch.<position>`, whose state is the indirect
+Home Assistant then sees one ordinary switch, `switch.<position>`, whose state is the governed
 application's -- not the buttons.
 
 ## To reflect on (Erik)
