@@ -147,8 +147,9 @@ JLI
       de-doubled events and states of the plan's step 4).
     - Insert the DuoFern stick into one of the two Pis (then: its serial kind, and DuoFern covers).
 
-    To build (the plan's step 4): the dimmer as a light (brightness, "on at 60 %", default off),
-    confirmations (the shadow state), the de-doubled transmitters and sensors, DuoFern.
+    The test dimmer is a governed light too (brightness, "on at 60 %", default off; generated,
+    not yet deployed). To build (the plan's step 4): confirmations (the shadow state), the
+    de-doubled transmitters and sensors, DuoFern; a remote's relative dim up/down on a dimmer.
 
     Note (2026-09-22, architectural decision, not yet designed in detail): some integrations
     (FHEM is the motivating case) bridge devices that accept on/off commands but never report

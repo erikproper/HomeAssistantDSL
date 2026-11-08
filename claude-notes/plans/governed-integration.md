@@ -204,8 +204,13 @@ In steps, each tested and deployed before the next:
    Home Assistant entity, as a raw-MQTT capability on the governor's topics (positioning, frozen
    ids and YAML entities stay the generic machinery's).
 3. The deploy part `governor`, on the coordinator's machine, like the coordinator's.
-4. The dimmer as a light (brightness 0..100, `on at <n> %`); then confirmations (the shadow
-   state) and the de-doubled transmitters and sensors.
+4. The dimmer as a light (brightness 0..100, `on at <n> %`) -- built 2026-11-08; then
+   confirmations (the shadow state) and the de-doubled transmitters and sensors. Open: a remote's
+   relative dim up/down on a dimmer says no level, so the governor doesn't take it -- the next
+   enforcement sends the old level back.
+
+Steps 1-3 built and deployed 2026-11-08: the governor on Junglinster's protocols-server-1, the
+test switch switched from Home Assistant through both FHEM installations.
 
 ## Syntax proposal (2026-11-08, for Erik to judge)
 

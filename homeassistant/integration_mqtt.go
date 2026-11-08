@@ -223,6 +223,13 @@ func rawMQTTConfigs(gateway TDiscoveryGatewayDevice) map[string]map[string]inter
 			config["payload_on"] = hamqtt.StateOn
 			config["payload_off"] = hamqtt.StateOff
 
+		// A governed light (integration_governed.go): Home Assistant's JSON, brightness 0..100.
+		case "light":
+			config["schema"] = "json"
+			config["command_topic"] = raw.Command
+			config["brightness_scale"] = 100
+			config["supported_color_modes"] = []interface{}{"brightness"}
+
 		// The value, with what its unit says about it.
 		case "sensor":
 			addRawSensorFields(config, raw)

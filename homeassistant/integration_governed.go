@@ -81,6 +81,17 @@ type TGovernedKind struct {
 // governedKinds are the domains a governed capability may have.
 var governedKinds = map[string]TGovernedKind{
 	"switch": {Kind: "switch", States: []string{"on", "off"}, Encoding: map[string]string{"switch": "fs20_switch"}},
+	"light":  {Kind: "light", States: []string{"off", "1..100"}, Encoding: map[string]string{"dimmer": "fs20_dimmer"}},
+}
+
+// validGovernedDefault reports whether value is one of kind's states ("1..100": a level).
+func validGovernedDefault(kind TGovernedKind, value string) bool {
+	if slices.Contains(kind.States, value) {
+		return true
+	}
+	var level int
+	_, err := fmt.Sscanf(value, "%d", &level)
+	return slices.Contains(kind.States, "1..100") && err == nil && fmt.Sprint(level) == value && level >= 1 && level <= 100
 }
 
 // checkGovernedIntegration reports what is wrong in devices, given the FHEM devices they are
@@ -105,7 +116,10 @@ func checkGovernedIntegration(devices []TGovernedDevice, fhemDevices []TFHEMDevi
 				warnings = append(warnings, fmt.Sprintf("%s: a governed capability is a %s", name, strings.Join(sortedKeys(governedKinds), " or ")))
 				continue
 			}
-			if c.Default != "" && !slices.Contains(kind.States, c.Default) {
+			if c.OnLevel != 0 && kind.Kind != "light" {
+				warnings = append(warnings, name+": only a light has \"on at <n> %\"")
+			}
+			if c.Default != "" && !validGovernedDefault(kind, c.Default) {
 				warnings = append(warnings, fmt.Sprintf("%s: default %q is not one of %v", name, c.Default, kind.States))
 			}
 			if c.EnforceEvery == "" {
@@ -175,6 +189,7 @@ type TGovernorEntityFile struct {
 	Kind         string              `yaml:"kind"`
 	Topic        string              `yaml:"topic"`
 	Default      string              `yaml:"default,omitempty"`
+	OnLevel      int                 `yaml:"on_level,omitempty"`
 	EnforceEvery string              `yaml:"enforce_every"`
 	Channel      string              `yaml:"channel"`
 	Paths        []TGovernorPathFile `yaml:"paths"`
@@ -203,7 +218,7 @@ func governorDevicesFile(devices []TGovernedDevice, fhemDevices []TFHEMDevice) T
 			}
 			file.Entities = append(file.Entities, TGovernorEntityFile{
 				Device: device.DeviceID, Label: c.Label, Kind: governedKinds[c.Domain].Kind,
-				Topic: governedTopic(device.DeviceID, c.Label), Default: c.Default, EnforceEvery: c.EnforceEvery, Channel: "fs20",
+				Topic: governedTopic(device.DeviceID, c.Label), Default: c.Default, OnLevel: c.OnLevel, EnforceEvery: c.EnforceEvery, Channel: "fs20",
 				Paths: []TGovernorPathFile{{Set: fs20Topic(c.From) + "/set", Received: fs20Topic(c.From), Encoding: governedKinds[c.Domain].Encoding[radio.FS20.Kind], Copies: len(radio.FS20.HeardBy)}},
 			})
 		}

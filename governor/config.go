@@ -51,9 +51,10 @@ var defaultChannels = map[string]TChannel{
 type TGovernedEntityDef struct {
 	Device       string     `yaml:"device"`
 	Label        string     `yaml:"label"`
-	Kind         string     `yaml:"kind"`  // switch
+	Kind         string     `yaml:"kind"`  // switch or light
 	Topic        string     `yaml:"topic"` // its state, retained; commands on <topic>/set
 	Default      string     `yaml:"default"`
+	OnLevel      int        `yaml:"on_level,omitempty"` // a light's level when switched on without one
 	EnforceEvery Duration   `yaml:"enforce_every"`
 	Channel      string     `yaml:"channel"`
 	Paths        []TPathDef `yaml:"paths"`
@@ -65,7 +66,7 @@ type TGovernedEntityDef struct {
 type TPathDef struct {
 	Set      string `yaml:"set"`
 	Received string `yaml:"received,omitempty"`
-	Encoding string `yaml:"encoding"` // fs20_switch
+	Encoding string `yaml:"encoding"` // fs20_switch or fs20_dimmer
 	Copies   int    `yaml:"copies"`
 }
 

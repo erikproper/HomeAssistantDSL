@@ -148,3 +148,79 @@ func TestDuration(t *testing.T) {
 		t.Errorf("%s", out)
 	}
 }
+
+const testLight = `
+status: governed/status
+entities:
+  - device: lights.test_dimmer
+    label: light
+    kind: light
+    topic: governed/lights.test_dimmer/light
+    default: "off"
+    on_level: 60
+    enforce_every: "00:05:00"
+    channel: fs20
+    paths:
+      - set: fhem/fs20/radio.test_dimmer/set
+        received: fhem/fs20/radio.test_dimmer
+        encoding: fs20_dimmer
+        copies: 2
+`
+
+func newTestLight(t *testing.T) (*TGovernor, *tRecorder) {
+	var devices TDevicesFile
+	if err := yaml.Unmarshal([]byte(testLight), &devices); err != nil {
+		t.Fatal(err)
+	}
+	if problems := checkDevicesFile(devices); len(problems) != 0 {
+		t.Fatal(problems)
+	}
+	r := &tRecorder{}
+	g := newGovernor(devices, r, func(string, ...any) {})
+	g.Start(t0)
+	g.Tick(t0)
+	r.take()
+	return g, r
+}
+
+// TestLight: Home Assistant's JSON in and out; "on" without a brightness is the on-level; the
+// echo, rounded to the nearest dim level, is no change; a remote's level is.
+func TestLight(t *testing.T) {
+	g, r := newTestLight(t)
+	at := t0.Add(time.Minute)
+	g.Command("governed/lights.test_dimmer/light/set", `{"state":"ON"}`, at)
+	g.Tick(at)
+	equal(t, "on", r.take(), []string{`governed/lights.test_dimmer/light {"state":"ON","brightness":60} (r)`, "fhem/fs20/radio.test_dimmer/set 60"})
+	g.Received("fhem/fs20/radio.test_dimmer", "dim62%", at.Add(200*time.Millisecond))
+	equal(t, "echo", r.take(), nil)
+	g.Command("governed/lights.test_dimmer/light/set", `{"state":"ON","brightness":40}`, at.Add(time.Minute))
+	g.Tick(at.Add(time.Minute))
+	equal(t, "brightness", r.take(), []string{`governed/lights.test_dimmer/light {"state":"ON","brightness":40} (r)`, "fhem/fs20/radio.test_dimmer/set 40"})
+	g.Received("fhem/fs20/radio.test_dimmer", "dim75%", at.Add(2*time.Minute))
+	equal(t, "remote", r.take(), []string{`governed/lights.test_dimmer/light {"state":"ON","brightness":75} (r)`})
+	g.Received("fhem/fs20/radio.test_dimmer", "dimup", at.Add(3*time.Minute))
+	g.Command("governed/lights.test_dimmer/light/set", `{"state":"OFF"}`, at.Add(4*time.Minute))
+	g.Tick(at.Add(4 * time.Minute))
+	equal(t, "off", r.take(), []string{`governed/lights.test_dimmer/light {"state":"OFF"} (r)`, "fhem/fs20/radio.test_dimmer/set off"})
+}
+
+// TestLightRetained: a light's state kept on the broker is read back.
+func TestLightRetained(t *testing.T) {
+	var devices TDevicesFile
+	_ = yaml.Unmarshal([]byte(testLight), &devices)
+	r := &tRecorder{}
+	g := newGovernor(devices, r, func(string, ...any) {})
+	g.RetainedState("governed/lights.test_dimmer/light", `{"state":"ON","brightness":31}`)
+	g.Start(t0)
+	g.Tick(t0)
+	equal(t, "retained", r.take(), []string{`governed/lights.test_dimmer/light {"state":"ON","brightness":31} (r)`, "fhem/fs20/radio.test_dimmer/set 31"})
+}
+
+// TestNormaliseFS20Dim: a level becomes the nearest dim level, "off" below 3.
+func TestNormaliseFS20Dim(t *testing.T) {
+	for value, want := range map[string]string{"off": "off", "2": "off", "3": "6", "40": "37", "60": "62", "97": "100"} {
+		if got := normaliseFS20Dim(value); got != want {
+			t.Errorf("%s: got %s, want %s", value, got, want)
+		}
+	}
+}

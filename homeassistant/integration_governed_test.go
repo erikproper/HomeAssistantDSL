@@ -129,3 +129,35 @@ func TestGovernorDeployPlan(t *testing.T) {
 		t.Errorf("governor without governed devices = %q", p.plan.Governor)
 	}
 }
+
+// TestGovernedLight: a light on an FS20 dimmer, with its on-level -- Home Assistant's JSON light
+// for the YAML, fs20_dimmer for the governor; a level as default, an on-level only for a light.
+func TestGovernedLight(t *testing.T) {
+	devices, warnings := parseGovernedIntegrationBody([]string{
+		"device lights.test_fs20_dimmer with:",
+		"  capability binary_sensor.node;",
+		"  capability light.light by doing button.set from radio.test_fs20_dimmer enforced every 00:05:00 default off on at 60 %;",
+		"end;",
+		"device lights.wrong with:",
+		"  capability light.light by doing button.set from radio.test_fs20_dimmer enforced every 00:05:00 default 101;",
+		"  capability switch.switch by doing button.set from radio.test_fs20_switch enforced every 00:05:00 on at 50 %;",
+		"end;",
+	})
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v", warnings)
+	}
+	_, radios, _ := parseFHEMIntegrationBody(governedTestRadios)
+	problems := checkGovernedIntegration(devices, radios)
+	if len(problems) != 2 || !strings.Contains(problems[0], `default "101"`) || !strings.Contains(problems[1], "only a light") {
+		t.Errorf("problems = %v", problems)
+	}
+	file := governorDevicesFile(devices[:1], radios)
+	if e := file.Entities[0]; e.Kind != "light" || e.OnLevel != 60 || e.Paths[0].Encoding != "fs20_dimmer" || e.Paths[0].Copies != 1 {
+		t.Errorf("governor file = %+v", file)
+	}
+	g := governedGatewayDevices(devices[:1])[0]
+	c := rawMQTTConfigs(g)["light/"+g.Capabilities["light"].Leaf]
+	if c["schema"] != "json" || c["brightness_scale"] != 100 || c["command_topic"] != "governed/lights.test_fs20_dimmer/light/set" {
+		t.Errorf("light config = %v", c)
+	}
+}

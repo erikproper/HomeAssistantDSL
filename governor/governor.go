@@ -29,6 +29,8 @@
 package main
 
 import (
+	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -38,15 +40,72 @@ const (
 	dedupWindow = 2 * time.Second // the same value received again this soon is the same press
 )
 
-// TKind is a kind of governed entity: its hard-wired default and what a command may say.
+// TKind is a kind of governed entity: its hard-wired default, what a command (or a state kept on
+// the broker) may say, and how its state is written for Home Assistant. A value is "on"/"off" for
+// a switch, "off" or a level 1..100 for a light.
 type TKind struct {
-	Default string
-	Parse   func(payload string) (string, bool)
+	Default     string
+	Parse       func(payload string, onLevel int) (string, bool)
+	FormatState func(value string) string
 }
 
 // kinds are the kinds of governed entity.
 var kinds = map[string]TKind{
-	"switch": {Default: "off", Parse: parseOnOff},
+	"switch": {Default: "off", Parse: func(payload string, _ int) (string, bool) { return parseOnOff(payload) }, FormatState: func(value string) string { return value }},
+	"light":  {Default: "off", Parse: parseLight, FormatState: formatLight},
+}
+
+// tLightJSON is Home Assistant's JSON light payload, brightness 0..100 (brightness_scale 100).
+type tLightJSON struct {
+	State      string `json:"state"`
+	Brightness *int   `json:"brightness,omitempty"`
+}
+
+// parseLight reads a light's command or state: Home Assistant's JSON ("ON" without a brightness
+// is onLevel), or plainly "on", "off" or a level.
+func parseLight(payload string, onLevel int) (string, bool) {
+	var light tLightJSON
+	if err := json.Unmarshal([]byte(payload), &light); err == nil && light.State != "" {
+		switch strings.ToLower(light.State) {
+		case "off":
+			return "off", true
+		case "on":
+			if light.Brightness == nil {
+				return strconv.Itoa(onLevel), true
+			}
+			return lightLevel(*light.Brightness), true
+		}
+		return "", false
+	}
+	switch value := strings.ToLower(strings.TrimSpace(payload)); value {
+	case "off":
+		return "off", true
+	case "on":
+		return strconv.Itoa(onLevel), true
+	default:
+		if level, err := strconv.Atoi(value); err == nil {
+			return lightLevel(level), true
+		}
+	}
+	return "", false
+}
+
+// lightLevel is level as a light's value: "off" at 0 or below, at most 100.
+func lightLevel(level int) string {
+	if level <= 0 {
+		return "off"
+	}
+	return strconv.Itoa(min(level, 100))
+}
+
+// formatLight writes a light's value as Home Assistant's JSON.
+func formatLight(value string) string {
+	light := tLightJSON{State: "OFF"}
+	if level, err := strconv.Atoi(value); err == nil {
+		light.State, light.Brightness = "ON", &level
+	}
+	data, _ := json.Marshal(light)
+	return string(data)
 }
 
 // parseOnOff reads "on" or "off", in any case.
@@ -58,15 +117,67 @@ func parseOnOff(payload string) (string, bool) {
 	return "", false
 }
 
-// TEncoding is how a path writes a value, and reads what its radio received.
+// TEncoding is how a path writes a value, reads what its radio received, and what a value
+// becomes on the device (an FS20 dimmer's nearest dim level) -- what an echo is compared with.
 type TEncoding struct {
-	Encode func(value string) string
-	Decode func(payload string) (string, bool)
+	Encode    func(value string) string
+	Decode    func(payload string, onLevel int) (string, bool)
+	Normalise func(value string) string
 }
 
 // encodings are the paths' ways of writing values.
 var encodings = map[string]TEncoding{
-	"fs20_switch": {Encode: func(value string) string { return value }, Decode: decodeFS20Switch},
+	"fs20_switch": {Encode: identity, Decode: func(payload string, _ int) (string, bool) { return decodeFS20Switch(payload) }, Normalise: identity},
+	"fs20_dimmer": {Encode: identity, Decode: decodeFS20Dimmer, Normalise: normaliseFS20Dim},
+}
+
+// identity returns value.
+func identity(value string) string { return value }
+
+// fs20DimLevels are the levels an FS20 dimmer knows (FHEM's dim06% .. dim100%); FHEM's
+// configuration (integration_fhem.go) rounds a level to the nearest, "off" below 3.
+var fs20DimLevels = []int{6, 12, 18, 25, 31, 37, 43, 50, 56, 62, 68, 75, 81, 87, 93, 100}
+
+// normaliseFS20Dim is the dim level a light's value becomes on an FS20 dimmer.
+func normaliseFS20Dim(value string) string {
+	level, err := strconv.Atoi(value)
+	if err != nil {
+		return value
+	}
+	if level < fs20DimLevels[0]/2 {
+		return "off"
+	}
+	nearest := fs20DimLevels[0]
+	for _, l := range fs20DimLevels {
+		if abs(l-level) < abs(nearest-level) {
+			nearest = l
+		}
+	}
+	return strconv.Itoa(nearest)
+}
+
+// abs is |n|.
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+// decodeFS20Dimmer reads what FHEM reports for an FS20 dimmer: off, a dim level, or on (onLevel).
+// A remote's relative dim up or down says no level, and is not taken.
+func decodeFS20Dimmer(payload string, onLevel int) (string, bool) {
+	switch payload = strings.TrimSpace(payload); {
+	case payload == "off" || payload == "dim00%":
+		return "off", true
+	case payload == "on" || strings.HasPrefix(payload, "on-"):
+		return normaliseFS20Dim(strconv.Itoa(onLevel)), true
+	case strings.HasPrefix(payload, "dim") && strings.HasSuffix(payload, "%"):
+		if level, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(payload, "dim"), "%")); err == nil {
+			return lightLevel(level), true
+		}
+	}
+	return "", false
 }
 
 // decodeFS20Switch reads what FHEM reports for an FS20 switch: on, off, a remote's dim up or
@@ -116,6 +227,7 @@ type tEntity struct {
 	lastReceived   string
 	lastReceivedAt time.Time
 	cost           float64
+	onLevel        int
 }
 
 // tPathRef is a path of an entity.
@@ -167,7 +279,10 @@ func newGovernor(devices TDevicesFile, publisher TPublisher, logf func(string, .
 		if g.buckets[def.Channel] == nil {
 			g.buckets[def.Channel] = &tBucket{channel: channel, tokens: channel.BurstSeconds}
 		}
-		e := &tEntity{def: def, kind: kinds[def.Kind], sent: make([]tSent, len(def.Paths))}
+		e := &tEntity{def: def, kind: kinds[def.Kind], sent: make([]tSent, len(def.Paths)), onLevel: def.OnLevel}
+		if e.onLevel == 0 {
+			e.onLevel = 100
+		}
 		for i, p := range def.Paths {
 			e.cost += channel.FrameSeconds * float64(max(p.Copies, 1))
 			if p.Received != "" {
@@ -214,7 +329,7 @@ func (g *TGovernor) RetainedState(topic, payload string) {
 	if e == nil || g.started {
 		return
 	}
-	if value, ok := e.kind.Parse(payload); ok {
+	if value, ok := e.kind.Parse(payload, e.onLevel); ok {
 		e.desired, e.known = value, true
 	}
 }
@@ -244,7 +359,7 @@ func (g *TGovernor) Command(topic, payload string, now time.Time) {
 	if e == nil || !g.started {
 		return
 	}
-	value, ok := e.kind.Parse(payload)
+	value, ok := e.kind.Parse(payload, e.onLevel)
 	if !ok {
 		g.logf("%s %s: ignored command %q", e.def.Device, e.def.Label, payload)
 		return
@@ -258,18 +373,19 @@ func (g *TGovernor) Command(topic, payload string, now time.Time) {
 func (g *TGovernor) Received(topic, payload string, now time.Time) {
 	for _, ref := range g.byReceived[topic] {
 		e := ref.entity
-		value, ok := encodings[e.def.Paths[ref.path].Encoding].Decode(payload)
+		encoding := encodings[e.def.Paths[ref.path].Encoding]
+		value, ok := encoding.Decode(payload, e.onLevel)
 		if !ok || !g.started {
 			continue
 		}
-		if sent := e.sent[ref.path]; sent.value == value && now.Sub(sent.at) < echoWindow {
+		if sent := e.sent[ref.path]; encoding.Normalise(sent.value) == value && now.Sub(sent.at) < echoWindow {
 			continue // the echo of its own send
 		}
 		if e.lastReceived == value && now.Sub(e.lastReceivedAt) < dedupWindow {
 			continue // the same press, heard by another radio
 		}
 		e.lastReceived, e.lastReceivedAt = value, now
-		if value != e.desired {
+		if value != encoding.Normalise(e.desired) {
 			g.logf("%s %s: radio-requested %s", e.def.Device, e.def.Label, value)
 			e.desired = value
 			e.pending = nil // the device has it already
@@ -327,5 +443,5 @@ func (g *TGovernor) send(e *tEntity, now time.Time) {
 
 // publishState publishes e's desired state, retained.
 func (g *TGovernor) publishState(e *tEntity) {
-	g.publisher.Publish(e.def.Topic, e.desired, true)
+	g.publisher.Publish(e.def.Topic, e.kind.FormatState(e.desired), true)
 }

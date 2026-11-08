@@ -2006,8 +2006,10 @@ outside its configuration). An installation runs on the hosts device of its name
 Devices that don't report their state (FS20) are kept by the *governor* (`governor/`), a program
 and systemd service of its own next to the coordinator, on its machine. Physical.def's
 `integration governed` block (grammar: `parser_governed.go`) declares its devices: a node, and
-capabilities `by doing <button> from <radio device>`, with `enforced every HH:MM:SS` and
-`default <state>`. The generator (`integration_governed.go`) writes the governor's
+capabilities `by doing <button> from <radio device>`, with `enforced every HH:MM:SS`,
+`default <state>` and, for a light, `on at <n> %` (its level when switched on without one). A
+switch rides on an FS20 switch, a light on an FS20 dimmer: in Home Assistant a JSON-schema MQTT
+light with brightness 0..100. The generator (`integration_governed.go`) writes the governor's
 `governor/devices.yaml` -- per entity its topic, default, enforcement, radio channel and paths, for
 an FHEM device its `fhem/fs20/<device>` topics, encoding and number of installations -- and
 `governor/secrets.yaml`. For Home Assistant a governed device is a raw-MQTT device on the
@@ -2021,7 +2023,9 @@ command at once and the desired state again every period (the first ones stagger
 pending slot per entity (a real command before an enforcement) and a token bucket per radio
 channel (`defaultChannels`: FS20 1 % duty cycle, 0.22 s per frame, times the installations
 sending). What a radio received is a radio-requested change and becomes the desired state; its
-own echoes (within 5 s) are ignored, and copies from several radios (within 2 s) count once. The
+own echoes (within 5 s, compared after rounding to what the device makes of a value -- an FS20
+dimmer's nearest dim level) are ignored; a remote's relative dim up or down says no level and is
+not taken, and copies from several radios (within 2 s) count once. The
 deploy part `governor` (`governor_deploy.go`) sends the source and `governor/` to the coordinator's
 machine, where `Integrations/governor/deploy` builds and restarts it.
 
