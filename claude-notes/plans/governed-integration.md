@@ -210,8 +210,10 @@ application's -- not the buttons.
    keyword is open, e.g. `heard by fhem.p_s_1, fhem.p_s_2;`. What follows:
    - Duplicate frames: harmless only for absolute commands (`on`, `off`, `dim37%`); the FS20
      layer never sends relative ones (`dimup`, `dimdown`).
-   - A press costs radio time on every listed stick, so a throttle group is per stick, and a
-     device's press waits for all of its sticks.
+   - Throttling is the governed application's (Erik, 2026-11-08): it paces the messages it
+     publishes on MQTT to the radios, a budget per radio (stick) as its throttle group, counting a
+     device's message against every stick the device lists. FHEM is not asked for its credit; the
+     sticks only send what reaches them.
    - **Received radio messages are de-doubled** (Erik): a transmitter or sensor heard by two
      sticks reaches MQTT twice, once per FHEM; the copies of one press (the same device and
      message within a short window) count as one event, or one state change. Where this happens
