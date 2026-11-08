@@ -240,5 +240,10 @@ application's -- not the buttons.
      *paths*, each a topic set: FS20's sticks share one (meshed via MQTT), other radios may each
      have a topic tree of their own. The governed application sends to every path and merges
      what arrives from all of them, the same way whether there is one path or several.
-   - To check: a stick also hears the frames another stick sends, so a command sent through
-     p-s-1 may come back on the topic as "received" from p-s-2.
+   - **A stick hears the frames another stick sends** (Erik, 2026-11-08: most likely), and it
+     cannot tell them from a remote control's: an FS20 remote sends the same signal to the switch
+     and to the sticks. So, for a switch, every state change a stick receives is taken as a
+     **radio-requested state change**: FHEM publishes it on the device's topic, and the governed
+     application makes it the desired state and reports it up to Home Assistant (if not already
+     so). An echo of the application's own command is then simply the state it already has. It
+     is **not a confirmation**: it does not touch the shadow state of question 4.
