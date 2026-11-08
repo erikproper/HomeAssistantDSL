@@ -205,9 +205,12 @@ In steps, each tested and deployed before the next:
    ids and YAML entities stay the generic machinery's).
 3. The deploy part `governor`, on the coordinator's machine, like the coordinator's.
 4. The dimmer as a light (brightness 0..100, `on at <n> %`) -- built 2026-11-08; then
-   confirmations (the shadow state) and the de-doubled transmitters and sensors. Open: a remote's
-   relative dim up/down on a dimmer says no level, so the governor doesn't take it -- the next
-   enforcement sends the old level back.
+   confirmations (the shadow state) and the de-doubled transmitters and sensors. An FS20 remote is
+   a set of buttons (Erik, 2026-11-08): an FS20 `transmitter`, its presses event capabilities
+   positioned like the Zigbee and Philips buttons, and dimming -- of an FS20 light or a Hue one --
+   is stepwise, by rules in Conceptual.def through Home Assistant main ("dim"/"brighten"), as the
+   Zigbee dimmers do. So the governor never needs a remote's relative dim up/down; heard on a
+   governed dimmer's own address it says no level, and is not taken.
 
 Steps 1-3 built and deployed 2026-11-08: the governor on Junglinster's protocols-server-1, the
 test switch switched from Home Assistant through both FHEM installations.

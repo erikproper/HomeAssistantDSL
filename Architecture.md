@@ -2025,7 +2025,8 @@ channel (`defaultChannels`: FS20 1 % duty cycle, 0.22 s per frame, times the ins
 sending). What a radio received is a radio-requested change and becomes the desired state; its
 own echoes (within 5 s, compared after rounding to what the device makes of a value -- an FS20
 dimmer's nearest dim level) are ignored; a remote's relative dim up or down says no level and is
-not taken, and copies from several radios (within 2 s) count once. The
+not taken -- an FS20 remote is a set of buttons whose presses are button events, and dimming is
+stepwise by rules through Home Assistant main, as for the Zigbee dimmers, and copies from several radios (within 2 s) count once. The
 deploy part `governor` (`governor_deploy.go`) sends the source and `governor/` to the coordinator's
 machine, where `Integrations/governor/deploy` builds and restarts it.
 

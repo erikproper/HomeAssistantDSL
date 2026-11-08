@@ -149,7 +149,8 @@ JLI
 
     The test dimmer is a governed light too (brightness, "on at 60 %", default off; generated,
     not yet deployed). To build (the plan's step 4): confirmations (the shadow state), the
-    de-doubled transmitters and sensors, DuoFern; a remote's relative dim up/down on a dimmer.
+    de-doubled transmitters and sensors, DuoFern. An FS20 remote is a set of buttons (Erik): its presses
+    become conceptual button events, and dimming is stepwise by rules, as for the Zigbee dimmers.
 
     Note (2026-09-22, architectural decision, not yet designed in detail): some integrations
     (FHEM is the motivating case) bridge devices that accept on/off commands but never report
