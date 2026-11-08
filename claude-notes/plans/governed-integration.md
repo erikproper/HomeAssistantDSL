@@ -108,8 +108,12 @@ application's -- not the buttons.
    retained, and listens on its command topic; Home Assistant's YAML entities point there. The
    topics are ours, so retain is never in doubt (a "controlled" kind, Architecture.md §6.16).
 4. Confirmation from an event rather than a sensor: which event types mean which state.
-5. Where the shadow state lives across a restart of the application (retained on the broker, as
-   the coordinator's shadows are?).
+5. (decided, Erik 2026-11-08) The governed state lives on the broker: the retained state topic
+   Home Assistant reads is the desired state; at its start the application reads its own topics
+   back, then enforces them. A confirmed state, where there is one, on a second retained topic
+   (e.g. `<device>/confirmed`). No local file. Proposed, not yet confirmed: a device with no
+   retained state (a broker that lost them) is "unknown", and nothing is enforced until a state is
+   set -- no guessed "off".
 6. FHEM itself: how it is reached (FHEM's own MQTT, or a small relay), and the ESPHome question in
    item 37 (radios on ESPHome may change how FS20 is reached at all).
 7. What "known FHEM installations" means: several FHEM instances (houses, sticks) listening on one
