@@ -226,6 +226,13 @@ application's -- not the buttons.
      publish).
    - **Received radio messages are de-doubled** (Erik): a transmitter or sensor heard by two
      sticks reaches that topic twice, once per FHEM; the copies of one press (the same message
-     within a short window) count as one event, or one state change. Where this happens is open.
+     within a short window) count as one event, or one state change. Decided (Erik, 2026-11-08):
+     **the governed application does it**, as the radio's one receiver: it reads what the radios
+     publish, merges the copies, and publishes the press once for Home Assistant.
+   - **The governed logic is neutral about meshing** (Erik, 2026-11-08): messages from and to
+     other (kinds of) radios may be combined too. A device is reached through one or more
+     *paths*, each a topic set: FS20's sticks share one (meshed via MQTT), other radios may each
+     have a topic tree of their own. The governed application sends to every path and merges
+     what arrives from all of them, the same way whether there is one path or several.
    - To check: a stick also hears the frames another stick sends, so a command sent through
      p-s-1 may come back on the topic as "received" from p-s-2.
