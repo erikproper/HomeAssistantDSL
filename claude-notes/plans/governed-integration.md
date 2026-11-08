@@ -180,9 +180,10 @@ application's -- not the buttons.
 5. (decided, Erik 2026-11-08) The governed state lives on the broker: the retained state topic
    Home Assistant reads is the desired state; at its start the application reads its own topics
    back, then enforces them. A confirmed state, where there is one, on a second retained topic
-   (e.g. `<device>/confirmed`). No local file. Proposed, not yet confirmed: a device with no
-   retained state (a broker that lost them) is "unknown", and nothing is enforced until a state is
-   set -- no guessed "off".
+   (e.g. `<device>/confirmed`). No local file. A device with no retained state (a broker that lost
+   them) starts from a default (Erik, 2026-11-08): a hard-wired one per kind of entity, a constant
+   in the code (e.g. a switch: off), which the device's definition may override with its own
+   default. That state is then enforced like any other.
 6. FHEM itself: how it is reached (FHEM's own MQTT, or a small relay), and the ESPHome question in
    item 37 (radios on ESPHome may change how FS20 is reached at all).
 7. What "known FHEM installations" means: several FHEM instances (houses, sticks) listening on one
