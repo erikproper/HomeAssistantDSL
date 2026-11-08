@@ -53,7 +53,8 @@ none: its `~/cpu` is the Nextcloud folder). Each integration's part of the deplo
 (`coordinator_deploy.go`, `home_assistant_deploy.go`, `integration_hosts_deploy.go`,
 `containers_deploy.go`, `integration_commandline_deploy.go`, `integration_fhem_deploy.go`);
 `Architecture.md` §6.18 has the details. `bash ./deploy -only fhem` deploys just the FHEM
-installations.
+installations; `bash ./deploy -list` lists every part `-only` can name, with what it deploys in
+that house.
 
 ## Repository layout
 

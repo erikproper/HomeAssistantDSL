@@ -106,3 +106,26 @@ func TestCutInstanceEndpoints(t *testing.T) {
 		t.Error("a URL without its scheme accepted")
 	}
 }
+
+// TestListDeployParts: every part, the house's instances by name, and what the house has nothing
+// for.
+func TestListDeployParts(t *testing.T) {
+	dir := t.TempDir()
+	plan := "installation: x\nsources:\n  generator: /src\n  integrations: /int\nmachines: {}\ncoordinator: hub\ninstances:\n  - name: main\n    machine: main\n    kind: ha_os\n    files: hass/main\n    config: /config\ncpu:\n  hub: hub\n"
+	if err := os.WriteFile(filepath.Join(dir, "deploy.yaml"), []byte(plan), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output := captureStdout(t, func() {
+		if err := listDeployParts(dir); err != nil {
+			t.Fatal(err)
+		}
+	})
+	for _, want := range []string{"  coordinator     the coordinator", "  fhem            each FHEM installation: its fhem.cfg, FHEM restarted (PROJECT.md 37) -- nothing in this house", "  main            the Home Assistant instance \"main\" (ha_os on main)"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("list lacks %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "coordinator, built and restarted on its machine -- nothing") {
+		t.Errorf("coordinator reported absent:\n%s", output)
+	}
+}

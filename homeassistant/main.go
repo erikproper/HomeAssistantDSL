@@ -41,15 +41,23 @@ func main() {
 	format := flag.Bool("format", false, "PROJECT.md 22c: format every .def file in the given .def's folder (def_format.go), without generating any output")
 	deploy := flag.Bool("deploy", false, "PROJECT.md 30: carry out the house's deploy.yaml (deploy_run.go), written by the last generate")
 	dryRun := flag.Bool("n", false, "with -deploy: print every command instead of running it")
-	only := flag.String("only", "", "with -deploy: just these parts, comma-separated (coordinator, main, ha2mqtt, home_assistant, hosts, containers, commandline)")
+	only := flag.String("only", "", "with -deploy: just these parts, comma-separated (-deploy -list shows them)")
+	list := flag.Bool("list", false, "with -deploy: list the parts -only can name, with what each deploys in this house")
 	flag.Parse()
 
 	args := flag.Args()
 	if len(args) != 1 || !strings.HasSuffix(args[0], ".def") {
-		fmt.Fprintf(os.Stderr, "usage: homeassistant [-format | -deploy [-n] [-only <parts>]] [-would_define <entity_id>] [-derived_migration_candidates] [-bootstrap_stable_ids <mapping.json>] <path/to/Main.def>\n")
+		fmt.Fprintf(os.Stderr, "usage: homeassistant [-format | -deploy [-n] [-only <parts> | -list]] [-would_define <entity_id>] [-derived_migration_candidates] [-bootstrap_stable_ids <mapping.json>] <path/to/Main.def>\n")
 		os.Exit(1)
 	}
 
+	if *deploy && *list {
+		if err := listDeployParts(root); err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *deploy {
 		var parts []string
 		if *only != "" {

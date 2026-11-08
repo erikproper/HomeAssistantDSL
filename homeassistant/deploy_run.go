@@ -24,6 +24,8 @@
  * coordinator, governor, an instance (main, ha2mqtt, ...; home_assistant for all), hosts, containers,
  * commandline, fhem -- the reload check runs when main is among them.
  *
+ * "-list" prints the parts this house can deploy, with what each deploys there.
+ *
  * "-n" prints every command instead of running it (and decides no reload/restart); the registry
  * repair then reads the registry and reports what it would do, changing nothing. A failed
  * command fails its step: the step's instance is then neither reloaded nor restarted, and the
@@ -65,22 +67,78 @@ type tDeployer struct {
 	mainMetaTime int64
 }
 
-// deployParts are the parts "-only" may name, besides the instances' own names.
-var deployParts = []string{"coordinator", "governor", "home_assistant", "hosts", "containers", "commandline", "fhem"}
+// TDeployPart is a part "-only" may name, and what it deploys.
+type TDeployPart struct {
+	Name, What string
+}
+
+// deployParts are the parts "-only" may name, besides the instances' own names, in the order
+// they are deployed.
+var deployParts = []TDeployPart{
+	{"coordinator", "the coordinator: its source and coordinator/, built and restarted on its machine"},
+	{"governor", "the governor, next to the coordinator, the same way (PROJECT.md 37)"},
+	{"home_assistant", "every Home Assistant instance (each one also by its own name, below)"},
+	{"hosts", "the cpu report script (to the hub and on to its hosts) and ping"},
+	{"containers", "update.containers to every container host"},
+	{"commandline", "each commandline machine: the source it builds from and commandline/"},
+	{"fhem", "each FHEM installation: its fhem.cfg, FHEM restarted (PROJECT.md 37)"},
+}
+
+// listDeployParts prints the parts houseDir's deploy.yaml can deploy, each with what it deploys
+// there.
+func listDeployParts(houseDir string) error {
+	plan, err := readDeployPlan(houseDir)
+	if err != nil {
+		return err
+	}
+	for _, part := range deployParts {
+		fmt.Printf("  %-15s %s%s\n", part.Name, part.What, deployPartAbsence(plan, part.Name))
+	}
+	for _, instance := range plan.Instances {
+		fmt.Printf("  %-15s the Home Assistant instance %q (%s on %s): its configuration, then its reload or restart\n", instance.Name, instance.Name, instance.Kind, instance.Machine)
+	}
+	fmt.Println("\nWithout -only, everything is deployed; -only takes several, comma-separated, e.g. -only main,fhem.")
+	return nil
+}
+
+// deployPartAbsence says when plan has nothing for part.
+func deployPartAbsence(plan TDeployPlan, part string) string {
+	empty := map[string]bool{
+		"coordinator": plan.Coordinator == "", "governor": plan.Governor == "", "home_assistant": len(plan.Instances) == 0,
+		"hosts": plan.CPU.Hub == "" && len(plan.CPU.Direct) == 0, "containers": len(plan.Containers) == 0,
+		"commandline": len(plan.Commandline) == 0, "fhem": len(plan.FHEM) == 0,
+	}
+	if empty[part] {
+		return " -- nothing in this house"
+	}
+	return ""
+}
+
+// readDeployPlan reads houseDir's deploy.yaml.
+func readDeployPlan(houseDir string) (TDeployPlan, error) {
+	var plan TDeployPlan
+	data, err := os.ReadFile(filepath.Join(houseDir, "deploy.yaml"))
+	if err != nil {
+		return plan, fmt.Errorf("deploy: %v -- generate first", err)
+	}
+	if err := yaml.Unmarshal(data, &plan); err != nil {
+		return plan, fmt.Errorf("deploy.yaml: %v", err)
+	}
+	return plan, nil
+}
 
 // runDeploy carries out houseDir's deploy.yaml, only the parts named in only when it isn't empty.
 func runDeploy(houseDir string, dryRun bool, only []string) error {
-	data, err := os.ReadFile(filepath.Join(houseDir, "deploy.yaml"))
+	plan, err := readDeployPlan(houseDir)
 	if err != nil {
-		return fmt.Errorf("deploy: %v -- generate first", err)
-	}
-	var plan TDeployPlan
-	if err := yaml.Unmarshal(data, &plan); err != nil {
-		return fmt.Errorf("deploy.yaml: %v", err)
+		return err
 	}
 	d := &tDeployer{plan: plan, houseDir: houseDir, dryRun: dryRun, generator: os.ExpandEnv(plan.Sources.Generator), integrated: os.ExpandEnv(plan.Sources.Integrations)}
 	if len(only) > 0 {
-		valid := append([]string{}, deployParts...)
+		var valid []string
+		for _, part := range deployParts {
+			valid = append(valid, part.Name)
+		}
 		for _, instance := range plan.Instances {
 			valid = append(valid, instance.Name)
 		}

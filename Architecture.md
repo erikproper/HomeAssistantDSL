@@ -1962,7 +1962,8 @@ errors. A failed command fails its step, whose instance is then neither reloaded
 `-n` prints every command instead (the broker password never). `-only <parts>` deploys just the
 parts named, comma-separated, like sourcing one deploy.d/ step used to: `coordinator`, an
 instance (`main`, `ha2mqtt`, ...; `home_assistant` for all), `hosts`, `containers`,
-`commandline`, `fhem` -- the reload check runs when `main` is among them. The registry repair and the
+`commandline`, `fhem`, `governor` -- the reload check runs when `main` is among them; `-list`
+prints them, with what each deploys in the house (`deployParts`). The registry repair and the
 reload check talk to HA's websocket and REST API at the instance's URL (`home_assistant_registry.go`),
 the access token from the defs; the deploy has no Python left. (At first through an SSH tunnel
 over the add-on, 2026-11-03; Junglinster's add-on doesn't allow port forwarding, and the public URL
