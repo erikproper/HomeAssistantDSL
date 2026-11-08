@@ -172,7 +172,9 @@ JLI
     metadata and liveness from a family table, with the capabilities still listed by label
     (claude-notes/plans/shelly-layer.md). FHEM's own topics are ours (controlled), unlike Shelly's.
 
-    Discussion (Erik, 2026-11-08); planning started in claude-notes/plans/indirect-integration.md:
+    Discussion (Erik, 2026-11-08); planning started in claude-notes/plans/governed-integration.md.
+    Decided since: the "indirect" integration is called "governed"; a radio signal is sent "on by
+    doing <button>". The discussion, in Erik's terms:
     - Distinguish (1) devices with a reliable two-way connection -- true light/switch/... devices;
       FHEM's syntax for them is platform-specific and "messy", so sub-integrations still make sense
       -- from (2) devices we "talk" with by radio (also IR and Bluetooth, across integrations,
