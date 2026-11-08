@@ -214,6 +214,10 @@ application's -- not the buttons.
      publishes on MQTT to the radios, with one budget per **radio channel** -- e.g. FS20 -- across
      all its radios (sticks): that channel is the throttle group. FHEM is not asked for its
      credit; the sticks only send what reaches them.
+   - **FS20 is one "mesh radio"** (Erik, 2026-11-08): all its sticks, in whatever FHEM
+     installation, are meshed via MQTT into a single radio. The governed application talks to
+     that radio, not to a stick; which sticks a device lists is only its coverage. Its throttle
+     group is that one radio; DuoFern is another.
    - **One MQTT topic per FS20 device** (Erik, 2026-11-08): `fhem/fs20/<device>`, used by all the
      FHEM installations that listen and send for that device -- not a topic per installation.
    - **Received radio messages are de-doubled** (Erik): a transmitter or sensor heard by two
