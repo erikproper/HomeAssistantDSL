@@ -6,6 +6,8 @@ can be mixed with hand-written capabilities. FHEM (PROJECT.md 37) gets a layer o
 An update entity only signals an update; updating stays manual (PROJECT.md 39).
 Built 2026-11-07; Junglinster's test plug rewritten in this form, byte-identical output. Generate
 writes the implied manufacturer and model into the device as captured metadata, as for others.
+The i3's events come only from an input set to "momentary" (a push button); a "toggle" input (a
+flip switch) only has its on/off state. PROJECT.md 39 closed 2026-11-07; firmware: PROJECT.md 52.
 
 ## Aim
 
@@ -66,6 +68,7 @@ a multi-channel one `_1`, `_2`, ... (channel `<n>` is `_<n+1>`), as Zigbee devic
 | | `overheated` | binary_sensor | `overtemperature` | on `"1"` |
 | `shellyix3` | `node` | binary_sensor | `online` | on `"true"` |
 | | `input_1` .. `input_3` | binary_sensor | `input/0` .. `input/2` | on `"1"` |
+| | `event_1` .. `event_3` | event | `input_event/0` .. `input_event/2` | field `event`, types `S`, `L`, `SS`, `SSS`, `SL`, `LS` |
 
 Other Gen1 families (`shellyswitch25`, `shelly1pm`, `shellydimmer`, ...: `relay/<n>`,
 `roller/<n>`, `light/<n>`, `input/<n>`) are added when such a device is in a house and its tree

@@ -172,54 +172,6 @@ JLI
     metadata and liveness from a family table, with the capabilities still listed by label
     (claude-notes/plans/shelly-layer.md). FHEM's own topics are ours (controlled), unlike Shelly's.
 
-39. RAW mqtt as integration; also see notes below on MQTT/JSON structures. So, a situation in which we have MQTT topics, but no discovery data. Then this integration needs to combine this into a discovery compliant topic structure. Sometimes easy to do based on topic and payload. But take the vacuum. If the composed state is represented as a different topics these need to be joint by the coordinator.
-    Started 2026-10-28 as "integration mqtt" (Architecture.md §6.16). A capability reads a topic:
-    binary_sensor ("on"), switch ("command") and sensor ("unit", "divided by"), and a device's node
-    gives the others their availability. To come: other domains, a value template for JSON and the
-    vacuum's state from several topics. The Shelly layer is built (2026-11-07,
-    shape A, claude-notes/plans/shelly-layer.md): "shelly "<id>";" inside a device of "integration
-    mqtt"; families so far shellyplug,
-    shellyplug-s and shellyix3 (inputs only). To come: the update signal (below).
-    Retain (from item 20, 2026-10-28; Architecture.md §6.16): a raw device's declaration says
-    "is retained;" when its topics are retained; without it its state entities read the
-    coordinator's shadow, as for discovered devices. Each raw definition also needs its own
-    availability -- "we also need to detect if they are really down" (Erik).
-    Test device (2026-11-07, Junglinster): shellies/shellyplug-6CC3D8, declared as
-    switches.test_shelly_plug, positioned as "test" at the top house level; deployed 2026-11-07,
-    first with the plug's own retain off (reading shadows), now with it on and "is retained;".
-    Seen live: switching, power, consumes, energy, down detection by Last Will, values right after
-    a reload (from the shadows), and the coordinator's liveness verdict (a test with an unanswered
-    question). It reports every 30 s; liveness asks "announce", answered on "info".
-    To look at: its shadow messages arrived twice (seen 2026-11-07; harmless, same value; cause not
-    known: maybe the liveness "#" subscription overlapping the shadow's own); and switching a device to "is retained;" clears its shadows when the coordinator restarts, before
-    main reloads: its node read "off" for those 2 minutes (seen 2026-11-07); the deploy could reload
-    main before restarting the coordinator in that case.
-    Shelly firmware (Erik, 2026-11-07: there will be more Shellies to update): the Shelly layer
-    (claude-notes/plans/shelly-layer.md) could give each device an "update" entity that only signals
-    an update -- installed and latest version from "info"'s "update" field (needs the value template
-    for JSON), no command topic: the update itself is done by hand (Erik), as below. First case, the test plug (SHPLG2-1), v1.11.8 to
-    v1.14.0: its web page fails ("Could not get the timezone list"), and both /ota?update=true and
-    /ota?url=<Shelly's own file URL> went from "updating" back to "pending" without a reboot -- the
-    old firmware can't fetch from Shelly's download host itself (cause unknown). What worked
-    (2026-11-07): serve the file on the house's network and point the plug at it. The file per
-    model is in https://api.shelly.cloud/files/firmware ("data" -> model code -> "url", e.g.
-    http://firmware.shelly.cloud/gen1/SHPLG2-1.zip); on p-s-1 (192.168.178.85, firewall off):
-    download it into a temporary directory, run "timeout 600 python3 -m http.server 8000 --bind
-    192.168.178.85" there, and call http://<plug>/ota?url=http://192.168.178.85:8000/<file>.zip.
-    The plug fetched it at once and was on v1.14.0 within 40 s; its settings (MQTT, retain,
-    update period, id) and its topic tree stayed the same. The same worked at once for a second plug
-    (shellyplug-6CC43B, 2026-11-07, 20 s).
-    More test devices (Erik, 2026-11-07): that second plug, and an i3 (shellyix3-68C63AFA9851,
-    SHIX3-1, already on v1.14.0), positioned as test_plug_2 and test_ix3 (the first plug: test_plug_1,
-    was test). The i3's tree; its family has the inputs, the events wait for their codes:
-    input/<0..2> ("0"/"1"), input_event/<0..2> as JSON ({"event":"","event_cnt":0}; the event
-    codes per Shelly's docs: "S" short, "L" long, "SS" double, "SSS" triple, "SL", "LS"; an event
-    is cleared to "" after 5 s, event_cnt counts them), temperature_status ("Normal", "High",
-    "Very High"). Events only come from an input set to "momentary": the test i3's inputs 1 and 2
-    are "toggle", input 3 "momentary" (2026-11-07). Built 2026-11-07, not deployed: an event
-    capability ("capability event.<label> topic ... field "event" types "S", ...;", or event_1..3
-    in the i3's family), its type read from the JSON field, "" ignored; the test i3 has event_3.
-
 40. https://github.com/kaiplaketti/matter2mqtt
 
 41. Publish -- Architecture.md should be ready for others to read, alongside an up-to-date
@@ -396,3 +348,25 @@ https://dev.netatmo.com/apidocumentation/webhooks
 51. (was 32c; to observe) The deploy's reload check can't read Junglinster's log: system_log/list closes the websocket
     (1006, unexpected EOF) on every deploy there (seen three times 2026-11-05), so a reload error
     there goes unreported. Vienna's works. Likely the size of Junglinster's log in one message.
+
+52. Shelly firmware (Erik, 2026-11-07: there will be more Shellies to update). The Shelly layer
+    (claude-notes/plans/shelly-layer.md) could give each device an "update" entity that only signals
+    an update -- installed and latest version from "info"'s "update" field (needs a value template
+    for JSON), no command topic: the update itself is done by hand (Erik). Gen1 plugs on v1.11.8
+    don't update themselves: their web page fails ("Could not get the timezone list"), and both
+    /ota?update=true and /ota?url=<Shelly's own file URL> go from "updating" back to "pending"
+    without a reboot (cause unknown). What worked (2026-11-07, shellyplug-6CC3D8 and -6CC43B to
+    v1.14.0): serve the file on the house's network and point the device at it. The file per model
+    is in https://api.shelly.cloud/files/firmware ("data" -> model code -> "url", e.g.
+    http://firmware.shelly.cloud/gen1/SHPLG2-1.zip); on p-s-1 (192.168.178.85, firewall off):
+    download it into a temporary directory, run "timeout 600 python3 -m http.server 8000 --bind
+    192.168.178.85" there, and call http://<device>/ota?url=http://192.168.178.85:8000/<file>.zip.
+    It fetched it at once and was updated within 20-40 s, its settings (MQTT, retain, update
+    period, id) and topic tree unchanged.
+
+53. (to observe, from the raw MQTT work, 2026-11-07) Two coordinator findings: a shadowed state
+    topic's shadow messages arrived twice (harmless, same value; cause not known -- maybe the
+    liveness "#" subscription overlapping the shadow's own); and switching a device to "is
+    retained;" clears its shadows when the coordinator restarts, before main reloads, so its node
+    read "off" for those 2 minutes -- the deploy could reload main before restarting the
+    coordinator in that case.
