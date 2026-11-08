@@ -234,6 +234,21 @@ So, not offering local devices from HA to matter.
     go the other way, MQTT to Matter); ours would be a small Go client of the Matter Server's
     websocket API, publishing on our own topics, as the governor does for FS20.
 
+    Vienna, done 2026-11-08: the SkyConnect on protocols-server-1
+    (/dev/serial/by-id/usb-Nabu_Casa_SkyConnect_v1.0_bea642ed...-if00-port0, Thread RCP, 460800
+    baud, flow control); quadlets otbr.container (ghcr.io/ownbee/hass-otbr-docker:latest, REST API
+    on 8081, web UI off, firewall and NAT64 on, backbone eth0) and matter.container
+    (ghcr.io/matter-js/matterjs-server:stable, port 5580; its data folder owned by uid 1000, the
+    image's user); /etc/sysctl.d/60-thread-border-router.conf (IPv6 forwarding, accept_ra 2,
+    accept_ra_rt_info_max_plen 64). Both data folders are under /var/lib/home-automation, so the
+    nightly backup-home-automation (generic over that folder, off-box to mqtt.erikproper.eu) takes
+    them; update.containers covers every quadlet. Vienna also has an Apple Thread border router
+    (Living-Room-2, 192.168.178.44) with a network of its own.
+    Still to do (Erik): in ha2mqtt, add "Open Thread Border Router" (http://127.0.0.1:8081), then
+    Thread (make its network preferred) and Matter (ws://127.0.0.1:5580/ws); remove the OTBR
+    add-on from Vienna's Green (it still advertises a Thread network without its radio).
+    Then: the same for Junglinster.
+
 41. Publish -- Architecture.md should be ready for others to read, alongside an up-to-date
     README.md, on GitHub.
 
