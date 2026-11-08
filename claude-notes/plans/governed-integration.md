@@ -200,8 +200,9 @@ application's -- not the buttons.
    button's topic and a `notify` that sends the FS20 command (for a value, the mapping to the 16
    dim levels) -- and the deploy puts it into FHEM. No relay of ours runs next to FHEM. FHEM also
    publishes what its radio receives (transmitters as events, FS20 sensors as states), as the
-   old `EventPair` and `BinarySensor` kinds did. Enforcing stays in the governed application: it
-   presses the button again; FHEM only sends. Still open: the ESPHome question in item 37 (radios
+   old `EventPair` and `BinarySensor` kinds did. Unlike the old scripts, the generated FHEM
+   configuration has no refresh timer (Erik, 2026-11-08): resending is the governed
+   application's, which presses the button again; FHEM only sends what it is asked to. Still open: the ESPHome question in item 37 (radios
    on ESPHome may change how FS20 is reached at all).
 7. What "known FHEM installations" means: several FHEM instances (houses, sticks) listening on one
    topic, each sending -- and so how throttle groups and duplicates work across them.
