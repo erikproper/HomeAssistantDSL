@@ -75,6 +75,9 @@ governed device, inside FHEM:
   - `BinarySensor`: an FS20 sensor (e.g. motion, a contact), its on/off published retained.
   Every device had `eventMap on:on off:off dimup:on dimdown:off`: a remote's dim-up counts as on,
   its dim-down as off.
+- **A received state change became the state** (Erik, 2026-11-08): a change a stick heard (a
+  remote, or another stick's frame) was published as the device's new state -- what question 7
+  keeps as the radio-requested state change, now without confirmation.
 - **How FHEM was reached**: inside FHEM itself -- the generator wrote FHEM configuration, an
   `MQTT_DEVICE` listener and a Perl `notify` per device and topic -- the way chosen again
   (question 6).
