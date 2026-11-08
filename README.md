@@ -371,7 +371,9 @@ integration governed with:
 end;
 ```
 
-Home Assistant gets an ordinary switch whose state is the governor's; it is positioned in
+A `light.light` on an FS20 dimmer works the same way, with `on at <n> %` for its level when
+switched on without one. Home Assistant gets an ordinary switch or light whose state is the
+governor's; it is positioned in
 Conceptual.def like any device. The governor runs next to the coordinator (`bash ./deploy -only
 governor`). `Architecture.md` §6.20 has the details.
 
