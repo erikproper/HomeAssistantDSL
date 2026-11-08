@@ -211,8 +211,13 @@ application's -- not the buttons.
    publishes what its radio receives (transmitters as events, FS20 sensors as states), as the
    old `EventPair` and `BinarySensor` kinds did. Unlike the old scripts, the generated FHEM
    configuration has no refresh timer (Erik, 2026-11-08): resending is the governed
-   application's, which presses the button again; FHEM only sends what it is asked to. Still open: the ESPHome question in item 37 (radios
-   on ESPHome may change how FS20 is reached at all).
+   application's, which presses the button again; FHEM only sends what it is asked to.
+   ESPHome (looked up 2026-11-08): it has a native CC1101 component since 2025.12 (868 MHz,
+   ASK/OOK and FSK, through remote_transmitter/remote_receiver), used for e.g. Davis weather
+   stations and Elero covers, but nothing for FS20 or DuoFern was found. FHEM stays the way in
+   (Erik): old hardware -- the CUL sticks and FHZ radios on p-s-2 and p-s-3 -- must remain
+   usable. An ESPHome radio could later be one more path to a device, which the governed logic
+   already allows (question 7).
 7. (decided, Erik 2026-11-08) Several FHEM installations may serve one device, for range, as
    before -- but **each FS20 device lists its FHEM installations**: only those define the device,
    listen on its button topics and send, and publish what their radio receives from it. The
