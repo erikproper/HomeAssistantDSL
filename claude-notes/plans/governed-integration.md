@@ -76,7 +76,8 @@ governed device, inside FHEM:
   Every device had `eventMap on:on off:off dimup:on dimdown:off`: a remote's dim-up counts as on,
   its dim-down as off.
 - **How FHEM was reached**: inside FHEM itself -- the generator wrote FHEM configuration, an
-  `MQTT_DEVICE` listener and a Perl `notify` per device and topic (open question 6).
+  `MQTT_DEVICE` listener and a Perl `notify` per device and topic -- the way chosen again
+  (question 6).
 - **Older still** (`OldDefs/Definitions.3.fhem.fhz`, `.duofern`): a bridge per radio stick
   (`bridge_fhz <name> <serial>`), and a device imported by house code and device code
   (`import_fhz fhz <device> <house code> <device code>`); DuoFern had a bridge of its own in the
@@ -93,7 +94,7 @@ FHEM up) designed the same thing as a separate project. What carries over, and w
 | Brief | Here |
 |---|---|
 | Coordinator (generic: routing, re-assertion, HA exposure) | the governed application (re-assertion, the governed entities); routing is MQTT itself |
-| Radio Talker, one per FHEM installation, the only platform-specific runtime | FHEM's sub-integration and its relay -- open question 6 |
+| Radio Talker, one per FHEM installation, the only platform-specific runtime | no relay: generated FHEM configuration, FHEM's own MQTT (question 6) |
 | Configurator (spec -> deployed talkers, SSH, ACLs) | the generator and the deploy, as for every integration |
 | HA MQTT Discovery | the generator's YAML `mqtt:` entities (Architecture.md §6.16, since PROJECT.md 19) |
 | `requires_periodic_reassert` flag per device | a device of the governed integration, "enforced every X" |
@@ -194,7 +195,13 @@ application's -- not the buttons.
    them) starts from a default (Erik, 2026-11-08): a hard-wired one per kind of entity, a constant
    in the code (e.g. a switch: off), which the device's definition may override with its own
    default. That state is then enforced like any other.
-6. FHEM itself: how it is reached (FHEM's own MQTT, or a small relay), and the ESPHome question in
-   item 37 (radios on ESPHome may change how FS20 is reached at all).
+6. (decided, Erik 2026-11-08: A, as his old scripts did) FHEM is reached through its own MQTT:
+   the generator writes FHEM configuration -- per device an `MQTT_DEVICE` listening on the
+   button's topic and a `notify` that sends the FS20 command (for a value, the mapping to the 16
+   dim levels) -- and the deploy puts it into FHEM. No relay of ours runs next to FHEM. FHEM also
+   publishes what its radio receives (transmitters as events, FS20 sensors as states), as the
+   old `EventPair` and `BinarySensor` kinds did. Enforcing stays in the governed application: it
+   presses the button again; FHEM only sends. Still open: the ESPHome question in item 37 (radios
+   on ESPHome may change how FS20 is reached at all).
 7. What "known FHEM installations" means: several FHEM instances (houses, sticks) listening on one
    topic, each sending -- and so how throttle groups and duplicates work across them.
