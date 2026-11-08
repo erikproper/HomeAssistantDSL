@@ -165,8 +165,8 @@ application's -- not the buttons.
 
 - **Throttle groups per radio**: the governed application limits how many requests it sends to one radio.
   For FS20 this is also a legal limit: 868 MHz is a 1 % duty-cycle band, which FHEM's CUL tracks as
-  credit. A group would be per radio (per CUL stick), shared by every device sent through it, and
-  enforcement must queue behind it rather than flood it.
+  credit. A group is per radio channel (FS20; DuoFern its own), across all sticks, shared by every
+  device on that channel (question 7), and enforcement must queue behind it rather than flood it.
 
 ## Open questions
 
@@ -211,9 +211,9 @@ application's -- not the buttons.
    - Duplicate frames: harmless only for absolute commands (`on`, `off`, `dim37%`); the FS20
      layer never sends relative ones (`dimup`, `dimdown`).
    - Throttling is the governed application's (Erik, 2026-11-08): it paces the messages it
-     publishes on MQTT to the radios, a budget per radio (stick) as its throttle group, counting a
-     device's message against every stick the device lists. FHEM is not asked for its credit; the
-     sticks only send what reaches them.
+     publishes on MQTT to the radios, with one budget per **radio channel** -- e.g. FS20 -- across
+     all its radios (sticks): that channel is the throttle group. FHEM is not asked for its
+     credit; the sticks only send what reaches them.
    - **Received radio messages are de-doubled** (Erik): a transmitter or sensor heard by two
      sticks reaches MQTT twice, once per FHEM; the copies of one press (the same device and
      message within a short window) count as one event, or one state change. Where this happens
