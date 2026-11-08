@@ -1550,8 +1550,8 @@ is assumed unless the defs say otherwise -- no gateway-specific code (Erik, 2026
   state topic under the filter.
 - **Per device**, in its block (like `ignore other capabilities;`), always winning over the
   wildcard: `is retained;` -- no shadow, the entities read the device's own topics (e.g. a
-  Zigbee2MQTT device with Zigbee2MQTT's own retain option on; for raw devices, item 39, the normal
-  way to say it); `is not retained;` -- a shadow after all: the way to back out of a wildcard that
+  Zigbee2MQTT device with Zigbee2MQTT's own retain option on; for raw devices -- `integration
+  mqtt`, e.g. a Shelly with its own retain setting on -- the normal way to say it); `is not retained;` -- a shadow after all: the way to back out of a wildcard that
   claims more than is true (e.g. a device whose own retain setting differs from its gateway's). It
   never stops a device from retaining; a redundant shadow is harmless.
 - So each device line only does something against the default around it: `is retained;` where no
@@ -1571,8 +1571,9 @@ is assumed unless the defs say otherwise -- no gateway-specific code (Erik, 2026
   cross-posted entity's availability also includes the coordinator's own (its Last Will).
 - A retained value of a device that is really gone stays visible only as long as availability
   doesn't say otherwise; for discovered gateways their availability topics cover this, for raw
-  devices each definition needs its own availability (Erik: "we also need to detect if they are
-  really down"; PROJECT.md 39).
+  devices their node is the availability, and a `liveness with:` block (implied for a Shelly) makes
+  the coordinator set a silent device offline (Erik: "we also need to detect if they are really
+  down"; built 2026-11-07).
 - Built 2026-10-28 (PROJECT.md 20): generator `homeassistant/retain_shadows.go` (the decision,
   the grammar's filters; `applyRetainShadows` in the discovery YAML writer, which also writes
   `coordinator/retain_shadows.yaml`), coordinator `house_event_bus_coordinator/retain_shadows.go`

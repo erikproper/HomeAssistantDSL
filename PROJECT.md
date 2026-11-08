@@ -167,7 +167,7 @@ JLI
     Before designing: by then the Home Assistant community will likely have settled its stance
     on running radios via ESPHome (Erik), which may change how FHEM/FS20 is reached at all.
 
-    Decided 2026-11-07 (Erik, from item 39's Shelly layer): FHEM gets a layer of the same shape -- a
+    Decided 2026-11-07 (Erik, from the Shelly layer of integration mqtt): FHEM gets a layer of the same shape -- a
     statement inside the device ("fhem ...;", like "shelly "<id>";") that implies the topics,
     metadata and liveness from a family table, with the capabilities still listed by label
     (claude-notes/plans/shelly-layer.md). FHEM's own topics are ours (controlled), unlike Shelly's.
