@@ -18,7 +18,9 @@
  *   - what a radio received for the device is a radio-requested change -- someone used a remote,
  *     or another radio sent -- and becomes the desired state (it is not a confirmation, and is not
  *     sent back); the echo of the governor's own send, within echoWindow, is ignored, and the same
- *     value from several radios within dedupWindow counts once.
+ *     message from several radios within the copies interval counts once -- the radio channel's
+ *     hard-wired one, or the device's own; compared per message, so a held button's repeated
+ *     dim steps, further apart, stay presses of their own.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
@@ -36,8 +38,7 @@ import (
 )
 
 const (
-	echoWindow  = 5 * time.Second // a received value the governor sent this recently is its own echo
-	dedupWindow = 2 * time.Second // the same value received again this soon is the same press
+	echoWindow = 5 * time.Second // a received value the governor sent this recently is its own echo
 )
 
 // TKind is a kind of governed entity: its hard-wired default, what a command (or a state kept on
@@ -228,6 +229,7 @@ type tEntity struct {
 	lastReceivedAt time.Time
 	cost           float64
 	onLevel        int
+	copiesWithin   []time.Duration // per path
 }
 
 // tPathRef is a path of an entity.
@@ -284,6 +286,11 @@ func newGovernor(devices TDevicesFile, publisher TPublisher, logf func(string, .
 			e.onLevel = 100
 		}
 		for i, p := range def.Paths {
+			within := channel.CopiesWithinMS
+			if p.CopiesWithinMS > 0 {
+				within = p.CopiesWithinMS
+			}
+			e.copiesWithin = append(e.copiesWithin, time.Duration(within)*time.Millisecond)
 			e.cost += channel.FrameSeconds * float64(max(p.Copies, 1))
 			if p.Received != "" {
 				g.byReceived[p.Received] = append(g.byReceived[p.Received], tPathRef{e, i})
@@ -381,7 +388,7 @@ func (g *TGovernor) Received(topic, payload string, now time.Time) {
 		if sent := e.sent[ref.path]; encoding.Normalise(sent.value) == value && now.Sub(sent.at) < echoWindow {
 			continue // the echo of its own send
 		}
-		if e.lastReceived == value && now.Sub(e.lastReceivedAt) < dedupWindow {
+		if e.lastReceived == value && now.Sub(e.lastReceivedAt) < e.copiesWithin[ref.path] {
 			continue // the same press, heard by another radio
 		}
 		e.lastReceived, e.lastReceivedAt = value, now

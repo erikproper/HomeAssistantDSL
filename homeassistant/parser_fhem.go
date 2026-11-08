@@ -13,9 +13,10 @@
  *   Installation:    "installation" Word "with" ":" SerialDevice* "end" ";"
  *   SerialDevice:    Word String ";"                    -- its kind (fhemSerialKinds) and full path
  *   FHEMDevice:      "device" DeviceID "with" ":" DeviceStatement* "end" ";"
- *   DeviceStatement: FS20Statement | Capability
+ *   DeviceStatement: FS20Statement | Copies | Capability
  *   FS20Statement:   "fs20" Word String String "heard" "by" Word ( "," Word )* ";"
  *                                                       -- its kind, house code, address, installations
+ *   Copies:          "copies" "within" Number "ms" ";"   -- the device's own interval for copies
  *   Capability:      "capability" Word "." Word ";"
  *   DeviceID:        Word "." Word
  *
@@ -131,12 +132,16 @@ func (p *TFHEMParser) FHEMDevice() bool {
 		/**/ p.AppendDevice(device)
 }
 
-// DeviceStatement: FS20Statement | Capability
+// DeviceStatement: FS20Statement | Copies | Capability
 func (p *TFHEMParser) DeviceStatement(device *TFHEMDevice) bool {
 	switch {
 	// Its FS20 address.
 	case p.ThisWordIs("fs20"):
 		return p.FS20Statement(device)
+
+	// How soon the same message again is a copy, not a press.
+	case p.ThisWordIs("copies"):
+		return p.Copies(device)
 
 	// A capability.
 	case p.ThisWordIs("capability"):
@@ -173,6 +178,15 @@ func (p *TFHEMParser) FS20Statement(device *TFHEMDevice) bool {
 	}
 	return p.ForcedThisPunctuationWas(';') &&
 		/**/ p.SetFS20(device, fs20)
+}
+
+// Copies: "copies" "within" Number "ms" ";"
+func (p *TFHEMParser) Copies(device *TFHEMDevice) bool {
+	return p.ForcedThisWordWas("copies") &&
+		/**/ p.ForcedThisWordWas("within") &&
+		/**/ p.ForcedNumber(&device.CopiesWithinMS, 1, 60000, MessageCopiesInterval) &&
+		/**/ p.ForcedThisWordWas("ms") &&
+		/**/ p.ForcedThisPunctuationWas(';')
 }
 
 // Capability: "capability" Word "." Word ";"

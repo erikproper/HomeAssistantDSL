@@ -224,3 +224,18 @@ func TestNormaliseFS20Dim(t *testing.T) {
 		}
 	}
 }
+
+// TestCopiesWithin: a path's interval for copies is its radio channel's (FS20: 500 ms), unless
+// the device has its own.
+func TestCopiesWithin(t *testing.T) {
+	for within, want := range map[string]time.Duration{"": 500 * time.Millisecond, "\n        copies_within_ms: 50": 50 * time.Millisecond} {
+		var devices TDevicesFile
+		if err := yaml.Unmarshal([]byte(strings.Replace(testDevices, "copies: 2", "copies: 2"+within, 1)), &devices); err != nil {
+			t.Fatal(err)
+		}
+		g := newGovernor(devices, &tRecorder{}, func(string, ...any) {})
+		if got := g.entities[0].copiesWithin[0]; got != want {
+			t.Errorf("copies within %q: %v, want %v", within, got, want)
+		}
+	}
+}

@@ -161,3 +161,21 @@ func TestGovernedLight(t *testing.T) {
 		t.Errorf("light config = %v", c)
 	}
 }
+
+// TestGovernedCopiesWithin: an FHEM device's own interval for copies reaches the governor's path.
+func TestGovernedCopiesWithin(t *testing.T) {
+	_, radios, warnings := parseFHEMIntegrationBody([]string{
+		`installation h2 with: cul "/dev/x"; end;`,
+		`device radio.test_fs20_switch with: fs20 switch "44444444" "4411" heard by h2; copies within 300 ms; capability button.set; end;`,
+	})
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v", warnings)
+	}
+	devices, _ := parseGovernedIntegrationBody(governedTestBody)
+	if p := governorDevicesFile(devices, radios).Entities[0].Paths[0]; p.CopiesWithinMS != 300 {
+		t.Errorf("path = %+v", p)
+	}
+	if _, _, warnings := parseFHEMIntegrationBody([]string{`device radio.x with: copies within 0 ms; end;`}); len(warnings) != 1 || !strings.Contains(warnings[0], "milliseconds") {
+		t.Errorf("warnings = %v", warnings)
+	}
+}

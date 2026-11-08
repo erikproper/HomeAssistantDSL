@@ -69,6 +69,9 @@ type TFHEMDevice struct {
 	DeviceID     string
 	FS20         *TFS20Address
 	Capabilities []string // "<domain>.<label>"
+	// CopiesWithinMS: "copies within <n> ms;", the same message from the device again this soon is
+	// a copy (another radio heard it), not a press -- 0: the radio channel's (the governor's).
+	CopiesWithinMS int
 }
 
 // TFS20Address is "fs20 <kind> "<house code>" "<address>" heard by <host>, ...;".
@@ -103,8 +106,8 @@ type TFS20Kind struct {
 
 // fs20Kinds are the FS20 kinds a device may be.
 var fs20Kinds = map[string]TFS20Kind{
-	"switch":      {Capability: "button.set", Takes: "on/off"},
-	"dimmer":      {Capability: "button.set", Takes: "level"},
+	"switch": {Capability: "button.set", Takes: "on/off"},
+	"dimmer": {Capability: "button.set", Takes: "level"},
 	// A remote's presses as FHEM reports them -- on, off, and a held button's dimup/dimdown --
 	// each its own event type: what a press means is the rules' (Erik, 2026-11-08), as for the
 	// Philips dimmer remote. Unlike the old setup, no eventMap folds dim-up into on.

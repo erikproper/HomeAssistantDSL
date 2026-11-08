@@ -345,7 +345,9 @@ integration fhem with:
 end;
 ```
 
-An FS20 device is a `switch` or `dimmer` (capability `button.set`), a `transmitter`
+`copies within <n> ms;` in a device says how soon the same message from it again is a copy
+(another installation heard the same press), not a new press -- by default the radio's own (FS20:
+500 ms). An FS20 device is a `switch` or `dimmer` (capability `button.set`), a `transmitter`
 (`event.button`) or a `sensor` (one `binary_sensor`); its house code is 4 hex digits or 8 digits
 1-4, its address 2 or 4. Every installation it is `heard by` sends its commands -- on
 `fhem/fs20/<device>/set`: `on`, `off`, or for a dimmer 0..100 -- and publishes what its radio

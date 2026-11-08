@@ -39,12 +39,15 @@ type TChannel struct {
 	DutyCycle    float64 `yaml:"duty_cycle"`
 	FrameSeconds float64 `yaml:"frame_seconds"`
 	BurstSeconds float64 `yaml:"burst_seconds"`
+	// CopiesWithinMS: the same message from the device again this soon is a copy -- another radio
+	// hearing the same press -- not a new press (Erik, 2026-11-08; a device may override it).
+	CopiesWithinMS int `yaml:"copies_within_ms"`
 }
 
 // defaultChannels are the radio channels the governor knows. FS20 (868 MHz) may send 1 % of the
 // time; a frame takes about 0.22 s.
 var defaultChannels = map[string]TChannel{
-	"fs20": {DutyCycle: 0.01, FrameSeconds: 0.22, BurstSeconds: 3},
+	"fs20": {DutyCycle: 0.01, FrameSeconds: 0.22, BurstSeconds: 3, CopiesWithinMS: 500},
 }
 
 // TGovernedEntityDef is one governed entity: a capability of a governed device.
@@ -68,6 +71,8 @@ type TPathDef struct {
 	Received string `yaml:"received,omitempty"`
 	Encoding string `yaml:"encoding"` // fs20_switch or fs20_dimmer
 	Copies   int    `yaml:"copies"`
+	// CopiesWithinMS overrides the channel's: the device's own interval for copies.
+	CopiesWithinMS int `yaml:"copies_within_ms,omitempty"`
 }
 
 // Duration is a time.Duration written as HH:MM:SS, as the defs write it.
