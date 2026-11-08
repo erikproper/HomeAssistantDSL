@@ -164,6 +164,94 @@ end;
 Home Assistant then sees one ordinary switch, `switch.<position>`, whose state is the governed
 application's -- not the buttons.
 
+## Syntax proposal (2026-11-08, for Erik to judge)
+
+Built on the decisions below (questions 1-7). Three parts, all in Physical.def.
+
+**1. The FHEM installations**, at the top, as `home_assistant ha2mqtt: protocols-server-1;`:
+
+```
+fhem p_s_2: protocols-server-2;
+fhem p_s_3: protocols-server-3;
+radio fs20 duty cycle 1 %;                 # optional: the hard-wired default per radio channel
+```
+
+The generator writes each installation's FHEM configuration (question 6); the deploy puts it
+there. Which sticks an installation has (CUL, FHZ) stays FHEM's own -- to decide: whether the
+generator writes those too, as the old `bridge_fhz <name> <serial>` did.
+
+**2. The radio side: `integration fhem`**, a layer of the Shelly shape: one statement implies
+the topics (`fhem/fs20/<device>`, `.../set`), the capabilities' details and the metadata
+("ELV"); the capabilities stay listed.
+
+```
+integration fhem with:
+  device radio.living_room_lamp with:
+    fs20 dimmer "1234" "01" heard by p_s_2, p_s_3;    # house code, address; its installations
+    capability button.set;                            # takes 0..100, sent as the nearest dim level
+  end;
+  device radio.hallway_lamp with:
+    fs20 switch "1234" "02" heard by p_s_2;
+    capability button.set;                            # takes on / off
+  end;
+  device buttons.hallway_remote with:
+    fs20 transmitter "1234" "10" heard by p_s_2, p_s_3;
+    capability event.button;                          # types on, off (dim up: on, dim down: off)
+  end;
+  device sensors.garage_motion with:
+    fs20 sensor "1234" "20" heard by p_s_3;
+    capability binary_sensor.motion;
+  end;
+end;
+```
+
+The four kinds are the old `FS20.Create`'s: `switch`, `dimmer`, `transmitter` (EventPair),
+`sensor` (BinarySensor). A `button.set` is never an entity in Home Assistant (question 2's (a)),
+and a `radio.*` device is not positioned. A transmitter or sensor is positioned as any device;
+Home Assistant reads it from the governed application's de-doubled topic, not from
+`fhem/fs20/<device>` -- transparent to the author. DuoFern gets its own statement
+(`duofern cover "<code>" heard by ...;`) once its tree is looked at.
+
+**3. The governed side: `integration governed`**, the entities Home Assistant sees:
+
+```
+integration governed with:
+  device lights.living_room_lamp with:
+    manufacturer: "ELV";
+    model:        "FS20 DI-20";
+    capability light.light
+      by doing button.set from radio.living_room_lamp
+      enforced every 00:05:00
+      default off;
+  end;
+  device lights.hallway_lamp with:
+    capability switch.switch
+      by doing button.set from radio.hallway_lamp
+      enforced every 00:05:00
+      confirmed by sensor.power from switches.hallway_plug above 5;
+  end;
+  device lights.porch_lamp with:
+    capability switch.switch
+      on by doing button.on from radio.porch_lamp
+      off by doing button.off from radio.porch_lamp
+      enforced every 00:30:00
+      confirmed by event.light from sensors.porch_light
+        on "seen_on", off "seen_off";
+  end;
+end;
+```
+
+- `by doing <button> from <device>`: one button that takes the state as its value (question 2).
+  `on by doing ... off by doing ...`: a button per state, for radios that have them.
+- `enforced every <time>`: resend the desired state, inside the radio channel's budget.
+- `default <state>`: overrides the hard-wired default when the broker lost the state (question 5).
+- `confirmed by <sensor> from <device> above <n>` / `confirmed by <event> from <device> on
+  "<type>", off "<type>"`: the source of the shadow state (question 4).
+- A received state change on the radio device's topic is taken as radio-requested (question 7):
+  implied by `from <device>`, nothing to write.
+- The entity's kind gives what it takes: a switch on/off, a light on/off and 0..100, a number
+  its range (`number.level ... min 0 max 100`).
+
 ## To reflect on (Erik)
 
 - **Throttle groups per radio**: the governed application limits how many requests it sends to one radio.
