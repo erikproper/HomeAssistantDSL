@@ -18,6 +18,23 @@ discussion); sending a signal is written "on by doing <button>", so it reads as 
      its state, controlled through those buttons and, where possible, corrected from sensors or
      events. The buttons, sensors and events may come from any integration.
 
+## FS20 facts (FHEM's own module, 10_FS20.pm, read 2026-11-08)
+
+- **Actuators send nothing back.** FHEM only ever transmits in `FS20_Set`; there is no
+  acknowledgement or status handling, and the module notes "The FS20ST ... does not respond to
+  sendstate". The FHEM wiki: FS20 has no return channel ("fehlender Rückkanal"). Switching an
+  actuator by hand on the device is not seen at all.
+- **Transmitters are seen.** A remote or wall switch (S4, S20, ...) sends the same frames as FHEM
+  does; `FS20_Parse` updates the state of every defined device with the same housecode and
+  button. So FHEM sees a *transition someone asked for* on the radio -- not whether the actuator
+  received it.
+- **Dim levels**: 16 steps, `dim06%` .. `dim100%` (6, 12, 18, 25, 31, 37, 43, 50, 56, 62, 68, 75,
+  81, 87, 93, 100), `off` for 0, `on` back to the previous level. FHEM itself does not round:
+  `set <dev> dim 40` fails, only the 16 values are accepted. Also `toggle`, `dimup`, `dimdown`,
+  `on-for-timer`/`off-for-timer <s>` (rounded up to one of 112 durations, at most 15360 s).
+- **Duty cycle**: 868 MHz is a 1 % band; a CUL has `credit10ms`, and refuses to send ("LOVF") when
+  it runs out. One frame takes about 0.22 s.
+
 ## The governed integration
 
 - **Optimistic state**: the device's state is the one last asked for.
@@ -28,6 +45,10 @@ discussion); sending a signal is written "on by doing <button>", so it reads as 
 - **Its own application**, next to the coordinator: it is operational, not coordinative (PROJECT.md
   37's 2026-09-22 decision), so it is held to a higher reliability bar and runs in its own
   container. The coordinator can be down without it noticing, and the other way around.
+
+- **A transition seen on the radio** (a remote or wall switch sending to the same address, as FHEM
+  reports it) changes the *desired* state: someone asked for it. It is not a confirmation that the
+  device follows, and must not be enforced back to the old state.
 
 ## Example, as Erik describes it
 
@@ -70,9 +91,10 @@ application's -- not the buttons.
 ## Open questions
 
 1. (decided: "governed")
-2. A button "with a value": one button per value (`button.on`, `button.off`, `button.dim_50`), or
-   one sending capability that takes the value as a parameter? Home Assistant's own buttons take
-   none.
+2. (decided, Erik 2026-11-08: a value as parameter, not a button per value) A sending capability
+   takes the value; the FS20 layer maps a percentage to the nearest of its 16 dim levels (0: off),
+   as Erik's old implementation did in FHEM. Still open: its keyword and how it shows in Home
+   Assistant, if at all.
 3. How the governed application gets its definitions: from the generator, as the coordinator does
    (a YAML file it reads), and how Home Assistant talks to it (MQTT, as for every other kind).
 4. Confirmation from an event rather than a sensor: which event types mean which state.
