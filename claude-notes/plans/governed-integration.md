@@ -189,8 +189,11 @@ application's -- not the buttons.
    topics are ours, so retain is never in doubt (a "controlled" kind, Architecture.md §6.16).
 4. (decided, Erik 2026-11-08) Confirmation is a *report* of the device's real state by another
    device, and it may be an event as well as a sensor -- e.g. a sensor that sends "I've seen the
-   light switch on". The device's definition then says which event types mean which state. No
-   such device in either house yet; the details wait for a real one.
+   light switch on". The device's definition says which event types mean which state. The
+   governed application keeps a **shadow state** of what the confirmation source has reported:
+   a sensor's value as it is, an event's state from its type, kept until the next report. A
+   shadow state that differs from the desired state leads at once to enforcing the desired
+   state. Built in from the start, as for a sensor: the project is not for Erik's houses only.
 5. (decided, Erik 2026-11-08) The governed state lives on the broker: the retained state topic
    Home Assistant reads is the desired state; at its start the application reads its own topics
    back, then enforces them. A confirmed state, where there is one, on a second retained topic
