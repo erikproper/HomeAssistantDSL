@@ -101,8 +101,12 @@ application's -- not the buttons.
    integration with an optimistic state, that uses (a) to reach the device -- a switch, a light,
    or a number (as Home Assistant's MQTT number, https://www.home-assistant.io/integrations/number.mqtt/)
    for a level. Home Assistant sees (b), not (a).
-3. How the governed application gets its definitions: from the generator, as the coordinator does
-   (a YAML file it reads), and how Home Assistant talks to it (MQTT, as for every other kind).
+3. (decided, Erik 2026-11-08) Definitions: the generator writes them for the governed
+   application, as for the coordinator (e.g. `governed/devices.yaml`), and the deploy copies them
+   next to it; the application reads no .def file itself. Home Assistant talks to it over MQTT, as
+   for every other kind: the application publishes each entity's state on a topic of its own,
+   retained, and listens on its command topic; Home Assistant's YAML entities point there. The
+   topics are ours, so retain is never in doubt (a "controlled" kind, Architecture.md §6.16).
 4. Confirmation from an event rather than a sensor: which event types mean which state.
 5. Where the shadow state lives across a restart of the application (retained on the broker, as
    the coordinator's shadows are?).
