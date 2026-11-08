@@ -125,9 +125,10 @@ Kept from the brief, as design points for the governed application:
 - **State confirmation**: a sensor or event of another device that observes the real state (e.g.
   a plug's power). It updates the governed device's internal shadow state; a discrepancy with the
   desired state leads at once to enforcing the desired state.
-- **Its own application**, next to the coordinator: it is operational, not coordinative (PROJECT.md
-  37's 2026-09-22 decision), so it is held to a higher reliability bar and runs in its own
-  container. The coordinator can be down without it noticing, and the other way around.
+- **Its own application**, the *governor*, next to the coordinator: it is operational, not
+  coordinative (PROJECT.md 37's 2026-09-22 decision), so it is held to a higher reliability bar and
+  is a program and systemd service of its own. It runs on the coordinator's machine (Erik,
+  2026-11-08), but the coordinator can be down without it noticing, and the other way around.
 
 - **A transition seen on the radio** (a remote or wall switch sending to the same address, as FHEM
   reports it) changes the *desired* state: someone asked for it. It is not a confirmation that the
@@ -187,7 +188,24 @@ Since 2026-11-08 the deploy writes fhem.cfg (`integration fhem`, Architecture.md
 to the dimmer on their `/set` topics are sent by both installations (`dim37%`, `dim75%` in FHEM's
 log) and echoed twice on `fhem/fs20/<device>`. Once, in the very first test right after the
 client's reconnect, the dimmer's echoes were missing although FHEM sent -- not seen again; to
-observe. Next: the governed application.
+observe. Next: the governor.
+
+## Building the governor (started 2026-11-08)
+
+In steps, each tested and deployed before the next:
+
+1. The governor (`governor/`, a Go program of this repository): for a governed switch, the desired
+   state retained on the broker (`governed/<device>/<label>`, commands on `.../set`), the default
+   when nothing is retained, enforcing every X, the throttle per radio channel (a token bucket:
+   frame time x the installations hearing the device, refilled at the duty cycle), a pending slot
+   per entity (a real command before an enforcement), radio-requested changes, and the echoes of
+   its own sends ignored. Its liveness: `governed/status`, `online`/`offline` (last will).
+2. `integration governed` in the generator: `governor/devices.yaml` and `secrets.yaml`, and the
+   Home Assistant entity, as a raw-MQTT capability on the governor's topics (positioning, frozen
+   ids and YAML entities stay the generic machinery's).
+3. The deploy part `governor`, on the coordinator's machine, like the coordinator's.
+4. The dimmer as a light (brightness 0..100, `on at <n> %`); then confirmations (the shadow
+   state) and the de-doubled transmitters and sensors.
 
 ## Syntax proposal (2026-11-08, for Erik to judge)
 
