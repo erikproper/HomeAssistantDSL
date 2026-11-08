@@ -229,6 +229,11 @@ So, not offering local devices from HA to matter.
     border router can form a fresh network; the Green's OTBR add-on goes, so it doesn't advertise a
     border router without its radio.
 
+    Decided (Erik, 2026-11-08): Home Assistant's Matter integration on ha2mqtt, until a bridge of
+    our own is needed -- no maintained Matter-controller-to-MQTT bridge exists (the projects found
+    go the other way, MQTT to Matter); ours would be a small Go client of the Matter Server's
+    websocket API, publishing on our own topics, as the governor does for FS20.
+
 41. Publish -- Architecture.md should be ready for others to read, alongside an up-to-date
     README.md, on GitHub.
 
