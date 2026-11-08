@@ -187,7 +187,10 @@ application's -- not the buttons.
    for every other kind: the application publishes each entity's state on a topic of its own,
    retained, and listens on its command topic; Home Assistant's YAML entities point there. The
    topics are ours, so retain is never in doubt (a "controlled" kind, Architecture.md §6.16).
-4. Confirmation from an event rather than a sensor: which event types mean which state.
+4. (decided, Erik 2026-11-08) Confirmation is a *report* of the device's real state by another
+   device, and it may be an event as well as a sensor -- e.g. a sensor that sends "I've seen the
+   light switch on". The device's definition then says which event types mean which state. No
+   such device in either house yet; the details wait for a real one.
 5. (decided, Erik 2026-11-08) The governed state lives on the broker: the retained state topic
    Home Assistant reads is the desired state; at its start the application reads its own topics
    back, then enforces them. A confirmed state, where there is one, on a second retained topic
