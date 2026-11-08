@@ -72,6 +72,9 @@ type TRawTopicCapability struct {
 	Types []string
 	// Implied: the topic isn't written in the capability's line (an instance's node).
 	Implied bool
+	// Governed: a governed device's entity (integration_governed.go), its line "capability <d>.<l>
+	// by doing ...;".
+	Governed bool
 }
 
 // rawMQTTLeaf is the leaf (raw config unique_id) the generator gives a raw capability.
@@ -294,6 +297,10 @@ func generateMQTTIntegrationOutputs(bodyLines []string, ctx TPhysicalGenerationC
 func instanceStatusTopic(instance string) string {
 	return "homeassistant.instances/" + instance + "/status"
 }
+
+// governedRawTopic marks a governed device's capability, whose line says "by doing ..." -- for the
+// stable-id assignment's line search.
+const governedRawTopic = "\x00governed"
 
 // impliedRawTopic marks a raw capability whose topic is implied by convention, not written in its
 // line (an instance's node) -- for the stable-id assignment's line search.

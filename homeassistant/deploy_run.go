@@ -10,6 +10,7 @@
  *
  *   1. the coordinator: its source and the house's coordinator/ to its machine, built and
  *      restarted there (Integrations/coordinator/deploy);
+ *      the governor next to it, in the same way (Integrations/governor/deploy, PROJECT.md 37);
  *   2. each Home Assistant instance's configuration (main first), the registry repair for an
  *      HA OS one, then its reload or restart (MetaAction, PublishMetaAction);
  *   3. the cpu report script (this house's secrets only) to the hub, from there to its LAN hosts,
@@ -20,7 +21,7 @@
  *   7. waiting for HA main's reload, and reporting its errors.
  *
  * "-only" deploys just the parts named, comma-separated, like sourcing one deploy.d/ step used to:
- * coordinator, an instance (main, ha2mqtt, ...; home_assistant for all), hosts, containers,
+ * coordinator, governor, an instance (main, ha2mqtt, ...; home_assistant for all), hosts, containers,
  * commandline, fhem -- the reload check runs when main is among them.
  *
  * "-n" prints every command instead of running it (and decides no reload/restart); the registry
@@ -65,7 +66,7 @@ type tDeployer struct {
 }
 
 // deployParts are the parts "-only" may name, besides the instances' own names.
-var deployParts = []string{"coordinator", "home_assistant", "hosts", "containers", "commandline", "fhem"}
+var deployParts = []string{"coordinator", "governor", "home_assistant", "hosts", "containers", "commandline", "fhem"}
 
 // runDeploy carries out houseDir's deploy.yaml, only the parts named in only when it isn't empty.
 func runDeploy(houseDir string, dryRun bool, only []string) error {
@@ -94,6 +95,9 @@ func runDeploy(houseDir string, dryRun bool, only []string) error {
 
 	if d.selected("coordinator") {
 		d.deployCoordinator()
+	}
+	if d.selected("governor") {
+		d.deployGovernor()
 	}
 	d.deployInstances()
 	if d.selected("hosts") {

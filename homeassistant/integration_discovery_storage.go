@@ -208,12 +208,21 @@ func collectDiscoveryGatewaysByID(definitionDir string) (map[string]TDiscoveryGa
 
 	byID := map[string]TDiscoveryGatewayDevice{}
 	for _, block := range blocks {
-		if block.Name != "discovery" && block.Name != "mqtt" {
+		if block.Name != "discovery" && block.Name != "mqtt" && block.Name != "governed" {
 			continue
 		}
-		devices, bodyWarnings := parseDiscoveryIntegrationBody(block.BodyLines)
-		if block.Name == "mqtt" {
+		var devices []TDiscoveryGatewayDevice
+		var bodyWarnings []string
+		switch block.Name {
+		case "discovery":
+			devices, bodyWarnings = parseDiscoveryIntegrationBody(block.BodyLines)
+		case "mqtt":
 			devices, bodyWarnings = parseMQTTIntegrationBody(block.BodyLines)
+		case "governed":
+			// Its warnings are reported by generateGovernedIntegrationOutputs.
+			var governed []TGovernedDevice
+			governed, _ = parseGovernedIntegrationBody(block.BodyLines)
+			devices = governedGatewayDevices(governed)
 		}
 		warnings = append(warnings, bodyWarnings...)
 		for _, d := range devices {

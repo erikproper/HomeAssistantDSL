@@ -24,11 +24,14 @@ package main
 // parameters as physical-layer output gains new cross-cutting concerns (this is already its
 // fourth: outputRoot, then haOutputDir, then admin, now MQTT secrets).
 type TPhysicalGenerationContext struct {
-	OutputRoot     string                // house root (ping/hosts, coordinator/devices.yaml, cpu/secrets live there)
-	HAOutputDir    string                // main instance's HA YAML tree (hass/<incarnation>), for output HA itself must consume (e.g. reporting automations)
-	Admin          *TAdministrationState // conceptual layer's parsed state (Spaces.def), for integrations that look up conceptual-layer linkage (e.g. "hosts" devices via Conceptual_DeviceEntities.go)
-	MQTTSecrets    TMQTTBrokerSecrets    // main MQTT broker connection secrets, resolveMQTTBrokerSecrets (defined.go) -- zero value when HasMQTTSecrets is false
-	HasMQTTSecrets bool
+	// PhysicalContent is Physical.def's content, for an integration that needs another block's
+	// declarations (the governed devices' FHEM devices, integration_governed.go).
+	PhysicalContent string
+	OutputRoot      string                // house root (ping/hosts, coordinator/devices.yaml, cpu/secrets live there)
+	HAOutputDir     string                // main instance's HA YAML tree (hass/<incarnation>), for output HA itself must consume (e.g. reporting automations)
+	Admin           *TAdministrationState // conceptual layer's parsed state (Spaces.def), for integrations that look up conceptual-layer linkage (e.g. "hosts" devices via Conceptual_DeviceEntities.go)
+	MQTTSecrets     TMQTTBrokerSecrets    // main MQTT broker connection secrets, resolveMQTTBrokerSecrets (defined.go) -- zero value when HasMQTTSecrets is false
+	HasMQTTSecrets  bool
 	// MQTTBrokerProfiles holds every named "mqtt <name>: ...; end;" broker declared in
 	// Physical.def (resolveMQTTBrokerProfiles, defined.go), keyed by name -- e.g. "main", "cloud".
 	// Lets a "hosts" device opt into a specific broker (e.g. a laptop reporting to a cloud broker
@@ -88,8 +91,9 @@ type TPhysicalGenerationContext struct {
 var integrationBodyParsers = map[string]func(bodyLines []string, ctx TPhysicalGenerationContext) error{
 	"hosts":       generateHostsIntegrationOutputs,
 	"discovery":   generateDiscoveryIntegrationOutputs,
-	"mqtt":        generateMQTTIntegrationOutputs, // PROJECT.md 39: raw MQTT, integration_mqtt.go
-	"fhem":        generateFHEMIntegrationOutputs, // PROJECT.md 37: FHEM installations and FS20, integration_fhem.go
+	"mqtt":        generateMQTTIntegrationOutputs,     // PROJECT.md 39: raw MQTT, integration_mqtt.go
+	"fhem":        generateFHEMIntegrationOutputs,     // PROJECT.md 37: FHEM installations and FS20, integration_fhem.go
+	"governed":    generateGovernedIntegrationOutputs, // PROJECT.md 37: the governor's devices, integration_governed.go
 	"commandline": generateCommandlineIntegrationOutputs,
 	// "import" is a no-op here deliberately -- generatePhysicalIntegrationOutputs pre-collects
 	// every "import" block into ctx.ImportedDevices before this generic dispatch loop runs (see

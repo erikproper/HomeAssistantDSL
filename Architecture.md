@@ -2000,6 +2000,30 @@ outside its configuration). An installation runs on the hosts device of its name
 `deploy via ssh` line. FHEM itself is installed from FHEM's Debian repository (the plan's
 "Installed").
 
+### 6.20 The governor and "integration governed" (PROJECT.md 37, 2026-11-08)
+
+Devices that don't report their state (FS20) are kept by the *governor* (`governor/`), a program
+and systemd service of its own next to the coordinator, on its machine. Physical.def's
+`integration governed` block (grammar: `parser_governed.go`) declares its devices: a node, and
+capabilities `by doing <button> from <radio device>`, with `enforced every HH:MM:SS` and
+`default <state>`. The generator (`integration_governed.go`) writes the governor's
+`governor/devices.yaml` -- per entity its topic, default, enforcement, radio channel and paths, for
+an FHEM device its `fhem/fs20/<device>` topics, encoding and number of installations -- and
+`governor/secrets.yaml`. For Home Assistant a governed device is a raw-MQTT device on the
+governor's topics (`governed/<device>/<label>`, retained, commands on `.../set`; its node
+`governed/status`), so positioning, frozen ids (its line `capability <d>.<l> by doing ...;`) and
+the YAML entities are the generic ones.
+
+The governor (`governor/governor.go`) keeps each entity's desired state retained on its topic, read
+back at its start (the definition's default, else the kind's, when there is none), sends a
+command at once and the desired state again every period (the first ones staggered), through one
+pending slot per entity (a real command before an enforcement) and a token bucket per radio
+channel (`defaultChannels`: FS20 1 % duty cycle, 0.22 s per frame, times the installations
+sending). What a radio received is a radio-requested change and becomes the desired state; its
+own echoes (within 5 s) are ignored, and copies from several radios (within 2 s) count once. The
+deploy part `governor` (`governor_deploy.go`) sends the source and `governor/` to the coordinator's
+machine, where `Integrations/governor/deploy` builds and restarts it.
+
 ## 7. Home Assistant's two roles
 
 A Home Assistant instance is not inherently the centre of the architecture — it's one possible implementation of a platform adapter, optionally combined with user-facing capabilities. It can fulfil either or both of two independent roles:

@@ -38,6 +38,9 @@ grammars on top show the style the other grammars will follow.
 - `homeassistant/integration_fhem.go` (+ integration_fhem_test.go)
 - `homeassistant/integration_fhem_deploy.go` (tests in integration_fhem_test.go)
 - `governor/config.go`, `governor/governor.go` (+ governor_test.go), `governor/main.go`
+- `homeassistant/parser_governed.go` (tests in integration_governed_test.go)
+- `homeassistant/integration_governed.go` (+ integration_governed_test.go)
+- `homeassistant/governor_deploy.go` (tests in integration_governed_test.go)
 
 ## Reviewed
 

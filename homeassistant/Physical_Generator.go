@@ -307,6 +307,7 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 		return err
 	}
 
+	ctx.PhysicalContent = physicalContent
 	for _, block := range blocks {
 		handler, known := integrationBodyParsers[block.Name]
 		if !known {

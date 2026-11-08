@@ -163,6 +163,9 @@ func discoveryCapabilityLinePattern(domain, label, sourceDomain, leaf, rawTopic 
 	if sourceDomain != "" {
 		source = regexp.QuoteMeta(sourceDomain) + ":" + source
 	}
+	if rawTopic == governedRawTopic {
+		return regexp.MustCompile(`^\s*capability\s+` + regexp.QuoteMeta(domain) + `\.` + regexp.QuoteMeta(label) + `\s+by\s+doing\s[^;]*;\s*$`)
+	}
 	if rawTopic == impliedRawTopic {
 		return regexp.MustCompile(`^\s*capability\s+` + regexp.QuoteMeta(domain) + `\.` + regexp.QuoteMeta(label) + `\s*;\s*$`)
 	}
@@ -344,6 +347,9 @@ func appendAssignedIDToLine(line, id string) string {
 func rawTopicForLineSearch(raw TRawTopicCapability) string {
 	if raw.Implied {
 		return impliedRawTopic
+	}
+	if raw.Governed {
+		return governedRawTopic
 	}
 	return raw.Topic
 }

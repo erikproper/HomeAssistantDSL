@@ -23,7 +23,7 @@
  * Each integration plans its own part, in its own file: coordinator_deploy.go,
  * home_assistant_deploy.go (an instance with its own "via ssh" runs on HA OS, one without as a
  * container on its hosts device), integration_hosts_deploy.go (the machines, the cpu report
- * script, ping), containers_deploy.go, integration_commandline_deploy.go, integration_fhem_deploy.go. This file holds what
+ * script, ping), containers_deploy.go, integration_commandline_deploy.go, integration_fhem_deploy.go, governor_deploy.go. This file holds what
  * they share: the machines, the settings, and the order the parts are planned in.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
@@ -70,6 +70,7 @@ type TDeployPlan struct {
 	Sources      TDeploySources          `yaml:"sources"`
 	Machines     map[string]TSSHEndpoint `yaml:"machines"`
 	Coordinator  string                  `yaml:"coordinator,omitempty"`
+	Governor     string                  `yaml:"governor,omitempty"`
 	Instances    []TDeployInstance       `yaml:"instances,omitempty"`
 	Containers   []string                `yaml:"containers,omitempty"`
 	Commandline  []TDeployCommandline    `yaml:"commandline,omitempty"`
@@ -113,6 +114,7 @@ func buildDeployPlan(outputRoot, physicalContent string, settings map[string]str
 	}}
 	p.planHostsMachines(hosts)
 	p.planCoordinatorDeploy(physicalContent)
+	p.planGovernorDeploy(physicalContent)
 	p.planInstancesDeploy(instances)
 	p.planContainersDeploy()
 	p.planCommandlineDeploy(commandline)
