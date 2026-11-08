@@ -214,7 +214,10 @@ application's -- not the buttons.
      publishes on MQTT to the radios, with one budget per **radio channel** -- e.g. FS20 -- across
      all its radios (sticks): that channel is the throttle group. FHEM is not asked for its
      credit; the sticks only send what reaches them.
+   - **One MQTT topic per FS20 device** (Erik, 2026-11-08): `fhem/fs20/<device>`, used by all the
+     FHEM installations that listen and send for that device -- not a topic per installation.
    - **Received radio messages are de-doubled** (Erik): a transmitter or sensor heard by two
-     sticks reaches MQTT twice, once per FHEM; the copies of one press (the same device and
-     message within a short window) count as one event, or one state change. Where this happens
-     is open: in the governed application, or per device in what Home Assistant reads.
+     sticks reaches that topic twice, once per FHEM; the copies of one press (the same message
+     within a short window) count as one event, or one state change. Where this happens is open.
+   - To check: a stick also hears the frames another stick sends, so a command sent through
+     p-s-1 may come back on the topic as "received" from p-s-2.
