@@ -217,6 +217,15 @@ I think this one wraps the HA one. Check if it is up-to-date
 The idea is to offer matter integration into HA via MQTT.
 So, not offering local devices from HA to matter.
 
+    Looked at 2026-11-08: a few hundred lines of Python on the Matter Server's websocket
+    (start_listening, OnOff through the CHIP library's clusters), on/off devices only, no
+    commissioning; 4 commits Jan-Apr 2026. The Python Matter Server it builds on was archived in
+    June 2026 for a matter.js server (secondary sources), so taking it over means rewriting it.
+    Suggested instead: the Matter Server (and an OpenThread border router for the stick) on
+    p-s-1, and Home Assistant's own Matter integration on ha2mqtt, bridged as the other native
+    integrations are. Erik moves the stick from Green to Vienna's p-s-1 this week; cheap test
+    devices: IKEA's Matter-over-Thread GRILLPLATS plug, MYGGSPRAY, KAJPLATS, BILRESA (about 9 EUR).
+
 41. Publish -- Architecture.md should be ready for others to read, alongside an up-to-date
     README.md, on GitHub.
 
