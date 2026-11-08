@@ -219,8 +219,15 @@ So, not offering local devices from HA to matter.
     June 2026 for a matter.js server (secondary sources), so taking it over means rewriting it.
     Suggested instead: the Matter Server (and an OpenThread border router for the stick) on
     p-s-1, and Home Assistant's own Matter integration on ha2mqtt, bridged as the other native
-    integrations are. Erik moves the stick from Green to Vienna's p-s-1 this week; cheap test
-    devices: IKEA's Matter-over-Thread GRILLPLATS plug, MYGGSPRAY, KAJPLATS, BILRESA (about 9 EUR).
+    integrations are. Cheap test devices: IKEA's Matter-over-Thread GRILLPLATS plug, MYGGSPRAY,
+    KAJPLATS, BILRESA (about 9 EUR); a Wi-Fi Matter plug needs no Thread at all.
+
+    The Thread radios (Erik, 2026-11-08): each house has a Nabu Casa stick (SkyConnect), free, with
+    Thread firmware already, now in its Green; they move to each house's p-s-1 (Vienna's this week)
+    -- one Thread mesh per house. Per p-s-1: the OpenThread Border Router and the Matter Server as
+    containers, ha2mqtt's Thread and Matter integrations on them. No Thread devices yet, so the new
+    border router can form a fresh network; the Green's OTBR add-on goes, so it doesn't advertise a
+    border router without its radio.
 
 41. Publish -- Architecture.md should be ready for others to read, alongside an up-to-date
     README.md, on GitHub.
