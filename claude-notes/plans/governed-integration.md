@@ -141,6 +141,7 @@ keyword here is open:
 
 ```
 integration fhem with:
+  ...the installations (part 1)...
   device radio.living_room_lamp with:      # an FS20 address, nothing more
     fs20 "1234" "01";                       # house code, device address
     capability button.on with value "on";
@@ -183,19 +184,30 @@ Testing this week: sending only; whether frames reach real FS20 devices, next we
 
 ## Syntax proposal (2026-11-08, for Erik to judge)
 
-Built on the decisions below (questions 1-7). Three parts, all in Physical.def.
+Built on the decisions below (questions 1-7). Two integrations, both in Physical.def.
 
-**1. The FHEM installations**, at the top, as `home_assistant ha2mqtt: protocols-server-1;`:
+**1. The FHEM installations**, inside `integration fhem` (agreed, Erik 2026-11-08): a block per
+installation, named by its host, with a line per serial device -- its kind and its full path, as
+FHEM takes it (`"COM3"` on Windows):
 
 ```
-fhem p_s_2: protocols-server-2;
-fhem p_s_3: protocols-server-3;
-radio fs20 duty cycle 1 %;                 # optional: the hard-wired default per radio channel
+integration fhem with:
+  installation protocols-server-2 with:
+    cul "/dev/serial/by-id/usb-busware.de_CUL868-if00";
+  end;
+  installation protocols-server-3 with:
+    fhz "/dev/serial/by-id/usb-ELV_AG_ELV_FHZ_1000_PC_ELTLYOUK-if00-port0";
+  end;
+  ...the devices (part 2)...
+end;
 ```
 
-The generator writes each installation's FHEM configuration (question 6); the deploy puts it
-there. Which sticks an installation has (CUL, FHZ) stays FHEM's own -- to decide: whether the
-generator writes those too, as the old `bridge_fhz <name> <serial>` did.
+A kind (`cul`, `fhz`, later `duofern`, ...) comes from a table in the generator: the FHEM module
+that defines it and the radio channels it serves (a CUL and an FHZ both serve FS20). The generator
+writes each installation's whole `fhem.cfg` (question 6); the deploy puts it there. `heard by`
+names installations, and is checked: an FS20 device heard by an installation without an FS20
+stick is an error. The radio channel's budget is a hard-wired default per channel (FS20: 1 %
+duty cycle), which a def may override (keyword open).
 
 **2. The radio side: `integration fhem`**, a layer of the Shelly shape: one statement implies
 the topics (`fhem/fs20/<device>`, `.../set`), the capabilities' details and the metadata
@@ -203,20 +215,21 @@ the topics (`fhem/fs20/<device>`, `.../set`), the capabilities' details and the 
 
 ```
 integration fhem with:
+  ...the installations (part 1)...
   device radio.living_room_lamp with:
-    fs20 dimmer "1234" "01" heard by p_s_2, p_s_3;    # house code, address; its installations
+    fs20 dimmer "1234" "01" heard by protocols-server-2, protocols-server-3;    # house code, address; its installations
     capability button.set;                            # takes 0..100, sent as the nearest dim level
   end;
   device radio.hallway_lamp with:
-    fs20 switch "1234" "02" heard by p_s_2;
+    fs20 switch "1234" "02" heard by protocols-server-2;
     capability button.set;                            # takes on / off
   end;
   device buttons.hallway_remote with:
-    fs20 transmitter "1234" "10" heard by p_s_2, p_s_3;
+    fs20 transmitter "1234" "10" heard by protocols-server-2, protocols-server-3;
     capability event.button;                          # types on, off (dim up: on, dim down: off)
   end;
   device sensors.garage_motion with:
-    fs20 sensor "1234" "20" heard by p_s_3;
+    fs20 sensor "1234" "20" heard by protocols-server-3;
     capability binary_sensor.motion;
   end;
 end;
@@ -326,7 +339,7 @@ end;
 7. (decided, Erik 2026-11-08) Several FHEM installations may serve one device, for range, as
    before -- but **each FS20 device lists its FHEM installations**: only those define the device,
    listen on its button topics and send, and publish what their radio receives from it. The
-   keyword is open, e.g. `heard by fhem.p_s_1, fhem.p_s_2;`. What follows:
+   keyword is open, e.g. `heard by protocols-server-2, protocols-server-3;`. What follows:
    - Duplicate frames: harmless only for absolute commands (`on`, `off`, `dim37%`); the FS20
      layer never sends relative ones (`dimup`, `dimdown`).
    - Throttling is the governed application's (Erik, 2026-11-08): it paces the messages it
