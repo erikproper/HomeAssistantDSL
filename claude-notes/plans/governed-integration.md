@@ -204,12 +204,15 @@ application's -- not the buttons.
    configuration has no refresh timer (Erik, 2026-11-08): resending is the governed
    application's, which presses the button again; FHEM only sends what it is asked to. Still open: the ESPHome question in item 37 (radios
    on ESPHome may change how FS20 is reached at all).
-7. (decided, Erik 2026-11-08: as before) Every FHEM installation with a radio for the device's
-   system defines the device, listens on its button topics and sends: the range of all sticks, at
-   the price of duplicate frames. What follows:
-   - Duplicates are harmless only for absolute commands (`on`, `off`, `dim37%`); the FS20 layer
-     never sends relative ones (`dimup`, `dimdown`).
-   - Every press costs radio time on every stick, so one throttle budget covers them all: the
-     governed application throttles a radio system by its tightest stick.
-   - Still open: a transmitter heard by two sticks reaches MQTT twice (two FHEMs, one press) --
-     duplicate events to be merged, e.g. within a short window.
+7. (decided, Erik 2026-11-08) Several FHEM installations may serve one device, for range, as
+   before -- but **each FS20 device lists its FHEM installations**: only those define the device,
+   listen on its button topics and send, and publish what their radio receives from it. The
+   keyword is open, e.g. `heard by fhem.p_s_1, fhem.p_s_2;`. What follows:
+   - Duplicate frames: harmless only for absolute commands (`on`, `off`, `dim37%`); the FS20
+     layer never sends relative ones (`dimup`, `dimdown`).
+   - A press costs radio time on every listed stick, so a throttle group is per stick, and a
+     device's press waits for all of its sticks.
+   - **Received radio messages are de-doubled** (Erik): a transmitter or sensor heard by two
+     sticks reaches MQTT twice, once per FHEM; the copies of one press (the same device and
+     message within a short window) count as one event, or one state change. Where this happens
+     is open: in the governed application, or per device in what Home Assistant reads.
