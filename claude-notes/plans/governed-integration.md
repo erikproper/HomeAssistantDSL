@@ -7,8 +7,9 @@ discussion); sending a signal is written "on by doing <button>", so it reads as 
 ## The distinction
 
 Both FHEM radios are in scope (Erik, 2026-11-08): FS20 and DuoFern. FS20 is one-way (below), so
-it is case 2. DuoFern (Rademacher) acknowledges commands (FHEM2MQTT brief, below), so it is case
-1: no enforcing needed.
+it is case 2. DuoFern (Rademacher) is a cover system, reached through FHEM with a dongle and not
+(yet) supported by Home Assistant itself (Erik); it acknowledges commands (FHEM2MQTT brief,
+below), so it is case 1 -- a FHEM sub-integration for covers, no enforcing needed.
 
 1. **Devices with a reliable two-way connection** (a real light or switch that reports its own
    state). FHEM's syntax for these differs per platform behind it, so FHEM gets sub-integrations,
