@@ -181,7 +181,7 @@ grammars on top show the style the other grammars will follow.
 - `house_event_bus_coordinator/import_existence.go` (+ import_existence_test.go)
 - `house_event_bus_coordinator/instance_liveness.go` (+ instance_liveness_test.go)
 - `house_event_bus_coordinator/liveinfo.go` (+ liveinfo_test.go)
-- `house_event_bus_coordinator/liveness.go`
+- `house_event_bus_coordinator/liveness.go` (+ liveness_test.go)
 - `house_event_bus_coordinator/main.go` (+ main_test.go)
 - `house_event_bus_coordinator/main_entities.go`
 - `house_event_bus_coordinator/meta_reload_restart.go` (+ meta_reload_restart_test.go)
