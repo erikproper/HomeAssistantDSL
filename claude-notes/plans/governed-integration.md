@@ -67,6 +67,16 @@ governed device, inside FHEM:
   | chosen below | 150 | 166 | 182 | 199 | 214 | 230 | 246 | (the rest) |
 
   A brightness below 23 still gives `dim06%`; only "off" switches it off.
+- **Four FS20 kinds** in `FS20.Create`, each defined on every FHZ host:
+  - `Switch`: as above, a light or a switch in Home Assistant;
+  - `Dimmer`: as above, a light with brightness;
+  - `EventPair`: a transmitter (remote, push button) whose "on" and "off" are published as two
+    payloads, *not* retained -- events, not a state;
+  - `BinarySensor`: an FS20 sensor (e.g. motion, a contact), its on/off published retained.
+  Every device had `eventMap on:on off:off dimup:on dimdown:off`: a remote's dim-up counts as on,
+  its dim-down as off.
+- **How FHEM was reached**: inside FHEM itself -- the generator wrote FHEM configuration, an
+  `MQTT_DEVICE` listener and a Perl `notify` per device and topic (open question 6).
 - **Older still** (`OldDefs/Definitions.3.fhem.fhz`, `.duofern`): a bridge per radio stick
   (`bridge_fhz <name> <serial>`), and a device imported by house code and device code
   (`import_fhz fhz <device> <house code> <device code>`); DuoFern had a bridge of its own in the
