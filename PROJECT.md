@@ -172,6 +172,30 @@ JLI
     metadata and liveness from a family table, with the capabilities still listed by label
     (claude-notes/plans/shelly-layer.md). FHEM's own topics are ours (controlled), unlike Shelly's.
 
+    Discussion (Erik, 2026-11-08); planning started in claude-notes/plans/indirect-integration.md:
+    - Distinguish (1) devices with a reliable two-way connection -- true light/switch/... devices;
+      FHEM's syntax for them is platform-specific and "messy", so sub-integrations still make sense
+      -- from (2) devices we "talk" with by radio (also IR and Bluetooth, across integrations,
+      triggered by the FHEM/FS20 case), with at most indirect reports of their state.
+    - For (2): define outgoing radio signals (FS20) as button capabilities, with a value as
+      parameter (on, off, 50%), incoming ones as event capabilities, and create an "indirect"
+      integration type at the physical level (needs a better name).
+    - The indirect integration defines devices (with their metadata), controls them through
+      buttons, and possibly updates their actual state from sensor/event reports. These buttons,
+      sensors and events may come from any other integration. It needs its own application,
+      running next to the coordinator.
+    - Example: the FHEM integration defines a button that makes all known FHEM installations listen
+      to its topic, and in parallel send an on/off signal to the FS20 device. The indirect
+      integration uses it (and possibly buttons of other radios) to define a switch with an
+      "enforced every X" and "optimistic" approach: the state assumed to exist (optimistic) is
+      re-sent on the radio through the buttons every X.
+    - Another device (of another integration) may let us observe the actual state: a "state
+      confirmation" linked to an event, which updates the indirect device's internal shadow state.
+      A discrepancy between the reported state and the desired/assumed state leads to immediate
+      enforcement of the desired state. Hence "indirect" -- apt, though not the best name.
+    - To reflect on: radio-specific (e.g. FS20) throttle groups that limit the number of requests
+      the indirect application sends to a radio.
+
 40. https://github.com/kaiplaketti/matter2mqtt
 
 41. Publish -- Architecture.md should be ready for others to read, alongside an up-to-date
