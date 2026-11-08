@@ -93,7 +93,8 @@ application's -- not the buttons.
 1. (decided: "governed")
 2. (decided, Erik 2026-11-08: a value as parameter, not a button per value) A sending capability
    takes the value; the FS20 layer maps a percentage to the nearest of its 16 dim levels (0: off),
-   as Erik's old implementation did in FHEM. Still open: its keyword and how it shows in Home
+   as Erik's old implementation did in FHEM (its scripts: $HOME/SmartLiving/Old, once synced to
+   this Mac -- check their rounding against the 16 levels). Still open: its keyword and how it shows in Home
    Assistant, if at all.
 3. How the governed application gets its definitions: from the generator, as the coordinator does
    (a YAML file it reads), and how Home Assistant talks to it (MQTT, as for every other kind).
