@@ -1976,7 +1976,8 @@ The radio side of the governed integration (claude-notes/plans/governed-integrat
 a line per serial device -- its kind (`cul`, `fhz`; `fhemSerialKinds`, which also says which radio
 channels a kind serves) and its full path as FHEM takes it -- and the FS20 devices they serve:
 `fs20 <kind> "<house code>" "<address>" heard by <host>, ...;`, the kinds `switch`, `dimmer`,
-`transmitter` and `sensor` of Erik's old FS20.Create, codes hexadecimal or in ELV's notation.
+`transmitter` and `sensor` of Erik's old FS20.Create (a transmitter without the old `eventMap`:
+on, off and a held button's dimup/dimdown are event types of their own, for the rules), codes hexadecimal or in ELV's notation.
 `heard by` is checked against the installations and their FS20 radios.
 
 As Erik's old setup did (the plan's approach A), FHEM is reached through its own MQTT, the

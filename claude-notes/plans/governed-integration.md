@@ -209,7 +209,10 @@ In steps, each tested and deployed before the next:
    a set of buttons (Erik, 2026-11-08): an FS20 `transmitter`, its presses event capabilities
    positioned like the Zigbee and Philips buttons, and dimming -- of an FS20 light or a Hue one --
    is stepwise, by rules in Conceptual.def through Home Assistant main ("dim"/"brighten"), as the
-   Zigbee dimmers do. So the governor never needs a remote's relative dim up/down; heard on a
+   Zigbee dimmers do. A remote that sends dimup/dimdown
+   while a button is held keeps them as event types of their own -- no eventMap folds them into
+   on/off any more -- and the rules deal with them, as with the Philips dimmer remote. So the
+   governor never needs a remote's relative dim up/down; heard on a
    governed dimmer's own address it says no level, and is not taken.
 
 Steps 1-3 built and deployed 2026-11-08: the governor on Junglinster's protocols-server-1, the

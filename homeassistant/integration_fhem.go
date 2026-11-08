@@ -99,14 +99,16 @@ type TFS20Kind struct {
 	Capability string // "<domain>.<label>"; a label "*" is any
 	Takes      string // what its button takes: "on/off", "level", or "" (it only reports)
 	Retained   bool   // what is received is a state, not an event
-	EventMap   bool   // a remote's dim-up counts as on, dim-down as off
 }
 
 // fs20Kinds are the FS20 kinds a device may be.
 var fs20Kinds = map[string]TFS20Kind{
 	"switch":      {Capability: "button.set", Takes: "on/off"},
 	"dimmer":      {Capability: "button.set", Takes: "level"},
-	"transmitter": {Capability: "event.button", EventMap: true},
+	// A remote's presses as FHEM reports them -- on, off, and a held button's dimup/dimdown --
+	// each its own event type: what a press means is the rules' (Erik, 2026-11-08), as for the
+	// Philips dimmer remote. Unlike the old setup, no eventMap folds dim-up into on.
+	"transmitter": {Capability: "event.button"},
 	"sensor":      {Capability: "binary_sensor.*", Retained: true},
 }
 
@@ -254,9 +256,6 @@ func writeFS20Device(line func(string, ...any), device TFHEMDevice, radio string
 	line("define %s FS20 %s %s", id, device.FS20.HouseCode, device.FS20.Address)
 	if radio != "" {
 		line("attr %s IODev %s", id, radio)
-	}
-	if kind.EventMap {
-		line("attr %s eventMap on:on off:off dimup:on dimdown:off", id)
 	}
 	switch kind.Takes {
 	case "on/off":

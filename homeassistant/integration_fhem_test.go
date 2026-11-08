@@ -136,3 +136,20 @@ func TestFHEMDeployPlan(t *testing.T) {
 		t.Errorf("plan = %+v, warnings = %v", p.plan.FHEM, p.warnings)
 	}
 }
+
+// TestFHEMTransmitter: a remote's events are published as FHEM reports them -- no eventMap, so a
+// held button's dimup/dimdown stays apart from on/off -- and not retained.
+func TestFHEMTransmitter(t *testing.T) {
+	installations, devices, warnings := parseFHEMIntegrationBody([]string{
+		`installation h with: cul "/dev/x"; end;`,
+		`device buttons.remote with: fs20 transmitter "1234" "10" heard by h; capability event.button; end;`,
+	})
+	if len(warnings) != 0 || len(checkFHEMIntegration(installations, devices)) != 0 {
+		t.Fatalf("warnings = %v", warnings)
+	}
+	config := fhemConfig(installations[0], devices, TMQTTBrokerSecrets{Server: "s", Port: "1883"})
+	if strings.Contains(config, "eventMap") || strings.Contains(config, "buttons.remote.command") ||
+		!strings.Contains(config, "define buttons.remote.publish notify buttons\\.remote:.* set mqtt publish fhem/fs20/buttons.remote $EVENT\n") {
+		t.Errorf("fhem.cfg:\n%s", config)
+	}
+}
