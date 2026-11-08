@@ -6,6 +6,10 @@ discussion); sending a signal is written "on by doing <button>", so it reads as 
 
 ## The distinction
 
+Both FHEM radios are in scope (Erik, 2026-11-08): FS20 and DuoFern. FS20 is one-way (below), so
+it is case 2. DuoFern (Rademacher) is believed to be two-way, which would make it case 1 -- to be
+verified before designing it.
+
 1. **Devices with a reliable two-way connection** (a real light or switch that reports its own
    state). FHEM's syntax for these differs per platform behind it, so FHEM gets sub-integrations,
    in the shape of the Shelly layer: a statement inside a device implies its topics and metadata

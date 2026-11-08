@@ -195,6 +195,7 @@ JLI
       confirmation" linked to an event, which updates the indirect device's internal shadow state.
       A discrepancy between the reported state and the desired/assumed state leads to immediate
       enforcement of the desired state. Hence "indirect" -- apt, though not the best name.
+    - Both FHEM radios are in scope (Erik, 2026-11-08): FS20 and DuoFern.
     - To reflect on: radio-specific (e.g. FS20) throttle groups that limit the number of requests
       the indirect application sends to a radio.
 
