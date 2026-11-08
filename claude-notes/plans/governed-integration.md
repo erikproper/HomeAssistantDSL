@@ -400,7 +400,10 @@ end;
      publish).
    - **Received radio messages are de-doubled** (Erik): a transmitter or sensor heard by two
      sticks reaches that topic twice, once per FHEM; the copies of one press (the same message
-     within a short window) count as one event, or one state change. Decided (Erik, 2026-11-08):
+     within a short window) count as one event, or one state change -- the window (Erik,
+     2026-11-08, as for the default) a hard-wired one per radio channel in the governor (FS20:
+     500 ms), which a device overrides with `copies within <n> ms;` in "integration fhem",
+     compared per message, so a held button's repeated dimup/dimdown stay presses. Decided (Erik, 2026-11-08):
      **the governed application does it**, as the radio's one receiver: it reads what the radios
      publish, merges the copies, and publishes the press once for Home Assistant.
    - **The governed logic is neutral about meshing** (Erik, 2026-11-08): messages from and to
