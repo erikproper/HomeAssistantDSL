@@ -220,6 +220,10 @@ application's -- not the buttons.
      group is that one radio; DuoFern is another.
    - **One MQTT topic per FS20 device** (Erik, 2026-11-08): `fhem/fs20/<device>`, used by all the
      FHEM installations that listen and send for that device -- not a topic per installation.
+     Split in two (Erik, 2026-11-08), so FHEM never acts on its own output:
+     `fhem/fs20/<device>/set` for commands (not retained; only the governed application publishes,
+     the FHEMs listen), and `fhem/fs20/<device>` for what the radios receive (only the FHEMs
+     publish).
    - **Received radio messages are de-doubled** (Erik): a transmitter or sensor heard by two
      sticks reaches that topic twice, once per FHEM; the copies of one press (the same message
      within a short window) count as one event, or one state change. Where this happens is open.
