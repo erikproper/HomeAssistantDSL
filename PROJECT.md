@@ -477,5 +477,15 @@ https://dev.netatmo.com/apidocumentation/webhooks
     set-up since the OpenThread Border Router (wpan0, its routes, NAT64) and IPv6 forwarding came
     to that host the day before (PROJECT.md 40) -- likely related. To do: find the cause; before
     Junglinster gets its border router, put its mosquitto on the host network as well (and any
-    other bridge-network container there).
+    other bridge-network container there). Junglinster's mosquitto is on the host network since
+    2026-11-09 (Erik). Vienna's p-s-1 rebooted the same day, also into its new kernel 1020: Ubuntu's
+    Pi A/B boot had kept it in new/ since 2026-10-16, still marked "bad" from a July test boot of an
+    earlier kernel ("piboot-try --reset-new --reboot" tried it; now current/ good, old/ 1017).
+
+    Junglinster, planned for 2026-11-10 (Erik, when the house is empty): update.containers;
+    reboot protocols-server-1 into kernel 43 (x86, a plain reboot); on protocols-server-3 the 9
+    pending packages (firmware, kernel 6.18.60) and a reboot. FHEM itself (held by its package)
+    only deliberately, on p-s-2 and p-s-3 together, checking the generated fhem.cfg still loads.
+    Checked 2026-11-09: no failed units, no other bridge-network containers, p-s-2 and frame
+    already on kernel 1020 with a clean boot state.
 
