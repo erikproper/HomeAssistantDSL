@@ -424,6 +424,9 @@ https://dev.netatmo.com/apidocumentation/webhooks
 51. (was 32c; to observe) The deploy's reload check can't read Junglinster's log: system_log/list closes the websocket
     (1006, unexpected EOF) on every deploy there (seen three times 2026-11-05), so a reload error
     there goes unreported. Vienna's works. Likely the size of Junglinster's log in one message.
+    Seen twice more 2026-11-08, after reloads that went fine (the new entities there, the error
+    log clean). Besides the cause: the check should report a failed read as such, not as "reload
+    reported errors".
 
 52. Shelly firmware (Erik, 2026-11-07: there will be more Shellies to update). The Shelly layer
     (claude-notes/plans/shelly-layer.md) could give each device an "update" entity that only signals
@@ -447,8 +450,15 @@ https://dev.netatmo.com/apidocumentation/webhooks
     read "off" for those 2 minutes -- the deploy could reload main before restarting the
     coordinator in that case.
 
-54. The deploy's reload check (deploy_run.go, checkReload) fails reading HA main's errors: twice
-    on 2026-11-08 (Junglinster) "system_log/list: websocket: close 1006 (abnormal closure):
-    unexpected EOF", right after a reload that itself went fine (the new entities were there, the
-    error log clean). Find out why HA drops the connection there (message size, timing after the
-    reload?) and make the check report a failed read as such, not as "reload reported errors".
+54. Junglinster's office innr plugs drop from Zigbee (found 2026-11-09). Baseline, Zigbee2MQTT
+    logs 2026-10-27..11-09: real drops (two failed pings) only of office plugs -- shredder 7,
+    cycling_fans 7, mini_fans 8, media_drive 4 -- in bursts (the night of 11-01, 10-29, 11-09),
+    with no office plug-switched device on at the time. Not the plugs (the two Vienna spares, SP
+    220, dropped in Junglinster but not in Vienna; SP 220/120 have no newer firmware, the SP 240s
+    are current), not the network's size (56 routers, 62 end devices). Network map 2026-11-09:
+    office links strong (LQI 200-255), but of the powered routers that didn't answer the scan, 12
+    of 13 are in the office, server room and storage room (the lights behind Z-Wave relays were
+    off and don't count). Suspect: the Wi-Fi repeater 2-3 m from the plugs (Wi-Fi channel 6,
+    Zigbee channel 11). Test: switch it off for a day or two, or move Wi-Fi to channel 11/13
+    (then Thread on 15, not 25); then recount the drops and repeat the map.
+
