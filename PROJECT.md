@@ -470,6 +470,12 @@ https://dev.netatmo.com/apidocumentation/webhooks
     office/cycling_fans since 23:37 (both SP 220), the latter after the channel change. Erik is in
     Vienna, so no power-cycling for now: check whether they come back by themselves (the mesh
     refreshing its routes), and keep counting from there; power-cycle them once someone is there.
+    Re-pairing helps (Erik, 2026-11-10, with reports on the internet): office/shredder was
+    re-paired 2026-11-01 12:17 (a fresh interview) after 7 drops the night before, and has not
+    dropped once since. The two Vienna spares fit too -- they dropped in Junglinster and are fine in
+    Vienna, where they were paired anew. So the main lead is now the plugs' pairing, not the place
+    or Wi-Fi: re-pair cycling, cycling_fans, mini_fans and media_drive on site (an innr resets by a
+    pattern of power cycles), keep Wi-Fi on 11, and count each plug's drops from its re-pairing.
 
 55. Podman's bridge broke on Vienna's protocols-server-1 (2026-11-09, during update.containers):
     every start of mosquitto (the only container there on podman's bridge network) failed with
