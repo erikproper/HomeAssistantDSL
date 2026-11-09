@@ -467,9 +467,9 @@ https://dev.netatmo.com/apidocumentation/webhooks
     is on Wi-Fi 11 too (Zigbee 11, Thread 15 there). In a few days: recount the office drops
     against the baseline above, and request a new network map.
     2026-11-09 late evening (Erik saw them missing): office/cycling offline since 21:33 and
-    office/cycling_fans since 23:37 (both SP 220), the latter after the channel change. For
-    2026-11-10, on site: do they come back by themselves; if not, power-cycle them and see whether
-    they rejoin; then keep counting from there.
+    office/cycling_fans since 23:37 (both SP 220), the latter after the channel change. Erik is in
+    Vienna, so no power-cycling for now: check whether they come back by themselves (the mesh
+    refreshing its routes), and keep counting from there; power-cycle them once someone is there.
 
 55. Podman's bridge broke on Vienna's protocols-server-1 (2026-11-09, during update.containers):
     every start of mosquitto (the only container there on podman's bridge network) failed with
