@@ -461,4 +461,9 @@ https://dev.netatmo.com/apidocumentation/webhooks
     off and don't count). Suspect: the Wi-Fi repeater 2-3 m from the plugs (Wi-Fi channel 6,
     Zigbee channel 11). Test: switch it off for a day or two, or move Wi-Fi to channel 11/13
     (then Thread on 15, not 25); then recount the drops and repeat the map.
+    Test started 2026-11-09 evening: Junglinster's FRITZ!Box fixed on Wi-Fi channel 11 (all
+    three repeaters followed at once; fritz-repeater-office is 192.168.178.126). Checked and
+    excluded: the Sonos speakers are wired (no SonosNet; only the kitchen Move uses Wi-Fi). Vienna
+    is on Wi-Fi 11 too (Zigbee 11, Thread 15 there). In a few days: recount the office drops
+    against the baseline above, and request a new network map.
 
