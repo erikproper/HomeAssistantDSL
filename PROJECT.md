@@ -467,3 +467,15 @@ https://dev.netatmo.com/apidocumentation/webhooks
     is on Wi-Fi 11 too (Zigbee 11, Thread 15 there). In a few days: recount the office drops
     against the baseline above, and request a new network map.
 
+55. Podman's bridge broke on Vienna's protocols-server-1 (2026-11-09, during update.containers):
+    every start of mosquitto (the only container there on podman's bridge network) failed with
+    "netavark: create bridge: netlink: sequence_number out of sync (got 2, want 3)", and systemd's
+    retry then left podman0 down without an address -- mosquitto unreachable, Zigbee2MQTT in a
+    restart loop, Vienna's devices down for about half an hour. Deleting podman0 didn't help. Fixed
+    by running mosquitto on the host network (its quadlet: Network=host instead of
+    PublishPort=1883:1883), as the other containers already are. Cause not known: the first bridge
+    set-up since the OpenThread Border Router (wpan0, its routes, NAT64) and IPv6 forwarding came
+    to that host the day before (PROJECT.md 40) -- likely related. To do: find the cause; before
+    Junglinster gets its border router, put its mosquitto on the host network as well (and any
+    other bridge-network container there).
+
