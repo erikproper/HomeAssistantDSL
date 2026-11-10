@@ -507,10 +507,9 @@ https://dev.netatmo.com/apidocumentation/webhooks
     check it runs slowly; then disable the seven cover.*_low_speed entities in Overkiz on ha2mqtt
     and restart it, so the repair messages go.
 
-57. Junglinster, weekend 2026-11-14/15 (Erik on site): change the batteries of the frient in the
-    laundry kitchen front (20 %, alert), the Aqara magnet on the living room windows (alert), the
-    Netatmo in the upward hallway first floor (21 %) and the Tuya on the garden terrace (21 %);
-    check office/drain/left/aqara_water (offline). Re-pair the office plugs (54); test the slow
+57. Junglinster, weekend 2026-11-14/15 (Erik on site): change the batteries the battery warnings
+    name -- the frient in the laundry kitchen front and the Aqara magnet on the living room
+    windows; check office/drain/left/aqara_water (offline). Re-pair the office plugs (54); test the slow
     cover and disable the low-speed entities (56); insert the DuoFern stick into p-s-2 or p-s-3
     (37). If there is time (probably not): test FS20 (the test switch and dimmer) and DuoFern.
 
