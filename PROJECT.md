@@ -509,10 +509,7 @@ https://dev.netatmo.com/apidocumentation/webhooks
 
 57. Junglinster, weekend 2026-11-14/15 (Erik on site): change the batteries the battery warnings
     name -- the frient in the laundry kitchen front and the Aqara magnet on the living room
-    windows. office/drain/left/aqara_water (offline, silent since at least 2026-10-27) probably
-    lost its parent, likely one of the unstable office plugs -- Aqara end devices don't look for a
-    new one well: after re-pairing the plugs, wake it (a short press of its button), else re-pair
-    it too. Re-pair the office plugs (54); test the slow
+    windows. Re-pair the office plugs (54); test the slow
     cover and disable the low-speed entities (56); insert the DuoFern stick into p-s-2 or p-s-3
     (37). If there is time (probably not): test FS20 (the test switch and dimmer) and DuoFern.
 
