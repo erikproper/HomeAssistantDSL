@@ -207,6 +207,7 @@ grammars on top show the style the other grammars will follow.
 - `homeassistant/hosts_metadata_test.go`
 - `homeassistant/integration_commandline_test.go`
 - `homeassistant/integration_hassbridge_attribute_test.go`
+- `homeassistant/integration_hassbridge_slow_speed_test.go`
 - `homeassistant/integration_hassbridge_test.go`
 - `homeassistant/integration_hassbridge_valuemap_test.go`
 - `homeassistant/integration_hassbridge_with_oneliner_test.go`
