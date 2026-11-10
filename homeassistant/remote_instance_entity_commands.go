@@ -87,7 +87,10 @@ func commandDataKey(command commandSpec) string {
 // hassBridgeEntityCommandTopicFor -- is this entity's own newly-committed value, not one of
 // several discriminated commands), and the service call passes it through as commandDataKey's own
 // named data field rather than a bare no-data call.
-func entityCommandAutomationBody(identity TEntityIdentity, command commandSpec, bareTargetEntity, topic string) string {
+//
+// speed (Home Assistant 2026.11, a slow-speed shadow on its cover's own entity) goes along as the
+// "speed" data field of every command but stop, which takes none.
+func entityCommandAutomationBody(identity TEntityIdentity, command commandSpec, bareTargetEntity, topic, speed string) string {
 	var sb strings.Builder
 	sb.WriteString("- alias: \"" + entityAliasBase(identity) + "/command/" + command.Name + "\"\n")
 	sb.WriteString("  trigger:\n")
@@ -98,12 +101,22 @@ func entityCommandAutomationBody(identity TEntityIdentity, command commandSpec, 
 	}
 	sb.WriteString("  action:\n")
 	sb.WriteString("  - service: " + command.Service + "\n")
-	if command.ValueTrigger {
+	withSpeed := speed != "" && command.Name != "stop"
+	switch {
+	case command.ValueTrigger:
 		sb.WriteString("    target:\n")
 		sb.WriteString("      entity_id: " + bareTargetEntity + "\n")
 		sb.WriteString("    data:\n")
 		sb.WriteString("      " + commandDataKey(command) + ": \"{{ trigger.payload }}\"\n")
-	} else {
+		if withSpeed {
+			sb.WriteString("      speed: " + speed + "\n")
+		}
+	case withSpeed:
+		sb.WriteString("    target:\n")
+		sb.WriteString("      entity_id: " + bareTargetEntity + "\n")
+		sb.WriteString("    data:\n")
+		sb.WriteString("      speed: " + speed + "\n")
+	default:
 		sb.WriteString("    entity_id: " + bareTargetEntity + "\n")
 	}
 	return sb.String()
@@ -153,7 +166,7 @@ func generateHassBridgeEntityCommandAutomations(instanceHAOutputDir, name string
 
 			for _, command := range commands {
 				topic := hassBridgeEntityCommandTopicFor(name, attr.EntityID, command)
-				body := entityCommandAutomationBody(attr.Identity, command, bareTargetEntity, topic)
+				body := entityCommandAutomationBody(attr.Identity, command, bareTargetEntity, topic, cap.Speed)
 				automationID := "command_" + fullyQualifiedEntityNameUnderscored(attr.Identity) + "_" + command.Name
 				if err := writeAutomationFile(instanceHAOutputDir, "infrastructural", automationID, generatorHeader+body); err != nil {
 					return err

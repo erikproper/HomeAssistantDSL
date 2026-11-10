@@ -387,9 +387,14 @@ version as a shadow of the cover, inside the cover capability's own block:
 ```
 capability cover.cover cover.living_room_front as hassbridge_cover_social_house_living_room_front with:
   derived value cover.living_room_front!current_position;
-  slow speed cover.living_room_front_low_speed as hassbridge_cover_social_house_living_room_front_slow;
+  slow speed as hassbridge_cover_social_house_living_room_front_slow;
 end;
 ```
+
+Without a source (since Home Assistant 2026.11, whose Overkiz integration deprecates its separate
+low-speed entities, gone in 2027.5), the slow shadow is the cover's own entity: its open, close
+and set position are sent with `speed: slow`, its stop without. `slow speed <entity>;` still names
+a separate low-speed entity, for an integration that has one.
 
 `slow speed` on capability `cover.XX` creates the shadow capability `cover.slow/XX`, which takes
 over the cover's `derived value` for its own source. It is never positioned by a line of its own:

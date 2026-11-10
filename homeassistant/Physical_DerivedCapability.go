@@ -296,10 +296,11 @@ var bridgedCapabilityAssignedIDPattern = regexp.MustCompile(`^(\s*(?:internal\s+
 // header's "with:", as in Logical.def's block form. Group 1 is the header up to (excluding) the ID.
 var bridgedCapabilityBlockAssignedIDPattern = regexp.MustCompile(`^(\s*capability\s+[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_/]*)\s+\S.*?)\s+as\s+unique_id\s+([A-Za-z_][A-Za-z0-9_.]*)\s+with:\s*$`)
 
-// slowSpeedAssignedIDPattern matches a "slow speed <source> as <id>;" line inside a bridged
+// slowSpeedAssignedIDPattern matches a "slow speed [<source>] as <id>;" line inside a bridged
 // capability's "with:" block -- the frozen ID of its slow-speed shadow capability "slow/<label>"
-// (integration_hassbridge_parser.go). Group 1 is the line without the ID, group 2 the ID.
-var slowSpeedAssignedIDPattern = regexp.MustCompile(`^(\s*slow\s+speed\s+\S+)\s+as\s+unique_id\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;\s*$`)
+// (integration_hassbridge_parser.go); without a source, the shadow is the capability's own entity
+// at slow speed. Group 1 is the line without the ID, group 2 the ID.
+var slowSpeedAssignedIDPattern = regexp.MustCompile(`^(\s*slow\s+speed(?:\s+[^\s;]+)?)\s+as\s+unique_id\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;\s*$`)
 
 // bridgedCapabilityBlockHeaderPattern captures the label of any bridged capability block header
 // ("capability <domain>.<label> <source> [as <id>] with:") -- the capability a following

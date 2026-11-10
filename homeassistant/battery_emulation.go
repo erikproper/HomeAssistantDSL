@@ -385,7 +385,7 @@ func writeBatteryEmulationInstanceFiles(instanceOutputDir, instance string, admi
 		}
 		setValue := hamqtt.Command{ValueTrigger: true}
 		dateIdentity, _ := entityIdentityByID(admin, entities.Date)
-		sb.WriteString(entityCommandAutomationBody(dateIdentity, commandSpec{Name: "set_value", Service: "input_datetime.set_datetime", ValueTrigger: true, DataKey: "date"}, date, hamqtt.BridgeCommandTopicFor(instance, entities.Date, "set_value", setValue)))
+		sb.WriteString(entityCommandAutomationBody(dateIdentity, commandSpec{Name: "set_value", Service: "input_datetime.set_datetime", ValueTrigger: true, DataKey: "date"}, date, hamqtt.BridgeCommandTopicFor(instance, entities.Date, "set_value", setValue), ""))
 		sb.WriteString(batteryEmulationResetAutomation(levelIdentity, date, hamqtt.BridgeCommandTopic(instance, entities.Reset)))
 		path := filepath.Join(instanceOutputDir, "automation", "infrastructural", "automation.battery_emulation_"+object(entities.Level)+".yaml")
 		if err := writeYAMLFile(path, sb.String()); err != nil {

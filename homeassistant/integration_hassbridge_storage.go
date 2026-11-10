@@ -101,6 +101,10 @@ type THassBridgeCapability struct {
 	// than a separate one. Empty/nil means this capability reports no position at all -- unchanged
 	// behaviour for every capability declared before this field existed.
 	Position string
+	// Speed (Home Assistant 2026.11): a slow-speed shadow without a source of its own ("slow
+	// speed;") commands its cover's own entity, its open, close and set position with this
+	// "speed" ("slow") -- Overkiz's separate low-speed entity is deprecated (gone in 2027.5).
+	Speed string
 }
 
 // THassBridgeDevice is one "device <id> with: ... end;" declaration inside Physical.def's

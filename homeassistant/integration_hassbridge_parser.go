@@ -176,7 +176,7 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 	// slow speed. It becomes a sibling capability "slow/<label>" of the same domain (cover.cover
 	// -> cover.slow/cover), positioned implicitly alongside the capability itself
 	// (Conceptual_DeviceCapabilityEntities.go) and preferred by the generated cover control.
-	capabilityWithSlowSpeedPattern := regexp.MustCompile(`^slow\s+speed\s+(\S+)\s*;\s*$`)
+	capabilityWithSlowSpeedPattern := regexp.MustCompile(`^slow\s+speed(?:\s+(\S+))?\s*;\s*$`)
 	// Single-statement shorthand for capabilityWithPattern's own block form -- "<domain>.<path>
 	// <source> with <single-statement>;" instead of "<domain>.<path> <source> with:
 	// <single-statement>; end;" -- mirrors logicalDeviceOneLinerPattern's identical reasoning
@@ -347,10 +347,14 @@ func parseHassBridgeIntegrationBody(bodyLines []string, instance string) ([]THas
 				continue
 			}
 			if matches := capabilityWithSlowSpeedPattern.FindStringSubmatch(line); matches != nil {
-				current.Capabilities[slowSpeedCapabilityLabel(pendingCapabilityPath)] = THassBridgeCapability{
-					Domain: current.Capabilities[pendingCapabilityPath].Domain,
-					Source: matches[1],
+				// Without a source (Home Assistant 2026.11, Overkiz): the capability's own entity,
+				// commanded with "speed: slow" -- the separate low-speed entity is deprecated.
+				parent := current.Capabilities[pendingCapabilityPath]
+				slow := THassBridgeCapability{Domain: parent.Domain, Source: matches[1]}
+				if slow.Source == "" {
+					slow.Source, slow.Speed = bareEntityFromSource(parent.Source), "slow"
 				}
+				current.Capabilities[slowSpeedCapabilityLabel(pendingCapabilityPath)] = slow
 				continue
 			}
 			if cap, ok := ApplyWithClauseBodyLine(current.Capabilities[pendingCapabilityPath], line, capabilityWithBodyStatements); ok {
