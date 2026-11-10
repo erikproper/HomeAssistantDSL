@@ -499,3 +499,11 @@ https://dev.netatmo.com/apidocumentation/webhooks
     Checked 2026-11-09: no failed units, no other bridge-network containers, p-s-2 and frame
     already on kernel 1020 with a clean boot state.
 
+56. Overkiz's low-speed covers (Home Assistant 2026.11 deprecates them, gone in 2027.5): the
+    slow covers now command their cover itself with "speed: slow" ("slow speed;" without a
+    source, README "Covers with a slow speed"); generated, deployed to Junglinster's coordinator
+    and ha2mqtt 2026-11-10, all seven slow covers on main available. This weekend (2026-11-14/15,
+    Erik on site): move one slow cover from main (e.g. cover.social_house_shower_room_slow) and
+    check it runs slowly; then disable the seven cover.*_low_speed entities in Overkiz on ha2mqtt
+    and restart it, so the repair messages go.
+
