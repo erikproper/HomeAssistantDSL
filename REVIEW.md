@@ -1,6 +1,6 @@
 # Code review: Go files
 
-Erik's review of the Go code (PROJECT.md item 33), following ../GO_REVIEWING.md. Files are listed
+Erik's review of the Go code (PROJECT.md item 33), following `$NEXTCLOUD/Systems/Conventions/GO_REVIEWING.md`. Files are listed
 in four states; Claude keeps the list up to date in the same commit as each change.
 
 - **Not ready**: still to be refactored; the step (PROJECT.md 33's order) that makes it ready is
