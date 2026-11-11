@@ -95,3 +95,19 @@ func TestRawMQTTCapabilityErrors(t *testing.T) {
 		}
 	}
 }
+
+// TestRawSensorUnits: a unit gives a raw sensor the device and state class Home Assistant's
+// statistics (and the energy dashboard) need.
+func TestRawSensorUnits(t *testing.T) {
+	for unit, want := range map[string][2]string{
+		"W":   {"power", "measurement"},
+		"kW":  {"power", "measurement"},
+		"kWh": {"energy", "total_increasing"},
+	} {
+		config := map[string]interface{}{}
+		addRawSensorFields(config, TRawTopicCapability{Unit: unit})
+		if config["device_class"] != want[0] || config["state_class"] != want[1] {
+			t.Errorf("%s: %v", unit, config)
+		}
+	}
+}

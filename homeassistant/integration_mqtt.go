@@ -261,7 +261,7 @@ func addRawSensorFields(config map[string]interface{}, raw TRawTopicCapability) 
 		config["unit_of_measurement"] = raw.Unit
 	}
 	switch raw.Unit {
-	case "W":
+	case "W", "kW":
 		config["device_class"] = "power"
 		config["state_class"] = "measurement"
 	case "Wh", "kWh":
