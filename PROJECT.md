@@ -426,7 +426,10 @@ https://dev.netatmo.com/apidocumentation/webhooks
     there goes unreported. Vienna's works. Likely the size of Junglinster's log in one message.
     Seen twice more 2026-11-08, after reloads that went fine (the new entities there, the error
     log clean). Besides the cause: the check should report a failed read as such, not as "reload
-    reported errors".
+    reported errors". It did cost something on 2026-11-11: main's whole MQTT YAML reload had
+    failed since the Zigbee2MQTT 2.14.3 update (an invalid template, fixed in 6cc3995), so no
+    MQTT entity change took effect, and no deploy reported it. A fallback worth having: call
+    mqtt.reload over REST, whose 400 answer names the failing file.
 
 52. Shelly firmware (Erik, 2026-11-07: there will be more Shellies to update). The Shelly layer
     (claude-notes/plans/shelly-layer.md) could give each device an "update" entity that only signals
