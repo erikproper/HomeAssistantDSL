@@ -515,7 +515,6 @@ https://dev.netatmo.com/apidocumentation/webhooks
     windows. Re-pair the office plugs (54); test the slow
     cover and disable the low-speed entities (56); insert the DuoFern stick into p-s-2 or p-s-3
     (37). Update HA main, then deploy main (it also brings the smart meter gateway's version,
-    2026.10.2, to its device card); disable the gateway's ESPHome entry on ha2mqtt, now that it
-    reports to MQTT itself. If there is time (probably not): test FS20 (the test switch and
-    dimmer) and DuoFern.
+    2026.10.2, to its device card). If there is time (probably not): test FS20 (the test switch
+    and dimmer) and DuoFern.
 
