@@ -22,6 +22,7 @@ package hamqtt
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -360,6 +361,9 @@ func RelayedConfig(entityID, gatewayID string, raw map[string]interface{}, paylo
 // value_json["<key>"] access (else the last state stays).
 func WrapValueTemplate(rawTemplate, wrapExpr string) string {
 	inner := strings.TrimSpace(rawTemplate)
+	if m := presenceGuardPattern.FindStringSubmatch(inner); m != nil {
+		inner = m[1]
+	}
 	inner = strings.TrimPrefix(inner, "{{")
 	inner = strings.TrimSuffix(inner, "}}")
 	inner = strings.TrimSpace(inner)
@@ -369,6 +373,11 @@ func WrapValueTemplate(rawTemplate, wrapExpr string) string {
 	}
 	return "{{ " + wrapped + " }}"
 }
+
+// presenceGuardPattern is a template Zigbee2MQTT guards on its value's presence itself,
+// {% if "<key>" in value_json %}{{ <value> }}{% endif %}; group 1 is the {{ <value> }}. A wrap
+// can't go around it as a whole: Jinja takes no {% %} inside {{ }}.
+var presenceGuardPattern = regexp.MustCompile(`^\{%-?\s*if\s+"[^"]+"\s+in\s+value_json\s*-?%\}\s*(\{\{.*\}\})\s*\{%-?\s*endif\s*-?%\}$`)
 
 // ExtractValueJSONKey recognises inner as a plain value_json["<key>"] or value_json['<key>']
 // access and returns the bare key.
