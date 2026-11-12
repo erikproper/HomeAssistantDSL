@@ -135,14 +135,17 @@ JLI
     Home Assistant up to the radio (sending only). Plan, decisions and next steps:
     claude-notes/plans/governed-integration.md.
 
+    Tested 2026-11-12 on real devices (Erik): the switch and dimmer learned 44444444 4411/4412 and
+    follow Home Assistant, a proof of concept. Open: both installations send every command at once
+    (both subscribe to the device's /set topic), so two transmitters near each other may garble a
+    frame; one sender per device (e.g. the first of "heard by") would avoid it.
+
     Next weekend (Erik, on site, 2026-11-14/15):
-    - Test the FS20 switch and dimmer on real devices (teach them house code 44444444, 4411/4412).
     - See whether there are FHZ/FHM sensors or controls around (transmitters, sensors: the
       de-doubled events and states of the plan's step 4).
     - Insert the DuoFern stick into one of the two Pis (then: its serial kind, and DuoFern covers).
 
-    The test dimmer is a governed light too (brightness, "on at 60 %", default off; generated,
-    not yet deployed). To build (the plan's step 4): confirmations (the shadow state), the
+    The test dimmer is a governed light too (brightness, "on at 60 %", default off). To build (the plan's step 4): confirmations (the shadow state), the
     de-doubled transmitters and sensors, DuoFern. An FS20 remote is a set of buttons (Erik): its presses
     become conceptual button events, and dimming is stepwise by rules, as for the Zigbee dimmers.
 
