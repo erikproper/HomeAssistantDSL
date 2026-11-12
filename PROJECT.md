@@ -139,6 +139,11 @@ JLI
     follow Home Assistant, a proof of concept. Open: both installations send every command at once
     (both subscribe to the device's /set topic), so two transmitters near each other may garble a
     frame; one sender per device (e.g. the first of "heard by") would avoid it.
+    Also open, from flipping the switch fast (2026-11-12, 23:31 UTC): (a) the CUL ran out of its own
+    air time ("cul_1: Unknown code LOVF" in FHEM's log, credit10ms was down to 887 after the evening's
+    tests) and dropped commands, while the governor's budget still had room; (b) the echo of an older
+    command, arriving after a newer one was sent, counts as "radio-requested" and flips the desired
+    state back -- so the switch ends up out of step until the next enforcement.
 
     Next weekend (Erik, on site, 2026-11-14/15):
     - See whether there are FHZ/FHM sensors or controls around (transmitters, sensors: the
