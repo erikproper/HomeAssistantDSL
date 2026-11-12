@@ -197,7 +197,8 @@ In steps, each tested and deployed before the next:
 1. The governor (`governor/`, a Go program of this repository): for a governed switch, the desired
    state retained on the broker (`governed/<device>/<label>`, commands on `.../set`), the default
    when nothing is retained, enforcing every X, the throttle per radio channel (a token bucket:
-   frame time x the installations hearing the device, refilled at the duty cycle), a pending slot
+   a frame's time per command, refilled at the duty cycle, holding an hour's worth -- 36 s for
+   FS20; since 2026-11-13, when 3 s and a frame per installation held commands back 44 s each), a pending slot
    per entity (a real command before an enforcement), radio-requested changes, and the echoes of
    its own sends ignored. Its liveness: `governed/status`, `online`/`offline` (last will).
 2. `integration governed` in the generator: `governor/devices.yaml` and `secrets.yaml`, and the

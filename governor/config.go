@@ -12,7 +12,7 @@
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 08.11.2026
+ * Version of: 13.11.2026
  *
  */
 
@@ -45,9 +45,10 @@ type TChannel struct {
 }
 
 // defaultChannels are the radio channels the governor knows. FS20 (868 MHz) may send 1 % of the
-// time; a frame takes about 0.22 s.
+// time, averaged over an hour: 36 s, which may all go at once -- as the CUL's own budget allows
+// (credit10ms, at most 3600). A frame takes about 0.22 s.
 var defaultChannels = map[string]TChannel{
-	"fs20": {DutyCycle: 0.01, FrameSeconds: 0.22, BurstSeconds: 3, CopiesWithinMS: 500},
+	"fs20": {DutyCycle: 0.01, FrameSeconds: 0.22, BurstSeconds: 36, CopiesWithinMS: 500},
 }
 
 // TGovernedEntityDef is one governed entity: a capability of a governed device.
@@ -64,13 +65,11 @@ type TGovernedEntityDef struct {
 }
 
 // TPathDef is one way an entity's device is reached: the topic a command goes to, the topic what
-// the radio received comes back on, how values are written there, and how many radios send each
-// command (each costs the channel a frame).
+// the radio received comes back on, and how values are written there.
 type TPathDef struct {
 	Set      string `yaml:"set"`
 	Received string `yaml:"received,omitempty"`
 	Encoding string `yaml:"encoding"` // fs20_switch or fs20_dimmer
-	Copies   int    `yaml:"copies"`
 	// CopiesWithinMS overrides the channel's: the device's own interval for copies.
 	CopiesWithinMS int `yaml:"copies_within_ms,omitempty"`
 }

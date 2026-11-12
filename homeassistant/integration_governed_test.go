@@ -98,7 +98,7 @@ func TestGovernedGatewayAndGovernorFile(t *testing.T) {
 	file := governorDevicesFile(devices, radios)
 	e := file.Entities[0]
 	if len(file.Entities) != 1 || e.Kind != "switch" || e.Paths[0].Set != "fhem/fs20/radio.test_fs20_switch/set" || e.Paths[0].Received != "fhem/fs20/radio.test_fs20_switch" ||
-		e.Paths[0].Encoding != "fs20_switch" || e.Paths[0].Copies != 2 || e.Default != "off" {
+		e.Paths[0].Encoding != "fs20_switch" || e.Default != "off" {
 		t.Errorf("governor file = %+v", file)
 	}
 }
@@ -152,7 +152,7 @@ func TestGovernedLight(t *testing.T) {
 		t.Errorf("problems = %v", problems)
 	}
 	file := governorDevicesFile(devices[:1], radios)
-	if e := file.Entities[0]; e.Kind != "light" || e.OnLevel != 60 || e.Paths[0].Encoding != "fs20_dimmer" || e.Paths[0].Copies != 1 {
+	if e := file.Entities[0]; e.Kind != "light" || e.OnLevel != 60 || e.Paths[0].Encoding != "fs20_dimmer" {
 		t.Errorf("governor file = %+v", file)
 	}
 	g := governedGatewayDevices(devices[:1])[0]

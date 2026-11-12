@@ -13,8 +13,8 @@
  *   - every "enforce every" the desired state is sent again; the first ones are staggered;
  *   - sending goes through one pending slot per entity (a newer command replaces one not yet sent,
  *     a real command goes before an enforcement) and the radio channel's budget, a token bucket
- *     of air time refilled at the channel's duty cycle; a command costs a frame per radio sending
- *     it;
+ *     of air time refilled at the channel's duty cycle; a command costs a frame (each radio sending
+ *     it has a duty cycle of its own);
  *   - what a radio received for the device is a radio-requested change -- someone used a remote,
  *     or another radio sent -- and becomes the desired state (it is not a confirmation, and is not
  *     sent back); the echo of the governor's own send, within echoWindow, is ignored, and the same
@@ -24,7 +24,7 @@
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 08.11.2026
+ * Version of: 13.11.2026
  *
  */
 
@@ -281,7 +281,7 @@ func newGovernor(devices TDevicesFile, publisher TPublisher, logf func(string, .
 		if g.buckets[def.Channel] == nil {
 			g.buckets[def.Channel] = &tBucket{channel: channel, tokens: channel.BurstSeconds}
 		}
-		e := &tEntity{def: def, kind: kinds[def.Kind], sent: make([]tSent, len(def.Paths)), onLevel: def.OnLevel}
+		e := &tEntity{def: def, kind: kinds[def.Kind], sent: make([]tSent, len(def.Paths)), onLevel: def.OnLevel, cost: channel.FrameSeconds}
 		if e.onLevel == 0 {
 			e.onLevel = 100
 		}
@@ -291,7 +291,6 @@ func newGovernor(devices TDevicesFile, publisher TPublisher, logf func(string, .
 				within = p.CopiesWithinMS
 			}
 			e.copiesWithin = append(e.copiesWithin, time.Duration(within)*time.Millisecond)
-			e.cost += channel.FrameSeconds * float64(max(p.Copies, 1))
 			if p.Received != "" {
 				g.byReceived[p.Received] = append(g.byReceived[p.Received], tPathRef{e, i})
 			}

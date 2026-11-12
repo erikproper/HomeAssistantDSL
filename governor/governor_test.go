@@ -40,7 +40,6 @@ entities:
       - set: fhem/fs20/radio.test_switch/set
         received: fhem/fs20/radio.test_switch
         encoding: fs20_switch
-        copies: 2
   - device: lights.other
     label: switch
     kind: switch
@@ -51,7 +50,6 @@ entities:
       - set: fhem/fs20/radio.other/set
         received: fhem/fs20/radio.other
         encoding: fs20_switch
-        copies: 1
 `
 
 func newTestGovernor(t *testing.T) (*TGovernor, *tRecorder) {
@@ -127,7 +125,7 @@ func TestThrottle(t *testing.T) {
 	g, r := newTestGovernor(t)
 	g.Start(t0)
 	r.take()
-	g.buckets["fs20"].tokens = 0.44 // exactly test_switch's two frames
+	g.buckets["fs20"].tokens = 0.22 // exactly one frame
 	g.Tick(t0)
 	equal(t, "first", r.take(), []string{"fhem/fs20/radio.test_switch/set off"})
 	g.Command("governed/lights.other/switch/set", "on", t0)
@@ -164,7 +162,6 @@ entities:
       - set: fhem/fs20/radio.test_dimmer/set
         received: fhem/fs20/radio.test_dimmer
         encoding: fs20_dimmer
-        copies: 2
 `
 
 func newTestLight(t *testing.T) (*TGovernor, *tRecorder) {
@@ -230,7 +227,7 @@ func TestNormaliseFS20Dim(t *testing.T) {
 func TestCopiesWithin(t *testing.T) {
 	for within, want := range map[string]time.Duration{"": 500 * time.Millisecond, "\n        copies_within_ms: 50": 50 * time.Millisecond} {
 		var devices TDevicesFile
-		if err := yaml.Unmarshal([]byte(strings.Replace(testDevices, "copies: 2", "copies: 2"+within, 1)), &devices); err != nil {
+		if err := yaml.Unmarshal([]byte(strings.Replace(testDevices, "encoding: fs20_switch", "encoding: fs20_switch"+within, 1)), &devices); err != nil {
 			t.Fatal(err)
 		}
 		g := newGovernor(devices, &tRecorder{}, func(string, ...any) {})

@@ -28,7 +28,7 @@
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 08.11.2026
+ * Version of: 13.11.2026
  *
  */
 
@@ -200,7 +200,6 @@ type TGovernorPathFile struct {
 	Set      string `yaml:"set"`
 	Received string `yaml:"received,omitempty"`
 	Encoding string `yaml:"encoding"`
-	Copies   int    `yaml:"copies"`
 	// CopiesWithinMS: the FHEM device's own interval for copies, else the governor's per channel.
 	CopiesWithinMS int `yaml:"copies_within_ms,omitempty"`
 }
@@ -221,7 +220,7 @@ func governorDevicesFile(devices []TGovernedDevice, fhemDevices []TFHEMDevice) T
 			file.Entities = append(file.Entities, TGovernorEntityFile{
 				Device: device.DeviceID, Label: c.Label, Kind: governedKinds[c.Domain].Kind,
 				Topic: governedTopic(device.DeviceID, c.Label), Default: c.Default, OnLevel: c.OnLevel, EnforceEvery: c.EnforceEvery, Channel: "fs20",
-				Paths: []TGovernorPathFile{{Set: fs20Topic(c.From) + "/set", Received: fs20Topic(c.From), Encoding: governedKinds[c.Domain].Encoding[radio.FS20.Kind], Copies: len(radio.FS20.HeardBy), CopiesWithinMS: radio.CopiesWithinMS}},
+				Paths: []TGovernorPathFile{{Set: fs20Topic(c.From) + "/set", Received: fs20Topic(c.From), Encoding: governedKinds[c.Domain].Encoding[radio.FS20.Kind], CopiesWithinMS: radio.CopiesWithinMS}},
 			})
 		}
 	}
