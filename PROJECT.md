@@ -625,8 +625,10 @@ https://dev.netatmo.com/apidocumentation/webhooks
     17-21 s; through a neighbouring plug it stayed), disks1 0xc4988600000f73e3 (17:50, unnamed;
     joining open on all routers). Placement and names: Erik's; Zigbee2MQTT still calls one
     "house/storage_room/disks2", which the Shelly is now.
-    Pairing an Innr (Erik): it sometimes needs unplugging and plugging back in after the join to
-    work properly -- try that before a new reset if it leaves or doesn't answer. Kept in mind: a second
+    Pairing an Innr (Erik): open joining first, then reset or plug it in -- it searches only
+    briefly and gives up if joining isn't open yet (as disks1 did at 17:18). After the join it
+    sometimes needs unplugging and plugging back in to work properly -- try that before a new
+    reset if it leaves or doesn't answer. Kept in mind: a second
     Junglinster network on the old TI stick (a new IEEE -- its own is the one the ZBT-2 carries
     -- its old network wiped, channel 25, its own Zigbee2MQTT and gateway), if more such devices
     turn up.
