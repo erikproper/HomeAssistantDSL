@@ -155,8 +155,11 @@ JLI
       DuoFern device, a RolloTron 406DDD (master bedroom; the old bash module was
       Old/RecentOld/mods/bridge_duofern.mod), still answers there: position 43 (DuoFern: 0 open,
       100 closed; the old setup published 100 - position), manualMode on, its automatics off,
-      version 1.1. Next: a `duofern cover "<code>" heard by ...;` statement (the plan) -- FHEM
-      publishing its position, taking up/stop/down/position -- and its cover entity in HA.
+      version 1.1. Built and deployed 2026-11-13 (option A): `duofern cover "<code>" heard by
+      ...;` in an `integration fhem` device (README); the RolloTron is utility.test_rollotron
+      (not yet at a window) -> cover.social_house_test_rollotron, position 57 in HA (43 in
+      DuoFern), node on. Next: a command round trip from HA (up/down/stop/position); then the
+      real window.
 
     The test dimmer is a governed light too (brightness, "on at 60 %", default off). To build (the plan's step 4): confirmations (the shadow state), the
     de-doubled transmitters and sensors, DuoFern. An FS20 remote is a set of buttons (Erik): its presses
