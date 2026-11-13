@@ -551,6 +551,16 @@ https://dev.netatmo.com/apidocumentation/webhooks
     is one, clear the stick's NVM3 (ember-zli, Bootloader) with coordinator_backup.json and
     configuration.yaml in the data folder, start, let it restore; give it a day. Then pair
     disks1, disks2 (and the old SP 220) again.
+    ember-zli 6.1.0 (Erik, 13:48, Zigbee2MQTT stopped): node and trust center EUI64 both
+    0x00124b002a2e3ee0, "EUI64 match. No fix required." -- so not that bug; no NVM3 clear.
+    Left: SP 220 2.03.10 against EmberZNet 7.5.1's link-key verification. Only three plugs in
+    Junglinster have 2.03.10 (disks1, disks2, the old media_drive); Vienna's five 2.03.10 run
+    fine on its TI stick. Decided (Erik, 2026-11-13): the problem Innrs go to Vienna, to see
+    whether they stay stable there; SP 240s take their places in Junglinster (Physical.def's
+    hardware lines swapped as for media_drive, the frozen IDs kept). Kept in mind: a second
+    Junglinster network on the old TI stick (a new IEEE -- its own is the one the ZBT-2 carries
+    -- its old network wiped, channel 25, its own Zigbee2MQTT and gateway), if more such devices
+    turn up.
     The stick is a Nabu Casa ZBT-2 (serial ...5AB8, next to the ZWA-2). Its firmware update is on
     hold (Erik, 2026-11-13: conservative): 7.5.1 is Nabu Casa's newest stable ZBT-2 Zigbee
     firmware (v2026.02.23); there is no 8.x, only 9.1.1 as a beta (v2026.08.18-beta1,
