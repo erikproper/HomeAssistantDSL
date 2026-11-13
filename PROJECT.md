@@ -499,8 +499,14 @@ https://dev.netatmo.com/apidocumentation/webhooks
     them. media_drive (removed from Zigbee2MQTT 07:56 UTC) doesn't re-pair: it joined as
     0x0000000000000000 (07:50, the interview failing), then with its real address twice through
     office/shredder (08:37, 08:40), interviewed and left again within 20 s (the second time by
-    itself), and at 08:45 (all routers open) wasn't heard at all. Left unpaired until the firmware
-    update; then pair it next to the stick and rename it house/office/media_drive.
+    itself), and at 08:45 (all routers open) wasn't heard at all. Next to the stick, joining on
+    the stick only: joined 08:51:42 and 08:58, interviewed, left 18 s and 9 s later. Before the
+    second leave, dozens of ROUTE_ERROR_ADDRESS_CONFLICT for network address 18849 and "An ID
+    conflict was detected for network address '18849'" -- an address no device in Zigbee2MQTT
+    has (a node on the network it doesn't know?); the stack then drops the address from its
+    tables (herdsman's ezspIdConflictHandler only logs; its "kicked" is misleading). Such ID
+    conflicts since 10-15: 10-26, 10-30 (2), 10-31, 11-02, 11-07, 11-13 -- to set against the
+    office drops. Then pair it next to the stick and rename it house/office/media_drive.
     Weekend 2026-11-21/22 (Erik, on site): update the stick's own firmware to EmberZNet 8.x (larger
     route and address tables, what Zigbee2MQTT's ember docs recommend) -- first which stick it is,
     then stop Zigbee2MQTT, back up its data folder, flash from a Mac with the maker's web flasher,
