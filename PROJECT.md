@@ -488,6 +488,9 @@ https://dev.netatmo.com/apidocumentation/webhooks
     cycling_fans 07:31, mini_fans 07:40 -- all three online again, with their old names. Still to
     re-pair: media_drive. Count from those times: zigbee2mqtt's journal on p-s-1 (unit "zigbee"),
     two failed pings being a drop, as in the baseline.
+    Not only the office: master_bedroom/left_table_lamp (a Philips bulb) had failed commands since
+    2026-10-27, worsening (1-3 a day, 9 on 11-11, 29 on 11-12), then dropped off; Erik re-paired it
+    2026-11-13 06:46 UTC. Count it too.
 
 55. Podman's bridge broke on Vienna's protocols-server-1 (2026-11-09, during update.containers):
     every start of mosquitto (the only container there on podman's bridge network) failed with
