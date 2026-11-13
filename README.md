@@ -260,7 +260,15 @@ broker instead of this house's own local one, relayed back by the coordinator �
 reliably fails to deliver (`Error: Bad file descriptor`, silent) when the destination is a LAN
 address, but works cleanly against the cloud broker every time — a launchd/libmosquitto quirk found
 live 2026-09-05 (`Architecture.md` §12 has the full incident writeup), not a bug in this DSL or the
-report script. Linux `cpu`-reporting hosts are unaffected and may use either form.
+report script. Linux `cpu`-reporting hosts are unaffected and may use either form. Since then the
+likely cause is known: macOS's Local Network permission silently blocks a LaunchAgent's LAN
+traffic, and that permission only exists from macOS 15 on. An older Mac reports on the LAN fine:
+the iMac (macOS 11, Big Sur, too old for Nextcloud) is `deploy as user erikproper;` since
+2026-11-13, reporting through this house's broker. Such a Mac gets `~/cpu` from the deploy,
+through the hub, but not its LaunchAgent (the rsync leaves the plists out): copy
+`Integrations/cpu/com.erikproper.cpu-report-<house>.plist` into `~/Library/LaunchAgents` and
+`launchctl load` it once, in the Mac's own login session; it needs `mosquitto_pub` (MacPorts on
+Big Sur) and `smctemp`.
 
 `Spaces.def` then positions a declared host in the conceptual tree and pulls in its implied
 entities:
