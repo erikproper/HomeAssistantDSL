@@ -135,14 +135,12 @@ JLI
     Home Assistant up to the radio (sending only). Plan, decisions and next steps:
     claude-notes/plans/governed-integration.md.
 
-    Tested 2026-11-12 on real devices (Erik): the switch and dimmer learned 44444444 4411/4412 and
-    follow Home Assistant, a proof of concept. Both installations sending every command at once
-    garbled the frames; since 2026-11-13 only the first of "heard by" sends (not yet deployed).
-    Also open, from flipping the switch fast (2026-11-12, 23:31 UTC): (a) the CUL ran out of its own
-    air time ("cul_1: Unknown code LOVF" in FHEM's log, credit10ms was down to 887 after the evening's
-    tests) and dropped commands, while the governor's budget still had room; (b) the echo of an older
-    command, arriving after a newer one was sent, counts as "radio-requested" and flips the desired
-    state back -- so the switch ends up out of step until the next enforcement.
+    Tested 2026-11-12/13 on real devices (Erik): the switch and dimmer learned 44444444 4411/4412 and
+    follow Home Assistant, a proof of concept; the switch sent to by protocols-server-3, the dimmer
+    by protocols-server-2 (only the first of "heard by" sends). Open, from flipping the switch fast
+    (2026-11-12, 23:31 UTC): the CUL ran out of its own air time ("cul_1: Unknown code LOVF" in
+    FHEM's log, credit10ms was down to 887 after the evening's tests) and dropped commands, while
+    the governor's budget still had room.
 
     Next weekend (Erik, on site, 2026-11-14/15):
     - See whether there are FHZ/FHM sensors or controls around (transmitters, sensors: the

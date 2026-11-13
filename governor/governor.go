@@ -17,7 +17,9 @@
  *     it has a duty cycle of its own);
  *   - what a radio received for the device is a radio-requested change -- someone used a remote,
  *     or another radio sent -- and becomes the desired state (it is not a confirmation, and is not
- *     sent back); the echo of the governor's own send, within echoWindow, is ignored, and the same
+ *     sent back); the echo of any of the governor's own sends within echoWindow is ignored -- not
+ *     only the last one's: flipping fast, an older send's echo may come after a newer send (Erik,
+ *     2026-11-13) -- and the same
  *     message from several radios within the copies interval counts once -- the radio channel's
  *     hard-wired one, or the device's own; compared per message, so a held button's repeated
  *     dim steps, further apart, stay presses of their own.
@@ -32,6 +34,7 @@ package main
 
 import (
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -210,7 +213,7 @@ type tPending struct {
 	since       time.Time
 }
 
-// tSent is the last value sent on a path.
+// tSent is a value sent on a path.
 type tSent struct {
 	value string
 	at    time.Time
@@ -224,7 +227,7 @@ type tEntity struct {
 	known          bool
 	pending        *tPending
 	lastSent       time.Time
-	sent           []tSent
+	sent           [][]tSent // per path, its sends within echoWindow
 	lastReceived   string
 	lastReceivedAt time.Time
 	cost           float64
@@ -281,7 +284,7 @@ func newGovernor(devices TDevicesFile, publisher TPublisher, logf func(string, .
 		if g.buckets[def.Channel] == nil {
 			g.buckets[def.Channel] = &tBucket{channel: channel, tokens: channel.BurstSeconds}
 		}
-		e := &tEntity{def: def, kind: kinds[def.Kind], sent: make([]tSent, len(def.Paths)), onLevel: def.OnLevel, cost: channel.FrameSeconds}
+		e := &tEntity{def: def, kind: kinds[def.Kind], sent: make([][]tSent, len(def.Paths)), onLevel: def.OnLevel, cost: channel.FrameSeconds}
 		if e.onLevel == 0 {
 			e.onLevel = 100
 		}
@@ -384,8 +387,8 @@ func (g *TGovernor) Received(topic, payload string, now time.Time) {
 		if !ok || !g.started {
 			continue
 		}
-		if sent := e.sent[ref.path]; encoding.Normalise(sent.value) == value && now.Sub(sent.at) < echoWindow {
-			continue // the echo of its own send
+		if isEcho(e.sent[ref.path], value, encoding, now) {
+			continue
 		}
 		if e.lastReceived == value && now.Sub(e.lastReceivedAt) < e.copiesWithin[ref.path] {
 			continue // the same press, heard by another radio
@@ -439,12 +442,23 @@ func (g *TGovernor) send(e *tEntity, now time.Time) {
 	value := e.pending.value
 	for i, p := range e.def.Paths {
 		g.publisher.Publish(p.Set, encodings[p.Encoding].Encode(value), false)
-		e.sent[i] = tSent{value: value, at: now}
+		recent := slices.DeleteFunc(e.sent[i], func(s tSent) bool { return now.Sub(s.at) >= echoWindow })
+		e.sent[i] = append(recent, tSent{value: value, at: now})
 	}
 	if !e.pending.enforcement {
 		g.logf("%s %s: sent %s", e.def.Device, e.def.Label, value)
 	}
 	e.pending, e.lastSent = nil, now
+}
+
+// isEcho tells whether value, received now, is the echo of one of sent.
+func isEcho(sent []tSent, value string, encoding TEncoding, now time.Time) bool {
+	for _, s := range sent {
+		if encoding.Normalise(s.value) == value && now.Sub(s.at) < echoWindow {
+			return true
+		}
+	}
+	return false
 }
 
 // publishState publishes e's desired state, retained.

@@ -119,6 +119,24 @@ func TestReceived(t *testing.T) {
 	equal(t, "remote dim down", r.take(), []string{"governed/lights.test_switch/switch off (r)"})
 }
 
+// TestLateEcho: flipping fast, the echo of an older send coming after a newer one is no change.
+func TestLateEcho(t *testing.T) {
+	g, r := newTestGovernor(t)
+	g.Start(t0)
+	g.Tick(t0)
+	r.take()
+	g.Command("governed/lights.test_switch/switch/set", "on", t0.Add(time.Second))
+	g.Tick(t0.Add(time.Second))
+	g.Command("governed/lights.test_switch/switch/set", "off", t0.Add(2*time.Second))
+	g.Tick(t0.Add(2 * time.Second))
+	r.take()
+	g.Received("fhem/fs20/radio.test_switch", "on", t0.Add(3*time.Second))
+	g.Received("fhem/fs20/radio.test_switch", "off", t0.Add(3*time.Second))
+	equal(t, "late echoes", r.take(), nil)
+	g.Received("fhem/fs20/radio.test_switch", "on", t0.Add(time.Minute))
+	equal(t, "remote on", r.take(), []string{"governed/lights.test_switch/switch on (r)"})
+}
+
 // TestThrottle: the radio channel's budget lets a burst through, then one command per frame's
 // worth of duty cycle; real commands go before enforcements.
 func TestThrottle(t *testing.T) {
