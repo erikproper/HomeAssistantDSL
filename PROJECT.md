@@ -512,7 +512,14 @@ https://dev.netatmo.com/apidocumentation/webhooks
     destinations belong to no known node. One unknown node: 0x00158d0001c105a3 (Xiaomi/Aqara
     prefix), a sleeping end device, 29181, child of the stick, not in Zigbee2MQTT's device list --
     likely one of the redundant Aqaras Erik removed; batteries out, so the stick ages it out.
-    Then pair it next to the stick and rename it house/office/media_drive.
+    Replaced 2026-11-13 by a new Innr SP 240 (0xa4c13815ca863d27, joined 10:14:57 UTC on the
+    stick, stayed); the old SP 220 goes to Vienna, as a test on its TI stick. Physical.def's
+    hardware lines swapped, the frozen IDs kept. Open from the swap: the coordinator's discovery
+    existence keeps the old plug's leaves known-to-exist for good (Seed prunes only
+    known-not-to-exist; no retraction reaches them, the old IEEE no longer maps to the device),
+    and the old plug's retained discovery configs (homeassistant.physical/+/0x74057c0000004726/...)
+    are still on the broker. The generator's firmware updates took the stale update leaf over
+    the positioned one (fixed: firmware_updates.go keeps a positioned link).
     The stick is a Nabu Casa ZBT-2 (serial ...5AB8, next to the ZWA-2). Its firmware update is on
     hold (Erik, 2026-11-13: conservative): 7.5.1 is Nabu Casa's newest stable ZBT-2 Zigbee
     firmware (v2026.02.23); there is no 8.x, only 9.1.1 as a beta (v2026.08.18-beta1,

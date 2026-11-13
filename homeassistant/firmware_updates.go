@@ -17,13 +17,14 @@
  * Which devices report an update comes from the coordinator's discovery existence cache
  * (Definitions/.cache/discovery_existence.json, refreshed by every generate), so a newly paired
  * device shows its update one generate later. An update capability positioned explicitly in
- * Conceptual.def keeps that positioning.
+ * Conceptual.def keeps that positioning, also when the cache still holds the update leaf of the
+ * device's earlier hardware.
  *
  * Z-Wave devices have none: Z-Wave JS UI publishes no update entities over MQTT.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 26.10.2026
+ * Version of: 13.11.2026
  *
  */
 
@@ -101,6 +102,11 @@ func registerFirmwareUpdates(admin *TAdministrationState, definitionDir string, 
 			}
 			name := "update.infrastructural/" + path + "/firmware"
 			entityID := toHomeAssistantEntityID(name)
+			if _, positioned := admin.DiscoveryEntityLinks[entityID]; positioned {
+				// Positioned in Conceptual.def from another leaf: this one is the device's old
+				// hardware, which the coordinator still knows (2026-11-13, media_drive's swap).
+				continue
+			}
 			admin.RegisterDiscoveryImpliedEntity(spaceName, name, "firmware update of "+gatewayID, gatewayID+"!"+leaf, true)
 			admin.DiscoveryEntityLinks[entityID] = TDiscoveryEntityLink{
 				EntityID:        entityID,
