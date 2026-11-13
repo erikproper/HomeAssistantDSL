@@ -506,7 +506,12 @@ https://dev.netatmo.com/apidocumentation/webhooks
     has (a node on the network it doesn't know?); the stack then drops the address from its
     tables (herdsman's ezspIdConflictHandler only logs; its "kicked" is misleading). Such ID
     conflicts since 10-15: 10-26, 10-30 (2), 10-31, 11-02, 11-07, 11-13 -- to set against the
-    office drops. Then pair it next to the stick and rename it house/office/media_drive.
+    office drops. Network map (09:47 UTC, 118 nodes): no node has 18849; five routers
+    (office/heating, server_room/raids1, christmas_tree, loft/main, kitchen/go) keep an active
+    route to it as a direct neighbour -- probably leftovers of media_drive's own joins; 45 route
+    destinations belong to no known node. One unknown node: 0x00158d0001c105a3 (Xiaomi/Aqara
+    prefix), a sleeping end device, 29181, child of the stick, not in Zigbee2MQTT's device list.
+    Then pair it next to the stick and rename it house/office/media_drive.
     Weekend 2026-11-21/22 (Erik, on site): update the stick's own firmware to EmberZNet 8.x (larger
     route and address tables, what Zigbee2MQTT's ember docs recommend) -- first which stick it is,
     then stop Zigbee2MQTT, back up its data folder, flash from a Mac with the maker's web flasher,
