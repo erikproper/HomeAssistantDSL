@@ -558,7 +558,17 @@ https://dev.netatmo.com/apidocumentation/webhooks
     fine on its TI stick. Decided (Erik, 2026-11-13): the three 2.03.10 plugs go to Vienna, to
     see whether they stay stable there; in the storage room the two test Shelly plugs take
     disks1's and disks2's places for now. The droppers (2.3: cycling, tv, gray_sideboard,
-    red_highboard, cycling_fans) wait -- to be seen later. Kept in mind: a second
+    red_highboard, cycling_fans) wait -- to be seen later.
+    disks1 is the Shelly shellyplug-6CC3D8 since 2026-11-13 14:12 UTC (the former test_shelly_plug,
+    its block moved into disks1's place in the Shelly section; switch and node keep disks1's
+    frozen IDs; power, energy and consumes new; the Innr's firmware entity is left unavailable in
+    the registry). disks2 follows with shellyplug-6CC43B.
+    Found on the way: (a) a Shelly block in the Zigbee2MQTT section isn't recognised ("shelly"
+    line unrecognised), and the generator's stable-id assignment then appended a second "as
+    unique_id" to each capability that already had one -- it should leave a frozen ID alone, also
+    in a misparsed block; (b) the deploy's reload check failed twice today (10:37, 14:13) with
+    "system_log/list: websocket: close 1006 (abnormal closure)" -- the check itself, not HA's
+    reload: to look into. Kept in mind: a second
     Junglinster network on the old TI stick (a new IEEE -- its own is the one the ZBT-2 carries
     -- its old network wiped, channel 25, its own Zigbee2MQTT and gateway), if more such devices
     turn up.
