@@ -158,8 +158,9 @@ JLI
       version 1.1. Built and deployed 2026-11-13 (option A): `duofern cover "<code>" heard by
       ...;` in an `integration fhem` device (README); the RolloTron is utility.test_rollotron
       (not yet at a window) -> cover.social_house_test_rollotron, position 57 in HA (43 in
-      DuoFern), node on. Next: a command round trip from HA (up/down/stop/position); then the
-      real window.
+      DuoFern), node on. Round trip from HA (17:51): set_cover_position 70 -> FHEM position 30,
+      reported 29, HA 71; open_cover -> up, DuoFern 0, HA 100. Next: the real window (a rename
+      from test_rollotron, its frozen IDs kept).
 
     The test dimmer is a governed light too (brightness, "on at 60 %", default off). To build (the plan's step 4): confirmations (the shadow state), the
     de-doubled transmitters and sensors, DuoFern. An FS20 remote is a set of buttons (Erik): its presses
