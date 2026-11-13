@@ -592,7 +592,8 @@ https://dev.netatmo.com/apidocumentation/webhooks
 
 57. Junglinster, weekend 2026-11-14/15 (Erik on site): change the batteries the battery warnings
     name -- the frient in the laundry kitchen front and the Aqara magnet on the living room
-    windows. Re-pair the office plugs (54); test the slow
+    windows. The coordinator stick's EUI64 check, and its NVM3 reset if needed (54; started
+    2026-11-13). Re-pair the office plugs (54); test the slow
     cover and disable the low-speed entities (56); insert the DuoFern stick into p-s-2 or p-s-3
     (37). Update HA main. Test the FS20 dimmer's dimming with an incandescent bulb; DuoFern if
     there is time.
