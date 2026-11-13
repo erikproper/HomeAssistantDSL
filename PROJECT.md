@@ -664,17 +664,9 @@ https://dev.netatmo.com/apidocumentation/webhooks
     Checked 2026-11-09: no failed units, no other bridge-network containers, p-s-2 and frame
     already on kernel 1020 with a clean boot state.
 
-56. Overkiz's low-speed covers (Home Assistant 2026.11 deprecates them, gone in 2027.5): the
-    slow covers now command their cover itself with "speed: slow" ("slow speed;" without a
-    source, README "Covers with a slow speed"); generated, deployed to Junglinster's coordinator
-    and ha2mqtt 2026-11-10, all seven slow covers on main available. Tested 2026-11-13 (Erik): a
-    slow cover runs slowly. Left: disable the seven cover.*_low_speed entities in Overkiz on
-    ha2mqtt and restart it, so the repair messages go.
-
 57. Junglinster, weekend 2026-11-14/15 (Erik on site): change the batteries the battery warnings
     name -- the frient in the laundry kitchen front and the Aqara magnet on the living room
-    windows; take the batteries out of the removed Aqaras (54, the unknown node). Disable the
-    low-speed entities (56). Test the FS20 dimmer's dimming with an incandescent bulb. disks1
+    windows; take the batteries out of the removed Aqaras (54, the unknown node). Test the FS20 dimmer's dimming with an incandescent bulb. disks1
     and disks2 back to their Innrs (54; Zigbee2MQTT: 0xc4988600000f73e3 -> house/storage_room/
     disks1; Physical.def: both back into the Zigbee2MQTT section, switch and node frozen IDs kept;
     the Shellys' power/energy/consumes go, the firmware entity returns). The two Shellys then go
