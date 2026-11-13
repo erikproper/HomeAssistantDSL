@@ -60,11 +60,13 @@ type TFHEMInstallation struct {
 	Serials []TFHEMSerial
 }
 
-// TFHEMSerial is a serial device of an installation: its kind (fhemSerialKinds) and its full
-// path, as FHEM takes it ("COM3" on Windows).
+// TFHEMSerial is a serial device of an installation: its kind (fhemSerialKinds), its full path,
+// as FHEM takes it ("COM3" on Windows), and its code if its kind has one (a DuoFern stick's; a
+// Settings.def variable, resolved by resolveFHEMSerialCodes).
 type TFHEMSerial struct {
 	Kind string
 	Path string
+	Code string
 }
 
 // TFHEMDevice is a "device <id> with: ... end;" of the block.
@@ -86,18 +88,53 @@ type TFS20Address struct {
 	HeardBy   []string
 }
 
-// TFHEMSerialKind is what a serial device kind is to FHEM: the line defining it, and the radio
-// channels it serves.
+// TFHEMSerialKind is what a serial device kind is to FHEM: the line defining it, the radio
+// channels it serves, and whether it takes a code ("code \"...\"").
 type TFHEMSerialKind struct {
-	Define   func(name, path string) string
+	Define   func(name, path, code string) string
 	Channels []string
+	HasCode  bool
 }
 
 // fhemSerialKinds are the serial devices an installation may have. A CUL's FHT id 0000 keeps it
-// from sending FHT messages; FS20 needs none.
+// from sending FHT messages; FS20 needs none. A DuoFern stick's code (6F and four hex digits) is
+// the address its covers are paired to: the old setup's, kept (PROJECT.md 37, 2026-11-13).
 var fhemSerialKinds = map[string]TFHEMSerialKind{
-	"cul": {Define: func(name, path string) string { return "define " + name + " CUL " + path + "@9600 0000" }, Channels: []string{"fs20"}},
-	"fhz": {Define: func(name, path string) string { return "define " + name + " FHZ " + path }, Channels: []string{"fs20"}},
+	"cul": {Define: func(name, path, _ string) string { return "define " + name + " CUL " + path + "@9600 0000" }, Channels: []string{"fs20"}},
+	"fhz": {Define: func(name, path, _ string) string { return "define " + name + " FHZ " + path }, Channels: []string{"fs20"}},
+	"duofern": {
+		Define: func(name, path, code string) string {
+			return "define " + name + " DUOFERNSTICK " + path + "@115200 " + code
+		},
+		Channels: []string{"duofern"},
+		HasCode:  true,
+	},
+}
+
+// duofernStickCode is a DuoFern stick's code: 6F and four hex digits.
+var duofernStickCode = regexp.MustCompile(`^6[Ff][0-9A-Fa-f]{4}$`)
+
+// resolveFHEMSerialCodes replaces each serial device's code by its Settings.def value, and
+// reports a code that isn't a Settings.def variable, or that isn't a DuoFern stick's code.
+func resolveFHEMSerialCodes(installations []TFHEMInstallation, settings map[string]string) []string {
+	var warnings []string
+	for i := range installations {
+		for j := range installations[i].Serials {
+			serial := &installations[i].Serials[j]
+			if serial.Code == "" {
+				continue
+			}
+			resolved := resolveSettingsVar(serial.Code, settings)
+			switch {
+			case !bareSettingsVariablePattern.MatchString(serial.Code) || resolved == serial.Code:
+				warnings = append(warnings, fmt.Sprintf("installation %q: %s code %s is no Settings.def variable -- write it as \"${<name>}\" with the value in Settings.def", installations[i].Host, serial.Kind, serial.Code))
+			case !duofernStickCode.MatchString(resolved):
+				warnings = append(warnings, fmt.Sprintf("installation %q: %s code %s is no DuoFern stick code (6F and four hex digits)", installations[i].Host, serial.Kind, serial.Code))
+			}
+			serial.Code = resolved
+		}
+	}
+	return warnings
 }
 
 // TFS20Kind is an FS20 kind (the old FS20.Create's four): the capability it must have, and how
@@ -213,7 +250,7 @@ func fhemConfig(installation TFHEMInstallation, devices []TFHEMDevice, broker TM
 	for _, serial := range installation.Serials {
 		counts[serial.Kind]++
 		name := fmt.Sprintf("%s_%d", serial.Kind, counts[serial.Kind])
-		line("%s", fhemSerialKinds[serial.Kind].Define(name, serial.Path))
+		line("%s", fhemSerialKinds[serial.Kind].Define(name, serial.Path, serial.Code))
 		if fs20Radio == "" && slices.Contains(fhemSerialKinds[serial.Kind].Channels, "fs20") {
 			fs20Radio = name
 		}
@@ -307,6 +344,7 @@ func fs20DimExpression() string {
 // installation its fhem/<host>/fhem.cfg and fhem/<host>/secrets.
 func generateFHEMIntegrationOutputs(bodyLines []string, ctx TPhysicalGenerationContext) error {
 	installations, devices, warnings := parseFHEMIntegrationBody(bodyLines)
+	warnings = append(warnings, resolveFHEMSerialCodes(installations, ctx.Settings)...)
 	warnings = append(warnings, checkFHEMIntegration(installations, devices)...)
 	for _, w := range warnings {
 		fmt.Printf("[integration fhem] %s\n", w)

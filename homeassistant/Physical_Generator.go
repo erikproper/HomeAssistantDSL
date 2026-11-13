@@ -132,6 +132,7 @@ func generatePhysicalIntegrationOutputs(definitionDir, outputRoot, haOutputDir s
 		MQTTDiscoveryConceptualPrefix: resolveMQTTDiscoveryConceptualPrefix(definitionDir),
 		Installation:                  resolveInstallationName(definitionDir),
 		DiscoveryExistenceAggregate:   &tDiscoveryExistenceFetchResult{},
+		Settings:                      parseDefinitionAssignments(readCombinedSettingsContent(definitionDir)),
 	}
 	verifyLocalBrokerInstallation(ctx)
 

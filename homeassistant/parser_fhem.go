@@ -11,7 +11,8 @@
  *   FHEMBody:        FHEMStatement*
  *   FHEMStatement:   Installation | FHEMDevice
  *   Installation:    "installation" Word "with" ":" SerialDevice* "end" ";"
- *   SerialDevice:    Word String ";"                    -- its kind (fhemSerialKinds) and full path
+ *   SerialDevice:    Word String [ "code" String ] ";"  -- its kind (fhemSerialKinds), full path,
+ *                                                       -- and code, if its kind has one
  *   FHEMDevice:      "device" DeviceID "with" ":" DeviceStatement* "end" ";"
  *   DeviceStatement: FS20Statement | Copies | Capability
  *   FS20Statement:   "fs20" Word String String "heard" "by" Word ( "," Word )* ";"
@@ -103,12 +104,14 @@ func (p *TFHEMParser) Installation() bool {
 		/**/ p.AppendInstallation(installation)
 }
 
-// SerialDevice: Word String ";"
+// SerialDevice: Word String [ "code" String ] ";"
 func (p *TFHEMParser) SerialDevice(installation *TFHEMInstallation) bool {
 	var serial TFHEMSerial
 	return p.ForcedThisWord(&serial.Kind, MessageSerialKind) &&
 		/**/ p.KnownSerialKind(serial.Kind) &&
 		/**/ p.ForcedThisString(&serial.Path, MessageSerialPath) &&
+		/**/ (!fhemSerialKinds[serial.Kind].HasCode || p.ForcedThisWordWas("code")) &&
+		/**/ (!fhemSerialKinds[serial.Kind].HasCode || p.ForcedThisString(&serial.Code, MessageSerialCode)) &&
 		/**/ p.ForcedThisPunctuationWas(';') &&
 		/**/ p.AppendSerial(installation, serial)
 }

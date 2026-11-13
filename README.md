@@ -327,12 +327,16 @@ entity switch.social:picture_frame from host.frame entity slideshow;
 ### Devices (the `fhem` integration)
 
 FHEM installations, named by their host, and the FS20 devices they serve (PROJECT.md 37). Each
-installation lists its serial devices -- `cul` or `fhz`, with the full path FHEM opens:
+installation lists its serial devices -- `cul`, `fhz` or `duofern`, with the full path FHEM opens;
+a `duofern` stick also has its code, the address its covers are paired to (6F and four hex digits),
+written as a Settings.def variable:
 
 ```
 integration fhem with:
   installation protocols-server-2 with:
     cul "/dev/serial/by-id/usb-busware.de_CUL868-if00";
+    duofern "/dev/serial/by-id/usb-Rademacher_DuoFern_USB-Stick_WR00S1AX-if00-port0"
+      code "${duofern_code}";
   end;
   installation protocols-server-3 with:
     fhz "/dev/serial/by-id/usb-ELV_AG_ELV_FHZ_1000_PC_ELTLYOUK-if00-port0";

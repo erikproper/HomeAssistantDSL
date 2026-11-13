@@ -12,6 +12,7 @@ var fhemTestBody = []string{
 	"end;",
 	"installation protocols-server-3 with:",
 	`  fhz "/dev/serial/by-id/usb-ELV_AG_ELV_FHZ_1000_PC_ELTLYOUK-if00-port0";  # the old one`,
+	`  duofern "/dev/serial/by-id/usb-Rademacher_DuoFern_USB-Stick_WR00S1AX-if00-port0" code "${duofern_code}";`,
 	"end;",
 	"device radio.hallway_lamp with:",
 	`  fs20 switch "1234" "02" heard by protocols-server-2;`,
@@ -54,6 +55,8 @@ func TestParseFHEMIntegrationErrors(t *testing.T) {
 		"usb":                    {`installation h with: usb "/dev/x"; end;`},
 		"12G4":                   {`device radio.x with: fs20 switch "12G4" "01" heard by h; end;`},
 		"blinds":                 {`device radio.x with: fs20 blinds "1234" "01" heard by h; end;`},
+		"code":                   {`installation h with: duofern "/dev/x"; end;`},
+		"expected \";\"":         {`installation h with: cul "/dev/x" code "${c}"; end;`},
 		"fs20":                   {`device radio.x with: fs20 switch "1234" "01" heard by h; fs20 switch "1234" "02" heard by h; end;`},
 		"installation or device": {"capability button.set;"},
 	}
@@ -155,5 +158,34 @@ func TestFHEMTransmitter(t *testing.T) {
 	if strings.Contains(config, "eventMap") || strings.Contains(config, "buttons.remote.command") ||
 		!strings.Contains(config, "define buttons.remote.publish notify buttons\\.remote:.* set mqtt publish fhem/fs20/buttons.remote $EVENT\n") {
 		t.Errorf("fhem.cfg:\n%s", config)
+	}
+}
+
+// TestFHEMDuoFernStick: a DuoFern stick's code is a Settings.def variable, resolved into its
+// DUOFERNSTICK line; a literal code, an unknown variable and a malformed code are reported.
+func TestFHEMDuoFernStick(t *testing.T) {
+	installations, devices, warnings := parseFHEMIntegrationBody(fhemTestBody)
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v", warnings)
+	}
+	if problems := resolveFHEMSerialCodes(installations, map[string]string{"duofern_code": `"6FEDCB"`}); len(problems) != 0 {
+		t.Fatalf("problems = %v", problems)
+	}
+	config := fhemConfig(installations[1], devices, TMQTTBrokerSecrets{Server: "ps1.example", Port: "1883"})
+	want := "define duofern_1 DUOFERNSTICK /dev/serial/by-id/usb-Rademacher_DuoFern_USB-Stick_WR00S1AX-if00-port0@115200 6FEDCB\n"
+	if !strings.Contains(config, want) {
+		t.Errorf("fhem.cfg lacks %q:\n%s", want, config)
+	}
+	for code, settings := range map[string]map[string]string{
+		`"6FEDCB"`:    {},
+		`"${other}"`:  {"duofern_code": `"6FEDCB"`},
+		`"${short}"`:  {"short": `"6F12"`},
+		`"${notsix}"`: {"notsix": `"7FEDCB"`},
+	} {
+		body := []string{"installation h with: duofern \"/dev/x\" code " + code + "; end;"}
+		installations, _, _ := parseFHEMIntegrationBody(body)
+		if problems := resolveFHEMSerialCodes(installations, settings); len(problems) != 1 {
+			t.Errorf("code %s with %v: problems = %v, want one", code, settings, problems)
+		}
 	}
 }

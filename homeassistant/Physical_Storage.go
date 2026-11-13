@@ -31,6 +31,7 @@ type TPhysicalGenerationContext struct {
 	HAOutputDir     string                // main instance's HA YAML tree (hass/<incarnation>), for output HA itself must consume (e.g. reporting automations)
 	Admin           *TAdministrationState // conceptual layer's parsed state (Spaces.def), for integrations that look up conceptual-layer linkage (e.g. "hosts" devices via Conceptual_DeviceEntities.go)
 	MQTTSecrets     TMQTTBrokerSecrets    // main MQTT broker connection secrets, resolveMQTTBrokerSecrets (defined.go) -- zero value when HasMQTTSecrets is false
+	Settings        map[string]string     // Settings.def's variables (shared, then the house's), for a field taking "${name}" (e.g. a DuoFern stick's code)
 	HasMQTTSecrets  bool
 	// MQTTBrokerProfiles holds every named "mqtt <name>: ...; end;" broker declared in
 	// Physical.def (resolveMQTTBrokerProfiles, defined.go), keyed by name -- e.g. "main", "cloud".
