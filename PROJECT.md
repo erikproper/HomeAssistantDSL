@@ -611,7 +611,15 @@ https://dev.netatmo.com/apidocumentation/webhooks
     single entries (ember-zli's Repairs menu? else EZSP eraseKeyTableEntry with Zigbee2MQTT
     stopped; not by restoring an edited token backup -- it would reset the frame counters);
     erase the six stale ones; a live device's entry goes before it is re-paired.
-    CONFIG.NEIGHBOR_TABLE_SIZE is 16 (firmware default) in a network of 56 routers. Kept in mind: a second
+    CONFIG.NEIGHBOR_TABLE_SIZE is 16 (firmware default) in a network of 56 routers.
+    Confirmed 2026-11-13: the six stale entries erased (17:12 UTC, Zigbee2MQTT off ~6 s; a script
+    on ember-zli's own EZSP library, ~/ember-zli/ember-zli/keytable.mjs on p-s-1: lists the
+    partners, --erase erases the listed stale ones -- ezspEraseKeyTableEntry), the six live ones
+    kept. Then the old media_drive (0x74057c0000004726) joined at 17:14:17 with
+    TC_REQUESTER_VERIFY_KEY_SUCCESS and stayed. So the 2.03.10 plugs can join this stick after all;
+    before re-pairing a device with a live entry (shredder, red_highboard, the Philips motion
+    sensors and dimmer, the NodOn), erase its entry first. Whether the three still go to Vienna:
+    Erik's call. Kept in mind: a second
     Junglinster network on the old TI stick (a new IEEE -- its own is the one the ZBT-2 carries
     -- its old network wiped, channel 25, its own Zigbee2MQTT and gateway), if more such devices
     turn up.
