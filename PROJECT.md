@@ -555,9 +555,10 @@ https://dev.netatmo.com/apidocumentation/webhooks
     0x00124b002a2e3ee0, "EUI64 match. No fix required." -- so not that bug; no NVM3 clear.
     Left: SP 220 2.03.10 against EmberZNet 7.5.1's link-key verification. Only three plugs in
     Junglinster have 2.03.10 (disks1, disks2, the old media_drive); Vienna's five 2.03.10 run
-    fine on its TI stick. Decided (Erik, 2026-11-13): the problem Innrs go to Vienna, to see
-    whether they stay stable there; SP 240s take their places in Junglinster (Physical.def's
-    hardware lines swapped as for media_drive, the frozen IDs kept). Kept in mind: a second
+    fine on its TI stick. Decided (Erik, 2026-11-13): the three 2.03.10 plugs go to Vienna, to
+    see whether they stay stable there; in the storage room the two test Shelly plugs take
+    disks1's and disks2's places for now. The droppers (2.3: cycling, tv, gray_sideboard,
+    red_highboard, cycling_fans) wait -- to be seen later. Kept in mind: a second
     Junglinster network on the old TI stick (a new IEEE -- its own is the one the ZBT-2 carries
     -- its old network wiped, channel 25, its own Zigbee2MQTT and gateway), if more such devices
     turn up.
