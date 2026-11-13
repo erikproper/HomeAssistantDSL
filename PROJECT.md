@@ -657,13 +657,6 @@ https://dev.netatmo.com/apidocumentation/webhooks
     Pi A/B boot had kept it in new/ since 2026-10-16, still marked "bad" from a July test boot of an
     earlier kernel ("piboot-try --reset-new --reboot" tried it; now current/ good, old/ 1017).
 
-    Junglinster, planned for 2026-11-10 (Erik, when the house is empty): update.containers;
-    reboot protocols-server-1 into kernel 43 (x86, a plain reboot); on protocols-server-3 the 9
-    pending packages (firmware, kernel 6.18.60) and a reboot. FHEM itself (held by its package)
-    only deliberately, on p-s-2 and p-s-3 together, checking the generated fhem.cfg still loads.
-    Checked 2026-11-09: no failed units, no other bridge-network containers, p-s-2 and frame
-    already on kernel 1020 with a clean boot state.
-
 57. Junglinster, weekend 2026-11-14/15 (Erik on site): change the batteries the battery warnings
     name -- the frient in the laundry kitchen front and the Aqara magnet on the living room
     windows; take the batteries out of the removed Aqaras (54, the unknown node). Test the FS20
@@ -671,5 +664,8 @@ https://dev.netatmo.com/apidocumentation/webhooks
     Zigbee2MQTT: 0xc4988600000f73e3 -> house/storage_room/disks1; Physical.def: both back into the Zigbee2MQTT section, switch and node frozen IDs kept;
     the Shellys' power/energy/consumes go, the firmware entity returns). The two Shellys then go
     back to their test declarations (switches.test_shelly_plug, ..._2, their old frozen IDs): they
-    and the FS20 test devices stay as the ultimate backups (Erik).
+    and the FS20 test devices stay as the ultimate backups (Erik). If there is time: the updates
+    pending since (checked 2026-11-13) -- p-s-1 5 packages and a reboot it asks for; p-s-3 about
+    45 (kernel, OpenSSL, FHEM). FHEM itself (held by its package) only deliberately, on p-s-2 and
+    p-s-3 together, checking the generated fhem.cfg still loads (now with the DuoFern stick).
 
