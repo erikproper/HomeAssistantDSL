@@ -255,6 +255,15 @@ So, not offering local devices from HA to matter.
     add-on is gone. Next: a first Matter device in Vienna (commissioned through ha2mqtt, its
     entities onto the bus); the same setup for Junglinster.
 
+    Junglinster, 2026-11-13: the SkyConnect moved from the Green to protocols-server-1 (Erik;
+    /dev/serial/by-id/usb-Nabu_Casa_SkyConnect_v1.0_3c093a724bedec11977e4740ad51a8b2-if00-port0);
+    Vienna's otbr.container, matter.container and sysctl file, with backbone eno1 (instead of
+    eth0). Both active, the RCP answers (Thread 1.4.0); no network formed yet, no Thread devices.
+    Next (Erik, in the UIs): on the Green, remove the OTBR add-on and its two "Home Assistant
+    Connect ZBT-1 (OpenThread Border Router)" entries and the SkyConnect entry (setup_retry);
+    on ha2mqtt, add Open Thread Border Router (http://127.0.0.1:8081), Thread and Matter
+    (ws://127.0.0.1:5580/ws) -- the first forms the network.
+
 41. Publish -- Architecture.md should be ready for others to read, alongside an up-to-date
     README.md, on GitHub.
 
