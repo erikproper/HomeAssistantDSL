@@ -513,11 +513,14 @@ https://dev.netatmo.com/apidocumentation/webhooks
     prefix), a sleeping end device, 29181, child of the stick, not in Zigbee2MQTT's device list --
     likely one of the redundant Aqaras Erik removed; batteries out, so the stick ages it out.
     Then pair it next to the stick and rename it house/office/media_drive.
-    Weekend 2026-11-14/15 (Erik, on site; item 57): update the stick's own firmware to EmberZNet 8.x (larger
-    route and address tables, what Zigbee2MQTT's ember docs recommend) -- first which stick it is,
-    then stop Zigbee2MQTT, back up its data folder, flash from a Mac with the maker's web flasher,
-    and start again (the network stays in the stick, else coordinator_backup.json restores it).
-    Then recount the drops.
+    The stick is a Nabu Casa ZBT-2 (serial ...5AB8, next to the ZWA-2). Its firmware update is on
+    hold (Erik, 2026-11-13: conservative): 7.5.1 is Nabu Casa's newest stable ZBT-2 Zigbee
+    firmware (v2026.02.23); there is no 8.x, only 9.1.1 as a beta (v2026.08.18-beta1,
+    v2026.09.17-beta2). Look again when a 9.x is stable, and check Zigbee2MQTT's ember driver
+    supports it. How: stop Zigbee2MQTT, back up /var/lib/home-automation/zigbee, unplug the ZBT-2,
+    flash from a Mac in Chrome/Edge (WebSerial; Firefox can't) with toolbox.openhomefoundation.org,
+    plug it back into any port (the quadlet finds it by serial ID), start, check bridge/info: new
+    revision, IEEE still 0x00124b002a2e3ee0. Then recount the drops.
 
 55. Podman's bridge broke on Vienna's protocols-server-1 (2026-11-09, during update.containers):
     every start of mosquitto (the only container there on podman's bridge network) failed with
@@ -551,8 +554,7 @@ https://dev.netatmo.com/apidocumentation/webhooks
 
 57. Junglinster, weekend 2026-11-14/15 (Erik on site): change the batteries the battery warnings
     name -- the frient in the laundry kitchen front and the Aqara magnet on the living room
-    windows. Update the coordinator stick's firmware to EmberZNet 8.x (54). Re-pair the office
-    plugs (54); test the slow
+    windows. Re-pair the office plugs (54); test the slow
     cover and disable the low-speed entities (56); insert the DuoFern stick into p-s-2 or p-s-3
     (37). Update HA main. Test the FS20 dimmer's dimming with an incandescent bulb; DuoFern if
     there is time.
