@@ -262,7 +262,7 @@ So, not offering local devices from HA to matter.
     Thread Border Router (http://127.0.0.1:8081), Thread and Matter (ws://127.0.0.1:5580/ws)
     integrations (Erik): the border router is leader of Junglinster's own Thread network, ha2mqtt
     is connected to the Matter Server. The Green's OTBR, Thread and SkyConnect entries are gone;
-    its Matter entry is left, not loaded.
+    what's left there for Matter (and ZHA) are ignored discoveries.
 
 41. Publish -- Architecture.md should be ready for others to read, alongside an up-to-date
     README.md, on GitHub.
