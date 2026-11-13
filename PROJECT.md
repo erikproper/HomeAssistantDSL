@@ -619,7 +619,12 @@ https://dev.netatmo.com/apidocumentation/webhooks
     TC_REQUESTER_VERIFY_KEY_SUCCESS and stayed. So the 2.03.10 plugs can join this stick after all;
     before re-pairing a device with a live entry (shredder, red_highboard, the Philips motion
     sensors and dimmer, the NodOn), erase its entry first. Whether the three still go to Vienna:
-    Erik's call. Kept in mind: a second
+    Erik's call.
+    All three re-paired 2026-11-13, keys verified: 0x74057c0000004726 (17:14, unnamed), disks2
+    0x74057c000000dbcf (17:40 -- twice before it joined straight to the far stick and left after
+    17-21 s; through a neighbouring plug it stayed), disks1 0xc4988600000f73e3 (17:50, unnamed;
+    joining open on all routers). Placement and names: Erik's; Zigbee2MQTT still calls one
+    "house/storage_room/disks2", which the Shelly is now. Kept in mind: a second
     Junglinster network on the old TI stick (a new IEEE -- its own is the one the ZBT-2 carries
     -- its old network wiped, channel 25, its own Zigbee2MQTT and gateway), if more such devices
     turn up.
