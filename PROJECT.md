@@ -666,9 +666,9 @@ https://dev.netatmo.com/apidocumentation/webhooks
 
 57. Junglinster, weekend 2026-11-14/15 (Erik on site): change the batteries the battery warnings
     name -- the frient in the laundry kitchen front and the Aqara magnet on the living room
-    windows; take the batteries out of the removed Aqaras (54, the unknown node). Test the FS20 dimmer's dimming with an incandescent bulb. disks1
-    and disks2 back to their Innrs (54; Zigbee2MQTT: 0xc4988600000f73e3 -> house/storage_room/
-    disks1; Physical.def: both back into the Zigbee2MQTT section, switch and node frozen IDs kept;
+    windows; take the batteries out of the removed Aqaras (54, the unknown node). Test the FS20
+    dimmer's dimming with an incandescent bulb. disks1 and disks2 back to their Innrs (54;
+    Zigbee2MQTT: 0xc4988600000f73e3 -> house/storage_room/disks1; Physical.def: both back into the Zigbee2MQTT section, switch and node frozen IDs kept;
     the Shellys' power/energy/consumes go, the firmware entity returns). The two Shellys then go
     back to their test declarations (switches.test_shelly_plug, ..._2, their old frozen IDs): they
     and the FS20 test devices stay as the ultimate backups (Erik).
