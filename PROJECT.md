@@ -529,6 +529,17 @@ https://dev.netatmo.com/apidocumentation/webhooks
     and the old plug's retained discovery configs (homeassistant.physical/+/0x74057c0000004726/...)
     are still on the broker. The generator's firmware updates took the stale update leaf over
     the positioned one (fixed: firmware_updates.go keeps a positioned link).
+    Plug models (failed ping rounds 11-06..11-13): the six SP 240s 0 each; SP 220/120 0-71
+    (cycling 71, tv 51, gray_sideboard 48, red_highboard 44, cycling_fans 42); Vienna's SP 220s
+    (2.03.10) and SP 120 0 each. 2026-11-13 ~12:35 disks1 (SP 220, 2.03.10) offline; Erik removed
+    it (forced, 12:51), disks2 (SP 220, 2.03.10) left 20 s later. SP 220 2.03.10 plugs don't stay
+    on the stick: old media_drive, disks2, disks1 (joined 13:05 and 13:09, after a Zigbee2MQTT
+    restart that resets the stick's tables) all leave 10-20 s after a successful join and
+    interview, with no error logged; the 2.3/2.0 ones (cycling, cycling_fans, mini_fans) re-paired
+    fine this morning. Guess: the link-key exchange after the join. A debug-log try (13:11-13:15)
+    caught no attempt (disks1 had stopped searching). The drops themselves were partly there on
+    the old TI stick too (Erik). Idea (Erik): the 2.03.10 and worst SP 220s to Vienna, its
+    non-SP 220/120 plugs (nespresso SP 240, workplace SONOFF) or new SP 240s to Junglinster.
     The stick is a Nabu Casa ZBT-2 (serial ...5AB8, next to the ZWA-2). Its firmware update is on
     hold (Erik, 2026-11-13: conservative): 7.5.1 is Nabu Casa's newest stable ZBT-2 Zigbee
     firmware (v2026.02.23); there is no 8.x, only 9.1.1 as a beta (v2026.08.18-beta1,
