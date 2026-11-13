@@ -569,7 +569,15 @@ https://dev.netatmo.com/apidocumentation/webhooks
     unique_id" to each capability that already had one -- it should leave a frozen ID alone, also
     in a misparsed block; (b) the deploy's reload check failed three times today (10:37, 14:13, 14:18) with
     "system_log/list: websocket: close 1006 (abnormal closure)" -- the check itself, not HA's
-    reload: to look into. Kept in mind: a second
+    reload: to look into.
+    Next week in Vienna (Erik, decided 2026-11-13): reset SP 220s (2.03.10, from Junglinster)
+    replace nespresso's SP 240 (appliance.living_room_kitchen_nespresso) and workplace's SONOFF
+    (light.living_room_kitchen_workplace) -- pure hardware swaps in Vienna's Physical.def (new IEEE
+    and model lines, frozen IDs kept; neither uses power or energy); Vienna's SP 120 (tv) is
+    replaced too, and goes to Junglinster as a test: first just plugged in (paired, undeclared),
+    to see whether it holds up there. SP 120s drop in Junglinster as well (studio 0,
+    hanging_sideboard 14, mini_fans 25 failed ping rounds 11-06..11-13), so the drops aren't
+    SP 220-only; the join failure is (2.03.10 only). Junglinster's own spare SP 240 stays a spare. Kept in mind: a second
     Junglinster network on the old TI stick (a new IEEE -- its own is the one the ZBT-2 carries
     -- its old network wiped, channel 25, its own Zigbee2MQTT and gateway), if more such devices
     turn up.
