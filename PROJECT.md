@@ -145,17 +145,18 @@ JLI
     Next weekend (Erik, on site, 2026-11-14/15):
     - FS20 left in Junglinster: only switches, no sensors or transmitters (Erik, 2026-11-13) --
       nothing to test there beyond the switches.
-    - DuoFern stick in protocols-server-2 since 2026-11-13 (Erik): FTDI FT232R,
-      /dev/serial/by-id/usb-Rademacher_DuoFern_USB-Stick_WR00S1AX-if00-port0 (ttyUSB0), next to
-      the CUL868. In FHEM since 16:27 UTC: Physical.def's `duofern "<path>" code
-      "${duofern_code}";` (the old setup's code 6FEDCB, in Settings.def) gives
-      `define duofern_1 DUOFERNSTICK <path>@115200 6FEDCB`; state "opened". But the stick
-      doesn't initialise: FHEM sends its init frame (0100..00, 22 bytes) four times, the stick
-      answers a single byte "c2" each time, then "Cannot init ..., ignoring it" (verbose 5,
-      16:42). So no statusBroadcast answer, no frame on a manual move, "no ACK" from the old
-      setup's only DuoFern device, a RolloTron 406DDD (master bedroom). Next: replug the stick
-      and reopen; else try it on another machine -- then the covers and a `duofern cover ...`
-      statement (the plan).
+    - DuoFern stick (2026-11-13): FTDI FT232R, the old setup's one stick,
+      /dev/serial/by-id/usb-Rademacher_DuoFern_USB-Stick_WR00S1AX-if00-port0. Physical.def's
+      `duofern "<path>" code "${duofern_code}";` (the old code 6FEDCB, in Settings.def) gives
+      `define duofern_1 DUOFERNSTICK <path>@115200 6FEDCB`. On protocols-server-2, behind a USB
+      extension cable, it never initialised (it answered FHEM's init frame with single bytes,
+      "c2"/"80"; no under-voltage reported); directly in protocols-server-3 it answers properly
+      and FHEM has it "Initialized" (16:57 UTC), so it's declared there. The old setup's only
+      DuoFern device, a RolloTron 406DDD (master bedroom; the old bash module was
+      Old/RecentOld/mods/bridge_duofern.mod), still answers there: position 43 (DuoFern: 0 open,
+      100 closed; the old setup published 100 - position), manualMode on, its automatics off,
+      version 1.1. Next: a `duofern cover "<code>" heard by ...;` statement (the plan) -- FHEM
+      publishing its position, taking up/stop/down/position -- and its cover entity in HA.
 
     The test dimmer is a governed light too (brightness, "on at 60 %", default off). To build (the plan's step 4): confirmations (the shadow state), the
     de-doubled transmitters and sensors, DuoFern. An FS20 remote is a set of buttons (Erik): its presses
