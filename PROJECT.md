@@ -149,8 +149,13 @@ JLI
       /dev/serial/by-id/usb-Rademacher_DuoFern_USB-Stick_WR00S1AX-if00-port0 (ttyUSB0), next to
       the CUL868. In FHEM since 16:27 UTC: Physical.def's `duofern "<path>" code
       "${duofern_code}";` (the old setup's code 6FEDCB, in Settings.def) gives
-      `define duofern_1 DUOFERNSTICK <path>@115200 6FEDCB`; state "opened". Next: the DuoFern
-      covers -- what FHEM sees of them, then a `duofern cover ...` statement (the plan).
+      `define duofern_1 DUOFERNSTICK <path>@115200 6FEDCB`; state "opened". But the stick
+      doesn't initialise: FHEM sends its init frame (0100..00, 22 bytes) four times, the stick
+      answers a single byte "c2" each time, then "Cannot init ..., ignoring it" (verbose 5,
+      16:42). So no statusBroadcast answer, no frame on a manual move, "no ACK" from the old
+      setup's only DuoFern device, a RolloTron 406DDD (master bedroom). Next: replug the stick
+      and reopen; else try it on another machine -- then the covers and a `duofern cover ...`
+      statement (the plan).
 
     The test dimmer is a governed light too (brightness, "on at 60 %", default off). To build (the plan's step 4): confirmations (the shadow state), the
     de-doubled transmitters and sensors, DuoFern. An FS20 remote is a set of buttons (Erik): its presses
