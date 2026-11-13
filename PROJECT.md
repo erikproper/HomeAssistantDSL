@@ -145,7 +145,9 @@ JLI
     Next weekend (Erik, on site, 2026-11-14/15):
     - See whether there are FHZ/FHM sensors or controls around (transmitters, sensors: the
       de-doubled events and states of the plan's step 4).
-    - Insert the DuoFern stick into one of the two Pis (then: its serial kind, and DuoFern covers).
+    - DuoFern stick in protocols-server-2 since 2026-11-13 (Erik): FTDI FT232R,
+      /dev/serial/by-id/usb-Rademacher_DuoFern_USB-Stick_WR00S1AX-if00-port0 (ttyUSB0), next to
+      the CUL868. Next: FHEM's DUOFERNSTICK on it (usually 115200 baud), then DuoFern covers.
 
     The test dimmer is a governed light too (brightness, "on at 60 %", default off). To build (the plan's step 4): confirmations (the shadow state), the
     de-doubled transmitters and sensors, DuoFern. An FS20 remote is a set of buttons (Erik): its presses
@@ -623,7 +625,6 @@ https://dev.netatmo.com/apidocumentation/webhooks
 57. Junglinster, weekend 2026-11-14/15 (Erik on site): change the batteries the battery warnings
     name -- the frient in the laundry kitchen front and the Aqara magnet on the living room
     windows; take the batteries out of the removed Aqaras (54, the unknown node). Test the slow
-    cover and disable the low-speed entities (56); insert the DuoFern stick into p-s-2 or p-s-3
-    (37). Test the FS20 dimmer's dimming with an incandescent bulb; DuoFern if
+    cover and disable the low-speed entities (56). Test the FS20 dimmer's dimming with an incandescent bulb; DuoFern if
     there is time.
 
