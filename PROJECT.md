@@ -628,8 +628,9 @@ https://dev.netatmo.com/apidocumentation/webhooks
     Pairing an Innr (Erik): open joining first, then reset or plug it in -- it searches only
     briefly and gives up if joining isn't open yet (as disks1 did at 17:18). After the join it
     sometimes needs unplugging and plugging back in to work properly -- try that before a new
-    reset if it leaves or doesn't answer. Kept in mind: a second
-    Junglinster network on the old TI stick (a new IEEE -- its own is the one the ZBT-2 carries
+    reset if it leaves or doesn't answer.
+    Kept in mind (less needed since the key-table fix): a second Junglinster network on the old TI
+    stick (a new IEEE -- its own is the one the ZBT-2 carries
     -- its old network wiped, channel 25, its own Zigbee2MQTT and gateway), if more such devices
     turn up.
     The stick is a Nabu Casa ZBT-2 (serial ...5AB8, next to the ZWA-2). Its firmware update is on
