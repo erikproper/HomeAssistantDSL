@@ -484,6 +484,10 @@ https://dev.netatmo.com/apidocumentation/webhooks
     Vienna, where they were paired anew. So the main lead is now the plugs' pairing, not the place
     or Wi-Fi: re-pair cycling, cycling_fans, mini_fans and media_drive on site (an innr resets by a
     pattern of power cycles), keep Wi-Fi on 11, and count each plug's drops from its re-pairing.
+    Re-paired 2026-11-13 (Erik, on site; Zigbee2MQTT's interviews, UTC): cycling 07:08,
+    cycling_fans 07:31, mini_fans 07:40 -- all three online again, with their old names. Still to
+    re-pair: media_drive. Count from those times: zigbee2mqtt's journal on p-s-1 (unit "zigbee"),
+    two failed pings being a drop, as in the baseline.
 
 55. Podman's bridge broke on Vienna's protocols-server-1 (2026-11-09, during update.containers):
     every start of mosquitto (the only container there on podman's bridge network) failed with
