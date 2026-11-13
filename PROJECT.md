@@ -624,6 +624,6 @@ https://dev.netatmo.com/apidocumentation/webhooks
     name -- the frient in the laundry kitchen front and the Aqara magnet on the living room
     windows; take the batteries out of the removed Aqaras (54, the unknown node). Test the slow
     cover and disable the low-speed entities (56); insert the DuoFern stick into p-s-2 or p-s-3
-    (37). Update HA main. Test the FS20 dimmer's dimming with an incandescent bulb; DuoFern if
+    (37). Test the FS20 dimmer's dimming with an incandescent bulb; DuoFern if
     there is time.
 
