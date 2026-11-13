@@ -136,9 +136,8 @@ JLI
     claude-notes/plans/governed-integration.md.
 
     Tested 2026-11-12 on real devices (Erik): the switch and dimmer learned 44444444 4411/4412 and
-    follow Home Assistant, a proof of concept. Open: both installations send every command at once
-    (both subscribe to the device's /set topic), so two transmitters near each other may garble a
-    frame; one sender per device (e.g. the first of "heard by") would avoid it.
+    follow Home Assistant, a proof of concept. Both installations sending every command at once
+    garbled the frames; since 2026-11-13 only the first of "heard by" sends (not yet deployed).
     Also open, from flipping the switch fast (2026-11-12, 23:31 UTC): (a) the CUL ran out of its own
     air time ("cul_1: Unknown code LOVF" in FHEM's log, credit10ms was down to 887 after the evening's
     tests) and dropped commands, while the governor's budget still had room; (b) the echo of an older

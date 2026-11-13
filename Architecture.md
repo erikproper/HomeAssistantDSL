@@ -1978,7 +1978,9 @@ channels a kind serves) and its full path as FHEM takes it -- and the FS20 devic
 `fs20 <kind> "<house code>" "<address>" heard by <host>, ...;`, the kinds `switch`, `dimmer`,
 `transmitter` and `sensor` of Erik's old FS20.Create (a transmitter without the old `eventMap`:
 on, off and a held button's dimup/dimdown are event types of their own, for the rules), codes hexadecimal or in ELV's notation.
-`heard by` is checked against the installations and their FS20 radios.
+`heard by` is checked against the installations and their FS20 radios. Its first installation
+sends the device's commands, the others only listen: two sticks sending the same frame a few
+milliseconds apart garble it for the actuator (Erik's test pair, 2026-11-13).
 
 As Erik's old setup did (the plan's approach A), FHEM is reached through its own MQTT, the
 generator writing each installation's whole configuration, `fhem/<host>/fhem.cfg`

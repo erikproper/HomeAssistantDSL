@@ -107,6 +107,10 @@ func TestFHEMConfig(t *testing.T) {
 	if !strings.Contains(sensor, "set mqtt publish -r fhem/fs20/sensors.garage_motion $EVENT") || !strings.Contains(sensor, "define fhz_1 FHZ ") {
 		t.Errorf("protocols-server-3's fhem.cfg:\n%s", sensor)
 	}
+	// The dimmer is heard by both, sent to by protocols-server-2 only: protocols-server-3 listens.
+	if !strings.Contains(sensor, "define radio.living_room_lamp.publish notify") || strings.Contains(sensor, "radio.living_room_lamp.command") || strings.Contains(sensor, "living_room_lamp/set") {
+		t.Errorf("protocols-server-3 sends to the dimmer, or doesn't hear it:\n%s", sensor)
+	}
 }
 
 // TestFS20DimExpression runs the dimmer's Perl expression, as FHEM would, on values Home

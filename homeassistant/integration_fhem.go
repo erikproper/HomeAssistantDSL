@@ -24,7 +24,10 @@
  * connects to the main broker -- MQTT2 needs no Perl module beyond FHEM's own -- and per device:
  *
  *   - a command on fhem/fs20/<device>/set (from the governed application, never retained) is sent
- *     by FHEM's FS20 module: on/off, or for a dimmer 0..100 as the nearest of its 16 dim levels;
+ *     by FHEM's FS20 module: on/off, or for a dimmer 0..100 as the nearest of its 16 dim levels --
+ *     by the first installation of "heard by" only, the others listening: two sticks sending the
+ *     same frame a few milliseconds apart garble it for the actuator (Erik's test pair,
+ *     2026-11-13);
  *   - what FHEM's radio receives for the device -- a remote, another stick's frame, a sensor, and
  *     the echo of its own sends -- is published on fhem/fs20/<device>, retained for a sensor only.
  *     The governed application de-doubles what several installations hear (the plan, question 7).
@@ -35,7 +38,7 @@
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 08.11.2026
+ * Version of: 13.11.2026
  *
  */
 
@@ -74,7 +77,8 @@ type TFHEMDevice struct {
 	CopiesWithinMS int
 }
 
-// TFS20Address is "fs20 <kind> "<house code>" "<address>" heard by <host>, ...;".
+// TFS20Address is "fs20 <kind> "<house code>" "<address>" heard by <host>, ...;". The first of
+// HeardBy is the one sending to the device.
 type TFS20Address struct {
 	Kind      string
 	HouseCode string
@@ -220,7 +224,7 @@ func fhemConfig(installation TFHEMInstallation, devices []TFHEMDevice, broker TM
 	for _, device := range devices {
 		if device.FS20 != nil && slices.Contains(device.FS20.HeardBy, installation.Host) {
 			heard = append(heard, device)
-			if fs20Kinds[device.FS20.Kind].Takes != "" {
+			if fs20Kinds[device.FS20.Kind].Takes != "" && fs20Sender(device) == installation.Host {
 				subscriptions = append(subscriptions, fs20Topic(device.DeviceID)+"/set")
 			}
 		}
@@ -244,14 +248,19 @@ func fhemConfig(installation TFHEMInstallation, devices []TFHEMDevice, broker TM
 	}
 
 	for _, device := range heard {
-		writeFS20Device(line, device, fs20Radio)
+		writeFS20Device(line, device, fs20Radio, fs20Sender(device) == installation.Host)
 	}
 	return b.String()
 }
 
-// writeFS20Device writes device's FS20 definition, its command listener (when it takes
-// commands) and its publisher.
-func writeFS20Device(line func(string, ...any), device TFHEMDevice, radio string) {
+// fs20Sender is the installation sending to device: the first that hears it.
+func fs20Sender(device TFHEMDevice) string {
+	return device.FS20.HeardBy[0]
+}
+
+// writeFS20Device writes device's FS20 definition, its command listener (when it takes commands
+// and this installation sends them) and its publisher.
+func writeFS20Device(line func(string, ...any), device TFHEMDevice, radio string, sends bool) {
 	id, kind := device.DeviceID, fs20Kinds[device.FS20.Kind]
 	quoted := regexp.QuoteMeta(id)
 	line("")
@@ -260,7 +269,11 @@ func writeFS20Device(line func(string, ...any), device TFHEMDevice, radio string
 	if radio != "" {
 		line("attr %s IODev %s", id, radio)
 	}
-	switch kind.Takes {
+	takes := kind.Takes
+	if !sends {
+		takes = ""
+	}
+	switch takes {
 	case "on/off":
 		line("define %s.command MQTT2_DEVICE", id)
 		line("attr %s.command IODev mqtt", id)
