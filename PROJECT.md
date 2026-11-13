@@ -595,7 +595,23 @@ https://dev.netatmo.com/apidocumentation/webhooks
     SP 220-only; the join failure is (2.03.10 only). Junglinster's own spare SP 240 stays a spare.
     2026-11-13: living/room/tv (SP 220, 2.3) offline from 14:24 UTC (after the 13:50 Zigbee2MQTT
     restart and the ~14:02 power issue); unplugged and replugged by Erik at 16:55, back without a
-    re-pair (state ON, LQI 148). Kept in mind: a second
+    re-pair (state ON, LQI 148).
+    The stick's tokens (ember-zli 2026-11-13 ~17:05, Get stack config / Get security info / Backup
+    NVM3 tokens, /root/ember-zli/tokens_backup.nvm3 on p-s-1): one IEEE everywhere -- the NVM3
+    override (0x1E12A) and the trust-center entry (0x1E124) both 0x00124b002a2e3ee0,
+    MFG_TOKEN.CUSTOM_EUI_64 unset (all FF). But the link-key table (0x10600, KEY_TABLE_SIZE 12) is
+    full: six stale entries (the old media_drive 74057c0000004726, disks2 74057c000000dbcf,
+    disks1 c4988600000f73e3, and 74057c0000004f95, 74057c00000062b0, c4988600000f738d -- gone from
+    Zigbee2MQTT) and six live ones (shredder, red_highboard, house/server_room/philips_motion,
+    house/bathroom/philips_dimmer, house/bathroom/right/philips_motion, the upward_hallway NodOn).
+    Likely the TI era's per-device link keys, imported at the migration (as many as fit): a device
+    with an entry gets a freshly derived key on joining but is verified against the stored one --
+    TC_REQUESTER_VERIFY_KEY_FAILURE; devices without an entry (the SP 240, cycling, cycling_fans,
+    mini_fans) join fine. To test: erase disks2's entry, re-pair it. To do: a safe way to erase
+    single entries (ember-zli's Repairs menu? else EZSP eraseKeyTableEntry with Zigbee2MQTT
+    stopped; not by restoring an edited token backup -- it would reset the frame counters);
+    erase the six stale ones; a live device's entry goes before it is re-paired.
+    CONFIG.NEIGHBOR_TABLE_SIZE is 16 (firmware default) in a network of 56 routers. Kept in mind: a second
     Junglinster network on the old TI stick (a new IEEE -- its own is the one the ZBT-2 carries
     -- its old network wiped, channel 25, its own Zigbee2MQTT and gateway), if more such devices
     turn up.
