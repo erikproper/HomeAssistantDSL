@@ -491,6 +491,17 @@ https://dev.netatmo.com/apidocumentation/webhooks
     Not only the office: master_bedroom/left_table_lamp (a Philips bulb) had failed commands since
     2026-10-27, worsening (1-3 a day, 9 on 11-11, 29 on 11-12), then dropped off; Erik re-paired it
     2026-11-13 06:46 UTC. Count it too.
+    New lead (2026-11-13): the coordinator stick. Junglinster's is Silicon Labs EmberZNet 7.5.1
+    (Zigbee2MQTT's "ember" driver), since the p-s-1 rebuild around 2026-10-15 -- before that a TI
+    stick, Z-Stack, as Vienna still has without drops (its journal starts 10-15, so drops before
+    the change can't be checked). The pattern fits the stack, not the devices: plugs of two models
+    and a Philips bulb degrade, then drop, and re-pairing (renewing what the stick keeps) cures
+    them; media_drive's re-pairing joined as 0x0000000000000000 (07:50 UTC), its interview failing.
+    Weekend 2026-11-21/22 (Erik, on site): update the stick's own firmware to EmberZNet 8.x (larger
+    route and address tables, what Zigbee2MQTT's ember docs recommend) -- first which stick it is,
+    then stop Zigbee2MQTT, back up its data folder, flash from a Mac with the maker's web flasher,
+    and start again (the network stays in the stick, else coordinator_backup.json restores it).
+    Then recount the drops.
 
 55. Podman's bridge broke on Vienna's protocols-server-1 (2026-11-09, during update.containers):
     every start of mosquitto (the only container there on podman's bridge network) failed with
