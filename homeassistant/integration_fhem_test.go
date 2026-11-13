@@ -244,7 +244,7 @@ func TestFHEMDuoFernDevice(t *testing.T) {
 	if node := g.RawTopics["node"]; node.Topic != "fhem/installation/protocols-server-3" || node.On != "online" {
 		t.Errorf("node = %+v", node)
 	}
-	if g.Capabilities["cover"].AssignedID != "cover.social_house_master_bedroom_rollotron" || g.Metadata["manufacturer"].Value != "Rademacher" {
+	if !g.RawTopics["cover"].Implied || g.Capabilities["cover"].AssignedID != "cover.social_house_master_bedroom_rollotron" || g.Metadata["manufacturer"].Value != "Rademacher" {
 		t.Errorf("gateway = %+v", g)
 	}
 	cover := rawMQTTConfigs(g)["cover/"+g.Capabilities["cover"].Leaf]

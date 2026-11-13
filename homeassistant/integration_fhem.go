@@ -126,7 +126,7 @@ func duofernSender(device TFHEMDevice) string {
 
 // fhemGatewayDevices are the block's DuoFern devices as raw devices, so their positioning, frozen
 // IDs and YAML entities are a discovered device's: the node is the sending installation's
-// liveness, the cover FHEM's topics.
+// liveness, the cover FHEM's topics -- both implied, not written in the capability's line.
 func fhemGatewayDevices(devices []TFHEMDevice) []TDiscoveryGatewayDevice {
 	var gateways []TDiscoveryGatewayDevice
 	for _, device := range devices {
@@ -144,7 +144,7 @@ func fhemGatewayDevices(devices []TFHEMDevice) []TDiscoveryGatewayDevice {
 				continue
 			}
 			topic := duofernTopic(device.DeviceID)
-			g.RawTopics[label] = TRawTopicCapability{Topic: topic, Command: topic + "/set", PositionInverted: true}
+			g.RawTopics[label] = TRawTopicCapability{Topic: topic, Command: topic + "/set", PositionInverted: true, Implied: true}
 		}
 		gateways = append(gateways, g)
 	}
