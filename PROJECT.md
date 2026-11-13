@@ -677,5 +677,7 @@ https://dev.netatmo.com/apidocumentation/webhooks
     low-speed entities (56). Test the FS20 dimmer's dimming with an incandescent bulb. disks1
     and disks2 back to their Innrs (54; Zigbee2MQTT: 0xc4988600000f73e3 -> house/storage_room/
     disks1; Physical.def: both back into the Zigbee2MQTT section, switch and node frozen IDs kept;
-    the Shellys' power/energy/consumes go, the firmware entity returns).
+    the Shellys' power/energy/consumes go, the firmware entity returns). The two Shellys then go
+    back to their test declarations (switches.test_shelly_plug, ..._2, their old frozen IDs): they
+    and the FS20 test devices stay as the ultimate backups (Erik).
 
