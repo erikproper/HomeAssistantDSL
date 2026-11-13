@@ -540,6 +540,17 @@ https://dev.netatmo.com/apidocumentation/webhooks
     caught no attempt (disks1 had stopped searching). The drops themselves were partly there on
     the old TI stick too (Erik). Idea (Erik): the 2.03.10 and worst SP 220s to Vienna, its
     non-SP 220/120 plugs (nespresso SP 240, workplace SONOFF) or new SP 240s to Junglinster.
+    Debug log of disks2's join (13:32, after a round-trip through an old Hue bridge on channel
+    25, which can't update it either): join (STANDARD_SECURITY_UNSECURED_JOIN), interview and
+    configure fine, then KeyEstablishment TC_RESPONDED_TO_KEY_REQUEST followed by
+    TC_REQUESTER_VERIFY_KEY_FAILURE, and DEVICE_LEFT 18 s later. Likely cause: the coordinator's
+    IEEE is the old TI stick's (0x00124b002a2e3ee0), migrated onto the ZBT-2 -- Zigbee2MQTT's
+    troubleshooting guide, "Post-IEEE (EUI64) migration troubles": the stack doesn't always take
+    the migrated IEEE everywhere, and devices leave seconds after pairing. To do, on site (a
+    weekend): stop Zigbee2MQTT, check for the EUI64 mismatch with ember-zli (Stack); if there
+    is one, clear the stick's NVM3 (ember-zli, Bootloader) with coordinator_backup.json and
+    configuration.yaml in the data folder, start, let it restore; give it a day. Then pair
+    disks1, disks2 (and the old SP 220) again.
     The stick is a Nabu Casa ZBT-2 (serial ...5AB8, next to the ZWA-2). Its firmware update is on
     hold (Erik, 2026-11-13: conservative): 7.5.1 is Nabu Casa's newest stable ZBT-2 Zigbee
     firmware (v2026.02.23); there is no 8.x, only 9.1.1 as a beta (v2026.08.18-beta1,
