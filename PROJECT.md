@@ -510,7 +510,8 @@ https://dev.netatmo.com/apidocumentation/webhooks
     (office/heating, server_room/raids1, christmas_tree, loft/main, kitchen/go) keep an active
     route to it as a direct neighbour -- probably leftovers of media_drive's own joins; 45 route
     destinations belong to no known node. One unknown node: 0x00158d0001c105a3 (Xiaomi/Aqara
-    prefix), a sleeping end device, 29181, child of the stick, not in Zigbee2MQTT's device list.
+    prefix), a sleeping end device, 29181, child of the stick, not in Zigbee2MQTT's device list --
+    likely one of the redundant Aqaras Erik removed; batteries out, so the stick ages it out.
     Then pair it next to the stick and rename it house/office/media_drive.
     Weekend 2026-11-21/22 (Erik, on site): update the stick's own firmware to EmberZNet 8.x (larger
     route and address tables, what Zigbee2MQTT's ember docs recommend) -- first which stick it is,
