@@ -1979,8 +1979,12 @@ channels a kind serves) and its full path as FHEM takes it -- and the FS20 devic
 `transmitter` and `sensor` of Erik's old FS20.Create (a transmitter without the old `eventMap`:
 on, off and a held button's dimup/dimdown are event types of their own, for the rules), codes hexadecimal or in ELV's notation.
 `heard by` is checked against the installations and their FS20 radios. Its first installation
-sends the device's commands, the others only listen: two sticks sending the same frame a few
-milliseconds apart garble it for the actuator (Erik's test pair, 2026-11-13).
+sends the device's commands, the others only listen: FS20 keys its carrier on and off, the bits
+being pulse lengths (about 400 or 600 µs on, as long off), so two sticks sending the same frame a
+few milliseconds apart fill each other's gaps, and the actuator's checksum fails -- unless one is
+much the stronger, or the offset exceeds the whole burst of three repeats. Shown with Junglinster's
+test pair (2026-11-13): with both sending, the switch missed commands; with one, it followed. So
+the first named is the installation nearest the device; more listeners do help, hearing a remote.
 
 As Erik's old setup did (the plan's approach A), FHEM is reached through its own MQTT, the
 generator writing each installation's whole configuration, `fhem/<host>/fhem.cfg`
@@ -2023,11 +2027,20 @@ the YAML entities are the generic ones.
 The governor (`governor/governor.go`) keeps each entity's desired state retained on its topic, read
 back at its start (the definition's default, else the kind's, when there is none), sends a
 command at once and the desired state again every period (the first ones staggered), through one
-pending slot per entity (a real command before an enforcement) and a token bucket per radio
-channel (`defaultChannels`: FS20 1 % duty cycle, 0.22 s per frame, times the installations
-sending). What a radio received is a radio-requested change and becomes the desired state; its
-own echoes (within 5 s, compared after rounding to what the device makes of a value -- an FS20
-dimmer's nearest dim level) are ignored; a remote's relative dim up or down says no level and is
+pending slot per entity (a real command before an enforcement) and a token bucket of air time per
+radio channel (`defaultChannels`: FS20 1 % duty cycle, 0.22 s per command, holding 36 s). The 1 %
+is per transmitter and averaged over an hour, so the bucket holds an hour's worth, as the CUL's
+own budget does (`credit10ms`, at most 3600), and a command costs one frame however many
+installations hear the device -- only one sends it (§6.19). Until 2026-11-13 it held 3 s and
+charged a frame per installation, so after six commands each further one waited 44 s. The
+stick's own budget can still run out before the governor's (FHEM logs `LOVF` or `TRANSMIT LIMIT
+EXCEEDED`, and the command is lost until the next enforcement): the governor doesn't read it.
+What a radio received is a radio-requested change and becomes the desired state; its own echoes
+are ignored: a value matching any of its sends to the device within the last 5 s (compared after
+rounding to what the device makes of a value -- an FS20 dimmer's nearest dim level), not only the
+last one -- flipping fast, the echo of an older send, from the sending FHEM or another radio
+hearing the frame, can come after a newer send, and was taken for a remote's press (2026-11-13).
+The price: a remote pressed within 5 s of a send, to the same value, isn't seen; a remote's relative dim up or down says no level and is
 not taken -- an FS20 remote is a set of buttons whose presses are button events, and dimming is
 stepwise by rules through Home Assistant main, as for the Zigbee dimmers, and copies from several radios count once: the same message again within the radio channel's
 hard-wired interval (FS20: 500 ms) -- or the FHEM device's own, `copies within <n> ms;` -- is a
@@ -2515,6 +2528,8 @@ Typical shared categories: weather, energy, security state, occupancy (if desire
 Each house's coordinator relays a "cloud"-routed device's traffic from the cloud broker onto its own local broker (`mqtt_relay.go`'s `relayCloudDevice`/`relayCloudDevices`), qualifying the topic with the reporting installation's name inserted *after* the hostname (`hosts/<hostname>/<installation>/...`, never as an overall prefix) so the cloud broker's client-ID-scoped ACL (`hosts/%c/#`) still matches. Liveness can't be an explicit ping here — a laptop "on the road" is unreachable, unlike a LAN-local host — so `TCloudLivenessTracker` infers it instead: arrival of relayed cpu/device-info traffic is itself the liveness signal, "true" the moment traffic resumes, "false" after `cloudDeviceStaleAfter` (3 minutes) of silence, checked every `cloudLivenessSweepInterval` (30 seconds).
 
 The report script's cross-platform TLS handling: Linux has a standard CA bundle file (checked in order — `/etc/ssl/certs/ca-certificates.crt`, `/etc/pki/tls/certs/ca-bundle.crt`, `/etc/ssl/cert.pem`); macOS has none, so the script exports one from the system Keychain on first use and caches it at `~/.cache/mqtt-ca-bundle.pem` (re-exporting on every scheduled run would be wasteful). Deployed and running on `eriks-macbook-pro-2`, `paulas-air-m1`, and `eriks-mac-studio` via `launchd` (`com.erikproper.cpu-report-cloud-client.plist`), all three installations' devices reporting through the shared cloud broker as above. Whatever host ends up running the bridging broker itself is just another `cpu`-type "hosts" integration device — no special-casing needed, the same self-monitoring applies to it too.
+
+**The report's `load`** (since 2026-11-13) is CPU usage: the share of time the CPUs were busy over one second, 0-100 % -- on Linux from two reads of `/proc/stat` (idle and iowait being the time not busy), on macOS from `top -l 2 -n 0 -s 1`'s second sample -- the same measure `sensor.processor_use` gives for a `home_assistant`-type host, so all hosts compare. Before, it was the 1-minute load average over the core count, which doesn't compare across systems: Linux counts processes running, waiting to run or waiting on the disk, macOS runnable threads, of which a busy Mac has many (air4 showed 350 % at 62 % busy, indexing after a reinstall). The temperature on a Mac comes from `smctemp` (built from source on an Intel Mac without Homebrew; MacPorts' `/opt/local/bin` is on the LaunchAgent's PATH for `mosquitto_pub`).
 
 **Known macOS/launchd quirk, why every Mac must use the cloud profile, never a local one** (found live 2026-09-05, `eriks-mac-studio`): `mosquitto_pub` (Homebrew, libmosquitto 2.1.0/2.1.2) reliably prints `Error: Bad file descriptor` and silently fails to actually deliver its publish when spawned by a `launchd` LaunchAgent — but *only* when the destination is a LAN address (confirmed with both the local broker's own hostname and its literal IP, both with and without TLS). The identical invocation, same binary, same machine, same LaunchAgent, targeting the external `mqtt.erikproper.eu` (TLS) instead, works cleanly every time (`exit 0`, no error, confirmed delivered). An interactive shell never reproduces it at all, against either destination — it's specific to the no-controlling-terminal LaunchAgent context, and specific to LAN-destined connections within it. Root cause not fully isolated (matches a known *class* of "spawn EBADF in a macOS LaunchAgent context" issue reported for other tools too, with no clean upstream fix found); explicit stdio redirection at the call site didn't resolve it. **Operational rule, not just a workaround**: every Mac host reports via the cloud-routed `cpu` profile (`cloud`+`import` on its Physical.def declaration, written `via cloud` since PROJECT.md 30, `com.erikproper.cpu-report-cloud-client.plist`) even when it's a permanent LAN resident of its own house — never the plain local profile — since the cloud path is the one empirically proven reliable under launchd. `eriks-mac-studio` was switched from `device host.eriks-mac-studio eriks-mac-studio cpu;` (plain local) to `device host.eriks-mac-studio eriks-mac-studio cpu cloud import;` for exactly this reason, joining `eriks-macbook-pro-2`/`host.mqtt` on the same pattern.
 
