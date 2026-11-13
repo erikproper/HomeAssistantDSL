@@ -496,7 +496,11 @@ https://dev.netatmo.com/apidocumentation/webhooks
     stick, Z-Stack, as Vienna still has without drops (its journal starts 10-15, so drops before
     the change can't be checked). The pattern fits the stack, not the devices: plugs of two models
     and a Philips bulb degrade, then drop, and re-pairing (renewing what the stick keeps) cures
-    them; media_drive's re-pairing joined as 0x0000000000000000 (07:50 UTC), its interview failing.
+    them. media_drive (removed from Zigbee2MQTT 07:56 UTC) doesn't re-pair: it joined as
+    0x0000000000000000 (07:50, the interview failing), then with its real address twice through
+    office/shredder (08:37, 08:40), interviewed and left again within 20 s (the second time by
+    itself), and at 08:45 (all routers open) wasn't heard at all. Left unpaired until the firmware
+    update; then pair it next to the stick and rename it house/office/media_drive.
     Weekend 2026-11-21/22 (Erik, on site): update the stick's own firmware to EmberZNet 8.x (larger
     route and address tables, what Zigbee2MQTT's ember docs recommend) -- first which stick it is,
     then stop Zigbee2MQTT, back up its data folder, flash from a Mac with the maker's web flasher,
