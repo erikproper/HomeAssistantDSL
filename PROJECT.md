@@ -665,7 +665,6 @@ https://dev.netatmo.com/apidocumentation/webhooks
     the Shellys' power/energy/consumes go, the firmware entity returns). The two Shellys then go
     back to their test declarations (switches.test_shelly_plug, ..._2, their old frozen IDs): they
     and the FS20 test devices stay as the ultimate backups (Erik). If there is time: the updates
-    pending since (checked 2026-11-13) -- p-s-1 5 packages and a reboot it asks for; p-s-3 about
-    45 (kernel, OpenSSL, FHEM). FHEM itself (held by its package) only deliberately, on p-s-2 and
+    pending on p-s-3 (checked 2026-11-13): about 45 (kernel, OpenSSL, FHEM). FHEM itself (held by its package) only deliberately, on p-s-2 and
     p-s-3 together, checking the generated fhem.cfg still loads (now with the DuoFern stick).
 
