@@ -91,8 +91,9 @@ governed device, inside FHEM:
 
 ## The earlier FHEM2MQTT brief
 
-$NEXTCLOUD/Systems/go/src/FHEM2MQTT/FHEM2MQTT-project-brief.md (Erik's, before this project took
-FHEM up) designed the same thing as a separate project. What carries over, and where it differs:
+Erik's FHEM2MQTT project brief (before this project took FHEM up; the file was removed
+2026-11-13, once what matters of it was here) designed the same thing as a separate project. What
+carries over, and where it differs:
 
 | Brief | Here |
 |---|---|
@@ -117,6 +118,23 @@ Kept from the brief, as design points for the governed application:
   retained.
 - **Interval**: the brief starts at about 60 s; the old FHEM generator used 5 minutes.
 - **Optimistic** in Home Assistant for an entity whose state is assumed, not observed.
+
+Also from the brief, added 2026-11-13 (for DuoFern and later):
+
+- **A device that acknowledges needs none of this**: DuoFern confirms each command and reports its
+  own state, so it is not enforced and not optimistic -- case 1, its state is observed.
+- **Commands live-only**: a command must not wait while FHEM is briefly offline and replay on its
+  reconnect; the brief leaned towards clean sessions for command subscriptions, or MQTT 5's
+  message expiry (a few seconds) as a broker-side safety net. Still to check for FHEM's
+  MQTT2_CLIENT.
+- **Per-installation broker credentials**, scoped by the broker's ACL to the installation's own
+  topics, instead of one shared login (FHEM uses the house's today).
+- **Availability per bridge** through its retained last will: here `fhem/installation/<host>`.
+- **Platform modules** compiled in, not loaded as plugins (Go's plugin package is Linux-only and
+  fragile): here the kind tables (`fhemSerialKinds`, `fs20Kinds`) in the generator.
+- Parked in the brief: emulating ESPHome's native API instead of MQTT -- alpha-quality prior art,
+  Python only, and no cover entities (needed for DuoFern). And its longer-term ambition: a Home
+  Assistant add-on for legacy radios, of which FHEM is only the first platform.
 
 ## The governed integration
 
