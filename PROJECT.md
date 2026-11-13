@@ -625,6 +625,6 @@ https://dev.netatmo.com/apidocumentation/webhooks
 57. Junglinster, weekend 2026-11-14/15 (Erik on site): change the batteries the battery warnings
     name -- the frient in the laundry kitchen front and the Aqara magnet on the living room
     windows; take the batteries out of the removed Aqaras (54, the unknown node). Test the slow
-    cover and disable the low-speed entities (56). Test the FS20 dimmer's dimming with an incandescent bulb; DuoFern if
-    there is time.
+    cover and disable the low-speed entities (56). Test the FS20 dimmer's dimming with an
+    incandescent bulb; DuoFern in FHEM if there is time (37).
 
