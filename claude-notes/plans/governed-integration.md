@@ -295,7 +295,8 @@ The four kinds are the old `FS20.Create`'s: `switch`, `dimmer`, `transmitter` (E
 and a `radio.*` device is not positioned. A transmitter or sensor is positioned as any device;
 Home Assistant reads it from the governed application's de-doubled topic, not from
 `fhem/fs20/<device>` -- transparent to the author. DuoFern gets its own statement
-(`duofern cover "<code>" heard by ...;`) once its tree is looked at.
+(`duofern cover "<code>" heard by ...;`) -- built 2026-11-13 (option A, Erik): the device is a
+device of the block itself, raw for the discovery machinery (fhemGatewayDevices), no governed layer.
 
 **3. The governed side: `integration governed`**, the entities Home Assistant sees:
 

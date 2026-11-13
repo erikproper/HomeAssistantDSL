@@ -189,3 +189,98 @@ func TestFHEMDuoFernStick(t *testing.T) {
 		}
 	}
 }
+
+var duofernTestBody = []string{
+	"installation protocols-server-2 with:",
+	`  cul "/dev/serial/by-id/usb-busware.de_CUL868-if00";`,
+	"end;",
+	"installation protocols-server-3 with:",
+	`  duofern "/dev/serial/by-id/usb-Rademacher_DuoFern_USB-Stick_WR00S1AX-if00-port0" code "${duofern_code}";`,
+	"end;",
+	"device utility.rollotron with:",
+	`  duofern cover "406DDD" heard by protocols-server-3;`,
+	"  capability binary_sensor.node;",
+	"  capability cover.cover as unique_id cover.social_house_master_bedroom_rollotron;",
+	"end;",
+}
+
+// TestFHEMDuoFernDevice: a DuoFern cover's statement and frozen ID, its fhem.cfg on the
+// installation hearing it -- and nothing on the other -- and its raw device for Home Assistant.
+func TestFHEMDuoFernDevice(t *testing.T) {
+	installations, devices, warnings := parseFHEMIntegrationBody(duofernTestBody)
+	if len(warnings) != 0 || len(devices) != 1 || devices[0].DuoFern == nil {
+		t.Fatalf("devices = %+v, warnings = %v", devices, warnings)
+	}
+	device := devices[0]
+	if device.DuoFern.Code != "406DDD" || device.DuoFern.Kind != "cover" || device.AssignedIDs["cover"] != "cover.social_house_master_bedroom_rollotron" {
+		t.Errorf("device = %+v", device)
+	}
+	if problems := checkFHEMIntegration(installations, devices); len(problems) != 0 {
+		t.Errorf("problems = %v", problems)
+	}
+	resolveFHEMSerialCodes(installations, map[string]string{"duofern_code": `"6FEDCB"`})
+	broker := TMQTTBrokerSecrets{Server: "ps1.example", Port: "1883"}
+	config := fhemConfig(installations[1], devices, broker)
+	for _, want := range []string{
+		"define utility.rollotron DUOFERN 406DDD\nattr utility.rollotron IODev duofern_1\n",
+		"attr mqtt subscriptions fhem/duofern/utility.rollotron/set\n",
+		`attr utility.rollotron.command readingList fhem/duofern/utility\.rollotron/set:(up|down|stop|position.[0-9]+) { fhem("set utility.rollotron $EVENT");; {} }`,
+		"define utility.rollotron.publish notify utility\\.rollotron:position:.* set mqtt publish -r fhem/duofern/utility.rollotron $EVTPART1\n",
+		"define utility.rollotron.status at +00:00:30 set utility.rollotron getStatus\n",
+	} {
+		if !strings.Contains(config, want) {
+			t.Errorf("fhem.cfg lacks %q:\n%s", want, config)
+		}
+	}
+	if other := fhemConfig(installations[0], devices, broker); strings.Contains(other, "rollotron") {
+		t.Errorf("protocols-server-2 defines the RolloTron it doesn't hear:\n%s", other)
+	}
+
+	gateways := fhemGatewayDevices(devices)
+	if len(gateways) != 1 || !gateways[0].Raw || gateways[0].Retain != retainDeclared {
+		t.Fatalf("gateways = %+v", gateways)
+	}
+	g := gateways[0]
+	if node := g.RawTopics["node"]; node.Topic != "fhem/installation/protocols-server-3" || node.On != "online" {
+		t.Errorf("node = %+v", node)
+	}
+	if g.Capabilities["cover"].AssignedID != "cover.social_house_master_bedroom_rollotron" || g.Metadata["manufacturer"].Value != "Rademacher" {
+		t.Errorf("gateway = %+v", g)
+	}
+	cover := rawMQTTConfigs(g)["cover/"+g.Capabilities["cover"].Leaf]
+	for field, want := range map[string]interface{}{
+		"position_topic":        "fhem/duofern/utility.rollotron",
+		"set_position_topic":    "fhem/duofern/utility.rollotron/set",
+		"command_topic":         "fhem/duofern/utility.rollotron/set",
+		"payload_open":          "up",
+		"payload_stop":          "stop",
+		"position_template":     "{{ 100 - (value | int) }}",
+		"set_position_template": "position {{ 100 - position }}",
+	} {
+		if cover[field] != want {
+			t.Errorf("cover %s = %v, want %v", field, cover[field], want)
+		}
+	}
+	if _, has := cover["state_topic"]; has || cover["availability"] == nil {
+		t.Errorf("cover config = %v", cover)
+	}
+}
+
+// TestFHEMDuoFernErrors: a malformed code, an installation without a DuoFern stick, a missing or
+// foreign capability, and both kinds of statement on one device.
+func TestFHEMDuoFernErrors(t *testing.T) {
+	if _, _, warnings := parseFHEMIntegrationBody([]string{`device utility.x with: duofern cover "40DD" heard by h; end;`}); len(warnings) != 1 || !strings.Contains(warnings[0], "40DD") {
+		t.Errorf("short code: warnings = %v", warnings)
+	}
+	installations, devices, _ := parseFHEMIntegrationBody([]string{
+		`installation h with: cul "/dev/x"; end;`,
+		`device utility.a with: duofern cover "406DDD" heard by h; capability switch.switch; end;`,
+		`device utility.b with: duofern cover "406DDE" heard by h; fs20 switch "1234" "01" heard by h; capability cover.cover; end;`,
+	})
+	problems := strings.Join(checkFHEMIntegration(installations, devices), "\n")
+	for _, want := range []string{"no DuoFern stick", "not switch.switch", "needs capability cover.cover", "both an"} {
+		if !strings.Contains(problems, want) {
+			t.Errorf("problems lack %q:\n%s", want, problems)
+		}
+	}
+}

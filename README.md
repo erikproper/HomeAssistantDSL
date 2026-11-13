@@ -354,8 +354,21 @@ integration fhem with:
     fs20 dimmer "44444444" "4412" heard by protocols-server-2, protocols-server-3;
     capability button.set;
   end;
+  device utility.rollotron_master_bedroom with:
+    duofern cover "406DDD" heard by protocols-server-3;
+    capability binary_sensor.node;
+    capability cover.cover;
+  end;
 end;
 ```
+
+A DuoFern device (`duofern cover "<code>" ...`, its six hex digits) reports its own state and
+acknowledges commands, so it is no radio for the governed integration but a device of its own,
+positioned like any other (`entity cover.social:... from cover;`): its cover is HA's MQTT cover on
+`fhem/duofern/<device>` (the position, retained) and `.../set` (`up`, `down`, `stop`,
+`position <n>`), its position turned around (DuoFern: 0 open, 100 closed), and its node the
+sending installation's liveness. It needs an installation with a `duofern` stick. A capability may
+carry its frozen ID (`as unique_id ...`), as elsewhere.
 
 `copies within <n> ms;` in a device says how soon the same message from it again is a copy
 (another installation heard the same press), not a new press -- by default the radio's own (FS20:

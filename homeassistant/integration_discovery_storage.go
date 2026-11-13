@@ -208,7 +208,7 @@ func collectDiscoveryGatewaysByID(definitionDir string) (map[string]TDiscoveryGa
 
 	byID := map[string]TDiscoveryGatewayDevice{}
 	for _, block := range blocks {
-		if block.Name != "discovery" && block.Name != "mqtt" && block.Name != "governed" {
+		if block.Name != "discovery" && block.Name != "mqtt" && block.Name != "governed" && block.Name != "fhem" {
 			continue
 		}
 		var devices []TDiscoveryGatewayDevice
@@ -223,6 +223,10 @@ func collectDiscoveryGatewaysByID(definitionDir string) (map[string]TDiscoveryGa
 			var governed []TGovernedDevice
 			governed, _ = parseGovernedIntegrationBody(block.BodyLines)
 			devices = governedGatewayDevices(governed)
+		case "fhem":
+			// Its DuoFern devices; its warnings are reported by generateFHEMIntegrationOutputs.
+			_, fhemDevices, _ := parseFHEMIntegrationBody(block.BodyLines)
+			devices = fhemGatewayDevices(fhemDevices)
 		}
 		warnings = append(warnings, bodyWarnings...)
 		for _, d := range devices {

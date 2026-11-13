@@ -127,3 +127,18 @@ func (p *TDefParser) ForcedNumber(target *int, minimum, maximum int, what string
 		return p.NextToken()
 	}
 }
+
+// AssignedIDety: ( "as" "unique_id" Word ( "." Word )* )? -- a capability's frozen ID, shared by
+// the integration grammars that take one (governed, fhem).
+func (p *TDefParser) AssignedIDety(target *string) bool {
+	var segment string
+	if p.ThisWordWas("as") &&
+		/**/ p.ForcedThisWordWas("unique_id") &&
+		/**/ p.ForcedThisWord(target, MessageFrozenRoot) {
+		for p.ThisPunctuationWas('.') &&
+			/**/ p.ForcedThisWord(&segment, MessageFrozenRoot) {
+			*target += "." + segment
+		}
+	}
+	return true
+}

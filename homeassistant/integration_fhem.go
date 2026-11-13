@@ -73,7 +73,9 @@ type TFHEMSerial struct {
 type TFHEMDevice struct {
 	DeviceID     string
 	FS20         *TFS20Address
-	Capabilities []string // "<domain>.<label>"
+	DuoFern      *TDuoFernAddress
+	Capabilities []string          // "<domain>.<label>"
+	AssignedIDs  map[string]string // a capability's frozen ID ("as unique_id ..."), by label
 	// CopiesWithinMS: "copies within <n> ms;", the same message from the device again this soon is
 	// a copy (another radio heard it), not a press -- 0: the radio channel's (the governor's).
 	CopiesWithinMS int
@@ -86,6 +88,67 @@ type TFS20Address struct {
 	HouseCode string
 	Address   string
 	HeardBy   []string
+}
+
+// TDuoFernAddress is "duofern <kind> "<code>" heard by <host>, ...;". The first of HeardBy is the
+// one sending to the device. A DuoFern device reports its own state and acknowledges commands, so
+// it is no governed device: the block makes it a device of its own (fhemGatewayDevices).
+type TDuoFernAddress struct {
+	Kind    string
+	Code    string
+	HeardBy []string
+}
+
+// TDuoFernKind is a DuoFern kind: the capability it has besides its node, and its model.
+type TDuoFernKind struct {
+	Capability string
+	Model      string
+}
+
+// duofernKinds are the DuoFern kinds a device may be: so far the RolloTron's (PROJECT.md 37).
+var duofernKinds = map[string]TDuoFernKind{
+	"cover": {Capability: "cover.cover", Model: "DuoFern cover"},
+}
+
+// duofernDeviceCode is a DuoFern device's code: six hex digits (FHEM's DUOFERN define).
+var duofernDeviceCode = regexp.MustCompile(`^[0-9A-Fa-f]{6}$`)
+
+// duofernTopic is where FHEM publishes a DuoFern device's position (retained, DuoFern's own
+// scale: 0 open, 100 closed); its "/set" takes up, down, stop and "position <0..100>".
+func duofernTopic(deviceID string) string {
+	return "fhem/duofern/" + deviceID
+}
+
+// duofernSender is the installation sending to device: the first that hears it.
+func duofernSender(device TFHEMDevice) string {
+	return device.DuoFern.HeardBy[0]
+}
+
+// fhemGatewayDevices are the block's DuoFern devices as raw devices, so their positioning, frozen
+// IDs and YAML entities are a discovered device's: the node is the sending installation's
+// liveness, the cover FHEM's topics.
+func fhemGatewayDevices(devices []TFHEMDevice) []TDiscoveryGatewayDevice {
+	var gateways []TDiscoveryGatewayDevice
+	for _, device := range devices {
+		if device.DuoFern == nil || len(device.DuoFern.HeardBy) == 0 {
+			continue
+		}
+		g := TDiscoveryGatewayDevice{DeviceID: device.DeviceID, Identifiers: []string{device.DeviceID}, Capabilities: map[string]TDiscoveryCapability{},
+			Raw: true, RawTopics: map[string]TRawTopicCapability{}, Retain: retainDeclared,
+			Metadata: map[string]THostConstantAttribute{"manufacturer": {Value: "Rademacher"}, "model": {Value: duofernKinds[device.DuoFern.Kind].Model}}}
+		for _, capability := range device.Capabilities {
+			domain, label, _ := strings.Cut(capability, ".")
+			g.Capabilities[label] = TDiscoveryCapability{Domain: domain, Leaf: rawMQTTLeaf(device.DeviceID, label), AssignedID: device.AssignedIDs[label]}
+			if label == "node" {
+				g.RawTopics[label] = TRawTopicCapability{Topic: fhemInstallationTopic(duofernSender(device)), On: "online", Implied: true}
+				continue
+			}
+			topic := duofernTopic(device.DeviceID)
+			g.RawTopics[label] = TRawTopicCapability{Topic: topic, Command: topic + "/set", PositionInverted: true}
+		}
+		gateways = append(gateways, g)
+	}
+	return gateways
 }
 
 // TFHEMSerialKind is what a serial device kind is to FHEM: the line defining it, the radio
@@ -196,8 +259,15 @@ func checkFHEMIntegration(installations []TFHEMInstallation, devices []TFHEMDevi
 		}
 	}
 	for _, device := range devices {
-		if device.FS20 == nil {
-			warnings = append(warnings, fmt.Sprintf("device %q: no \"fs20 ...;\" statement", device.DeviceID))
+		switch {
+		case device.FS20 != nil && device.DuoFern != nil:
+			warnings = append(warnings, fmt.Sprintf("device %q: both an \"fs20 ...;\" and a \"duofern ...;\" statement", device.DeviceID))
+			continue
+		case device.DuoFern != nil:
+			warnings = append(warnings, checkDuoFernDevice(device, channels)...)
+			continue
+		case device.FS20 == nil:
+			warnings = append(warnings, fmt.Sprintf("device %q: no \"fs20 ...;\" or \"duofern ...;\" statement", device.DeviceID))
 			continue
 		}
 		for _, host := range device.FS20.HeardBy {
@@ -212,6 +282,35 @@ func checkFHEMIntegration(installations []TFHEMInstallation, devices []TFHEMDevi
 		if len(device.Capabilities) != 1 || !capabilityMatches(device.Capabilities[0], kind.Capability) {
 			warnings = append(warnings, fmt.Sprintf("device %q: an FS20 %s has exactly one capability, %s -- got %v", device.DeviceID, device.FS20.Kind, kind.Capability, device.Capabilities))
 		}
+	}
+	return warnings
+}
+
+// checkDuoFernDevice reports what is wrong with a DuoFern device: an installation hearing it that
+// isn't one of the block's or has no DuoFern stick, and a capability its kind doesn't have.
+func checkDuoFernDevice(device TFHEMDevice, channels map[string]map[string]bool) []string {
+	var warnings []string
+	for _, host := range device.DuoFern.HeardBy {
+		switch {
+		case channels[host] == nil:
+			warnings = append(warnings, fmt.Sprintf("device %q: heard by %q, which is no installation of this block", device.DeviceID, host))
+		case !channels[host]["duofern"]:
+			warnings = append(warnings, fmt.Sprintf("device %q: heard by %q, which has no DuoFern stick", device.DeviceID, host))
+		}
+	}
+	kind := duofernKinds[device.DuoFern.Kind]
+	has := false
+	for _, capability := range device.Capabilities {
+		switch capability {
+		case kind.Capability:
+			has = true
+		case "binary_sensor.node":
+		default:
+			warnings = append(warnings, fmt.Sprintf("device %q: a DuoFern %s has %s and its node (binary_sensor.node) -- not %s", device.DeviceID, device.DuoFern.Kind, kind.Capability, capability))
+		}
+	}
+	if !has {
+		warnings = append(warnings, fmt.Sprintf("device %q: a DuoFern %s needs capability %s", device.DeviceID, device.DuoFern.Kind, kind.Capability))
 	}
 	return warnings
 }
@@ -245,7 +344,7 @@ func fhemConfig(installation TFHEMInstallation, devices []TFHEMDevice, broker TM
 
 	line("")
 	line("# Its serial devices.")
-	fs20Radio := ""
+	fs20Radio, duofernRadio := "", ""
 	counts := map[string]int{}
 	for _, serial := range installation.Serials {
 		counts[serial.Kind]++
@@ -254,15 +353,24 @@ func fhemConfig(installation TFHEMInstallation, devices []TFHEMDevice, broker TM
 		if fs20Radio == "" && slices.Contains(fhemSerialKinds[serial.Kind].Channels, "fs20") {
 			fs20Radio = name
 		}
+		if duofernRadio == "" && slices.Contains(fhemSerialKinds[serial.Kind].Channels, "duofern") {
+			duofernRadio = name
+		}
 	}
 
 	var heard []TFHEMDevice
 	var subscriptions []string
 	for _, device := range devices {
-		if device.FS20 != nil && slices.Contains(device.FS20.HeardBy, installation.Host) {
+		switch {
+		case device.FS20 != nil && slices.Contains(device.FS20.HeardBy, installation.Host):
 			heard = append(heard, device)
 			if fs20Kinds[device.FS20.Kind].Takes != "" && fs20Sender(device) == installation.Host {
 				subscriptions = append(subscriptions, fs20Topic(device.DeviceID)+"/set")
+			}
+		case device.DuoFern != nil && slices.Contains(device.DuoFern.HeardBy, installation.Host):
+			heard = append(heard, device)
+			if duofernSender(device) == installation.Host {
+				subscriptions = append(subscriptions, duofernTopic(device.DeviceID)+"/set")
 			}
 		}
 	}
@@ -285,6 +393,10 @@ func fhemConfig(installation TFHEMInstallation, devices []TFHEMDevice, broker TM
 	}
 
 	for _, device := range heard {
+		if device.DuoFern != nil {
+			writeDuoFernDevice(line, device, duofernRadio, duofernSender(device) == installation.Host)
+			continue
+		}
 		writeFS20Device(line, device, fs20Radio, fs20Sender(device) == installation.Host)
 	}
 	return b.String()
@@ -325,6 +437,27 @@ func writeFS20Device(line func(string, ...any), device TFHEMDevice, radio string
 		retain = "-r "
 	}
 	line("define %s.publish notify %s:.* set mqtt publish %s%s $EVENT", id, quoted, retain, fs20Topic(id))
+}
+
+// writeDuoFernDevice writes a DuoFern device: its DUOFERN definition on the stick, its position
+// published (retained) on every change, a status request shortly after FHEM starts (a position is
+// otherwise only reported when it changes), and -- by the installation sending to it -- its
+// commands taken from the "/set" topic: up, down, stop, "position <0..100>", nothing else.
+func writeDuoFernDevice(line func(string, ...any), device TFHEMDevice, radio string, sends bool) {
+	id := device.DeviceID
+	line("")
+	line("# %s: DuoFern %s %s.", id, device.DuoFern.Kind, device.DuoFern.Code)
+	line("define %s DUOFERN %s", id, device.DuoFern.Code)
+	if radio != "" {
+		line("attr %s IODev %s", id, radio)
+	}
+	if sends {
+		line("define %s.command MQTT2_DEVICE", id)
+		line("attr %s.command IODev mqtt", id)
+		line(`attr %s.command readingList %s/set:(up|down|stop|position.[0-9]+) { fhem("set %s $EVENT");; {} }`, id, regexp.QuoteMeta(duofernTopic(id)), id)
+	}
+	line("define %s.publish notify %s:position:.* set mqtt publish -r %s $EVTPART1", id, regexp.QuoteMeta(id), duofernTopic(id))
+	line("define %s.status at +00:00:30 set %s getStatus", id, id)
 }
 
 // fs20DimExpression is the Perl expression (";" doubled, as fhem.cfg wants it) turning $EVENT --

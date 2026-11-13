@@ -75,6 +75,9 @@ type TRawTopicCapability struct {
 	// Governed: a governed device's entity (integration_governed.go), its line "capability <d>.<l>
 	// by doing ...;".
 	Governed bool
+	// PositionInverted: a cover whose device counts 0 as open and 100 as closed (DuoFern), the
+	// other way round from Home Assistant.
+	PositionInverted bool
 }
 
 // rawMQTTLeaf is the leaf (raw config unique_id) the generator gives a raw capability.
@@ -229,6 +232,22 @@ func rawMQTTConfigs(gateway TDiscoveryGatewayDevice) map[string]map[string]inter
 			config["command_topic"] = raw.Command
 			config["brightness_scale"] = 100
 			config["supported_color_modes"] = []interface{}{"brightness"}
+
+		// A cover by its position, both ways on its topic and its "/set" -- FHEM's DuoFern covers
+		// (integration_fhem.go), the only raw covers so far: up, down, stop, "position <0..100>".
+		case "cover":
+			delete(config, "state_topic")
+			config["position_topic"] = raw.Topic
+			config["set_position_topic"] = raw.Command
+			config["command_topic"] = raw.Command
+			config["payload_open"] = "up"
+			config["payload_close"] = "down"
+			config["payload_stop"] = "stop"
+			config["set_position_template"] = "position {{ position }}"
+			if raw.PositionInverted {
+				config["position_template"] = "{{ 100 - (value | int) }}"
+				config["set_position_template"] = "position {{ 100 - position }}"
+			}
 
 		// The value, with what its unit says about it.
 		case "sensor":

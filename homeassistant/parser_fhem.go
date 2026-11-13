@@ -14,11 +14,13 @@
  *   SerialDevice:    Word String [ "code" String ] ";"  -- its kind (fhemSerialKinds), full path,
  *                                                       -- and code, if its kind has one
  *   FHEMDevice:      "device" DeviceID "with" ":" DeviceStatement* "end" ";"
- *   DeviceStatement: FS20Statement | Copies | Capability
+ *   DeviceStatement: FS20Statement | DuoFernStatement | Copies | Capability
  *   FS20Statement:   "fs20" Word String String "heard" "by" Word ( "," Word )* ";"
  *                                                       -- its kind, house code, address, installations
+ *   DuoFernStatement: "duofern" Word String "heard" "by" Word ( "," Word )* ";"
+ *                                                       -- its kind (duofernKinds), code, installations
  *   Copies:          "copies" "within" Number "ms" ";"   -- the device's own interval for copies
- *   Capability:      "capability" Word "." Word ";"
+ *   Capability:      "capability" Word "." Word AssignedIDety ";"
  *   DeviceID:        Word "." Word
  *
  * Comments ("#" to the end of the line) are taken out first.
@@ -135,12 +137,16 @@ func (p *TFHEMParser) FHEMDevice() bool {
 		/**/ p.AppendDevice(device)
 }
 
-// DeviceStatement: FS20Statement | Copies | Capability
+// DeviceStatement: FS20Statement | DuoFernStatement | Copies | Capability
 func (p *TFHEMParser) DeviceStatement(device *TFHEMDevice) bool {
 	switch {
 	// Its FS20 address.
 	case p.ThisWordIs("fs20"):
 		return p.FS20Statement(device)
+
+	// Its DuoFern code.
+	case p.ThisWordIs("duofern"):
+		return p.DuoFernStatement(device)
 
 	// How soon the same message again is a copy, not a press.
 	case p.ThisWordIs("copies"):
@@ -183,6 +189,32 @@ func (p *TFHEMParser) FS20Statement(device *TFHEMDevice) bool {
 		/**/ p.SetFS20(device, fs20)
 }
 
+// DuoFernStatement: "duofern" Word String "heard" "by" Word ( "," Word )* ";"
+func (p *TFHEMParser) DuoFernStatement(device *TFHEMDevice) bool {
+	duofern := &TDuoFernAddress{}
+	if !(p.ForcedThisWordWas("duofern") &&
+		/**/ p.ForcedThisWord(&duofern.Kind, MessageDuoFernKind) &&
+		/**/ p.KnownDuoFernKind(duofern.Kind) &&
+		/**/ p.ForcedThisString(&duofern.Code, MessageDuoFernCode) &&
+		/**/ p.ValidDuoFernCode(duofern.Code) &&
+		/**/ p.ForcedThisWordWas("heard") &&
+		/**/ p.ForcedThisWordWas("by")) {
+		return false
+	}
+	for {
+		var host string
+		if !p.ForcedThisWord(&host, MessageHostName) {
+			return false
+		}
+		duofern.HeardBy = append(duofern.HeardBy, host)
+		if !p.ThisPunctuationWas(',') {
+			break
+		}
+	}
+	return p.ForcedThisPunctuationWas(';') &&
+		/**/ p.SetDuoFern(device, duofern)
+}
+
 // Copies: "copies" "within" Number "ms" ";"
 func (p *TFHEMParser) Copies(device *TFHEMDevice) bool {
 	return p.ForcedThisWordWas("copies") &&
@@ -192,15 +224,17 @@ func (p *TFHEMParser) Copies(device *TFHEMDevice) bool {
 		/**/ p.ForcedThisPunctuationWas(';')
 }
 
-// Capability: "capability" Word "." Word ";"
+// Capability: "capability" Word "." Word AssignedIDety ";"
 func (p *TFHEMParser) Capability(device *TFHEMDevice) bool {
-	var domain, label string
+	var domain, label, assignedID string
 	return p.ForcedThisWordWas("capability") &&
 		/**/ p.ForcedThisWord(&domain, MessageDomain) &&
 		/**/ p.ForcedThisPunctuationWas('.') &&
 		/**/ p.ForcedThisWord(&label, MessageCapabilityLabel) &&
+		/**/ p.AssignedIDety(&assignedID) &&
 		/**/ p.ForcedThisPunctuationWas(';') &&
-		/**/ p.AppendCapability(device, domain+"."+label)
+		/**/ p.AppendCapability(device, domain+"."+label) &&
+		/**/ p.SetAssignedID(device, label, assignedID)
 }
 
 // DeviceID: Word "." Word
@@ -219,6 +253,19 @@ func (p *TFHEMParser) KnownSerialKind(kind string) bool {
 	_, known := fhemSerialKinds[kind]
 	return known ||
 		p.Failed(ErrorNotA, kind, MessageSerialKind)
+}
+
+// KnownDuoFernKind fails at a DuoFern kind duofernKinds doesn't have.
+func (p *TFHEMParser) KnownDuoFernKind(kind string) bool {
+	_, known := duofernKinds[kind]
+	return known ||
+		p.Failed(ErrorNotA, kind, MessageDuoFernKind)
+}
+
+// ValidDuoFernCode fails at a DuoFern device code that isn't six hex digits.
+func (p *TFHEMParser) ValidDuoFernCode(code string) bool {
+	return duofernDeviceCode.MatchString(code) ||
+		p.Failed(ErrorNotA, code, MessageDuoFernCode)
 }
 
 // KnownFS20Kind fails at an FS20 kind fs20Kinds doesn't have.
@@ -262,6 +309,26 @@ func (p *TFHEMParser) AppendSerial(installation *TFHEMInstallation, serial TFHEM
 // AppendInstallation adds a parsed installation.
 func (p *TFHEMParser) AppendInstallation(installation TFHEMInstallation) bool {
 	p.Installations = append(p.Installations, installation)
+	return true
+}
+
+// SetDuoFern gives device its DuoFern code, failing at a second one.
+func (p *TFHEMParser) SetDuoFern(device *TFHEMDevice, duofern *TDuoFernAddress) bool {
+	if device.DuoFern != nil {
+		return p.Failed(ErrorSecondOf, "duofern statement")
+	}
+	device.DuoFern = duofern
+	return true
+}
+
+// SetAssignedID records a capability's frozen ID, if it has one.
+func (p *TFHEMParser) SetAssignedID(device *TFHEMDevice, label, assignedID string) bool {
+	if assignedID != "" {
+		if device.AssignedIDs == nil {
+			device.AssignedIDs = map[string]string{}
+		}
+		device.AssignedIDs[label] = assignedID
+	}
 	return true
 }
 

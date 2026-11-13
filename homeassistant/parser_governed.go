@@ -171,20 +171,6 @@ func (p *TGovernedParser) Clause(capability *TGovernedCapability) bool {
 	}
 }
 
-// AssignedIDety: ( "as" "unique_id" Word ( "." Word )* )?
-func (p *TGovernedParser) AssignedIDety(target *string) bool {
-	var segment string
-	if p.ThisWordWas("as") &&
-		/**/ p.ForcedThisWordWas("unique_id") &&
-		/**/ p.ForcedThisWord(target, MessageFrozenRoot) {
-		for p.ThisPunctuationWas('.') &&
-			/**/ p.ForcedThisWord(&segment, MessageFrozenRoot) {
-			*target += "." + segment
-		}
-	}
-	return true
-}
-
 // Duration: Word ":" Word ":" Word, into *target as written (HH:MM:SS).
 func (p *TGovernedParser) Duration(target *string) bool {
 	var hours, minutes, seconds string
