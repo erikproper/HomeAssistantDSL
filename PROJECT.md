@@ -592,7 +592,10 @@ https://dev.netatmo.com/apidocumentation/webhooks
     replaced too, and goes to Junglinster as a test: first just plugged in (paired, undeclared),
     to see whether it holds up there. SP 120s drop in Junglinster as well (studio 0,
     hanging_sideboard 14, mini_fans 25 failed ping rounds 11-06..11-13), so the drops aren't
-    SP 220-only; the join failure is (2.03.10 only). Junglinster's own spare SP 240 stays a spare. Kept in mind: a second
+    SP 220-only; the join failure is (2.03.10 only). Junglinster's own spare SP 240 stays a spare.
+    2026-11-13: living/room/tv (SP 220, 2.3) offline from 14:24 UTC (after the 13:50 Zigbee2MQTT
+    restart and the ~14:02 power issue); unplugged and replugged by Erik at 16:55, back without a
+    re-pair (state ON, LQI 148). Kept in mind: a second
     Junglinster network on the old TI stick (a new IEEE -- its own is the one the ZBT-2 carries
     -- its old network wiped, channel 25, its own Zigbee2MQTT and gateway), if more such devices
     turn up.
