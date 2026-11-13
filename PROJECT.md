@@ -562,11 +562,12 @@ https://dev.netatmo.com/apidocumentation/webhooks
     disks1 is the Shelly shellyplug-6CC3D8 since 2026-11-13 14:12 UTC (the former test_shelly_plug,
     its block moved into disks1's place in the Shelly section; switch and node keep disks1's
     frozen IDs; power, energy and consumes new; the Innr's firmware entity is left unavailable in
-    the registry). disks2 follows with shellyplug-6CC43B.
+    the registry); disks2 likewise is shellyplug-6CC43B since 14:18 UTC (the former
+    test_shelly_plug_2; its test entities, e.g. switch.social_house_test_plug_2, left unavailable).
     Found on the way: (a) a Shelly block in the Zigbee2MQTT section isn't recognised ("shelly"
     line unrecognised), and the generator's stable-id assignment then appended a second "as
     unique_id" to each capability that already had one -- it should leave a frozen ID alone, also
-    in a misparsed block; (b) the deploy's reload check failed twice today (10:37, 14:13) with
+    in a misparsed block; (b) the deploy's reload check failed three times today (10:37, 14:13, 14:18) with
     "system_log/list: websocket: close 1006 (abnormal closure)" -- the check itself, not HA's
     reload: to look into. Kept in mind: a second
     Junglinster network on the old TI stick (a new IEEE -- its own is the one the ZBT-2 carries
