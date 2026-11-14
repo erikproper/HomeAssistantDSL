@@ -145,9 +145,9 @@ JLI
     DuoFern works (built 2026-11-13, option A, README): the old setup's one stick on
     protocols-server-3 (behind protocols-server-2's USB extension cable it never initialised),
     code 6FEDCB in Settings.def; the RolloTron 406DDD is utility.test_rollotron ->
-    cover.social_house_test_rollotron, tested from HA and on site by Erik (2026-11-14). Next: the
-    real window (a rename from test_rollotron, its frozen IDs kept). FS20 left in Junglinster:
-    only switches, no sensors or transmitters (Erik).
+    cover.social_house_test_rollotron, tested from HA and on site by Erik (2026-11-14); it stays
+    a test device, no real window planned (Erik). FS20 left in Junglinster: only switches, no
+    sensors or transmitters (Erik).
 
     The test dimmer is a governed light too (brightness, "on at 60 %", default off). To build (the plan's step 4): confirmations (the shadow state), the
     de-doubled transmitters and sensors, DuoFern. An FS20 remote is a set of buttons (Erik): its presses
