@@ -668,3 +668,18 @@ https://dev.netatmo.com/apidocumentation/webhooks
     pending on p-s-3 (checked 2026-11-13): about 45 (kernel, OpenSSL, FHEM). FHEM itself (held by its package) only deliberately, on p-s-2 and
     p-s-3 together, checking the generated fhem.cfg still loads (now with the DuoFern stick).
 
+
+58. (to observe, found 2026-11-14) Junglinster's Ring events don't reach HA: the doorbell's ding
+    and motion events last fired in October 2025, though Ring itself records activity (polling
+    works). Cause: HA's firebase_messaging (in HA 2026.11.1) can't decode Ring's newer two-part
+    push header, logs "Incorrect padding, shutting down FcmPushClient" and stops listening (HA
+    core issues 189885 and 191852; library fix proposed in sdb9696/firebase-messaging PR 37).
+    Ring was re-authenticated on 2026-11-14 and all stale "Qemu Python" clients removed (each
+    was an earlier HA login), so that isn't it. Wait for an HA release with the fix; no
+    third-party workaround on main. After each HA update: ring the bell, check that
+    event.social_entrance_front_door_ding fires. Then bring back
+    binary_sensor.social_entrance_motion (the old bash generator's template on Ring's
+    motion binary_sensor, which HA replaced with event.social_entrance_motion): on for a short
+    while after each motion event, which may need the generator to derive a binary_sensor
+    from an event. Harmless meanwhile: "Unknown kind: cocoa_camera_v2", the terrace Stick Up
+    Cam being newer than the Ring library.
