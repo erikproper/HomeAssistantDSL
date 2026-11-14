@@ -645,8 +645,10 @@ https://dev.netatmo.com/apidocumentation/webhooks
     earlier kernel ("piboot-try --reset-new --reboot" tried it; now current/ good, old/ 1017).
 
 57. Junglinster, weekend 2026-11-14/15 (Erik on site): change the batteries the battery warnings
-    name -- the frient in the laundry kitchen front and the Aqara magnet on the living room
-    windows; take the batteries out of the removed Aqaras (54, the unknown node). If there is
+    name -- the frient in the laundry kitchen front (the Aqara magnet on the living room windows
+    was replaced by a SONOFF SNZB-04PR2 on 2026-11-14; the old one, 0x00158d0001f34715, still to
+    remove from Zigbee2MQTT); take the batteries out of the removed Aqaras (54, the unknown
+    node). If there is
     time: the updates pending on p-s-3 (checked 2026-11-13): about 45 (kernel, OpenSSL, FHEM).
     FHEM itself (held by its package) only deliberately, on p-s-2 and p-s-3 together, checking
     the generated fhem.cfg still loads (now with the DuoFern stick).
