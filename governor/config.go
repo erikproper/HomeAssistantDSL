@@ -45,10 +45,11 @@ type TChannel struct {
 }
 
 // defaultChannels are the radio channels the governor knows. FS20 (868 MHz) may send 1 % of the
-// time, averaged over an hour: 36 s, which may all go at once -- as the CUL's own budget allows
-// (credit10ms, at most 3600). A frame takes about 0.22 s.
+// time; a CUL holds at most 9 s of it (credit10ms, at most 900 -- measured on Junglinster's CUL,
+// culfw 1.67, 2026-11-15: full at 900, refilled 1 per second, a command about 0.2 s). The
+// governor held 36 s until then and let bursts through that the CUL refused (LOVF).
 var defaultChannels = map[string]TChannel{
-	"fs20": {DutyCycle: 0.01, FrameSeconds: 0.22, BurstSeconds: 36, CopiesWithinMS: 500},
+	"fs20": {DutyCycle: 0.01, FrameSeconds: 0.22, BurstSeconds: 9, CopiesWithinMS: 500},
 }
 
 // TGovernedEntityDef is one governed entity: a capability of a governed device.

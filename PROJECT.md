@@ -173,14 +173,10 @@ other two.
 
     Tested 2026-11-12/13 on real devices (Erik): the switch and dimmer learned 44444444 4411/4412 and
     follow Home Assistant, a proof of concept; the switch sent to by protocols-server-3, the dimmer
-    by protocols-server-2 (only the first of "heard by" sends). Open, from flipping the switch fast
-    (2026-11-12, 23:31 UTC): the CUL ran out of its own air time ("cul_1: Unknown code LOVF" in
-    FHEM's log, credit10ms was down to 887 after the evening's tests) and dropped commands, while
-    the governor's budget still had room. Credit10ms 887 means about 27 of the CUL's 36 s spent,
-    far more than the governor's 0.22 s per command (governor/config.go) accounts for, so a
-    command costs the CUL more air time than modelled (FS20 repeats, or more copies). Next:
-    calibrate -- read "get cul_1 credit10ms" in FHEM, send N commands to the test switch,
-    read again; set the fs20 channel's frame cost from that (devices.yaml can override it).
+    by protocols-server-2 (only the first of "heard by" sends). The governor's FS20 budget holds
+    9 s since 2026-11-15 (the CUL's measured maximum; it held 36 s, so fast flipping got LOVF).
+    To check: flip the test dimmer fast -- commands wait rather than get lost, no LOVF in
+    protocols-server-2's FHEM log. The FHZ on protocols-server-3 (the switch) wasn't measured.
 
     DuoFern works (built 2026-11-13, option A, README): the old setup's one stick on
     protocols-server-3 (behind protocols-server-2's USB extension cable it never initialised),
@@ -253,8 +249,7 @@ other two.
       reached through FHEM with a dongle, not (yet) supported by Home Assistant itself.
     - Radio-specific (e.g. FS20) throttle groups that limit the requests the indirect
       application sends to a radio: built, as the governor's budget per radio channel (a token
-      bucket at the channel's duty cycle); its cost per command is what the calibration above
-      fixes.
+      bucket at the channel's duty cycle, holding what the CUL holds: 9 s since 2026-11-15).
 
 41. Publish -- Architecture.md should be ready for others to read, alongside an up-to-date
     README.md, on GitHub.

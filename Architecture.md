@@ -2028,12 +2028,13 @@ The governor (`governor/governor.go`) keeps each entity's desired state retained
 back at its start (the definition's default, else the kind's, when there is none), sends a
 command at once and the desired state again every period (the first ones staggered), through one
 pending slot per entity (a real command before an enforcement) and a token bucket of air time per
-radio channel (`defaultChannels`: FS20 1 % duty cycle, 0.22 s per command, holding 36 s). The 1 %
-is per transmitter and averaged over an hour, so the bucket holds an hour's worth, as the CUL's
-own budget does (`credit10ms`, at most 3600), and a command costs one frame however many
-installations hear the device -- only one sends it (§6.19). Until 2026-11-13 it held 3 s and
-charged a frame per installation, so after six commands each further one waited 44 s. The
-stick's own budget can still run out before the governor's (FHEM logs `LOVF` or `TRANSMIT LIMIT
+radio channel (`defaultChannels`: FS20 1 % duty cycle, 0.22 s per command, holding 9 s). The 1 %
+is per transmitter; the bucket holds what the CUL's own budget holds (`credit10ms`, at most 900:
+measured 2026-11-15, culfw 1.67, refilled 1 per second, a command about 0.2 s), and a command
+costs one frame however many installations hear the device -- only one sends it (§6.19). Until
+2026-11-13 it held 3 s and charged a frame per installation, so after six commands each further
+one waited 44 s; until 2026-11-15 it held 36 s (an hour's worth), more than the CUL holds, so a
+fast burst got LOVF. The stick's own budget can still run out before the governor's (FHEM logs `LOVF` or `TRANSMIT LIMIT
 EXCEEDED`, and the command is lost until the next enforcement): the governor doesn't read it.
 What a radio received is a radio-requested change and becomes the desired state; its own echoes
 are ignored: a value matching any of its sends to the device within the last 5 s (compared after
