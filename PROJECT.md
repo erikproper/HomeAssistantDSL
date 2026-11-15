@@ -73,6 +73,38 @@ JLI
  
 ## Migration & improvements
 
+32. A handover document (Erik, 2026-11-14; important, for the coming days): generate, per house,
+    a PDF (generated LaTeX, following LATEX_CONVENTIONS.md; read only, never edited by hand) with
+    everything someone else needs to run and manually edit the
+    system when Erik can't -- e.g. after an accident, for his wife. Generated from the defs, so it
+    stays current with every change. A fixed section structure (to agree); per section, Erik's
+    own hand-written text (an optional LaTeX fragment per section, <section>.tex in the
+    output folder below) is merged in ahead of that section's generated part. A
+    section can be hand-written only (e.g. what matters most, whom to trust, first steps).
+    In EU English. Names through macros, never typed literally: a generated .sty defines, per
+    device and entity, its names and facts, so the hand-written and generated text both write
+    e.g. \EntityName{sensor:/apartment/office/media_drive} (the domain.entity_id, in \tt),
+    \FriendlyName{...} (the UI name), \ModelOf{...}, and the like; every built-in name is set by
+    a macro in \tt. A key the .sty doesn't define (a device or entity renamed or removed) is a
+    LaTeX error, on purpose: it asks for the text to be updated. A "comment" field on devices
+    and entities in the defs, carried into the document. Its quote escape (proposed, to agree): doubling, Pascal's
+    way ("say ""on"" here"), so a \ stays a \ and LaTeX in a comment is written as is (strings
+    take " or ' today, without any escape; parser_tokeniser.go).
+    Built up step by step, in parallel with other work. The generator writes only into a folder
+    Erik names: body.tex (the sections) and the name macros' .sty. Erik's own main.tex in that
+    folder sets layout and title page, loads the .sty and inputs body.tex; the per-section
+    hand-written fragments live there too, and body.tex inputs each one that exists.
+    Generated contents, to settle: what the house has (hosts, integrations,
+    devices per room, what each switch/rule does); how it hangs together (Physical/Logical/
+    Conceptual.def, the generator, the coordinator, Zigbee2MQTT/Z-Wave/FHEM, main and ha2mqtt);
+    the interfaces (URLs, SSH access, the HA and Zigbee2MQTT frontends); passwords and tokens
+    (Settings.def, plus those that live outside the system: FRITZ!Box, cloud accounts, ...);
+    everyday tasks step by step (change a battery, replace a sensor, re-pair a plug, restart a
+    host, edit a .def, generate, deploy) and what to do when something is down; who to call.
+    Since it holds passwords: where it is kept (printed in a safe, an encrypted file, ...) and that
+    the generated file never goes into git or an unencrypted Nextcloud folder (nor the
+    generated .tex, nor LaTeX's .aux/.log, which hold the same text).
+
 33. Architectural review, code review and documenting
    - Review progress per Go file: REVIEW.md (not ready / ready / re-review / reviewed).
    - Order: (1) GO_* conventions, (2) shared parser stack, (3) Physical.def as one grammar,
@@ -677,38 +709,6 @@ https://dev.netatmo.com/apidocumentation/webhooks
     while after each motion event, which may need the generator to derive a binary_sensor
     from an event. Harmless meanwhile: "Unknown kind: cocoa_camera_v2", the terrace Stick Up
     Cam being newer than the Ring library.
-
-59. A handover document (Erik, 2026-11-14; important, for the coming days): generate, per house,
-    a PDF (generated LaTeX, following LATEX_CONVENTIONS.md; read only, never edited by hand) with
-    everything someone else needs to run and manually edit the
-    system when Erik can't -- e.g. after an accident, for his wife. Generated from the defs, so it
-    stays current with every change. A fixed section structure (to agree); per section, Erik's
-    own hand-written text (an optional LaTeX fragment per section, <section>.tex in the
-    output folder below) is merged in ahead of that section's generated part. A
-    section can be hand-written only (e.g. what matters most, whom to trust, first steps).
-    In EU English. Names through macros, never typed literally: a generated .sty defines, per
-    device and entity, its names and facts, so the hand-written and generated text both write
-    e.g. \EntityName{sensor:/apartment/office/media_drive} (the domain.entity_id, in \tt),
-    \FriendlyName{...} (the UI name), \ModelOf{...}, and the like; every built-in name is set by
-    a macro in \tt. A key the .sty doesn't define (a device or entity renamed or removed) is a
-    LaTeX error, on purpose: it asks for the text to be updated. A "comment" field on devices
-    and entities in the defs, carried into the document. Its quote escape (proposed, to agree): doubling, Pascal's
-    way ("say ""on"" here"), so a \ stays a \ and LaTeX in a comment is written as is (strings
-    take " or ' today, without any escape; parser_tokeniser.go).
-    Built up step by step, in parallel with other work. The generator writes only into a folder
-    Erik names: body.tex (the sections) and the name macros' .sty. Erik's own main.tex in that
-    folder sets layout and title page, loads the .sty and inputs body.tex; the per-section
-    hand-written fragments live there too, and body.tex inputs each one that exists.
-    Generated contents, to settle: what the house has (hosts, integrations,
-    devices per room, what each switch/rule does); how it hangs together (Physical/Logical/
-    Conceptual.def, the generator, the coordinator, Zigbee2MQTT/Z-Wave/FHEM, main and ha2mqtt);
-    the interfaces (URLs, SSH access, the HA and Zigbee2MQTT frontends); passwords and tokens
-    (Settings.def, plus those that live outside the system: FRITZ!Box, cloud accounts, ...);
-    everyday tasks step by step (change a battery, replace a sensor, re-pair a plug, restart a
-    host, edit a .def, generate, deploy) and what to do when something is down; who to call.
-    Since it holds passwords: where it is kept (printed in a safe, an encrypted file, ...) and that
-    the generated file never goes into git or an unencrypted Nextcloud folder (nor the
-    generated .tex, nor LaTeX's .aux/.log, which hold the same text).
 
 60. (to observe, found 2026-11-15) Junglinster's Envoy stopped answering ha2mqtt's Enphase
     integration on 11-15 from 08:58 to 09:35 local ("Cannot connect to host 192.168.178.23:443"),
