@@ -640,7 +640,8 @@ https://dev.netatmo.com/apidocumentation/webhooks
     In Vienna (2026-11-15): one of Junglinster's stale SP 220s (0xc4988600000f73e3, the old
     disks1) paired cleanly and answers fast (LQI 81-84). Erik replaces Vienna's SP 240 and SONOFF
     plugs with SP 220s on 2026-11-16/17 (frozen IDs keep the names; the defs follow each swap):
-    then compare their drops in Vienna with Junglinster's.
+    then compare their drops in Vienna with Junglinster's. The SP 240s that come free move to
+    Junglinster (first: the nespresso's, 0xa4c138cacc4cc8d1, replaced by 0xc4988600000f73e3).
 
 55. Podman's bridge broke on Vienna's protocols-server-1 (2026-11-09, during update.containers):
     every start of mosquitto (the only container there on podman's bridge network) failed with
