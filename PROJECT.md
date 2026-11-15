@@ -77,6 +77,11 @@ Priorities (Erik, 2026-11-15), beyond the FHEM radio issue (37): the handover do
 finishing Architecture.md and README.md (41); reviewing the code (33), which goes with the
 other two.
 
+- Replace SONOFF/Coffee
+- Change buttons:
+  - Left pair => coffee
+  - Right pair => workplace
+
 32. A handover document (Erik, 2026-11-14; important, for the coming days): generate, per house,
     a PDF (generated LaTeX, following LATEX_CONVENTIONS.md; read only, never edited by hand) with
     everything someone else needs to run and manually edit the
@@ -635,6 +640,10 @@ https://dev.netatmo.com/apidocumentation/webhooks
     its light on/off), so the idea is steady routers instead: an always-powered plug or Zigbee
     repeater in the office and near the server room, so nothing depends on a route through those
     lights. Count the drops again after that.
+    In Vienna (2026-11-15): one of Junglinster's stale SP 220s (0xc4988600000f73e3, the old
+    disks1) paired cleanly and answers fast (LQI 81-84). Erik replaces Vienna's SP 240 and SONOFF
+    plugs with SP 220s on 2026-11-16/17 (frozen IDs keep the names; the defs follow each swap):
+    then compare their drops in Vienna with Junglinster's.
 
 55. Podman's bridge broke on Vienna's protocols-server-1 (2026-11-09, during update.containers):
     every start of mosquitto (the only container there on podman's bridge network) failed with
