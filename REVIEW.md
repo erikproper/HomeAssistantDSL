@@ -42,6 +42,10 @@ grammars on top show the style the other grammars will follow.
 - `homeassistant/integration_governed.go` (+ integration_governed_test.go)
 - `homeassistant/governor_deploy.go` (tests in integration_governed_test.go)
 
+The handover document (Architecture.md §9.5), new; it grows with PROJECT.md 32.
+
+- `homeassistant/documentation.go`
+
 ## Reviewed
 
 (none)

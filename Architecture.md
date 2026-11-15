@@ -2288,6 +2288,27 @@ The grammars are still given one statement at a time by the line-based readers o
 and the integration parsers, so a position is within that statement. Reading each definition file
 whole, as one grammar, is the next step (PROJECT.md item 33).
 
+### 9.5 The handover document
+
+`generate` writes a house's handover document (PROJECT.md 32) as LaTeX into the house's
+`Documentation` folder, when that folder exists (`documentation.go`). It writes two files there
+and nothing else: `body.tex`, the sections, and `house.sty`, the name macros. The author keeps
+`main.tex` in the same folder -- layout, title page, `\usepackage{house}`, `\input{body}` -- and
+one hand-written fragment per section, `<section>.tex` (`first-steps`, `at-a-glance`, `access`,
+`rooms`, `structure`, `tasks`, `troubleshooting`, `contacts`); `body.tex` inputs each fragment
+at the start of its section, ahead of the generated part.
+
+Names are never typed into the text: `house.sty` defines, per entity and device, what the
+definitions say, and the text asks for it with a macro keyed by the DSL's absolute name of an
+entity (`switch.social/apartment/living_room/kitchen/nespresso`) or a device id
+(`appliance.living_room_kitchen_nespresso`): `\EntityName` (the entity_id), `\FriendlyName`
+(`<sphere>/<path>`), `\DeviceOf` (an entity's device), `\DeviceName`, `\ManufacturerOf` and
+`\ModelOf` (of a device, or of an entity's device). Built-in names are set in typewriter type,
+breakable at `_`, `.`, `/` and `:`. A key the definitions no longer have -- renamed or removed --
+stops the LaTeX run with an error naming it, so the text gets updated rather than going stale.
+Manufacturer and model come from the devices' metadata in Physical.def (discovery and `hosts`
+devices).
+
 ## 10. Platform-specific integration notes
 
 No single integration mechanism suits everything — richness of the native API is weighed against MQTT's decoupling benefits per platform:

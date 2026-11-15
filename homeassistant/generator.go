@@ -85,6 +85,9 @@ func runGenerationFromDefFile(cwd, defPath string) error {
 	if err := generateRegistryManifest(outputDir, admin); err != nil {
 		return err
 	}
+	if err := writeHouseDocumentation(cwd, definitionDir, admin); err != nil {
+		return err
+	}
 	fmt.Printf("generated %s\n", label)
 	return nil
 }
