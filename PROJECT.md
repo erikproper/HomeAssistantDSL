@@ -110,6 +110,11 @@ other two.
     Since it holds passwords: where it is kept (printed in a safe, an encrypted file, ...) and that
     the generated file never goes into git or an unencrypted Nextcloud folder (nor the
     generated .tex, nor LaTeX's .aux/.log, which hold the same text).
+    Started 2026-11-16 (Architecture.md §9.5): generate writes body.tex and house.sty into each
+    house's Documentation folder; the sections, the fragments, the name macros, and the rooms
+    list (per space its entities, their devices, manufacturer and model) are there. Next: the
+    other generated sections, HA's own composed names (\FriendlyName is <sphere>/<path> now),
+    the comment field, the passwords.
 
 33. Architectural review, code review and documenting
    - Review progress per Go file: REVIEW.md (not ready / ready / re-review / reviewed).
