@@ -78,9 +78,6 @@ finishing Architecture.md and README.md (41); reviewing the code (33), which goe
 other two.
 
 - Replace SONOFF/Coffee
-- Change buttons:
-  - Left pair => coffee
-  - Right pair => workplace
 
 32. A handover document (Erik, 2026-11-14; important, for the coming days): generate, per house,
     a PDF (generated LaTeX, following LATEX_CONVENTIONS.md; read only, never edited by hand) with
