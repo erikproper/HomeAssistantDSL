@@ -628,6 +628,15 @@ https://dev.netatmo.com/apidocumentation/webhooks
     flash from a Mac in Chrome/Edge (WebSerial; Firefox can't) with toolbox.openhomefoundation.org,
     plug it back into any port (the quadlet finds it by serial ID), start, check bridge/info: new
     revision, IEEE still 0x00124b002a2e3ee0. Then recount the drops.
+    More drops on site, 2026-11-14/15: office/media_drive (SP 240) on 11-14 at 14:50, right after
+    the four server room spots lost power at the wall (route errors for them just before);
+    living_room/living/christmas_tree (SP 220, firmware 2.3 of 2020) on 11-15 at 10:49 with its
+    power unchanged. Both came back after a power cycle. Most route errors in the log (670 since
+    11-14 afternoon) are the office ceiling and the server room spots, switched at the wall:
+    routers that come and go. The wall switches stay (core principle: a wall switch always turns
+    its light on/off), so the idea is steady routers instead: an always-powered plug or Zigbee
+    repeater in the office and near the server room, so nothing depends on a route through those
+    lights. Count the drops again after that.
 
 55. Podman's bridge broke on Vienna's protocols-server-1 (2026-11-09, during update.containers):
     every start of mosquitto (the only container there on podman's bridge network) failed with
@@ -647,7 +656,8 @@ https://dev.netatmo.com/apidocumentation/webhooks
 57. Junglinster, weekend 2026-11-14/15 (Erik on site): change the batteries the battery warnings
     name -- the frient in the laundry kitchen front (the Aqara magnet on the living room windows
     was replaced by a SONOFF SNZB-04PR2 on 2026-11-14; the old one, 0x00158d0001f34715, still to
-    remove from Zigbee2MQTT); take the batteries out of the removed Aqaras (54, the unknown
+    remove from Zigbee2MQTT: Remove with "force" in its frontend, by Erik -- the permission
+    check blocked it for Claude); take the batteries out of the removed Aqaras (54, the unknown
     node). If there is
     time: the updates pending on p-s-3 (checked 2026-11-13): about 45 (kernel, OpenSSL, FHEM).
     FHEM itself (held by its package) only deliberately, on p-s-2 and p-s-3 together, checking
@@ -667,3 +677,25 @@ https://dev.netatmo.com/apidocumentation/webhooks
     while after each motion event, which may need the generator to derive a binary_sensor
     from an event. Harmless meanwhile: "Unknown kind: cocoa_camera_v2", the terrace Stick Up
     Cam being newer than the Ring library.
+
+59. A handover document (Erik, 2026-11-14; important, for the coming days): generate, per house,
+    a LibreOffice (.odt) document with everything someone else needs to run and manually edit the
+    system when Erik can't -- e.g. after an accident, for his wife. Generated from the defs, so it
+    stays current with every change. Contents, to settle: what the house has (hosts, integrations,
+    devices per room, what each switch/rule does); how it hangs together (Physical/Logical/
+    Conceptual.def, the generator, the coordinator, Zigbee2MQTT/Z-Wave/FHEM, main and ha2mqtt);
+    the interfaces (URLs, SSH access, the HA and Zigbee2MQTT frontends); passwords and tokens
+    (Settings.def, plus those that live outside the system: FRITZ!Box, cloud accounts, ...);
+    everyday tasks step by step (change a battery, replace a sensor, re-pair a plug, restart a
+    host, edit a .def, generate, deploy) and what to do when something is down; who to call.
+    Since it holds passwords: where it is kept (printed in a safe, an encrypted file, ...) and that
+    the generated file never goes into git or an unencrypted Nextcloud folder. Format: an .odt
+    is a zip of XML (Go's archive/zip, no dependency), or a flat .fodt (a single XML file
+    LibreOffice opens directly).
+
+60. (to observe, found 2026-11-15) Junglinster's Envoy stopped answering ha2mqtt's Enphase
+    integration on 11-15 from 08:58 to 09:35 local ("Cannot connect to host 192.168.178.23:443"),
+    and twice for about 2 minutes at night (03:57, 04:02); besides, a 3-11 s gap about once an
+    hour. Recovered by itself. Not yet known whether the Envoy left the network (Wi-Fi, reboot) or
+    only its API hung: check the pinger's hosts/envoy/node history for that window. If it
+    recurs, look at its network link (Wi-Fi signal, or a cable).
