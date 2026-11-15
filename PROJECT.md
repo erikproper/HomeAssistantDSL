@@ -686,6 +686,15 @@ https://dev.netatmo.com/apidocumentation/webhooks
     own hand-written text (an optional LaTeX fragment per section, kept per house next to the
     defs, e.g. Handover/<section>.tex) is merged in ahead of that section's generated part. A
     section can be hand-written only (e.g. what matters most, whom to trust, first steps).
+    In EU English. Names through macros, never typed literally: a generated .sty defines, per
+    device and entity, its names and facts, so the hand-written and generated text both write
+    e.g. \EntityName{sensor:/apartment/office/media_drive} (the domain.entity_id, in \tt),
+    \FriendlyName{...} (the UI name), \ModelOf{...}, and the like; every built-in name is set by
+    a macro in \tt. A key the .sty doesn't define (a device or entity renamed or removed) is a
+    LaTeX error, on purpose: it asks for the text to be updated. A "comment" field on devices
+    and entities in the defs, carried into the document. Its quote escape (proposed, to agree): doubling, Pascal's
+    way ("say ""on"" here"), so a \ stays a \ and LaTeX in a comment is written as is (strings
+    take " or ' today, without any escape; parser_tokeniser.go).
     Generated contents, to settle: what the house has (hosts, integrations,
     devices per room, what each switch/rule does); how it hangs together (Physical/Logical/
     Conceptual.def, the generator, the coordinator, Zigbee2MQTT/Z-Wave/FHEM, main and ha2mqtt);
