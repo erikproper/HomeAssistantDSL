@@ -175,8 +175,8 @@ other two.
     follow Home Assistant, a proof of concept; the switch sent to by protocols-server-3, the dimmer
     by protocols-server-2 (only the first of "heard by" sends). The governor's FS20 budget holds
     9 s since 2026-11-15 (the CUL's measured maximum; it held 36 s, so fast flipping got LOVF).
-    To check: flip the test dimmer fast -- commands wait rather than get lost, no LOVF in
-    protocols-server-2's FHEM log. The FHZ on protocols-server-3 (the switch) wasn't measured.
+    Checked on site the same day (Erik flipping both fast): no LOVF, held commands sent late, the
+    latest one per device kept. The FHZ on protocols-server-3 (the switch) wasn't measured.
 
     DuoFern works (built 2026-11-13, option A, README): the old setup's one stick on
     protocols-server-3 (behind protocols-server-2's USB extension cable it never initialised),
