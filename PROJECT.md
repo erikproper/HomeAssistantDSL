@@ -73,6 +73,10 @@ JLI
  
 ## Migration & improvements
 
+Priorities (Erik, 2026-11-15), beyond the FHEM radio issue (37): the handover document (32);
+finishing Architecture.md and README.md (41); reviewing the code (33), which goes with the
+other two.
+
 32. A handover document (Erik, 2026-11-14; important, for the coming days): generate, per house,
     a PDF (generated LaTeX, following LATEX_CONVENTIONS.md; read only, never edited by hand) with
     everything someone else needs to run and manually edit the
@@ -172,7 +176,11 @@ JLI
     by protocols-server-2 (only the first of "heard by" sends). Open, from flipping the switch fast
     (2026-11-12, 23:31 UTC): the CUL ran out of its own air time ("cul_1: Unknown code LOVF" in
     FHEM's log, credit10ms was down to 887 after the evening's tests) and dropped commands, while
-    the governor's budget still had room.
+    the governor's budget still had room. Credit10ms 887 means about 27 of the CUL's 36 s spent,
+    far more than the governor's 0.22 s per command (governor/config.go) accounts for, so a
+    command costs the CUL more air time than modelled (FS20 repeats, or more copies). Next:
+    calibrate -- read "get cul_1 credit10ms" in FHEM, send N commands to the test switch,
+    read again; set the fs20 channel's frame cost from that (devices.yaml can override it).
 
     DuoFern works (built 2026-11-13, option A, README): the old setup's one stick on
     protocols-server-3 (behind protocols-server-2's USB extension cable it never initialised),
@@ -181,9 +189,8 @@ JLI
     a test device, no real window planned (Erik). FS20 left in Junglinster: only switches, no
     sensors or transmitters (Erik).
 
-    The test dimmer is a governed light too (brightness, "on at 60 %", default off). To build (the plan's step 4): confirmations (the shadow state), the
-    de-doubled transmitters and sensors, DuoFern. An FS20 remote is a set of buttons (Erik): its presses
-    become conceptual button events, and dimming is stepwise by rules, as for the Zigbee dimmers.
+    The test dimmer is a governed light too (brightness, "on at 60 %", default off). The plan's
+    step 4 waits as item 56.
 
     Note (2026-09-22, architectural decision, not yet designed in detail): some integrations
     (FHEM is the motivating case) bridge devices that accept on/off commands but never report
@@ -244,59 +251,10 @@ JLI
       enforcement of the desired state. Hence "indirect" -- apt, though not the best name.
     - Both FHEM radios are in scope (Erik, 2026-11-08): FS20 and DuoFern -- a cover system,
       reached through FHEM with a dongle, not (yet) supported by Home Assistant itself.
-    - To reflect on: radio-specific (e.g. FS20) throttle groups that limit the number of requests
-      the indirect application sends to a radio.
-
-40. https://github.com/kaiplaketti/matter2mqtt
-I think this one wraps the HA one. Check if it is up-to-date
-The idea is to offer matter integration into HA via MQTT.
-So, not offering local devices from HA to matter.
-
-    Looked at 2026-11-08: a few hundred lines of Python on the Matter Server's websocket
-    (start_listening, OnOff through the CHIP library's clusters), on/off devices only, no
-    commissioning; 4 commits Jan-Apr 2026. The Python Matter Server it builds on was archived in
-    June 2026 for a matter.js server (secondary sources), so taking it over means rewriting it.
-    Suggested instead: the Matter Server (and an OpenThread border router for the stick) on
-    p-s-1, and Home Assistant's own Matter integration on ha2mqtt, bridged as the other native
-    integrations are. Cheap test devices: IKEA's Matter-over-Thread GRILLPLATS plug, MYGGSPRAY,
-    KAJPLATS, BILRESA (about 9 EUR); a Wi-Fi Matter plug needs no Thread at all.
-
-    The Thread radios (Erik, 2026-11-08): each house has a Nabu Casa stick (SkyConnect), free, with
-    Thread firmware already, now in its Green; they move to each house's p-s-1 (Vienna's this week)
-    -- one Thread mesh per house. Per p-s-1: the OpenThread Border Router and the Matter Server as
-    containers, ha2mqtt's Thread and Matter integrations on them. No Thread devices yet, so the new
-    border router can form a fresh network; the Green's OTBR add-on goes, so it doesn't advertise a
-    border router without its radio.
-
-    Decided (Erik, 2026-11-08): Home Assistant's Matter integration on ha2mqtt, until a bridge of
-    our own is needed -- no maintained Matter-controller-to-MQTT bridge exists (the projects found
-    go the other way, MQTT to Matter); ours would be a small Go client of the Matter Server's
-    websocket API, publishing on our own topics, as the governor does for FS20.
-
-    Vienna, done 2026-11-08: the SkyConnect on protocols-server-1
-    (/dev/serial/by-id/usb-Nabu_Casa_SkyConnect_v1.0_bea642ed...-if00-port0, Thread RCP, 460800
-    baud, flow control); quadlets otbr.container (ghcr.io/ownbee/hass-otbr-docker:latest, REST API
-    on 8081, web UI off, firewall and NAT64 on, backbone eth0) and matter.container
-    (ghcr.io/matter-js/matterjs-server:stable, port 5580; its data folder owned by uid 1000, the
-    image's user); /etc/sysctl.d/60-thread-border-router.conf (IPv6 forwarding, accept_ra 2,
-    accept_ra_rt_info_max_plen 64). Both data folders are under /var/lib/home-automation, so the
-    nightly backup-home-automation (generic over that folder, off-box to mqtt.erikproper.eu) takes
-    them; update.containers covers every quadlet. Vienna also has an Apple Thread border router
-    (Living-Room-2, 192.168.178.44) with a network of its own.
-    ha2mqtt has the Open Thread Border Router (http://127.0.0.1:8081), Thread and Matter
-    (ws://127.0.0.1:5580/ws) integrations (Erik, 2026-11-08): the border router is leader of
-    Vienna's own Thread network, ha2mqtt is connected to the Matter Server; the Green's OTBR
-    add-on is gone. Next: a first Matter device in Vienna (commissioned through ha2mqtt, its
-    entities onto the bus); the same setup for Junglinster.
-
-    Junglinster, 2026-11-13: the SkyConnect moved from the Green to protocols-server-1 (Erik;
-    /dev/serial/by-id/usb-Nabu_Casa_SkyConnect_v1.0_3c093a724bedec11977e4740ad51a8b2-if00-port0);
-    Vienna's otbr.container, matter.container and sysctl file, with backbone eno1 (instead of
-    eth0). Both active, the RCP answers (Thread 1.4.0); no Thread devices. ha2mqtt has the Open
-    Thread Border Router (http://127.0.0.1:8081), Thread and Matter (ws://127.0.0.1:5580/ws)
-    integrations (Erik): the border router is leader of Junglinster's own Thread network, ha2mqtt
-    is connected to the Matter Server. The Green's OTBR, Thread and SkyConnect entries are gone;
-    what's left there for Matter (and ZHA) are ignored discoveries.
+    - Radio-specific (e.g. FS20) throttle groups that limit the requests the indirect
+      application sends to a radio: built, as the governor's budget per radio channel (a token
+      bucket at the channel's duty cycle); its cost per command is what the calibration above
+      fixes.
 
 41. Publish -- Architecture.md should be ready for others to read, alongside an up-to-date
     README.md, on GitHub.
@@ -355,6 +313,19 @@ So, not offering local devices from HA to matter.
     128/1078/739/5287 respectively). Full test suite green throughout
     (TestGenerateInstanceAutomationTreesWritesMainAndRemoteTrees updated to assert the new plain-key
     shape instead of the old packages one).
+
+56. (when FS20 sensors or transmitters come; Junglinster has only FS20 switches now, Erik) The
+    governed plan's step 4 (claude-notes/plans/governed-integration.md): confirmations (the
+    shadow state, from another device's report), the de-doubled transmitters and sensors. An FS20
+    remote is a set of buttons (Erik): its presses become conceptual button events, and dimming
+    is stepwise by rules, as for the Zigbee dimmers.
+
+59. (when a Matter device is needed, or for someone else who wants Matter in the model-driven,
+    federated approach) Thread and Matter run in both houses (README.md, operational notes), but
+    no Matter device yet: commission a first one through ha2mqtt (e.g. IKEA's Matter-over-Thread
+    GRILLPLATS plug, about 9 EUR; a Wi-Fi Matter plug needs no Thread) and check its entities
+    reach the bus. Only if Home Assistant's integration falls short: a bridge of our own, a small
+    Go client of the Matter Server's websocket API on our own topics, as the governor is for FS20.
 
 42. Complementary functionality for e.g. zwave2mqtt and zigbee2mqtt to add (with discovery) via a wrapper additional functionality that can only be done via a web UI. For instance, firmware updates, etc. Hmm. Maybe work with these projects to add more functionality via MQTT.
 

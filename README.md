@@ -781,6 +781,23 @@ All three checks are advisory: warnings are printed but generation still complet
 
 ## Operational notes
 
+**Thread and Matter (both houses, since 2026-11-08 Vienna, 2026-11-13 Junglinster).** Each
+house's Nabu Casa SkyConnect (Thread RCP, 460800 baud, flow control) sits on its
+protocols-server-1, by serial ID (Vienna `usb-Nabu_Casa_SkyConnect_v1.0_bea642ed...`, Junglinster
+`..._3c093a724bedec11977e4740ad51a8b2-if00-port0`). Two quadlets there: `otbr.container`
+(ghcr.io/ownbee/hass-otbr-docker:latest, REST API on 8081, web UI off, firewall and NAT64 on;
+backbone eth0 in Vienna, eno1 in Junglinster) and `matter.container`
+(ghcr.io/matter-js/matterjs-server:stable, port 5580; its data folder owned by uid 1000, the
+image's user), plus `/etc/sysctl.d/60-thread-border-router.conf` (IPv6 forwarding, accept_ra 2,
+accept_ra_rt_info_max_plen 64). Both data folders are under /var/lib/home-automation, so the
+nightly backup takes them; update.containers covers them. ha2mqtt has the Open Thread Border
+Router (http://127.0.0.1:8081), Thread and Matter (ws://127.0.0.1:5580/ws) integrations; each
+border router leads its house's own Thread network (Vienna also has an Apple border router,
+Living-Room-2, with a network of its own). The Greens' OTBR add-ons are gone. Matter goes through
+Home Assistant's own integration on ha2mqtt, bridged like the other native integrations: no
+maintained Matter-controller-to-MQTT bridge exists (matter2mqtt, looked at 2026-11-08: on/off
+only, on the archived Python Matter Server).
+
 **Moving a Zigbee network to a different adapter type (Z-Stack -> EmberZNet, Junglinster
 2026-10-23).** Z2M's EmberZNet driver refuses a Z-Stack `coordinator_backup.json` ("not for
 EmberZNet stack"); with no usable backup it forms a NEW network from the config (same key and PAN,
