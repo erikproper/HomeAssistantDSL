@@ -679,12 +679,12 @@ https://dev.netatmo.com/apidocumentation/webhooks
     Cam being newer than the Ring library.
 
 59. A handover document (Erik, 2026-11-14; important, for the coming days): generate, per house,
-    a LibreOffice (.odt) document with everything someone else needs to run and manually edit the
+    a PDF (generated LaTeX, following LATEX_CONVENTIONS.md; read only, never edited by hand) with
+    everything someone else needs to run and manually edit the
     system when Erik can't -- e.g. after an accident, for his wife. Generated from the defs, so it
     stays current with every change. It opens with hand-written sections (Erik's own text, e.g.
     what matters most, whom to trust, first steps), kept per house next to the defs and merged in
-    ahead of the generated part; their format (plain text with headings, or an .odt fragment) to
-    settle. Generated contents, to settle: what the house has (hosts, integrations,
+    ahead of the generated part, as LaTeX fragments (.tex). Generated contents, to settle: what the house has (hosts, integrations,
     devices per room, what each switch/rule does); how it hangs together (Physical/Logical/
     Conceptual.def, the generator, the coordinator, Zigbee2MQTT/Z-Wave/FHEM, main and ha2mqtt);
     the interfaces (URLs, SSH access, the HA and Zigbee2MQTT frontends); passwords and tokens
@@ -692,9 +692,8 @@ https://dev.netatmo.com/apidocumentation/webhooks
     everyday tasks step by step (change a battery, replace a sensor, re-pair a plug, restart a
     host, edit a .def, generate, deploy) and what to do when something is down; who to call.
     Since it holds passwords: where it is kept (printed in a safe, an encrypted file, ...) and that
-    the generated file never goes into git or an unencrypted Nextcloud folder. Format: an .odt
-    is a zip of XML (Go's archive/zip, no dependency), or a flat .fodt (a single XML file
-    LibreOffice opens directly).
+    the generated file never goes into git or an unencrypted Nextcloud folder (nor the
+    generated .tex, nor LaTeX's .aux/.log, which hold the same text).
 
 60. (to observe, found 2026-11-15) Junglinster's Envoy stopped answering ha2mqtt's Enphase
     integration on 11-15 from 08:58 to 09:35 local ("Cannot connect to host 192.168.178.23:443"),
