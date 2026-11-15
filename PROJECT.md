@@ -683,8 +683,8 @@ https://dev.netatmo.com/apidocumentation/webhooks
     everything someone else needs to run and manually edit the
     system when Erik can't -- e.g. after an accident, for his wife. Generated from the defs, so it
     stays current with every change. A fixed section structure (to agree); per section, Erik's
-    own hand-written text (an optional LaTeX fragment per section, kept per house next to the
-    defs, e.g. Handover/<section>.tex) is merged in ahead of that section's generated part. A
+    own hand-written text (an optional LaTeX fragment per section, <section>.tex in the
+    output folder below) is merged in ahead of that section's generated part. A
     section can be hand-written only (e.g. what matters most, whom to trust, first steps).
     In EU English. Names through macros, never typed literally: a generated .sty defines, per
     device and entity, its names and facts, so the hand-written and generated text both write
@@ -695,6 +695,10 @@ https://dev.netatmo.com/apidocumentation/webhooks
     and entities in the defs, carried into the document. Its quote escape (proposed, to agree): doubling, Pascal's
     way ("say ""on"" here"), so a \ stays a \ and LaTeX in a comment is written as is (strings
     take " or ' today, without any escape; parser_tokeniser.go).
+    Built up step by step, in parallel with other work. The generator writes only into a folder
+    Erik names: body.tex (the sections) and the name macros' .sty. Erik's own main.tex in that
+    folder sets layout and title page, loads the .sty and inputs body.tex; the per-section
+    hand-written fragments live there too, and body.tex inputs each one that exists.
     Generated contents, to settle: what the house has (hosts, integrations,
     devices per room, what each switch/rule does); how it hangs together (Physical/Logical/
     Conceptual.def, the generator, the coordinator, Zigbee2MQTT/Z-Wave/FHEM, main and ha2mqtt);
