@@ -681,7 +681,10 @@ https://dev.netatmo.com/apidocumentation/webhooks
 59. A handover document (Erik, 2026-11-14; important, for the coming days): generate, per house,
     a LibreOffice (.odt) document with everything someone else needs to run and manually edit the
     system when Erik can't -- e.g. after an accident, for his wife. Generated from the defs, so it
-    stays current with every change. Contents, to settle: what the house has (hosts, integrations,
+    stays current with every change. It opens with hand-written sections (Erik's own text, e.g.
+    what matters most, whom to trust, first steps), kept per house next to the defs and merged in
+    ahead of the generated part; their format (plain text with headings, or an .odt fragment) to
+    settle. Generated contents, to settle: what the house has (hosts, integrations,
     devices per room, what each switch/rule does); how it hangs together (Physical/Logical/
     Conceptual.def, the generator, the coordinator, Zigbee2MQTT/Z-Wave/FHEM, main and ha2mqtt);
     the interfaces (URLs, SSH access, the HA and Zigbee2MQTT frontends); passwords and tokens
