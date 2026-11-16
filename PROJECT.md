@@ -646,7 +646,7 @@ https://dev.netatmo.com/apidocumentation/webhooks
     plug. Erik replaces Vienna's other SP 240s and the SONOFF with SP 220s on 2026-11-16/17 (frozen
     IDs keep the names; the defs follow each swap): then compare their drops in Vienna with
     Junglinster's. The SP 240s that come free move to Junglinster: the nespresso's
-    (0xa4c138cacc4cc8d1) is now "spare_sp240" in Vienna's Zigbee2MQTT, to be removed there.
+    (0xa4c138cacc4cc8d1) is out of Vienna's Zigbee2MQTT, to be paired in Junglinster.
 
 55. Podman's bridge broke on Vienna's protocols-server-1 (2026-11-09, during update.containers):
     every start of mosquitto (the only container there on podman's bridge network) failed with
