@@ -691,3 +691,14 @@ https://dev.netatmo.com/apidocumentation/webhooks
     hour. Recovered by itself. Not yet known whether the Envoy left the network (Wi-Fi, reboot) or
     only its API hung: check the pinger's hosts/envoy/node history for that window. If it
     recurs, look at its network link (Wi-Fi signal, or a cable).
+
+61. (found 2026-11-16, after Vienna's nespresso and workplace plug swaps) The coordinator's
+    discovery existence state never forgets: discovery_existence/state still holds, as
+    "known-to-exist", the removed SP 240's eight leaves under appliance.living_room_kitchen_nespresso
+    (next to the SP 220's), and the broker keeps retained discovery_gateways/discovery.*/existence
+    /state topics, and entries in discovery_existence/state, for the device ids from before the
+    rename (about 40 in Vienna; Junglinster not checked). The stale leaves then show up in
+    suggestions/discovery.txt as "not recognized". Harmless (nothing is created from them), but
+    every swap adds some. To decide: leaves no longer declared nor published are dropped (after a
+    grace period, so a device that is briefly offline keeps them), and the old per-device topics
+    are cleared once.
