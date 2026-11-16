@@ -77,7 +77,7 @@ Priorities (Erik, 2026-11-15), beyond the FHEM radio issue (37): the handover do
 finishing Architecture.md and README.md (41); reviewing the code (33), which goes with the
 other two.
 
-- Replace SONOFF/Coffee
+- Replace SONOFF
 
 32. A handover document (Erik, 2026-11-14; important, for the coming days): generate, per house,
     a PDF (generated LaTeX, following LATEX_CONVENTIONS.md; read only, never edited by hand) with
@@ -578,9 +578,8 @@ https://dev.netatmo.com/apidocumentation/webhooks
     "system_log/list: websocket: close 1006 (abnormal closure)" -- the check itself, not HA's
     reload: to look into.
     Next week in Vienna (Erik, decided 2026-11-13): reset SP 220s (2.03.10, from Junglinster)
-    replace nespresso's SP 240 (appliance.living_room_kitchen_nespresso) and workplace's SONOFF
-    (light.living_room_kitchen_workplace) -- pure hardware swaps in Vienna's Physical.def (new IEEE
-    and model lines, frozen IDs kept; neither uses power or energy); Vienna's SP 120 (tv) is
+    replace workplace's SONOFF (light.living_room_kitchen_workplace) -- a pure hardware swap in
+    Vienna's Physical.def (new IEEE and model lines, frozen IDs kept); Vienna's SP 120 (tv) is
     replaced too, and goes to Junglinster as a test: first just plugged in (paired, undeclared),
     to see whether it holds up there. SP 120s drop in Junglinster as well (studio 0,
     hanging_sideboard 14, mini_fans 25 failed ping rounds 11-06..11-13), so the drops aren't
@@ -643,10 +642,11 @@ https://dev.netatmo.com/apidocumentation/webhooks
     repeater in the office and near the server room, so nothing depends on a route through those
     lights. Count the drops again after that.
     In Vienna (2026-11-15): one of Junglinster's stale SP 220s (0xc4988600000f73e3, the old
-    disks1) paired cleanly and answers fast (LQI 81-84). Erik replaces Vienna's SP 240 and SONOFF
-    plugs with SP 220s on 2026-11-16/17 (frozen IDs keep the names; the defs follow each swap):
-    then compare their drops in Vienna with Junglinster's. The SP 240s that come free move to
-    Junglinster (first: the nespresso's, 0xa4c138cacc4cc8d1, replaced by 0xc4988600000f73e3).
+    disks1) paired cleanly and answers fast (LQI 81-84); since 2026-11-16 it is the nespresso's
+    plug. Erik replaces Vienna's other SP 240s and the SONOFF with SP 220s on 2026-11-16/17 (frozen
+    IDs keep the names; the defs follow each swap): then compare their drops in Vienna with
+    Junglinster's. The SP 240s that come free move to Junglinster: the nespresso's
+    (0xa4c138cacc4cc8d1) is now "spare_sp240" in Vienna's Zigbee2MQTT, to be removed there.
 
 55. Podman's bridge broke on Vienna's protocols-server-1 (2026-11-09, during update.containers):
     every start of mosquitto (the only container there on podman's bridge network) failed with
