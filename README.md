@@ -13,7 +13,7 @@ go build -o homeassistant .
 Run from inside a per-house directory:
 
 ```
-cd $HOME/SmartLiving/Vienna
+cd $HOME/SmartLiving/Vienna                           # a link to $HOME/Nextcloud/Joint/SmartLiving
 homeassistant Definitions/Main.def                    # generate (bash ./generate does this)
 homeassistant -deploy Definitions/Main.def            # deploy what was generated
 homeassistant -deploy -n Definitions/Main.def         # print the deploy's commands, run nothing

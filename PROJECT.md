@@ -113,7 +113,10 @@ other two.
     house's Documentation folder; the sections, the fragments, the name macros, and the rooms
     list (per space its entities, their devices, manufacturer and model) are there. Next: the
     other generated sections, HA's own composed names (\FriendlyName is <sphere>/<path> now),
-    the comment field, the passwords.
+    the comment field. Taking over the generator: the definitions moved to
+    $HOME/Nextcloud/Joint/SmartLiving (2026-11-19, ~/SmartLiving links there); for Erik: have
+    Nextcloud sync Joint to Paula's laptop, and install Go, git, the clone, the generator and
+    LaTeX there (the architecture chapter's "Installing the generator").
 
 33. Architectural review, code review and documenting
    - Review progress per Go file: REVIEW.md (not ready / ready / re-review / reviewed).

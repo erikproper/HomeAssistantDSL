@@ -5,8 +5,9 @@
  * Component: Documentation (the architecture chapter)
  *
  * The handover document's chapter on the architecture every house shares: its parts, the gateways
- * and integration kinds, and how the parts are deployed. The same for every house, and in line
- * with Architecture.md; how the generator works is left out (a document of its own).
+ * and integration kinds, how the parts are deployed, and the definitions and the generator: what
+ * they are and how to install and use the generator. The same for every house, and in line with
+ * Architecture.md; the generator's inner workings are left to the repository.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Vienna, Austria, in collaboration with Claude.ai
  *
@@ -58,26 +59,10 @@ var documentationIntegrationKinds = []TDocumentationItem{
 func documentationArchitecture(d *TDocumentation) string {
 	var b strings.Builder
 	b.WriteString(`
-This chapter describes the architecture that every house shares; the next chapter describes how
-this house puts it to work. The code, and a fuller description of the architecture, are at
+This chapter describes the architecture that every house shares: its parts, how they are
+deployed, and how the house is changed; the next chapter describes how this house puts it to
+work. The code, and a fuller description of the architecture, are at
 \url{` + documentationRepository + `}.
-
-\section{The house is modelled, not programmed}
-
-The source of truth about a house is a set of definitions: which devices it has, where each of
-them is, what they are called, and which rules connect them. Home Assistant, the radios, and
-every other part get their configuration from these definitions. A change made by hand in
-Home Assistant's own settings -- an entity's name, an automation -- is therefore lost at the next
-deployment; the change belongs in the definitions.
-
-The definitions describe a house in three layers:
-\begin{description}
-    \item[Physical:] the devices as they are, with the gateway or service each of them comes from.
-    \item[Logical:] devices composed from others, and properties derived from them (for instance
-        \enquote{consumes power} from a plug's power reading).
-    \item[Conceptual:] the house as its residents see it: its spaces (house, floors, rooms), the
-        entities in them, and the rules (\enquote{when this button is pressed, toggle that light}).
-\end{description}
 
 \section{The parts}
 
@@ -139,12 +124,57 @@ are pinged from the hub instead (\path{ping/report}). Either way, each has a \en
 saying whether it is reachable, and what depends on it follows: when a gateway or its machine is
 down, its devices show as unavailable rather than as wrong values.
 
-\section{Making changes}
+\section{The definitions and the generator}
+
+\subsection{The house is modelled, not programmed}
+
+The source of truth about a house is a set of definitions: which devices it has, where each of
+them is, what they are called, and which rules connect them. A program, the generator, turns them
+into the configuration of every part: Home Assistant's entities, automations and dashboard lists,
+the coordinator's, the gateways' and the machines' own. A change made by hand in Home Assistant's
+own settings -- an entity's name, an automation -- is therefore lost at the next deployment; the
+change belongs in the definitions.
+
+The definitions describe a house in three layers:
+\begin{description}
+    \item[Physical:] the devices as they are, with the gateway or service each of them comes from,
+        and the machines, with how they are reached.
+    \item[Logical:] devices composed from others, and properties derived from them (for instance
+        \enquote{consumes power} from a plug's power reading).
+    \item[Conceptual:] the house as its residents see it: its spaces (house, floors, rooms), the
+        entities in them, and the rules (\enquote{when this button is pressed, toggle that light}).
+\end{description}
+Each house has a folder of its own with its definitions (\path{Definitions}), two scripts
+(\path{generate} and \path{deploy}), what the last generation wrote, and this document
+(\path{Documentation}); definitions the houses share are in a folder next to them
+(\path{Shared}). The next chapter says where this house's folder is.
+
+\subsection{Installing the generator}\label{sec:architecture-generator}
+
+The generator, the coordinator, and the governor are one code base, written in Go, at
+\url{` + documentationRepository + `}; its \path{README.md} and
+\path{Architecture.md} describe the definitions' language and the generator's workings in full.
+Generating and deploying need a Mac (or another Unix machine) with:
+\begin{itemize}
+    \item Go (\url{https://go.dev}) and git;
+    \item the code, cloned to \path{$HOME/go/src/homeassistant}: deploying builds the coordinator
+        and the governor from there;
+    \item the generator itself, installed from it: \path{cd $HOME/go/src/homeassistant/homeassistant}
+        and \path{go install .}, which puts the program \path{homeassistant} in \path{$HOME/go/bin}
+        (to be on the shell's \path{PATH});
+    \item for deploying, SSH access to the house's machines (appendix~\ref{chap:passwords});
+    \item for this document, a LaTeX installation (\path{pdflatex}).
+\end{itemize}
+After an update of the code (\path{git pull}), the generator is installed again the same way.
+
+\subsection{Making a change}
 
 A change -- a new device, a renamed room, a new rule -- is made in the house's definitions, and
-then generated and deployed from a Mac: \path{bash ./generate} and \path{bash ./deploy} in the
-house's folder. Generating also writes this document anew, so names in it are always the current
-ones.
+then generated and deployed: \path{bash ./generate} and \path{bash ./deploy} in the house's
+folder. \path{generate} checks the definitions and reports what it finds wrong; \path{deploy}
+carries the result to the machines (\path{bash ./deploy -n} only shows what it would do,
+\path{bash ./deploy -only <part>} deploys one part). Generating also writes this document anew,
+so the names in it are always the current ones.
 `)
 	return b.String()
 }

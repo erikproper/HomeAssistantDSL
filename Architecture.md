@@ -2300,8 +2300,10 @@ ahead of the generated part. The chapters: *Introduction* (`introduction.tex`: w
 is for, and the structure of the rest); *The architecture* (generated only, the same for every
 house: the parts -- the main instance, the message bus, the bridge between sites, the
 coordinator, the governor, the gateways known so far -- the kinds of integration, and the
-deployment strategy, in line with this document but without the generator's workings, plus the
-link to the repository; `documentation_architecture.go`, where the gateways and kinds are lists);
+deployment strategy, and the definitions and the generator -- the three layers, how to install
+the generator and make a change -- in line with this document but without the generator's inner
+workings, which it leaves to the repository it links to; `documentation_architecture.go`, where
+the gateways and kinds are lists);
 *The house* (`house.tex`: how this house puts the architecture to work); *Day-to-day use*
 (`daily.tex`). After `\appendix`: *Rooms and devices* (generated, `rooms.tex` optional) and
 *Passwords* (`passwords.tex` for what the definitions don't hold, then, generated, every setting
