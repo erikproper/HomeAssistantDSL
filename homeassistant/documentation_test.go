@@ -68,11 +68,11 @@ func TestCopyHouseDocumentation(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "main.pdf"), []byte("%PDF"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := copyHouseDocumentation(dir, filepath.Join(target, "missing"), "Vienna"); !strings.Contains(got, "is not a folder") {
+	if got := copyHouseDocumentation(dir, filepath.Join(target, "missing"), "vienna"); !strings.Contains(got, "is not a folder") {
 		t.Errorf("into a missing folder: got %q", got)
 	}
-	copyHouseDocumentation(dir, target, "Vienna")
-	if pdf, err := os.ReadFile(filepath.Join(target, "Vienna.pdf")); err != nil || string(pdf) != "%PDF" {
-		t.Errorf("Vienna.pdf: %q, %v", pdf, err)
+	copyHouseDocumentation(dir, target, "vienna")
+	if pdf, err := os.ReadFile(filepath.Join(target, "vienna.pdf")); err != nil || string(pdf) != "%PDF" {
+		t.Errorf("vienna.pdf: %q, %v", pdf, err)
 	}
 }

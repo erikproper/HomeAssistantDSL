@@ -2316,8 +2316,8 @@ When `main.tex` is there, `generate` also typesets it: `pdflatex` runs until `.a
 no longer change (at most three runs), and `generate` reports `[documentation] main.pdf: <n>
 pages`, or each LaTeX error as `<file>.tex:<line>: <message>` -- an unknown name among them.
 Errors don't stop the generation. Without errors, and with the setting `${documentation}` naming
-a folder (`$HOME` allowed), `main.pdf` is copied there as `<house>.pdf`, so the houses can share
-one folder; a PDF with errors never replaces the last good copy.
+a folder (`$HOME` allowed), `main.pdf` is copied there as `<installation>.pdf` (the setting
+`${installation}`), so the houses can share one folder; a PDF with errors never replaces the last good copy.
 
 ## 10. Platform-specific integration notes
 

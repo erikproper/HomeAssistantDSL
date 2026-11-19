@@ -8,7 +8,7 @@
  * folder when it exists: body.tex (a chapter per section, each opening with the author's own
  * <section>.tex from that folder when there is one) and house.sty (the name macros). The author's
  * main.tex there sets the layout, loads house.sty and inputs body.tex; when it is there, pdflatex
- * typesets it into main.pdf, which is copied, as <house>.pdf, into the folder the setting
+ * typesets it into main.pdf, which is copied, as <installation>.pdf, into the folder the setting
  * ${documentation} names, if set. Text refers to entities and devices only through the
  * macros, so a renamed or removed one is an error in the LaTeX run (Architecture.md, "The
  * handover document").
@@ -116,8 +116,10 @@ func writeHouseDocumentation(houseRoot, definitionDir string, admin *TAdministra
 		return nil
 	}
 	lines, typeset := typesetHouseDocumentation(dir)
-	if target := settingOr(parseDefinitionAssignments(readCombinedSettingsContent(definitionDir)), "documentation", ""); typeset && target != "" {
-		lines = append(lines, copyHouseDocumentation(dir, os.ExpandEnv(target), filepath.Base(houseRoot)))
+	settings := parseDefinitionAssignments(readCombinedSettingsContent(definitionDir))
+	if target := settingOr(settings, "documentation", ""); typeset && target != "" {
+		installation := settingOr(settings, "installation", filepath.Base(houseRoot))
+		lines = append(lines, copyHouseDocumentation(dir, os.ExpandEnv(target), installation))
 	}
 	for _, line := range lines {
 		fmt.Printf("[documentation] %s\n", line)
@@ -125,9 +127,9 @@ func writeHouseDocumentation(houseRoot, definitionDir string, admin *TAdministra
 	return nil
 }
 
-// copyHouseDocumentation copies dir's main.pdf into the folder target, as <house>.pdf, and says
-// where it went.
-func copyHouseDocumentation(dir, target, house string) string {
+// copyHouseDocumentation copies dir's main.pdf into the folder target, as <installation>.pdf, and
+// says where it went.
+func copyHouseDocumentation(dir, target, installation string) string {
 	pdf, err := os.ReadFile(filepath.Join(dir, "main.pdf"))
 	if err != nil {
 		return "main.pdf not copied: " + err.Error()
@@ -135,7 +137,7 @@ func copyHouseDocumentation(dir, target, house string) string {
 	if info, err := os.Stat(target); err != nil || !info.IsDir() {
 		return "main.pdf not copied: ${documentation} (" + homeRelative(target) + ") is not a folder"
 	}
-	destination := filepath.Join(target, house+".pdf")
+	destination := filepath.Join(target, installation+".pdf")
 	if err := os.WriteFile(destination, pdf, 0o644); err != nil {
 		return "main.pdf not copied: " + err.Error()
 	}
