@@ -105,9 +105,10 @@ other two.
     (Settings.def, plus those that live outside the system: FRITZ!Box, cloud accounts, ...);
     everyday tasks step by step (change a battery, replace a sensor, re-pair a plug, restart a
     host, edit a .def, generate, deploy) and what to do when something is down; who to call.
-    Since it holds passwords: it stays in each house's Documentation folder in Nextcloud (safe enough for these,
-    Erik 2026-11-16), never in git (nor the generated .tex, nor LaTeX's .aux/.log, which hold
-    the same text).
+    Since it holds passwords: it stays in each house's Documentation folder in Nextcloud (safe
+    enough for these, Erik 2026-11-16), with the PDF also in $HOME/Nextcloud/Joint/SmartHome
+    (setting ${documentation}), never in git (nor the generated .tex, nor LaTeX's .aux/.log,
+    which hold the same text).
     Started 2026-11-16 (Architecture.md §9.5): generate writes body.tex and house.sty into each
     house's Documentation folder; the sections, the fragments, the name macros, and the rooms
     list (per space its entities, their devices, manufacturer and model) are there. Next: the
