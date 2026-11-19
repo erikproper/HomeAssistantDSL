@@ -45,6 +45,7 @@ grammars on top show the style the other grammars will follow.
 The handover document (Architecture.md §9.5), new; it grows with PROJECT.md 32.
 
 - `homeassistant/documentation.go`
+- `homeassistant/documentation_test.go`
 
 ## Reviewed
 

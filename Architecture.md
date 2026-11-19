@@ -2312,6 +2312,13 @@ stops the LaTeX run with an error naming it, so the text gets updated rather tha
 Manufacturer and model come from the devices' metadata in Physical.def (discovery and `hosts`
 devices).
 
+When `main.tex` is there, `generate` also typesets it: `pdflatex` runs until `.aux` and `.toc`
+no longer change (at most three runs), and `generate` reports `[documentation] main.pdf: <n>
+pages`, or each LaTeX error as `<file>.tex:<line>: <message>` -- an unknown name among them.
+Errors don't stop the generation. Without errors, and with the setting `${documentation}` naming
+a folder (`$HOME` allowed), `main.pdf` is copied there as `<house>.pdf`, so the houses can share
+one folder; a PDF with errors never replaces the last good copy.
+
 ## 10. Platform-specific integration notes
 
 No single integration mechanism suits everything — richness of the native API is weighed against MQTT's decoupling benefits per platform:

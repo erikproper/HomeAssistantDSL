@@ -7,7 +7,9 @@
  * The house's handover document, as LaTeX for the report class, into the house's Documentation
  * folder when it exists: body.tex (a chapter per section, each opening with the author's own
  * <section>.tex from that folder when there is one) and house.sty (the name macros). The author's
- * main.tex there sets the layout, loads house.sty and inputs body.tex. Text refers to entities and devices only through the
+ * main.tex there sets the layout, loads house.sty and inputs body.tex; when it is there, pdflatex
+ * typesets it into main.pdf, which is copied, as <house>.pdf, into the folder the setting
+ * ${documentation} names, if set. Text refers to entities and devices only through the
  * macros, so a renamed or removed one is an error in the LaTeX run (Architecture.md, "The
  * handover document").
  *
@@ -20,10 +22,15 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 )
 
 // TDocumentationSection is one section of the handover document: its title, the name of the
@@ -105,7 +112,116 @@ func writeHouseDocumentation(houseRoot, definitionDir string, admin *TAdministra
 	if err := os.WriteFile(filepath.Join(dir, "body.tex"), []byte(d.Body()), 0o644); err != nil {
 		return fmt.Errorf("writing body.tex: %w", err)
 	}
+	if _, err := os.Stat(filepath.Join(dir, "main.tex")); err != nil {
+		return nil
+	}
+	lines, typeset := typesetHouseDocumentation(dir)
+	if target := settingOr(parseDefinitionAssignments(readCombinedSettingsContent(definitionDir)), "documentation", ""); typeset && target != "" {
+		lines = append(lines, copyHouseDocumentation(dir, os.ExpandEnv(target), filepath.Base(houseRoot)))
+	}
+	for _, line := range lines {
+		fmt.Printf("[documentation] %s\n", line)
+	}
 	return nil
+}
+
+// copyHouseDocumentation copies dir's main.pdf into the folder target, as <house>.pdf, and says
+// where it went.
+func copyHouseDocumentation(dir, target, house string) string {
+	pdf, err := os.ReadFile(filepath.Join(dir, "main.pdf"))
+	if err != nil {
+		return "main.pdf not copied: " + err.Error()
+	}
+	if info, err := os.Stat(target); err != nil || !info.IsDir() {
+		return "main.pdf not copied: ${documentation} (" + homeRelative(target) + ") is not a folder"
+	}
+	destination := filepath.Join(target, house+".pdf")
+	if err := os.WriteFile(destination, pdf, 0o644); err != nil {
+		return "main.pdf not copied: " + err.Error()
+	}
+	return "copied to " + homeRelative(destination)
+}
+
+// documentationRuns is how often pdflatex runs at most: until the table of contents and the
+// references are stable.
+const documentationRuns = 3
+
+// documentationRunTimeout bounds one pdflatex run.
+const documentationRunTimeout = 2 * time.Minute
+
+// documentationPages finds the page count in pdflatex's log.
+var documentationPages = regexp.MustCompile(`Output written on main\.pdf \((\d+) pages?`)
+
+// typesetHouseDocumentation runs pdflatex on dir's main.tex, again while its .aux or .toc still
+// changes, and says how it went: the page count, or the LaTeX errors; typeset is whether main.pdf
+// came out without errors. An error doesn't stop the generation; the text is then updated.
+func typesetHouseDocumentation(dir string) (lines []string, typeset bool) {
+	pdflatex, err := exec.LookPath("pdflatex")
+	if err != nil {
+		return []string{"main.tex not typeset: no pdflatex on the PATH"}, false
+	}
+	var log []byte
+	for run := 0; run < documentationRuns; run++ {
+		before := documentationState(dir)
+		ctx, cancel := context.WithTimeout(context.Background(), documentationRunTimeout)
+		cmd := exec.CommandContext(ctx, pdflatex, "-interaction=nonstopmode", "-file-line-error", "main.tex")
+		cmd.Dir = dir
+		// Whole error lines in the log, not wrapped at 79 characters.
+		cmd.Env = append(os.Environ(), "max_print_line=10000")
+		// A LaTeX error exits non-zero; the log says what it was.
+		_ = cmd.Run()
+		timedOut := ctx.Err() == context.DeadlineExceeded
+		cancel()
+		if timedOut {
+			return []string{"main.tex: pdflatex didn't finish within " + documentationRunTimeout.String()}, false
+		}
+		if log, err = os.ReadFile(filepath.Join(dir, "main.log")); err != nil {
+			return []string{"main.tex: no main.log: " + err.Error()}, false
+		}
+		if bytes.Equal(before, documentationState(dir)) {
+			break
+		}
+	}
+	if errors := documentationErrors(log); len(errors) > 0 {
+		return errors, false
+	}
+	if m := documentationPages.FindSubmatch(log); m != nil {
+		return []string{fmt.Sprintf("main.pdf: %s pages", m[1])}, true
+	}
+	return []string{"main.tex typeset, but no main.pdf written (see main.log)"}, false
+}
+
+// documentationState is dir's .aux and .toc together: a further run is needed while it changes.
+func documentationState(dir string) []byte {
+	var state []byte
+	for _, name := range []string{"main.aux", "main.toc"} {
+		content, _ := os.ReadFile(filepath.Join(dir, name))
+		state = append(append(state, content...), 0)
+	}
+	return state
+}
+
+// documentationErrors are the distinct errors in pdflatex's log (with -file-line-error, the lines
+// "<file>:<line>: <message>").
+func documentationErrors(log []byte) []string {
+	var errors []string
+	seen := map[string]bool{}
+	for _, line := range strings.Split(string(log), "\n") {
+		file, rest, found := strings.Cut(line, ".tex:")
+		if !found || strings.ContainsAny(file, " ") {
+			continue
+		}
+		number, message, found := strings.Cut(rest, ": ")
+		if !found || strings.Trim(number, "0123456789") != "" || number == "" {
+			continue
+		}
+		entry := fmt.Sprintf("%s.tex:%s: %s", filepath.Base(file), number, message)
+		if !seen[entry] {
+			seen[entry] = true
+			errors = append(errors, entry)
+		}
+	}
+	return errors
 }
 
 // newDocumentation collects the spaces, their entities and the devices' metadata.
