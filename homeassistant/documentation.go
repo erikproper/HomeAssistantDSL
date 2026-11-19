@@ -13,7 +13,7 @@
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Vienna, Austria, in collaboration with Claude.ai
  *
- * Version of: 16.11.2026
+ * Version of: 19.11.2026
  *
  */
 
@@ -27,11 +27,13 @@ import (
 )
 
 // TDocumentationSection is one section of the handover document: its title, the name of the
-// author's own fragment (<file>.tex), and what the generator writes after it.
+// author's own fragment (<file>.tex), what the generator writes after it, and whether it is an
+// appendix.
 type TDocumentationSection struct {
 	Title     string
 	File      string
 	Generated func(d *TDocumentation) string
+	Appendix  bool
 }
 
 // TDocumentationEntity is what the document knows of one entity.
@@ -49,16 +51,16 @@ type TDocumentation struct {
 	DeviceMetadata  map[string]map[string]string      // device id -> metadata field -> value
 }
 
-// documentationSections is the document's agreed section structure.
+// documentationSections is the document's agreed section structure; the appendices come last.
 var documentationSections = []TDocumentationSection{
 	{Title: "First steps", File: "first-steps"},
 	{Title: "The house at a glance", File: "at-a-glance"},
 	{Title: "Access", File: "access"},
-	{Title: "Rooms and devices", File: "rooms", Generated: documentationRooms},
 	{Title: "How it fits together", File: "structure"},
 	{Title: "Everyday tasks", File: "tasks"},
 	{Title: "When something is down", File: "troubleshooting"},
 	{Title: "Contacts and suppliers", File: "contacts"},
+	{Title: "Rooms and devices", File: "rooms", Generated: documentationRooms, Appendix: true},
 }
 
 // documentationStyle is house.sty's fixed part: the lookup behind every name macro.
@@ -194,11 +196,17 @@ func (d *TDocumentation) defineMetadata(define func(kind, key, value string), ke
 
 // --- body.tex ---
 
-// Body is body.tex: every section, the author's fragment first, then the generated part.
+// Body is body.tex: every section, the author's fragment first, then the generated part; the
+// appendices after \appendix.
 func (d *TDocumentation) Body() string {
 	var b strings.Builder
 	b.WriteString("% Generated from the house's definitions; don't edit. Your own text goes in <section>.tex.\n")
+	inAppendix := false
 	for _, section := range documentationSections {
+		if section.Appendix && !inAppendix {
+			b.WriteString("\n\\appendix\n")
+			inAppendix = true
+		}
 		fmt.Fprintf(&b, "\n\\section{%s}\\label{sec:%s}\n\n", section.Title, section.File)
 		if section.Generated == nil {
 			fmt.Fprintf(&b, "\\InputIfFileExists{%s.tex}{}{\\HouseFragmentMissing{%s}}\n", section.File, section.File)

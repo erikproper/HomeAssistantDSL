@@ -2295,8 +2295,10 @@ whole, as one grammar, is the next step (PROJECT.md item 33).
 and nothing else: `body.tex`, the sections, and `house.sty`, the name macros. The author keeps
 `main.tex` in the same folder -- layout, title page, `\usepackage{house}`, `\input{body}` -- and
 one hand-written fragment per section, `<section>.tex` (`first-steps`, `at-a-glance`, `access`,
-`rooms`, `structure`, `tasks`, `troubleshooting`, `contacts`); `body.tex` inputs each fragment
-at the start of its section, ahead of the generated part.
+`structure`, `tasks`, `troubleshooting`, `contacts`, and the appendix `rooms`); `body.tex` inputs
+each fragment at the start of its section, ahead of the generated part. The long generated
+lists -- so far the rooms with their entities and devices -- are appendices, after `\appendix`
+at the end, so the sections people read first stay short.
 
 Names are never typed into the text: `house.sty` defines, per entity and device, what the
 definitions say, and the text asks for it with a macro keyed by the DSL's absolute name of an
