@@ -4,10 +4,10 @@
  * Package:   Main
  * Component: Documentation
  *
- * The house's handover document, as LaTeX, into the house's Documentation folder when it exists:
- * body.tex (the sections, each opening with the author's own <section>.tex from that folder when
- * there is one) and house.sty (the name macros). The author's main.tex there sets the layout,
- * loads house.sty and inputs body.tex. Text refers to entities and devices only through the
+ * The house's handover document, as LaTeX for the report class, into the house's Documentation
+ * folder when it exists: body.tex (a chapter per section, each opening with the author's own
+ * <section>.tex from that folder when there is one) and house.sty (the name macros). The author's
+ * main.tex there sets the layout, loads house.sty and inputs body.tex. Text refers to entities and devices only through the
  * macros, so a renamed or removed one is an error in the LaTeX run (Architecture.md, "The
  * handover document").
  *
@@ -207,7 +207,7 @@ func (d *TDocumentation) Body() string {
 			b.WriteString("\n\\appendix\n")
 			inAppendix = true
 		}
-		fmt.Fprintf(&b, "\n\\section{%s}\\label{sec:%s}\n\n", section.Title, section.File)
+		fmt.Fprintf(&b, "\n\\chapter{%s}\\label{chap:%s}\n\n", section.Title, section.File)
 		if section.Generated == nil {
 			fmt.Fprintf(&b, "\\InputIfFileExists{%s.tex}{}{\\HouseFragmentMissing{%s}}\n", section.File, section.File)
 			continue
@@ -222,7 +222,7 @@ func (d *TDocumentation) Body() string {
 func documentationRooms(d *TDocumentation) string {
 	var b strings.Builder
 	for _, space := range d.Spaces {
-		fmt.Fprintf(&b, "\n\\subsection{%s}\n\n\\begin{itemize}\n", latexText(space))
+		fmt.Fprintf(&b, "\n\\section{%s}\n\n\\begin{itemize}\n", latexText(space))
 		for _, entity := range d.EntitiesBySpace[space] {
 			fmt.Fprintf(&b, "    \\item \\FriendlyName{%s}: \\EntityName{%s}", entity.Key, entity.Key)
 			if entity.Device != "" {

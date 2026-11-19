@@ -2293,7 +2293,8 @@ whole, as one grammar, is the next step (PROJECT.md item 33).
 `generate` writes a house's handover document (PROJECT.md 32) as LaTeX into the house's
 `Documentation` folder, when that folder exists (`documentation.go`). It writes two files there
 and nothing else: `body.tex`, the sections, and `house.sty`, the name macros. The author keeps
-`main.tex` in the same folder -- layout, title page, `\usepackage{house}`, `\input{body}` -- and
+`main.tex` in the same folder -- the `report` class (each section is a `\chapter`, a room in the
+rooms list a `\section`), layout, title page, `\usepackage{house}`, `\input{body}` -- and
 one hand-written fragment per section, `<section>.tex` (`first-steps`, `at-a-glance`, `access`,
 `structure`, `tasks`, `troubleshooting`, `contacts`, and the appendix `rooms`); `body.tex` inputs
 each fragment at the start of its section, ahead of the generated part. The long generated
