@@ -2306,7 +2306,8 @@ definitions say, and the text asks for it with a macro keyed by the DSL's absolu
 entity (`switch.social/apartment/living_room/kitchen/nespresso`) or a device id
 (`appliance.living_room_kitchen_nespresso`): `\EntityName` (the entity_id), `\FriendlyName`
 (`<sphere>/<path>`), `\DeviceOf` (an entity's device), `\DeviceName`, `\ManufacturerOf` and
-`\ModelOf` (of a device, or of an entity's device). Built-in names are set in typewriter type,
+`\ModelOf` (of a device, or of an entity's device); `\Installation` is the house's name (the
+setting `${installation}`, capitalised), e.g. for main.tex's title. Built-in names are set in typewriter type,
 breakable at `_`, `.`, `/` and `:`. A key the definitions no longer have -- renamed or removed --
 stops the LaTeX run with an error naming it, so the text gets updated rather than going stale.
 Manufacturer and model come from the devices' metadata in Physical.def (discovery and `hosts`

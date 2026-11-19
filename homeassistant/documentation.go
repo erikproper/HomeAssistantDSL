@@ -53,6 +53,7 @@ type TDocumentationEntity struct {
 
 // TDocumentation holds what the document is written from.
 type TDocumentation struct {
+	Installation    string                            // the house's name, as the text shows it ("Vienna")
 	Spaces          []string                          // the spaces holding entities, in definition order
 	EntitiesBySpace map[string][]TDocumentationEntity // space -> its entities, in definition order
 	DeviceMetadata  map[string]map[string]string      // device id -> metadata field -> value
@@ -92,6 +93,7 @@ const documentationStyle = `\NeedsTeXFormat{LaTeX2e}
 \newcommand{\DeviceOf}[1]{\HouseLookup{deviceof}{#1}}
 \newcommand{\ManufacturerOf}[1]{\HouseLookup{manufacturer}{#1}}
 \newcommand{\ModelOf}[1]{\HouseLookup{model}{#1}}
+\newcommand{\Installation}{\house@installation}
 \newcommand{\HouseFragmentMissing}[1]{\textit{(No text in #1.tex yet.)}}
 
 `
@@ -105,7 +107,10 @@ func writeHouseDocumentation(houseRoot, definitionDir string, admin *TAdministra
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		return nil
 	}
+	settings := parseDefinitionAssignments(readCombinedSettingsContent(definitionDir))
+	installation := settingOr(settings, "installation", filepath.Base(houseRoot))
 	d := newDocumentation(definitionDir, admin)
+	d.Installation = strings.ToUpper(installation[:1]) + installation[1:]
 	if err := os.WriteFile(filepath.Join(dir, "house.sty"), []byte(d.Style()), 0o644); err != nil {
 		return fmt.Errorf("writing house.sty: %w", err)
 	}
@@ -116,9 +121,7 @@ func writeHouseDocumentation(houseRoot, definitionDir string, admin *TAdministra
 		return nil
 	}
 	lines, typeset := typesetHouseDocumentation(dir)
-	settings := parseDefinitionAssignments(readCombinedSettingsContent(definitionDir))
 	if target := settingOr(settings, "documentation", ""); typeset && target != "" {
-		installation := settingOr(settings, "installation", filepath.Base(houseRoot))
 		lines = append(lines, copyHouseDocumentation(dir, os.ExpandEnv(target), installation))
 	}
 	for _, line := range lines {
@@ -281,6 +284,7 @@ func (d *TDocumentation) addMetadata(deviceID string, metadata map[string]THostC
 func (d *TDocumentation) Style() string {
 	var b strings.Builder
 	b.WriteString(documentationStyle)
+	fmt.Fprintf(&b, "\\def\\house@installation{%s}\n", latexText(d.Installation))
 	define := func(kind, key, value string) {
 		fmt.Fprintf(&b, "\\@namedef{house@%s@%s}{%s}\n", kind, key, value)
 	}
