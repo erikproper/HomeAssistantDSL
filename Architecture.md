@@ -2295,11 +2295,18 @@ whole, as one grammar, is the next step (PROJECT.md item 33).
 and nothing else: `body.tex`, the sections, and `house.sty`, the name macros. The author keeps
 `main.tex` in the same folder -- the `report` class (each section is a `\chapter`, a room in the
 rooms list a `\section`), layout, title page, `\usepackage{house}`, `\input{body}` -- and
-one hand-written fragment per section, `<section>.tex` (`first-steps`, `at-a-glance`, `access`,
-`structure`, `tasks`, `troubleshooting`, `contacts`, and the appendix `rooms`); `body.tex` inputs
-each fragment at the start of its section, ahead of the generated part. The long generated
-lists -- so far the rooms with their entities and devices -- are appendices, after `\appendix`
-at the end, so the sections people read first stay short.
+the hand-written fragments, `<fragment>.tex`; `body.tex` inputs each at the start of its chapter,
+ahead of the generated part. The chapters: *Introduction* (`introduction.tex`: what the document
+is for, and the structure of the rest); *The architecture* (generated only, the same for every
+house: the parts -- the main instance, the message bus, the bridge between sites, the
+coordinator, the governor, the gateways known so far -- the kinds of integration, and the
+deployment strategy, in line with this document but without the generator's workings, plus the
+link to the repository; `documentation_architecture.go`, where the gateways and kinds are lists);
+*The house* (`house.tex`: how this house puts the architecture to work); *Day-to-day use*
+(`daily.tex`). After `\appendix`: *Rooms and devices* (generated, `rooms.tex` optional) and
+*Passwords* (`passwords.tex` for what the definitions don't hold, then, generated, every setting
+whose name ends in `password`, `login`, `token`, `_code`, `_server` or `_port`, set character for
+character and breakable anywhere). A missing fragment shows as such, except `rooms.tex`.
 
 Names are never typed into the text: `house.sty` defines, per entity and device, what the
 definitions say, and the text asks for it with a macro keyed by the DSL's absolute name of an

@@ -33,13 +33,15 @@ import (
 	"time"
 )
 
-// TDocumentationSection is one section of the handover document: its title, the name of the
-// author's own fragment (<file>.tex), what the generator writes after it, and whether it is an
-// appendix.
+// TDocumentationSection is one chapter of the handover document: its title and label, the name
+// of the author's own fragment (<fragment>.tex; none when ""), what the generator writes after it,
+// whether a missing fragment goes unmentioned, and whether it is an appendix.
 type TDocumentationSection struct {
 	Title     string
-	File      string
+	Label     string
+	Fragment  string
 	Generated func(d *TDocumentation) string
+	Optional  bool
 	Appendix  bool
 }
 
@@ -57,26 +59,34 @@ type TDocumentation struct {
 	Spaces          []string                          // the spaces holding entities, in definition order
 	EntitiesBySpace map[string][]TDocumentationEntity // space -> its entities, in definition order
 	DeviceMetadata  map[string]map[string]string      // device id -> metadata field -> value
+	Secrets         []TDocumentationItem              // the access data in the settings, by name
 }
 
-// documentationSections is the document's agreed section structure; the appendices come last.
+// documentationSections is the document's agreed structure: the author's introduction, the
+// architecture every house shares, the author's account of this house and of its day-to-day use;
+// then the appendices.
 var documentationSections = []TDocumentationSection{
-	{Title: "First steps", File: "first-steps"},
-	{Title: "The house at a glance", File: "at-a-glance"},
-	{Title: "Access", File: "access"},
-	{Title: "How it fits together", File: "structure"},
-	{Title: "Everyday tasks", File: "tasks"},
-	{Title: "When something is down", File: "troubleshooting"},
-	{Title: "Contacts and suppliers", File: "contacts"},
-	{Title: "Rooms and devices", File: "rooms", Generated: documentationRooms, Appendix: true},
+	{Title: "Introduction", Label: "introduction", Fragment: "introduction"},
+	{Title: "The architecture", Label: "architecture", Generated: documentationArchitecture},
+	{Title: "The house", Label: "house", Fragment: "house"},
+	{Title: "Day-to-day use", Label: "daily", Fragment: "daily"},
+	{Title: "Rooms and devices", Label: "rooms", Fragment: "rooms", Generated: documentationRooms, Optional: true, Appendix: true},
+	{Title: "Passwords", Label: "passwords", Fragment: "passwords", Generated: documentationPasswords, Appendix: true},
 }
+
+// documentationSecret tells, by its name, a setting that is access data: a login, a password, a
+// token, a code, or the server and port they are for.
+var documentationSecret = regexp.MustCompile(`(password|login|token|_code|_server|_port)$`)
 
 // documentationStyle is house.sty's fixed part: the lookup behind every name macro.
 const documentationStyle = `\NeedsTeXFormat{LaTeX2e}
 \ProvidesPackage{house}[Generated from the house's definitions; don't edit]
 \RequirePackage{url}
+\RequirePackage{csquotes}
 \def\UrlBreaks{\do\_\do\.\do\/\do\:}
 \urlstyle{tt}
+% \HouseVerbatim: access data, character for character, breakable after any character.
+\DeclareUrlCommand\HouseVerbatim{\urlstyle{tt}\def\UrlBreaks{\do\a\do\b\do\c\do\d\do\e\do\f\do\g\do\h\do\i\do\j\do\k\do\l\do\m\do\n\do\o\do\p\do\q\do\r\do\s\do\t\do\u\do\v\do\w\do\x\do\y\do\z\do\A\do\B\do\C\do\D\do\E\do\F\do\G\do\H\do\I\do\J\do\K\do\L\do\M\do\N\do\O\do\P\do\Q\do\R\do\S\do\T\do\U\do\V\do\W\do\X\do\Y\do\Z\do\0\do\1\do\2\do\3\do\4\do\5\do\6\do\7\do\8\do\9\do\-\do\_\do\.\do\/\do\:}}
 
 % \HouseLookup{kind}{key}: what the definitions say for key; an unknown key -- renamed or removed --
 % stops the run, so the text gets updated.
@@ -111,6 +121,11 @@ func writeHouseDocumentation(houseRoot, definitionDir string, admin *TAdministra
 	installation := settingOr(settings, "installation", filepath.Base(houseRoot))
 	d := newDocumentation(definitionDir, admin)
 	d.Installation = strings.ToUpper(installation[:1]) + installation[1:]
+	for _, name := range sortedKeys(settings) {
+		if documentationSecret.MatchString(name) {
+			d.Secrets = append(d.Secrets, TDocumentationItem{Name: name, Description: settingOr(settings, name, "")})
+		}
+	}
 	if err := os.WriteFile(filepath.Join(dir, "house.sty"), []byte(d.Style()), 0o644); err != nil {
 		return fmt.Errorf("writing house.sty: %w", err)
 	}
@@ -329,13 +344,17 @@ func (d *TDocumentation) Body() string {
 			b.WriteString("\n\\appendix\n")
 			inAppendix = true
 		}
-		fmt.Fprintf(&b, "\n\\chapter{%s}\\label{chap:%s}\n\n", section.Title, section.File)
-		if section.Generated == nil {
-			fmt.Fprintf(&b, "\\InputIfFileExists{%s.tex}{}{\\HouseFragmentMissing{%s}}\n", section.File, section.File)
-			continue
+		fmt.Fprintf(&b, "\n\\chapter{%s}\\label{chap:%s}\n\n", section.Title, section.Label)
+		if section.Fragment != "" {
+			missing := "\\HouseFragmentMissing{" + section.Fragment + "}"
+			if section.Optional {
+				missing = ""
+			}
+			fmt.Fprintf(&b, "\\InputIfFileExists{%s.tex}{}{%s}\n", section.Fragment, missing)
 		}
-		fmt.Fprintf(&b, "\\InputIfFileExists{%s.tex}{}{}\n", section.File)
-		b.WriteString(section.Generated(d))
+		if section.Generated != nil {
+			b.WriteString(section.Generated(d))
+		}
 	}
 	return b.String()
 }
@@ -366,7 +385,45 @@ func documentationRooms(d *TDocumentation) string {
 	return b.String()
 }
 
+// documentationPasswords lists the access data the settings hold, ahead of which the author's
+// passwords.tex holds the rest (Home Assistant's own logins, the router, the cloud accounts, ...).
+func documentationPasswords(d *TDocumentation) string {
+	var b strings.Builder
+	if len(d.Secrets) == 0 {
+		return "\nThe house's settings (Settings.def) hold no access data.\n"
+	}
+	b.WriteString(`
+\section{In the definitions}
+
+The access data in the house's settings (Settings.def): the house's broker (\path{main_mqtt_*}),
+the broker in the cloud between the houses (\path{cloud_*}), and the token with which the
+deployment reaches the main instance (\path{main_ha_token}).
+
+\begin{description}
+`)
+	for _, secret := range d.Secrets {
+		fmt.Fprintf(&b, "    \\item[%s:] %s\n", latexPath(secret.Name), latexVerbatim(secret.Description))
+	}
+	b.WriteString("\\end{description}\n")
+	return b.String()
+}
+
 // --- small helpers ---
+
+// latexVerbatimDelimiters are the delimiters latexVerbatim may use, the first one value doesn't hold.
+const latexVerbatimDelimiters = "|!+=@;^"
+
+// latexVerbatim sets value character for character in typewriter type, breakable after any
+// character (house.sty's \HouseVerbatim, with a delimiter value doesn't hold, so braces, %, # and
+// the like stay as they are).
+func latexVerbatim(value string) string {
+	for _, delimiter := range latexVerbatimDelimiters {
+		if !strings.ContainsRune(value, delimiter) {
+			return "\\HouseVerbatim" + string(delimiter) + value + string(delimiter)
+		}
+	}
+	return "\\texttt{" + latexText(value) + "}"
+}
 
 // latexPath sets a built-in name in typewriter type, breakable at its separators.
 func latexPath(name string) string {

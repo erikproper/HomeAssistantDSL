@@ -47,10 +47,10 @@ func TestTypesetHouseDocumentationReportsUnknownName(t *testing.T) {
 	dir := t.TempDir()
 	d := &TDocumentation{EntitiesBySpace: map[string][]TDocumentationEntity{}, DeviceMetadata: map[string]map[string]string{}}
 	files := map[string]string{
-		"main.tex":        "\\documentclass{report}\\usepackage{house}\\begin{document}\\input{body}\\end{document}\n",
-		"house.sty":       d.Style(),
-		"body.tex":        d.Body(),
-		"first-steps.tex": "\\EntityName{switch.social/nope}\n",
+		"main.tex":         "\\documentclass{report}\\usepackage{house}\\begin{document}\\input{body}\\end{document}\n",
+		"house.sty":        d.Style(),
+		"body.tex":         d.Body(),
+		"introduction.tex": "\\EntityName{switch.social/nope}\n",
 	}
 	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
@@ -58,7 +58,7 @@ func TestTypesetHouseDocumentationReportsUnknownName(t *testing.T) {
 		}
 	}
 	got, typeset := typesetHouseDocumentation(dir)
-	if typeset || len(got) != 1 || !strings.Contains(got[0], "first-steps.tex:1: Package house Error: Unknown entity 'switch.social/nope'") {
+	if typeset || len(got) != 1 || !strings.Contains(got[0], "introduction.tex:1: Package house Error: Unknown entity 'switch.social/nope'") {
 		t.Errorf("typesetHouseDocumentation: got %q", got)
 	}
 }
