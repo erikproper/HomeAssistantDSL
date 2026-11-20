@@ -118,7 +118,7 @@ The handover document (Architecture.md §9.5), new; it grows with PROJECT.md 32.
 - `homeassistant/discovery_passthrough_suggestions.go` (+ discovery_passthrough_suggestions_test.go)
 - `homeassistant/entity_naming.go` (+ entity_naming_test.go)
 - `homeassistant/firmware_updates.go` (+ firmware_updates_test.go)
-- `homeassistant/generator.go`
+- `homeassistant/generator.go` (+ heating_scripts_test.go)
 - `homeassistant/hassbridge_commands.go` (+ hassbridge_commands_test.go)
 - `homeassistant/hassbridge_yaml_entities.go`
 - `homeassistant/home_assistant_deploy.go`

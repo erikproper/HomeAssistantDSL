@@ -14,7 +14,7 @@
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 26.03.2026
+ * Version of: 20.11.2026
  *
  */
 
@@ -2291,32 +2291,43 @@ func buildAggregateMediaSwitchYAML(entityID, displayName string, offItems []stri
 
 var heatingPresets = []string{"around", "away", "day", "night"}
 
+// heatingLeafSpaces returns the spaces heated by a thermostat (they own a temperature_desired
+// input_number), the spaces heated by a switch (a "heating" switch; their set_heating_to_<preset>
+// scripts come from generateSwitchControlledHeatingContent, as "social/<path>"), and those two
+// with all their ancestors: the spaces that get a set_heating_to_<preset> script. Both kinds are
+// leaves of the cascade (2026-11-20: the switch-heated office, bathroom, corridor and storage room
+// were left out, so the house's presets never reached them).
+func heatingLeafSpaces(admin *TAdministrationState) (thermostat, switched, heating map[string]bool) {
+	thermostat, switched, heating = map[string]bool{}, map[string]bool{}, map[string]bool{}
+	for _, spaceName := range admin.SpaceOrder {
+		for _, rec := range admin.EntityRecordsBySpace[spaceName] {
+			p := rec.Identity.Path
+			switch {
+			case rec.Identity.Domain == "input_number" && strings.HasSuffix(p, "/temperature_desired"):
+				thermostat[spaceName] = true
+			case rec.Identity.Domain == "switch" && strings.HasSuffix(p, "/heating"):
+				switched["social/"+strings.TrimSuffix(p, "/heating")] = true
+			}
+		}
+	}
+	for _, leaves := range []map[string]bool{thermostat, switched} {
+		for spaceName := range leaves {
+			parts := strings.Split(spaceName, "/")
+			for i := 1; i <= len(parts); i++ {
+				heating[strings.Join(parts[:i], "/")] = true
+			}
+		}
+	}
+	return thermostat, switched, heating
+}
+
 // generateHeatingScripts emits set_heating_to_<preset> scripts that cascade from the
 // sphere root down to each space that owns a temperature_desired input_number entity.
 // The leaf script calls input_number.set_value; ancestor scripts delegate via script.turn_on.
 func generateHeatingScripts(outputDir string, admin *TAdministrationState) error {
-	// leafSpaces: spaces that own a temperature_desired input_number.
-	leafSpaces := map[string]bool{}
-	for _, spaceName := range admin.SpaceOrder {
-		for _, rec := range admin.EntityRecordsBySpace[spaceName] {
-			if rec.Identity.Domain == "input_number" &&
-				strings.HasSuffix(rec.Identity.Path, "/temperature_desired") {
-				leafSpaces[spaceName] = true
-			}
-		}
-	}
-	if len(leafSpaces) == 0 {
+	leafSpaces, switchSpaces, heatingSpaces := heatingLeafSpaces(admin)
+	if len(heatingSpaces) == 0 {
 		return nil
-	}
-
-	// Propagate up to mark all ancestor spaces.
-	heatingSpaces := map[string]bool{}
-	for spaceName := range leafSpaces {
-		heatingSpaces[spaceName] = true
-		parts := strings.Split(spaceName, "/")
-		for i := 1; i < len(parts); i++ {
-			heatingSpaces[strings.Join(parts[:i], "/")] = true
-		}
 	}
 
 	for _, spaceName := range admin.SpaceOrder {
@@ -2331,6 +2342,9 @@ func generateHeatingScripts(outputDir string, admin *TAdministrationState) error
 		scriptDir := filepath.Join(outputDir, "script", sphere)
 
 		for _, preset := range heatingPresets {
+			if switchSpaces[spaceName] && !leafSpaces[spaceName] {
+				continue // its own script comes from generateSwitchControlledHeatingContent
+			}
 			scriptID := spaceUnder + "_set_heating_to_" + preset
 			alias := strings.ReplaceAll(spaceName, "/", "/") + "/set_heating_to_" + preset
 
@@ -3360,28 +3374,9 @@ func buildSetTargetToLeakageYAML(aliasPath, idBase, heatingShouldBeOffID, target
 // --- heating preset automations (c) ---
 
 func generateHeatingPresetAutomations(outputDir string, admin *TAdministrationState) error {
-	// Detect leaf heating spaces (have temperature_desired input_number).
-	leafSpaces := map[string]bool{}
-	for _, spaceName := range admin.SpaceOrder {
-		for _, rec := range admin.EntityRecordsBySpace[spaceName] {
-			if rec.Identity.Domain == "input_number" &&
-				strings.HasSuffix(rec.Identity.Path, "/temperature_desired") {
-				leafSpaces[spaceName] = true
-			}
-		}
-	}
-	if len(leafSpaces) == 0 {
+	_, _, heatingSpaces := heatingLeafSpaces(admin)
+	if len(heatingSpaces) == 0 {
 		return nil
-	}
-
-	// Propagate up to mark ancestor spaces.
-	heatingSpaces := map[string]bool{}
-	for spaceName := range leafSpaces {
-		heatingSpaces[spaceName] = true
-		parts := strings.Split(spaceName, "/")
-		for i := 1; i < len(parts); i++ {
-			heatingSpaces[strings.Join(parts[:i], "/")] = true
-		}
 	}
 
 	// Collect depth-2 heating spaces (direct children of sphere root, exactly 1 slash).
