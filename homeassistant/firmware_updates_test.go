@@ -25,7 +25,10 @@ func TestRegisterFirmwareUpdates(t *testing.T) {
 		Identity:  extractEntityIdentity("binary_sensor.infrastructural/house/corridor/corb/node"),
 		SourceKey: "physical:sensors.corridor_corb!node",
 	})
-	gateways := map[string]TDiscoveryGatewayDevice{"sensors.corridor_corb": {DeviceID: "sensors.corridor_corb"}, "light.vidja_left_1": {DeviceID: "light.vidja_left_1"}}
+	gateways := map[string]TDiscoveryGatewayDevice{
+		"sensors.corridor_corb": {DeviceID: "sensors.corridor_corb", Identifiers: []string{"zigbee2mqtt_0x01"}},
+		"light.vidja_left_1":    {DeviceID: "light.vidja_left_1", Identifiers: []string{"zigbee2mqtt_0x02"}},
+	}
 
 	if warnings := registerFirmwareUpdates(admin, dir, gateways); len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
@@ -65,12 +68,39 @@ func TestRegisterFirmwareUpdatesKeepsPositionedLink(t *testing.T) {
 	const firmware = "update.infrastructural_house_office_media_drive_switch_firmware"
 	positioned := TDiscoveryEntityLink{EntityID: firmware, GatewayDeviceID: "switch.media_drive", Leaf: "0x02_update_zigbee2mqtt", StableID: "firmware_0x01_update_zigbee2mqtt"}
 	admin.DiscoveryEntityLinks[firmware] = positioned
-	gateways := map[string]TDiscoveryGatewayDevice{"switch.media_drive": {DeviceID: "switch.media_drive"}}
+	gateways := map[string]TDiscoveryGatewayDevice{"switch.media_drive": {DeviceID: "switch.media_drive", Identifiers: []string{"zigbee2mqtt_0x02"}}}
 
 	if warnings := registerFirmwareUpdates(admin, dir, gateways); len(warnings) != 0 {
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
 	if link := admin.DiscoveryEntityLinks[firmware]; link != positioned {
 		t.Errorf("firmware link = %+v, want the positioned one %+v", link, positioned)
+	}
+}
+
+// TestRegisterFirmwareUpdatesSkipsEarlierHardware: after a swap to hardware without an update, the
+// cache still holds the old hardware's update leaf; it isn't placed (2026-11-20, raids1).
+func TestRegisterFirmwareUpdatesSkipsEarlierHardware(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".cache"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cache := `{"switch.raids1": {"0x01_update_zigbee2mqtt": "known-to-exist", "0x02_switch_zigbee2mqtt": "known-to-exist"}}`
+	if err := os.WriteFile(filepath.Join(dir, ".cache", "discovery_existence.json"), []byte(cache), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	admin := newAdministrationState()
+	admin.AppendEntityRecord("social/house/server_room", TEntityRecord{
+		Name:      "binary_sensor.infrastructural/house/server_room/raids1/node",
+		Identity:  extractEntityIdentity("binary_sensor.infrastructural/house/server_room/raids1/node"),
+		SourceKey: "physical:switch.raids1!node",
+	})
+	gateways := map[string]TDiscoveryGatewayDevice{"switch.raids1": {DeviceID: "switch.raids1", Identifiers: []string{"zigbee2mqtt_0x02"}}}
+
+	if warnings := registerFirmwareUpdates(admin, dir, gateways); len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(admin.DiscoveryEntityLinks) != 0 {
+		t.Errorf("links = %v, want none: the update leaf is the earlier hardware's", admin.DiscoveryEntityLinks)
 	}
 }

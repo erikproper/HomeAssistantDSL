@@ -57,6 +57,8 @@ Would you like me to find the direct browser flashing link so you can easily ins
 
 ## Manually (Erik) extend coverage
 
+0. Music Assistant
+
 1. check suggested in both locations
 VIE
 JLI
@@ -702,7 +704,9 @@ https://dev.netatmo.com/apidocumentation/webhooks
     (next to the SP 220's), and the broker keeps retained discovery_gateways/discovery.*/existence
     /state topics, and entries in discovery_existence/state, for the device ids from before the
     rename (about 40 in Vienna; Junglinster not checked). The stale leaves then show up in
-    suggestions/discovery.txt as "not recognized". Harmless (nothing is created from them), but
-    every swap adds some. To decide: leaves no longer declared nor published are dropped (after a
+    suggestions/discovery.txt as "not recognized". Not quite harmless: on 2026-11-20 (Junglinster's
+    raids1, SP 240 -> SONOFF without an update) the generator placed the old hardware's firmware
+    update from them; fixed in firmware_updates.go (only update leaves of the device's current
+    identifiers count). Every swap adds some. To decide: leaves no longer declared nor published are dropped (after a
     grace period, so a device that is briefly offline keeps them), and the old per-device topics
     are cleared once.

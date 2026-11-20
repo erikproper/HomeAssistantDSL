@@ -18,13 +18,14 @@
  * (Definitions/.cache/discovery_existence.json, refreshed by every generate), so a newly paired
  * device shows its update one generate later. An update capability positioned explicitly in
  * Conceptual.def keeps that positioning, also when the cache still holds the update leaf of the
- * device's earlier hardware.
+ * device's earlier hardware; an update leaf of hardware the device no longer names in its
+ * identifiers is never placed.
  *
  * Z-Wave devices have none: Z-Wave JS UI publishes no update entities over MQTT.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 13.11.2026
+ * Version of: 20.11.2026
  *
  */
 
@@ -61,6 +62,15 @@ func deviceNodeEntityID(admin *TAdministrationState, deviceID string) (string, b
 	return "", false
 }
 
+// firmwareUpdateLeafIsCurrent tells whether leaf ("<ieee>_update_zigbee2mqtt") belongs to the device's
+// current hardware: one of its identifiers is "zigbee2mqtt_<ieee>". After a swap to hardware without
+// an update, the existence cache still holds the old hardware's leaf (2026-11-20, raids1's SP 240
+// replaced by a SONOFF).
+func firmwareUpdateLeafIsCurrent(leaf string, identifiers []string) bool {
+	ieee := strings.TrimSuffix(leaf, firmwareUpdateLeafSuffix)
+	return containsString(identifiers, "zigbee2mqtt_"+ieee)
+}
+
 // registerFirmwareUpdates adds the firmware update of every positioned device that reports one,
 // and the house's firmware_updates summary (see this file's header comment).
 func registerFirmwareUpdates(admin *TAdministrationState, definitionDir string, discoveryGatewaysByID map[string]TDiscoveryGatewayDevice) []string {
@@ -90,6 +100,9 @@ func registerFirmwareUpdates(admin *TAdministrationState, definitionDir string, 
 		for leaf, leafStatus := range status[gatewayID] {
 			if leafStatus != "known-to-exist" || !strings.HasSuffix(leaf, firmwareUpdateLeafSuffix) || linked[gatewayID+"!"+leaf] {
 				continue
+			}
+			if !firmwareUpdateLeafIsCurrent(leaf, discoveryGatewaysByID[gatewayID].Identifiers) {
+				continue // the device's earlier hardware, which the coordinator still knows (PROJECT.md 61)
 			}
 			nodeEntityID, found := deviceNodeEntityID(admin, gatewayID)
 			if !found {
