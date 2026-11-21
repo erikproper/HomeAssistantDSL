@@ -450,7 +450,7 @@ func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutput
 		if err := generateListFiles(listOutputDir, []byte(listsContent), admin); err != nil {
 			return nil, fmt.Errorf("list files: %w", err)
 		}
-		warnings, err := generateHomekitManifest(outputDir, readHomekitBridges(listsContent), admin)
+		warnings, err := generateHomekitConfiguration(outputDir, readHomekitBridges(listsContent), admin)
 		for _, w := range warnings {
 			fmt.Printf("[external] %s\n", w)
 		}
@@ -477,12 +477,19 @@ const configurationYAMLPreamble = "default_config:\n\nhomeassistant:\n  customiz
 // integrationDefs entry (each an "!include integrations/<file>", never a "homeassistant:
 // packages:" wrapper) -- see integrationDefs' own doc comment for the real incident this fixes.
 func generateConfigurationFile(outputDir string, _ *TAdministrationState) error {
+	return writeConfigurationFile(outputDir, "")
+}
+
+// writeConfigurationFile writes configuration.yaml, extra (whole lines, such as the "homekit:"
+// include, homekit.go) after the integrationDefs lines.
+func writeConfigurationFile(outputDir, extra string) error {
 	var sb strings.Builder
 	sb.WriteString(configurationYAMLPreamble)
 	sb.WriteString("\n")
 	for _, def := range integrationDefs {
 		sb.WriteString(def.domain + ": !include integrations/" + def.file + "\n")
 	}
+	sb.WriteString(extra)
 	return writeYAMLFile(filepath.Join(outputDir, "configuration.yaml"), generatorHeader+sb.String())
 }
 

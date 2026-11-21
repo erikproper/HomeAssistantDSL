@@ -710,3 +710,7 @@ https://dev.netatmo.com/apidocumentation/webhooks
     identifiers count). Every swap adds some. To decide: leaves no longer declared nor published are dropped (after a
     grace period, so a device that is briefly offline keeps them), and the old per-device topics
     are cleared once.
+
+62. (Erik, 2026-11-21) Apple Home from External.def (Architecture.md §9.6): Junglinster's bridge
+    is the YAML one since 2026-11-21. Vienna, on site: delete the UI bridge "HASS Bridge 6Z", take
+    the "# " off Vienna's homekit bridge statement in External.def, generate, deploy main, pair.

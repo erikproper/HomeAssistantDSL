@@ -4,16 +4,20 @@
  * Package:   Main
  * Component: HomeKit
  *
- * PROJECT.md 62 (2026-11-21, Erik): what the main instance's HomeKit bridges expose to Apple Home
- * (and so Siri) comes from External.def's "homekit bridge" statements (parser_external.go). The
- * generator writes, per bridge, its name, port and entities into homekit.json next to the
- * instance's YAML; the deploy sets each bridge's filter to exactly those entities
- * (homekit_deploy.go).
+ * PROJECT.md 62 (2026-11-21, Erik): the main instance's HomeKit bridges, and what each exposes to
+ * Apple Home (and so Siri), come from External.def's "homekit bridge" statements
+ * (parser_external.go). The generator writes them as Home Assistant's YAML "homekit:"
+ * configuration, integrations/homekit.yaml, included from configuration.yaml.
  *
- * The bridges themselves are made in Home Assistant's UI, and stay that way: Home Assistant only
- * lets YAML take over a bridge that YAML made (a YAML bridge with a UI bridge's name and port is
- * refused, "port_name_in_use"), and a new bridge would mean pairing every iPhone again. Names and
- * rooms in Apple Home are set in the Home app; HomeKit has no rooms of Home Assistant's to take.
+ * The bridges are Home Assistant's YAML-made ones: YAML can't take over a bridge made in the UI (a
+ * YAML bridge with a UI bridge's name or port is refused, "port_name_in_use"), so a UI bridge goes
+ * before its YAML successor comes, and the iPhones pair with the new one. A bridge is known by its
+ * name and port; changing either makes a new bridge, to pair again.
+ *
+ * Each exposed entity becomes one "include_entities" line, with its spoken name, when given, as its
+ * "entity_config" name. Rooms are set in the Home app; HomeKit takes none from Home Assistant. A
+ * bridge that would expose nothing is left out: an empty filter makes Home Assistant expose every
+ * entity it can.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Vienna, Austria, in collaboration with Claude.ai
  *
@@ -24,55 +28,69 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
+
+	"gopkg.in/yaml.v3"
 )
 
-// homekitManifestFile holds what each HomeKit bridge exposes, in the instance's folder.
-const homekitManifestFile = "homekit.json"
+// homekitFile is the generated "homekit:" configuration, in the instance's integrations folder.
+const homekitFile = "homekit.yaml"
 
-// THomekitManifestBridge is one bridge in homekit.json: how Home Assistant knows it, and the
-// entity_ids it exposes.
-type THomekitManifestBridge struct {
-	Name     string   `json:"name"`
-	Port     int      `json:"port"`
-	Entities []string `json:"entities"`
+// tHomekitYAMLBridge is one bridge in Home Assistant's "homekit:" YAML.
+type tHomekitYAMLBridge struct {
+	Name         string                       `yaml:"name"`
+	Port         int                          `yaml:"port"`
+	Filter       tHomekitYAMLFilter           `yaml:"filter"`
+	EntityConfig map[string]map[string]string `yaml:"entity_config,omitempty"`
 }
 
-// generateHomekitManifest writes bridges as homekit.json, when any bridge exposes something; the
-// warnings name what is left out. A bridge exposing nothing is left out: an empty filter makes
-// Home Assistant expose every entity it can.
-func generateHomekitManifest(outputDir string, bridges []THomekitBridge, admin *TAdministrationState) ([]string, error) {
+// tHomekitYAMLFilter is a bridge's filter: only the listed entities.
+type tHomekitYAMLFilter struct {
+	IncludeEntities []string `yaml:"include_entities"`
+}
+
+// generateHomekitConfiguration writes bridges as integrations/homekit.yaml, and configuration.yaml
+// with its "homekit:" line, when any bridge exposes something; the warnings name what is left out.
+func generateHomekitConfiguration(outputDir string, bridges []THomekitBridge, admin *TAdministrationState) ([]string, error) {
 	var warnings []string
-	var manifest []THomekitManifestBridge
+	var yamlBridges []tHomekitYAMLBridge
 	for _, bridge := range bridges {
-		entry := THomekitManifestBridge{Name: bridge.Name, Port: bridge.Port, Entities: []string{}}
+		yamlBridge := tHomekitYAMLBridge{Name: bridge.Name, Port: bridge.Port}
 		for _, exposure := range bridge.Exposed {
 			entityID := toHomeAssistantEntityID(exposure.Name)
 			if _, _, found := entityRecordByEntityID(admin, entityID); entityID == "" || !found {
 				warnings = append(warnings, fmt.Sprintf("homekit bridge %q: no entity %s -- not exposed", bridge.Name, exposure.Name))
 				continue
 			}
-			if !containsString(entry.Entities, entityID) {
-				entry.Entities = append(entry.Entities, entityID)
+			if containsString(yamlBridge.Filter.IncludeEntities, entityID) {
+				continue
+			}
+			yamlBridge.Filter.IncludeEntities = append(yamlBridge.Filter.IncludeEntities, entityID)
+			if exposure.Spoken != "" {
+				if yamlBridge.EntityConfig == nil {
+					yamlBridge.EntityConfig = map[string]map[string]string{}
+				}
+				yamlBridge.EntityConfig[entityID] = map[string]string{"name": exposure.Spoken}
 			}
 		}
-		if len(entry.Entities) == 0 {
+		if len(yamlBridge.Filter.IncludeEntities) == 0 {
 			warnings = append(warnings, fmt.Sprintf("homekit bridge %q exposes nothing -- left out (an empty filter would expose everything)", bridge.Name))
 			continue
 		}
-		manifest = append(manifest, entry)
+		yamlBridges = append(yamlBridges, yamlBridge)
 	}
-	if len(manifest) == 0 {
+	if len(yamlBridges) == 0 {
 		return warnings, nil
 	}
-	data, err := json.MarshalIndent(manifest, "", "  ")
+	data, err := yaml.Marshal(yamlBridges)
 	if err != nil {
 		return warnings, err
 	}
-	return warnings, os.WriteFile(filepath.Join(outputDir, homekitManifestFile), append(data, '\n'), 0o644)
+	if err := writeYAMLFile(filepath.Join(outputDir, "integrations", homekitFile), generatorHeader+string(data)); err != nil {
+		return warnings, err
+	}
+	return warnings, writeConfigurationFile(outputDir, "homekit: !include integrations/"+homekitFile+"\n")
 }
 
 // readHomekitBridges is External.def's HomeKit bridges, from the external layer's content.

@@ -82,7 +82,6 @@ var deployParts = []TDeployPart{
 	{"containers", "update.containers to every container host"},
 	{"commandline", "each commandline machine: the source it builds from and commandline/"},
 	{"fhem", "each FHEM installation: its fhem.cfg, FHEM restarted (PROJECT.md 37)"},
-	{"homekit", "what main's HomeKit bridges expose (External.def; also with main, PROJECT.md 62)"},
 }
 
 // listDeployParts prints the parts houseDir's deploy.yaml can deploy, each with what it deploys
@@ -173,9 +172,6 @@ func runDeploy(houseDir string, dryRun bool, only []string) error {
 	}
 	if d.selected("main") || d.selected("home_assistant") {
 		d.checkReload(d.mainMeta, d.mainMetaTime)
-	}
-	if d.selected("main") || d.selected("home_assistant") || d.selected("homekit") {
-		d.applyHomekit()
 	}
 	return nil
 }

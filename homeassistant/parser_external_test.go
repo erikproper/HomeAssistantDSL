@@ -56,13 +56,13 @@ list "Good" all switch.*;
 	}
 }
 
-// TestParseExternalHomekitBridge: a HomeKit bridge with its name, port and exposures, next to a
-// list (PROJECT.md 62).
+// TestParseExternalHomekitBridge: a HomeKit bridge with its name, port and exposures, one with a
+// spoken name, next to a list (PROJECT.md 62).
 func TestParseExternalHomekitBridge(t *testing.T) {
 	declarations, bridges, warnings := parseExternalLayer(`external layer with:
   homekit bridge "HASS Bridge 6Z" on port 21065 with:
     expose fan.social/apartment/living_room/cycling;   # the fan
-    expose switch.social/apartment/terrace;
+    expose switch.social/apartment/terrace as name "terrace light";
   end;
   list "Nodes" all binary_sensor.*/node;
 end;
@@ -72,7 +72,7 @@ end;
 	}
 	want := THomekitBridge{Name: "HASS Bridge 6Z", Port: 21065, Exposed: []THomekitExposure{
 		{Name: "fan.social/apartment/living_room/cycling"},
-		{Name: "switch.social/apartment/terrace"},
+		{Name: "switch.social/apartment/terrace", Spoken: "terrace light"},
 	}}
 	if got := bridges[0]; got.Name != want.Name || got.Port != want.Port || len(got.Exposed) != 2 ||
 		got.Exposed[0] != want.Exposed[0] || got.Exposed[1] != want.Exposed[1] {

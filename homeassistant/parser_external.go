@@ -5,7 +5,7 @@
  * Component: ParserExternal
  *
  * The grammar of External.def: its lists (generator.go writes a list.* card for each) and the
- * main instance's HomeKit bridges (homekit.go: what each exposes, which the deploy sets):
+ * main instance's HomeKit bridges (homekit.go writes their "homekit:" configuration):
  *
  *   ExternalDefinition: ( "external" "layer" "with" ":" )? ( ListStatement | HomekitStatement )*
  *                       ( "end" ";" )?
@@ -16,7 +16,7 @@
  *   ListBody:           "with" ":" ListOption* "end" ";" | ";"
  *   ListOption:         ( "clean_prefix" | "clean_postfix" ) Text ";" | "detail_level" Number ";"
  *   HomekitStatement:   "homekit" "bridge" String "on" "port" Number "with" ":" Exposure* "end" ";"
- *   Exposure:           "expose" Text ";"                    -- an entity's absolute name
+ *   Exposure:           "expose" Text ( "as" "name" String )? ";"   -- an entity's absolute name
  *
  * A Text is written without spaces: a run of adjacent words and punctuation, up to a space or ";".
  * Comments ("#" to the end of the line) are taken out first.
@@ -49,10 +49,11 @@ type THomekitBridge struct {
 	Exposed []THomekitExposure
 }
 
-// THomekitExposure is one entity a HomeKit bridge exposes, by its absolute name. Its name and room
-// in Apple Home are set in the Home app.
+// THomekitExposure is one entity a HomeKit bridge exposes: its absolute name, and the name Apple
+// Home and Siri use, if the definitions give one. Rooms are set in the Home app.
 type THomekitExposure struct {
-	Name string
+	Name   string
+	Spoken string
 }
 
 // --- top level ---
@@ -137,12 +138,15 @@ func (p *TExternalParser) HomekitStatement() bool {
 		/**/ p.AppendHomekitBridge(bridge)
 }
 
-// Exposure: "expose" Text ";"
+// Exposure: "expose" Text ( "as" "name" String )? ";"
 func (p *TExternalParser) Exposure(bridge *THomekitBridge) bool {
 	var exposure THomekitExposure
 	return (p.ThisWordWas("expose") ||
 		/**/ p.Failed(ErrorExpectedGot, MessageHomekitStatement, p.ThisTokenText())) &&
 		/**/ p.ForcedText(&exposure.Name, MessageHomekitEntity) &&
+		/**/ (!p.ThisWordWas("as") ||
+			/**/ p.ForcedThisWordWas("name") &&
+				/**/ p.ForcedThisString(&exposure.Spoken, MessageHomekitSpokenName)) &&
 		/**/ p.ForcedThisPunctuationWas(';') &&
 		/**/ p.AppendExposure(bridge, exposure)
 }
