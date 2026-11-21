@@ -710,12 +710,3 @@ https://dev.netatmo.com/apidocumentation/webhooks
     identifiers count). Every swap adds some. To decide: leaves no longer declared nor published are dropped (after a
     grace period, so a device that is briefly offline keeps them), and the old per-device topics
     are cleared once.
-
-62. (Erik, 2026-11-21) Apple Home (and so Siri) from the external layer: External.def lists the
-    entities the main instance's HomeKit Bridge exposes, each with a spoken name (derived, or
-    "as \"...\"" where the default sounds wrong). Both houses already have a UI-made bridge,
-    used for the cycling fans: take those over (same name and port, so no re-pairing; check
-    whether a YAML "homekit:" block attaches to the existing entry, else the deploy sets the
-    entry's filter through the API), keeping Siri's current names for the fans. Start with just
-    the cycling fans in both houses; add entities on demand, since Apple Home's rooms are
-    assigned by hand in the Home app. The bridge's name defaults to ${installation}.

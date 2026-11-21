@@ -450,6 +450,13 @@ func generateFromPaths(definitionDir, sharedDefinitionDir, outputDir, listOutput
 		if err := generateListFiles(listOutputDir, []byte(listsContent), admin); err != nil {
 			return nil, fmt.Errorf("list files: %w", err)
 		}
+		warnings, err := generateHomekitManifest(outputDir, readHomekitBridges(listsContent), admin)
+		for _, w := range warnings {
+			fmt.Printf("[external] %s\n", w)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("homekit: %w", err)
+		}
 	}
 	warnOccupiedSpaceAggregates()
 	noteNodesAtSpaceNames(admin)

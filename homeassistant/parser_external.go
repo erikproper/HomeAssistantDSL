@@ -4,22 +4,26 @@
  * Package:   Main
  * Component: ParserExternal
  *
- * The grammar of External.def, its lists (generator.go writes a list.* card for each):
+ * The grammar of External.def: its lists (generator.go writes a list.* card for each) and the
+ * main instance's HomeKit bridges (homekit.go: what each exposes, which the deploy sets):
  *
- *   ExternalDefinition: ( "external" "layer" "with" ":" )? ListStatement* ( "end" ";" )?
+ *   ExternalDefinition: ( "external" "layer" "with" ":" )? ( ListStatement | HomekitStatement )*
+ *                       ( "end" ";" )?
  *   ListStatement:      "list" String "all"? Pattern+ AsCardsety ListBody
  *   Pattern:            Text Underety                -- a domain, "." and a path ("*" any)
  *   Underety:           ( "under" Text )?            -- a path segment, "*" allowed
  *   AsCardsety:         ( "as" "cards" )?
  *   ListBody:           "with" ":" ListOption* "end" ";" | ";"
  *   ListOption:         ( "clean_prefix" | "clean_postfix" ) Text ";" | "detail_level" Number ";"
+ *   HomekitStatement:   "homekit" "bridge" String "on" "port" Number "with" ":" Exposure* "end" ";"
+ *   Exposure:           "expose" Text ";"                    -- an entity's absolute name
  *
  * A Text is written without spaces: a run of adjacent words and punctuation, up to a space or ";".
  * Comments ("#" to the end of the line) are taken out first.
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 07.11.2026
+ * Version of: 21.11.2026
  *
  */
 
@@ -32,14 +36,30 @@ import (
 
 // TExternalParser embeds TDefParser.
 type TExternalParser struct {
-	TDefParser   // External.def
-	Declarations []TListDeclaration
+	TDefParser     // External.def
+	Declarations   []TListDeclaration
+	HomekitBridges []THomekitBridge
+}
+
+// THomekitBridge is one of the main instance's HomeKit bridges: its name and port, which identify
+// it to Home Assistant and to every paired iPhone, and the entities it exposes.
+type THomekitBridge struct {
+	Name    string
+	Port    int
+	Exposed []THomekitExposure
+}
+
+// THomekitExposure is one entity a HomeKit bridge exposes, by its absolute name. Its name and room
+// in Apple Home are set in the Home app.
+type THomekitExposure struct {
+	Name string
 }
 
 // --- top level ---
 
-// parseExternalDefinition parses External.def's source into its lists; warnings say what is wrong.
-func parseExternalDefinition(src string) ([]TListDeclaration, []string) {
+// parseExternalLayer parses External.def's source into its lists and HomeKit bridges; warnings say
+// what is wrong.
+func parseExternalLayer(src string) ([]TListDeclaration, []THomekitBridge, []string) {
 	var lines []string
 	for _, line := range strings.Split(src, "\n") {
 		lines = append(lines, stripLineComment(line))
@@ -47,7 +67,13 @@ func parseExternalDefinition(src string) ([]TListDeclaration, []string) {
 	p := &TExternalParser{}
 	p.Initialise(strings.Join(lines, "\n"), OriginExternal)
 	p.ExternalDefinition()
-	return p.Declarations, p.Warnings
+	return p.Declarations, p.HomekitBridges, p.Warnings
+}
+
+// parseExternalDefinition is parseExternalLayer's lists and warnings.
+func parseExternalDefinition(src string) ([]TListDeclaration, []string) {
+	declarations, _, warnings := parseExternalLayer(src)
+	return declarations, warnings
 }
 
 // parseListDeclarations is parseExternalDefinition without its warnings.
@@ -58,7 +84,8 @@ func parseListDeclarations(src string) []TListDeclaration {
 
 // --- grammar ---
 
-// ExternalDefinition: ( "external" "layer" "with" ":" )? ListStatement* ( "end" ";" )?
+// ExternalDefinition: ( "external" "layer" "with" ":" )? ( ListStatement | HomekitStatement )*
+// ( "end" ";" )?
 func (p *TExternalParser) ExternalDefinition() bool {
 	if p.ThisWordWas("external") &&
 		!(p.ForcedThisWordWas("layer") && p.ForcedThisWordWas("with") && p.ForcedThisPunctuationWas(':')) {
@@ -66,13 +93,58 @@ func (p *TExternalParser) ExternalDefinition() bool {
 	}
 	for !p.AtEndOfTokens() && !p.ThisWordIs("end") {
 		p.skipping = false
-		if !p.ListStatement() {
+		if !p.ExternalStatement() {
 			p.SkipToNextList()
 		}
 	}
 	return !p.ThisWordWas("end") ||
 		/**/ p.ForcedThisPunctuationWas(';') &&
 			/**/ p.ForcedEndOfStatement()
+}
+
+// ExternalStatement: ListStatement | HomekitStatement
+func (p *TExternalParser) ExternalStatement() bool {
+	switch {
+	case p.ThisWordIs("list"):
+		return p.ListStatement()
+	case p.ThisWordIs("homekit"):
+		return p.HomekitStatement()
+	default:
+		return p.Failed(ErrorExpectedGot, MessageExternalStatement, p.ThisTokenText())
+	}
+}
+
+// HomekitStatement: "homekit" "bridge" String "on" "port" Number "with" ":" Exposure* "end" ";"
+func (p *TExternalParser) HomekitStatement() bool {
+	var bridge THomekitBridge
+	if !(p.ForcedThisWordWas("homekit") &&
+		/**/ p.ForcedThisWordWas("bridge") &&
+		/**/ p.ForcedThisString(&bridge.Name, MessageHomekitBridgeName) &&
+		/**/ p.ForcedThisWordWas("on") &&
+		/**/ p.ForcedThisWordWas("port") &&
+		/**/ p.ForcedNumber(&bridge.Port, 1, 65535, MessageHomekitPort) &&
+		/**/ p.ForcedThisWordWas("with") &&
+		/**/ p.ForcedThisPunctuationWas(':')) {
+		return false
+	}
+	for !p.ThisWordIs("end") {
+		if !p.Exposure(&bridge) {
+			return false
+		}
+	}
+	return p.ForcedThisWordWas("end") &&
+		/**/ p.ForcedThisPunctuationWas(';') &&
+		/**/ p.AppendHomekitBridge(bridge)
+}
+
+// Exposure: "expose" Text ";"
+func (p *TExternalParser) Exposure(bridge *THomekitBridge) bool {
+	var exposure THomekitExposure
+	return (p.ThisWordWas("expose") ||
+		/**/ p.Failed(ErrorExpectedGot, MessageHomekitStatement, p.ThisTokenText())) &&
+		/**/ p.ForcedText(&exposure.Name, MessageHomekitEntity) &&
+		/**/ p.ForcedThisPunctuationWas(';') &&
+		/**/ p.AppendExposure(bridge, exposure)
 }
 
 // ListStatement: "list" String "all"? Pattern+ AsCardsety ListBody
@@ -185,9 +257,9 @@ func (p *TExternalParser) ForcedText(target *string, what string) bool {
 
 // --- small helpers ---
 
-// SkipToNextList skips what is left of a list that failed, its options and "end;" included.
+// SkipToNextList skips what is left of a statement that failed, its body and "end;" included.
 func (p *TExternalParser) SkipToNextList() bool {
-	for !p.AtEndOfTokens() && !p.ThisWordIs("list") {
+	for !p.AtEndOfTokens() && !p.ThisWordIs("list") && !p.ThisWordIs("homekit") {
 		p.NextToken()
 	}
 	return true
@@ -208,5 +280,17 @@ func (p *TExternalParser) AppendCleanOp(declaration *TListDeclaration, kind, val
 // AppendDeclaration adds a parsed list.
 func (p *TExternalParser) AppendDeclaration(declaration TListDeclaration) bool {
 	p.Declarations = append(p.Declarations, declaration)
+	return true
+}
+
+// AppendExposure adds exposure to bridge.
+func (p *TExternalParser) AppendExposure(bridge *THomekitBridge, exposure THomekitExposure) bool {
+	bridge.Exposed = append(bridge.Exposed, exposure)
+	return true
+}
+
+// AppendHomekitBridge adds a parsed HomeKit bridge.
+func (p *TExternalParser) AppendHomekitBridge(bridge THomekitBridge) bool {
+	p.HomekitBridges = append(p.HomekitBridges, bridge)
 	return true
 }

@@ -123,6 +123,8 @@ The handover document (Architecture.md §9.5), new; it grows with PROJECT.md 32.
 - `homeassistant/hassbridge_yaml_entities.go`
 - `homeassistant/home_assistant_deploy.go`
 - `homeassistant/home_assistant_registry.go` (+ home_assistant_registry_test.go)
+- `homeassistant/homekit.go` (+ homekit_test.go)
+- `homeassistant/homekit_deploy.go` (tests in homekit_test.go)
 - `homeassistant/hosts_yaml_entities.go`
 - `homeassistant/imported_yaml_entities.go` (+ imported_yaml_entities_test.go)
 - `homeassistant/integration_commandline_deploy.go`

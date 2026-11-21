@@ -55,3 +55,41 @@ list "Good" all switch.*;
 		t.Errorf("declarations %+v", declarations)
 	}
 }
+
+// TestParseExternalHomekitBridge: a HomeKit bridge with its name, port and exposures, next to a
+// list (PROJECT.md 62).
+func TestParseExternalHomekitBridge(t *testing.T) {
+	declarations, bridges, warnings := parseExternalLayer(`external layer with:
+  homekit bridge "HASS Bridge 6Z" on port 21065 with:
+    expose fan.social/apartment/living_room/cycling;   # the fan
+    expose switch.social/apartment/terrace;
+  end;
+  list "Nodes" all binary_sensor.*/node;
+end;
+`)
+	if len(warnings) != 0 || len(declarations) != 1 || len(bridges) != 1 {
+		t.Fatalf("declarations %+v, bridges %+v, warnings %v", declarations, bridges, warnings)
+	}
+	want := THomekitBridge{Name: "HASS Bridge 6Z", Port: 21065, Exposed: []THomekitExposure{
+		{Name: "fan.social/apartment/living_room/cycling"},
+		{Name: "switch.social/apartment/terrace"},
+	}}
+	if got := bridges[0]; got.Name != want.Name || got.Port != want.Port || len(got.Exposed) != 2 ||
+		got.Exposed[0] != want.Exposed[0] || got.Exposed[1] != want.Exposed[1] {
+		t.Errorf("bridge %+v, want %+v", got, want)
+	}
+}
+
+// TestParseExternalHomekitBridgeErrors: a missing port, and a statement that isn't "expose", are
+// reported, and the list after them is still read.
+func TestParseExternalHomekitBridgeErrors(t *testing.T) {
+	for _, src := range []string{
+		`homekit bridge "HASS Bridge" with: expose fan.social/cycling; end; list "Nodes" all binary_sensor.*/node;`,
+		`homekit bridge "HASS Bridge" on port 21064 with: show fan.social/cycling; end; list "Nodes" all binary_sensor.*/node;`,
+	} {
+		declarations, bridges, warnings := parseExternalLayer(src)
+		if len(warnings) == 0 || len(bridges) != 0 || len(declarations) != 1 {
+			t.Errorf("%s: declarations %+v, bridges %+v, warnings %v", src, declarations, bridges, warnings)
+		}
+	}
+}

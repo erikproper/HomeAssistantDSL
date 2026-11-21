@@ -2329,6 +2329,34 @@ Errors don't stop the generation. Without errors, and with the setting `${docume
 a folder (`$HOME` allowed), `main.pdf` is copied there as `<installation>.pdf` (the setting
 `${installation}`), so the houses can share one folder; a PDF with errors never replaces the last good copy.
 
+### 9.6 The HomeKit bridges (PROJECT.md 62, 2026-11-21)
+
+What Apple Home, and so Siri, sees of a house is part of its external layer. External.def says,
+per HomeKit bridge of the main instance, which entities it exposes, by their absolute names:
+
+```
+homekit bridge "HASS Bridge 6Z" on port 21065 with:
+  expose fan.social/apartment/living_room/cycling;
+end;
+```
+
+The bridges themselves are made in Home Assistant's UI and stay that way. Home Assistant lets YAML
+(`homekit:`) take over only a bridge that YAML made: a YAML bridge with a UI bridge's name and port
+is refused (`port_name_in_use`), and a new bridge would mean pairing every iPhone again. So the
+name and port in the statement are the bridge's as Home Assistant knows them (its config entry's
+title is `<name>:<port>`), and the deploy sets the bridge's filter through the bridge's own options
+flow -- the steps of its settings dialog, over the REST API: bridge mode, "include", the entities'
+domains; the entities; the device triggers, kept as they are. The generator writes the wanted
+entities per bridge into `homekit.json` next to the instance's YAML (`homekit.go`); the deploy
+(`homekit_deploy.go`, part `homekit`, also run with `main`) reads the current filter from the
+flow's defaults and cancels the flow when it already matches, so only a real change restarts the
+bridge. With `-n` the flow is always cancelled.
+
+Names and rooms in Apple Home are set in the Home app (HomeKit takes no rooms from Home Assistant),
+and an accessory that stays keeps them. Hence exposing on demand, one entity at a time (Erik,
+2026-11-21), starting with the cycling fans in both houses. A bridge exposing nothing is left out:
+an empty filter makes Home Assistant expose every entity it can.
+
 ## 10. Platform-specific integration notes
 
 No single integration mechanism suits everything — richness of the native API is weighed against MQTT's decoupling benefits per platform:
