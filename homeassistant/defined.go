@@ -11,7 +11,7 @@
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 23.03.2026
+ * Version of: 23.11.2026
  *
  */
 
@@ -767,7 +767,7 @@ func scanGroupClauseBlocks(rawLines []string, sourceFile string, headerPattern *
 		var bodyLineNos []int
 		hadColon := strings.HasSuffix(line, ":")
 		if !forcedElementsGroup(cur, hadColon, genericBodyElement(&body, &bodyLineNos), nil, nil) {
-			warnings = append(warnings, fmt.Sprintf("%s:%d: block starting %q is missing its closing \"end;\"", sourceFile, startLine, matches[0]))
+			warnings = append(warnings, unclosedBlockMessage(rawLines, startLine-1, sourceFile))
 			break
 		}
 
@@ -775,6 +775,55 @@ func scanGroupClauseBlocks(rawLines []string, sourceFile string, headerPattern *
 	}
 
 	return blocks, warnings
+}
+
+// tOpenBlock is a block unclosedBlockMessage has seen open: its header, where it is, and how deep
+// its header is indented.
+type tOpenBlock struct {
+	header         string
+	lineNo, indent int
+	indented       bool // its first line is indented deeper than its header
+	pending        bool // its first line is still to come
+}
+
+// unclosedBlockMessage says which block, of the one opened at rawLines[from] and those inside it,
+// most likely misses its "end;". The definitions are indented by nesting, so that is the first
+// block followed by a line no longer indented inside it (an "end;" indented less than its header,
+// or another line indented no deeper), before its own "end;" closed it. Without
+// such a line (a body read without its indentation), it is the innermost block still open at the
+// end.
+func unclosedBlockMessage(rawLines []string, from int, sourceFile string) string {
+	var open []*tOpenBlock
+	for idx := from; idx < len(rawLines); idx++ {
+		line := stripLineComment(rawLines[idx])
+		if line == "" {
+			continue
+		}
+		indent := len(rawLines[idx]) - len(strings.TrimLeft(rawLines[idx], " \t"))
+		if len(open) > 0 {
+			inner := open[len(open)-1]
+			if inner.pending {
+				inner.indented, inner.pending = indent > inner.indent, false
+			}
+			outside := indent < inner.indent || indent == inner.indent && line != "end;" && !isElseClause(line)
+			if inner.indented && outside {
+				return fmt.Sprintf("%s:%d: %q has no \"end;\" -- probably just before line %d (%q), which is no longer indented inside it", sourceFile, inner.lineNo, inner.header, idx+1, line)
+			}
+		}
+		switch {
+		case line == "end;":
+			if len(open) > 0 {
+				open = open[:len(open)-1]
+			}
+		case strings.HasSuffix(line, ":") && !isElseClause(line):
+			open = append(open, &tOpenBlock{header: line, lineNo: idx + 1, indent: indent, pending: true})
+		}
+	}
+	if len(open) == 0 {
+		return fmt.Sprintf("%s:%d: %q has no \"end;\"", sourceFile, from+1, stripLineComment(rawLines[from]))
+	}
+	inner := open[len(open)-1]
+	return fmt.Sprintf("%s:%d: %q has no \"end;\" before the end of the file", sourceFile, inner.lineNo, inner.header)
 }
 
 // translateContentLineNo maps a line number computed within a layer-extracted content string

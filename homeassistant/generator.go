@@ -14,7 +14,7 @@
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 20.11.2026
+ * Version of: 23.11.2026
  *
  */
 
@@ -225,7 +225,10 @@ func parseAdministrationFromPaths(definitionDir, sharedDefinitionDir, label stri
 		fmt.Printf("[conceptual] %s\n", w)
 	}
 	if strings.TrimSpace(entitiesContent) == "" {
-		return nil, fmt.Errorf("error reading entities: no %q layer content found in %s", LayerConceptual, entitiesPath)
+		if len(layerWarnings) > 0 {
+			return nil, fmt.Errorf("Conceptual.def can't be read; see above")
+		}
+		return nil, fmt.Errorf("%s has no conceptual layer", entitiesPath)
 	}
 
 	var report strings.Builder

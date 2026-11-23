@@ -31,7 +31,7 @@
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 19.08.2026
+ * Version of: 23.11.2026
  *
  */
 
@@ -129,7 +129,7 @@ func collectLayerContent(definitionDir string, fileNames []string, layerName str
 		}
 	}
 
-	if !found {
+	if !found && len(warnings) == 0 {
 		warnings = append(warnings, fmt.Sprintf("no %q layer with: ... end; block found across %v", layerName, fileNames))
 	}
 

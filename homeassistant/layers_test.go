@@ -6,7 +6,7 @@
  *
  * Creator: Henderik A. Proper (e.proper@acm.org), Junglinster, Luxembourg, in collaboration with Claude.ai
  *
- * Version of: 13.10.2026
+ * Version of: 23.11.2026
  *
  */
 
@@ -48,5 +48,42 @@ end;
 	}
 	if blocks[0].Layer != LayerConceptual {
 		t.Errorf("Layer = %q, want %q", blocks[0].Layer, LayerConceptual)
+	}
+}
+
+// TestParseLayerBlocksUnclosedBlock checks that a missing "end;" is reported at the block that
+// misses it, found by the indentation, not at the layer's own header on line 1.
+func TestParseLayerBlocksUnclosedBlock(t *testing.T) {
+	const content = `conceptual layer with:
+  space social:apartment as area with:
+    space social:kitchen with:
+      device lights.kitchen with:
+        entity light.social:main from light;
+    end;
+    space social:bedroom with:
+      entity light.social:main;
+    end;
+  end;
+end;
+`
+	_, warnings := parseLayerBlocks(content, "Conceptual.def")
+	want := `Conceptual.def:4: "device lights.kitchen with:" has no "end;" -- probably just before line 6 ("end;"), which is no longer indented inside it`
+	if len(warnings) != 1 || warnings[0] != want {
+		t.Fatalf("warnings = %q, want [%q]", warnings, want)
+	}
+}
+
+// TestParseLayerBlocksUnclosedBlockAtEnd checks the report when no line is indented back: the
+// innermost block still open at the end.
+func TestParseLayerBlocksUnclosedBlockAtEnd(t *testing.T) {
+	const content = `conceptual layer with:
+  space social:apartment as area with:
+    entity light.social:main;
+  end;
+`
+	_, warnings := parseLayerBlocks(content, "Conceptual.def")
+	want := `Conceptual.def:1: "conceptual layer with:" has no "end;" before the end of the file`
+	if len(warnings) != 1 || warnings[0] != want {
+		t.Fatalf("warnings = %q, want [%q]", warnings, want)
 	}
 }
