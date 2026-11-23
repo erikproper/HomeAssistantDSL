@@ -87,3 +87,28 @@ func TestParseLayerBlocksUnclosedBlockAtEnd(t *testing.T) {
 		t.Fatalf("warnings = %q, want [%q]", warnings, want)
 	}
 }
+
+// TestParseLayerBlocksStatementSwallowsEnd checks the report for a statement without its ";",
+// which swallows the "end;" after it: at that statement, on its own line (Vienna, 2026-11-23).
+func TestParseLayerBlocksStatementSwallowsEnd(t *testing.T) {
+	const content = `conceptual layer with:
+  space social:living_room with:
+    device buttons.living_room_kitchen_door_moes_2
+      as leaf kitchen/door/moes/2
+    with:
+      entity binary_sensor.infrastructural:node;
+    end;
+    space off:
+      switch.social:picture_frame;
+      switch.social:tv/enabler
+    end;
+    light on social:main;
+  end;
+end;
+`
+	_, warnings := parseLayerBlocks(normalizeDefinitionWhitespace(content), "Conceptual.def")
+	want := `Conceptual.def:10: "switch.social:tv/enabler" has no ";", so the "end;" after it was read as part of it`
+	if len(warnings) != 1 || warnings[0] != want {
+		t.Fatalf("warnings = %q, want [%q]", warnings, want)
+	}
+}

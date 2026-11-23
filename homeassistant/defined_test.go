@@ -25,7 +25,7 @@ func TestNormalizeDefinitionWhitespace(t *testing.T) {
 		{"repeated real spaces are left alone", "a    b", "a    b"},
 		{"leading tab indentation becomes a leading space", "\t\tentity foo;", "  entity foo;"},
 		{"mixed tabs and CRLF in the same content", "device X\twith:\r\n\tentity foo;\r\n", "device X with:\n entity foo;\n"},
-		{"an unterminated line (no trailing ; or :) joins into the next, CRLF included", "line one\r\nline two;", "line one line two;"},
+		{"an unterminated line (no trailing ; or :) joins into the next, CRLF included", "line one\r\nline two;", "line one line two;\n"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -113,8 +113,8 @@ func TestJoinWrappedStatementContinuations(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := normalizeDefinitionWhitespace(tc.input); got != tc.want {
-				t.Errorf("normalizeDefinitionWhitespace(%q) = %q, want %q", tc.input, got, tc.want)
+			if got := joinWrappedStatementContinuations(tc.input); got != tc.want {
+				t.Errorf("joinWrappedStatementContinuations(%q) = %q, want %q", tc.input, got, tc.want)
 			}
 		})
 	}
@@ -152,5 +152,15 @@ func TestReadOptionalFileMissingFileStillReturnsEmpty(t *testing.T) {
 	}
 	if got != "" {
 		t.Errorf("content = %q, want empty string for a missing file", got)
+	}
+}
+
+// TestNormalizeDefinitionWhitespaceKeepsLineNumbers checks that reading leaves a blank line for
+// each line joined into the one before it, so line numbers reported later are the file's own.
+func TestNormalizeDefinitionWhitespaceKeepsLineNumbers(t *testing.T) {
+	input := "device a\n  as leaf a/b\nwith:\n  entity x;\nend;"
+	want := "device a as leaf a/b with:\n\n\n  entity x;\nend;"
+	if got := normalizeDefinitionWhitespace(input); got != want {
+		t.Errorf("normalizeDefinitionWhitespace(%q) = %q, want %q", input, got, want)
 	}
 }

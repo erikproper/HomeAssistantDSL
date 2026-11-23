@@ -221,11 +221,19 @@ func normalizeDefinitionWhitespace(content string) string {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	content = strings.ReplaceAll(content, "\r", "\n")
 	content = strings.ReplaceAll(content, "\t", " ")
-	content = joinWrappedStatementContinuations(content)
-	return content
+	return joinWrappedLines(content, true)
 }
 
+// The formatter (def_format.go) uses it as it is; reading uses joinWrappedLines with keepLineCount,
+// which leaves a blank line where each joined line was, so every line number reported afterwards
+// is still the file's own.
 func joinWrappedStatementContinuations(content string) string {
+	return joinWrappedLines(content, false)
+}
+
+// joinWrappedLines joins content's wrapped statements (joinWrappedStatementContinuations), with
+// keepLineCount a blank line in place of each line joined into the one before it.
+func joinWrappedLines(content string, keepLineCount bool) string {
 	lines := strings.Split(content, "\n")
 	out := make([]string, 0, len(lines))
 	for i := 0; i < len(lines); i++ {
@@ -234,19 +242,25 @@ func joinWrappedStatementContinuations(content string) string {
 			out = append(out, lines[i])
 			continue
 		}
-		joined := line
+		joined, consumed := line, 0
 		for i+1 < len(lines) {
 			cont := strings.TrimSpace(lines[i+1])
 			if isCommentOrBlankLine(cont) {
 				break
 			}
 			i++
+			consumed++
 			joined += " " + cont
 			if lineIsCompleteStatement(joined) {
 				break
 			}
 		}
 		out = append(out, joined)
+		if keepLineCount {
+			for ; consumed > 0; consumed-- {
+				out = append(out, "")
+			}
+		}
 	}
 	return strings.Join(out, "\n")
 }
@@ -787,7 +801,8 @@ type tOpenBlock struct {
 }
 
 // unclosedBlockMessage says which block, of the one opened at rawLines[from] and those inside it,
-// most likely misses its "end;". The definitions are indented by nesting, so that is the first
+// most likely misses its "end;". A statement without its ";" swallows the "end;" after it
+// (joinWrappedLines), so such a statement is the first suspect. The definitions are indented by nesting, so that is the first
 // block followed by a line no longer indented inside it (an "end;" indented less than its header,
 // or another line indented no deeper), before its own "end;" closed it. Without
 // such a line (a body read without its indentation), it is the innermost block still open at the
@@ -800,6 +815,9 @@ func unclosedBlockMessage(rawLines []string, from int, sourceFile string) string
 			continue
 		}
 		indent := len(rawLines[idx]) - len(strings.TrimLeft(rawLines[idx], " \t"))
+		if line != "end;" && strings.HasSuffix(line, " end;") {
+			return fmt.Sprintf("%s:%d: %q has no \";\", so the \"end;\" after it was read as part of it", sourceFile, idx+1, strings.TrimSuffix(line, " end;"))
+		}
 		if len(open) > 0 {
 			inner := open[len(open)-1]
 			if inner.pending {
