@@ -690,6 +690,14 @@ https://dev.netatmo.com/apidocumentation/webhooks
     while after each motion event, which may need the generator to derive a binary_sensor
     from an event. Harmless meanwhile: "Unknown kind: cocoa_camera_v2", the terrace Stick Up
     Cam being newer than the Ring library.
+    Rechecked 2026-11-24: still the same, one second after every start (reload, and Erik's second
+    re-authentication). The doorbell's "Motion alerts" was off in the Ring app (now on; "Motion
+    detection" is the other switch); Ring's alerts are what reach HA, so motion events need both
+    once the fix is in. Upstream: firebase-messaging issue 44 (the Crypto-Key header's extra
+    "; p256ecdsa=..." part crashes the client for good) and 40 ("Incorrect padding"); proposed
+    fixes in PRs 37, 43, 46, 48, 49, none released yet (0.4.5 is the latest).
+    After item 33's code review (Erik): consider helping upstream -- reproduce it from Junglinster's
+    log, then test or review one of the proposed PRs, or report what the issues don't yet say.
 
 60. (to observe, found 2026-11-15) Junglinster's Envoy stopped answering ha2mqtt's Enphase
     integration on 11-15 from 08:58 to 09:35 local ("Cannot connect to host 192.168.178.23:443"),
