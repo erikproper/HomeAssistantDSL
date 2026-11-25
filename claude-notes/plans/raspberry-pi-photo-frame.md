@@ -115,5 +115,14 @@ Compared with Chromium (considerations, not tested):
 - It needs far less memory than Chromium: the current Raspberry Pi 3's may do.
 - It is code of our own to write and maintain. Photos and artwork may only need feh driven from
   outside; a visualiser needs a renderer, which feh isn't.
-- To check: whether a display-only client can follow a player that isn't a Sendspin player itself,
-  such as a Sonos pair. If it can't, the artwork could come from Home Assistant's media player.
+
+First test (Erik): can a Sendspin display-only ("no music") client be grouped with a Sonos, and
+with a Sonos pair, that play through their native connection rather than Sendspin? Check for each:
+
+1. Music Assistant lets the two be grouped.
+2. The client receives artwork and metadata, and they follow the track.
+3. The client receives visualizer data, and it is in time with what the Sonos plays (its native
+   connection buffers on its own clock).
+
+If 1 or 2 fails, the artwork can still come from the Sonos's media player in Home Assistant; if
+only 3 fails, the frame goes without visuals.

@@ -737,7 +737,9 @@ https://dev.netatmo.com/apidocumentation/webhooks
       3. which photo collection is shown, out of several, each with a name and a path.
     Alternative to Chromium (Erik, 2026-11-25; in the same plan, not verified): feh extended or
     driven by a program of our own, on MQTT, as a display-only client of Music Assistant (Sendspin:
-    artwork, metadata, visualizer). Choose between the two before anything else.
+    artwork, metadata, visualizer). First test (Erik), which decides between the two: can such a
+    display-only ("no music") client be grouped with a Sonos, and a Sonos pair, that play through
+    their native connection?
     To keep: switch.social:picture_frame on/off, with its frozen unique_id, as the rules
     (Junglinster's turn_on/turn_off) and "space off" (Vienna) use it, and the node; mqtt_commandline
     itself, if anything else comes to need it (the frames are all it serves now).
