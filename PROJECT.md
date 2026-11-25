@@ -729,13 +729,19 @@ https://dev.netatmo.com/apidocumentation/webhooks
     and the checks. After Music Assistant ("Manually extend coverage", 0). Decided (Erik):
     - It replaces both houses' current picture frames (appliance.picture_frame: the slideshow's
       check/start/stop scripts through mqtt_commandline).
-    - Its mode can be switched from Home Assistant: album artwork allowed (shown while music
-      plays), or photos only (the slideshow goes on, also while music plays).
+    - Three controls per frame, in Home Assistant:
+      1. on/off;
+      2. photo_only/mixed: mixed shows the album artwork while music plays, photo_only goes on
+         with the photos, also while music plays;
+      3. which photo collection is shown, out of several, each with a name and a path.
     To keep: switch.social:picture_frame on/off, with its frozen unique_id, as the rules
     (Junglinster's turn_on/turn_off) and "space off" (Vienna) use it, and the node; mqtt_commandline
     itself, if anything else comes to need it (the frames are all it serves now).
-    To settle: what carries out the on/off once mqtt_commandline no longer does; where the mode
-    is kept (a switch of the house's own, in the definitions, so that rules can set it too, which
-    the dashboard's conditions then read); whether the frames' Raspberry Pi 3 Model B can carry
+    To settle: what carries out the on/off once mqtt_commandline no longer does; where controls 2
+    and 3 are kept (a switch and a select of the house's own, so that rules can set them too, which
+    the dashboard then reads); where the collections are declared (proposal: in the frame's device
+    block in the definitions, name and path, from which the select's options are generated), and on
+    which machine their paths are (the frame, the hub or Nextcloud);
+    whether the frames' Raspberry Pi 3 Model B can carry
     Chromium (1 GB; feh was already killed for lack of memory before they got swap, 2026-10-15) or
     needs replacing.
