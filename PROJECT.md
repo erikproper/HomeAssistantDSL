@@ -722,3 +722,9 @@ https://dev.netatmo.com/apidocumentation/webhooks
 62. (Erik, 2026-11-21) Apple Home from External.def (Architecture.md §9.6): Junglinster's bridge
     is the YAML one since 2026-11-21. Vienna, on site: delete the UI bridge "HASS Bridge 6Z", take
     the "# " off Vienna's homekit bridge statement in External.def, generate, deploy main, pair.
+
+63. (Erik, 2026-11-25; future, proposed design, nothing installed yet) A Raspberry Pi photo frame
+    that shows the album artwork while Music Assistant plays: claude-notes/plans/
+    raspberry-pi-photo-frame.md, with the decisions still needed and the checks. After Music
+    Assistant ("Manually extend coverage", 0). To settle first: whether it replaces the picture
+    frames both houses have (feh under X, switched through mqtt_commandline) or is an extra one.
