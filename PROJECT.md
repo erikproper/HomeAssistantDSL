@@ -726,7 +726,8 @@ https://dev.netatmo.com/apidocumentation/webhooks
 63. (Erik, 2026-11-25; future, nothing installed yet) A Chromium-based Raspberry Pi photo frame
     that shows the album artwork while Music Assistant plays: claude-notes/plans/
     raspberry-pi-photo-frame.md (explored with ChatGPT, for Erik), with the decisions still needed
-    and the checks. After Music Assistant ("Manually extend coverage", 0). Decided (Erik):
+    and the checks. After Music Assistant ("Manually extend coverage", 0), which needs
+    to mature first (Erik, 2026-11-25: trouble with its link to a Sonos pair). Decided (Erik):
     - It replaces both houses' current picture frames (appliance.picture_frame: the slideshow's
       check/start/stop scripts through mqtt_commandline).
     - Three controls per frame, in Home Assistant:
