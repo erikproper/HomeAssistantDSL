@@ -723,8 +723,19 @@ https://dev.netatmo.com/apidocumentation/webhooks
     is the YAML one since 2026-11-21. Vienna, on site: delete the UI bridge "HASS Bridge 6Z", take
     the "# " off Vienna's homekit bridge statement in External.def, generate, deploy main, pair.
 
-63. (Erik, 2026-11-25; future, proposed design, nothing installed yet) A Raspberry Pi photo frame
+63. (Erik, 2026-11-25; future, nothing installed yet) A Chromium-based Raspberry Pi photo frame
     that shows the album artwork while Music Assistant plays: claude-notes/plans/
-    raspberry-pi-photo-frame.md, with the decisions still needed and the checks. After Music
-    Assistant ("Manually extend coverage", 0). To settle first: whether it replaces the picture
-    frames both houses have (feh under X, switched through mqtt_commandline) or is an extra one.
+    raspberry-pi-photo-frame.md (explored with ChatGPT, for Erik), with the decisions still needed
+    and the checks. After Music Assistant ("Manually extend coverage", 0). Decided (Erik):
+    - It replaces both houses' current picture frames (appliance.picture_frame: the slideshow's
+      check/start/stop scripts through mqtt_commandline).
+    - Its mode can be switched from Home Assistant: album artwork allowed (shown while music
+      plays), or photos only (the slideshow goes on, also while music plays).
+    To keep: switch.social:picture_frame on/off, with its frozen unique_id, as the rules
+    (Junglinster's turn_on/turn_off) and "space off" (Vienna) use it, and the node; mqtt_commandline
+    itself, if anything else comes to need it (the frames are all it serves now).
+    To settle: what carries out the on/off once mqtt_commandline no longer does; where the mode
+    is kept (a switch of the house's own, in the definitions, so that rules can set it too, which
+    the dashboard's conditions then read); whether the frames' Raspberry Pi 3 Model B can carry
+    Chromium (1 GB; feh was already killed for lack of memory before they got swap, 2026-10-15) or
+    needs replacing.
