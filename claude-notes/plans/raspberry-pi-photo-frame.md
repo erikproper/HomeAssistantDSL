@@ -126,3 +126,15 @@ with a Sonos pair, that play through their native connection rather than Sendspi
 
 If 1 or 2 fails, the artwork can still come from the Sonos's media player in Home Assistant; if
 only 3 fails, the frame goes without visuals.
+
+Result so far (Erik, 2026-11-25), with a Safari browser as the Sendspin client and a Sonos pair:
+grouping them works, but Music Assistant then takes the Sonos pair off its native connection, to
+Sendspin through the AirPlay bridge. Erik: it should have stayed on the native one.
+
+This fits Music Assistant's documentation (site version 2.10.13): only players of a like type that
+support synced playback can be grouped, and the bridges it names between Sendspin and others are
+AirPlay and Google Cast, not Sonos's native protocol
+(https://www.music-assistant.io/faq/groups/). It doesn't settle the test: Safari also plays the
+sound, so it must be in sync with the Sonos. The documentation doesn't say what happens with a
+client without the player role; that takes a client that offers only artwork, metadata and
+visualizer.

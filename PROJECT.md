@@ -739,7 +739,8 @@ https://dev.netatmo.com/apidocumentation/webhooks
     driven by a program of our own, on MQTT, as a display-only client of Music Assistant (Sendspin:
     artwork, metadata, visualizer). First test (Erik), which decides between the two: can such a
     display-only ("no music") client be grouped with a Sonos, and a Sonos pair, that play through
-    their native connection?
+    their native connection? So far (2026-11-25): with Safari, which also plays the sound, the pair
+    was switched to Sendspin over AirPlay; not yet tried with a client without sound.
     To keep: switch.social:picture_frame on/off, with its frozen unique_id, as the rules
     (Junglinster's turn_on/turn_off) and "space off" (Vienna) use it, and the node; mqtt_commandline
     itself, if anything else comes to need it (the frames are all it serves now).
