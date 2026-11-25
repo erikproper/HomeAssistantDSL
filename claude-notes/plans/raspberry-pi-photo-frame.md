@@ -88,3 +88,32 @@ Artwork availability depends on the music source and metadata. Test the actual p
 - [Community Photo Frame dashboard card](https://github.com/ha-workshop/lovelace-photoframe)
 
 This document records the proposed design. Installation and configuration have not yet been performed.
+
+## Alternative: a native display client (Erik, 2026-11-25)
+
+Instead of Chromium on a Home Assistant dashboard: extend feh (or drive it from a program of our
+own), with an MQTT connection, and let it take part in Music Assistant as a display-only client.
+
+From a chat with ChatGPT; not verified yet, check against the Sendspin specification and Music
+Assistant's implementation first:
+
+- Sendspin (Music Assistant's own streaming protocol) lets a client advertise roles independently,
+  without the audio player role: `artwork` (album or artist images), `metadata` (title, artist,
+  album, playback progress), `visualizer` (timestamped audio analysis: spectrum, loudness, beats).
+- So a Raspberry Pi could show the artwork, and visuals in time with the music, while another
+  device plays the audio.
+- Music Assistant's development version accounts for display and visualiser clients. A ready-made
+  Pi application has not been found; it may have to be built.
+- Lyrics need something else: the documented roles have no lyrics feed.
+- The limitation of Google Cast concerns its receiver environment, and doesn't apply here.
+
+Compared with Chromium (considerations, not tested):
+
+- The MQTT connection would carry the three controls (on/off, photo_only/mixed, collection)
+  straight over the house's bus, so the frame would need no dashboard, and mqtt_commandline no
+  scripts.
+- It needs far less memory than Chromium: the current Raspberry Pi 3's may do.
+- It is code of our own to write and maintain. Photos and artwork may only need feh driven from
+  outside; a visualiser needs a renderer, which feh isn't.
+- To check: whether a display-only client can follow a player that isn't a Sendspin player itself,
+  such as a Sonos pair. If it can't, the artwork could come from Home Assistant's media player.

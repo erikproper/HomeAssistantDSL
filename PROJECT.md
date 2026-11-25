@@ -723,7 +723,7 @@ https://dev.netatmo.com/apidocumentation/webhooks
     is the YAML one since 2026-11-21. Vienna, on site: delete the UI bridge "HASS Bridge 6Z", take
     the "# " off Vienna's homekit bridge statement in External.def, generate, deploy main, pair.
 
-63. (Erik, 2026-11-25; future, nothing installed yet) A Chromium-based Raspberry Pi photo frame
+63. (Erik, 2026-11-25; future, nothing installed yet) A Raspberry Pi photo frame, perhaps on Chromium,
     that shows the album artwork while Music Assistant plays: claude-notes/plans/
     raspberry-pi-photo-frame.md (explored with ChatGPT, for Erik), with the decisions still needed
     and the checks. After Music Assistant ("Manually extend coverage", 0), which needs
@@ -735,6 +735,9 @@ https://dev.netatmo.com/apidocumentation/webhooks
       2. photo_only/mixed: mixed shows the album artwork while music plays, photo_only goes on
          with the photos, also while music plays;
       3. which photo collection is shown, out of several, each with a name and a path.
+    Alternative to Chromium (Erik, 2026-11-25; in the same plan, not verified): feh extended or
+    driven by a program of our own, on MQTT, as a display-only client of Music Assistant (Sendspin:
+    artwork, metadata, visualizer). Choose between the two before anything else.
     To keep: switch.social:picture_frame on/off, with its frozen unique_id, as the rules
     (Junglinster's turn_on/turn_off) and "space off" (Vienna) use it, and the node; mqtt_commandline
     itself, if anything else comes to need it (the frames are all it serves now).
