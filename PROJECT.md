@@ -752,3 +752,12 @@ https://dev.netatmo.com/apidocumentation/webhooks
     whether the frames' Raspberry Pi 3 Model B can carry
     Chromium (1 GB; feh was already killed for lack of memory before they got swap, 2026-10-15) or
     needs replacing.
+
+64. (Erik, 2026-11-27) Junglinster: the Zigbee device 0xa4c1381b211ccdb6 (joined, still under its
+    address as friendly name) replaces house/upward_hallway/second_floor/aqara_multi
+    (0x00158d00033ddfb3, unavailable since 2026-11-27 10:08 UTC), and is then called
+    house/upward_hallway/second_floor/tuya_multi (device sensors.upward_hallway_second_floor_tuya_multi).
+    A swap: rename it in Zigbee2MQTT, change the Physical.def hardware lines (keep the frozen
+    `as unique_id`s, so the entity ids and their history stay), follow the device id in
+    Logical.def/Conceptual.def (its node/battery entities are named aqara_multi), add
+    update.update if it offers firmware, then remove the old Aqara from Zigbee2MQTT.
